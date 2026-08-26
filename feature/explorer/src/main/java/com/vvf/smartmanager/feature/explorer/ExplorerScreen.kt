@@ -47,9 +47,11 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NoteAdd
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -101,6 +103,8 @@ import com.vvf.smartmanager.feature.explorer.components.StorageOverviewCard
 @Composable
 fun ExplorerScreen(
     viewModel: ExplorerViewModel,
+    onNavigateToSettings: (() -> Unit)? = null,
+    onNavigateToPlugins: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -290,6 +294,29 @@ fun ExplorerScreen(
                                         viewModel.openTrashView()
                                     }
                                 )
+                                if (onNavigateToPlugins != null || onNavigateToSettings != null) {
+                                    androidx.compose.material3.HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                                }
+                                onNavigateToPlugins?.let { navPlugins ->
+                                    DropdownMenuItem(
+                                        text = { Text("Plugins & Addons") },
+                                        leadingIcon = { Icon(Icons.Default.Widgets, contentDescription = null) },
+                                        onClick = {
+                                            showMoreMenu = false
+                                            navPlugins()
+                                        }
+                                    )
+                                }
+                                onNavigateToSettings?.let { navSettings ->
+                                    DropdownMenuItem(
+                                        text = { Text("Settings & Privacy") },
+                                        leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                                        onClick = {
+                                            showMoreMenu = false
+                                            navSettings()
+                                        }
+                                    )
+                                }
                             }
                         }
                     }

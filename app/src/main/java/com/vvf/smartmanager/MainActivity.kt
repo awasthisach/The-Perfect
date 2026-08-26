@@ -269,7 +269,11 @@ private fun VVFNavHost(
                     recycleBinUseCase = app.recycleBinUseCase
                 )
             )
-            ExplorerScreen(viewModel = explorerViewModel)
+            ExplorerScreen(
+                viewModel = explorerViewModel,
+                onNavigateToSettings = { navController.navigate(TopLevelDestination.SETTINGS.route) },
+                onNavigateToPlugins = { navController.navigate(TopLevelDestination.PLUGINS.route) }
+            )
         }
         composable(TopLevelDestination.VAULT.route) {
             val vaultViewModel: VaultViewModel = viewModel(
@@ -324,10 +328,15 @@ private fun VVFNavHost(
                     saveOcrTextUseCase = app.saveOcrTextUseCase
                 )
             )
-            PluginsScreen(viewModel = pluginsViewModel)
+            PluginsScreen(
+                viewModel = pluginsViewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
         }
         composable(TopLevelDestination.SETTINGS.route) {
-            SettingsScreen()
+            SettingsScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
         }
     }
 }
