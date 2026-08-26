@@ -3,11 +3,13 @@ package com.vvf.smartmanager.feature.explorer
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.vvf.smartmanager.core.domain.CloudSyncUseCase
 import com.vvf.smartmanager.core.domain.FileOperationsUseCase
 import com.vvf.smartmanager.core.domain.GetCategorizedFilesUseCase
 import com.vvf.smartmanager.core.domain.GetDirectoryFilesUseCase
 import com.vvf.smartmanager.core.domain.GetStorageOverviewUseCase
 import com.vvf.smartmanager.core.domain.RecycleBinUseCase
+import com.vvf.smartmanager.core.model.CloudProviderType
 import com.vvf.smartmanager.core.model.FileCategory
 import com.vvf.smartmanager.core.model.FileItem
 import com.vvf.smartmanager.core.model.FileSortOption
@@ -26,7 +28,8 @@ class ExplorerViewModel(
     private val getCategorizedFilesUseCase: GetCategorizedFilesUseCase,
     private val getStorageOverviewUseCase: GetStorageOverviewUseCase,
     private val fileOperationsUseCase: FileOperationsUseCase,
-    private val recycleBinUseCase: RecycleBinUseCase
+    private val recycleBinUseCase: RecycleBinUseCase,
+    private val cloudSyncUseCase: CloudSyncUseCase? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ExplorerUiState())
@@ -374,6 +377,35 @@ class ExplorerViewModel(
         }
     }
 
+    fun syncFileToCloud(item: FileItem, providerType: CloudProviderType = CloudProviderType.GOOGLE_DRIVE) {
+        if (cloudSyncUseCase == null) {
+            _uiState.update { it.copy(userMessage = "Cloud Sync service not initialized") }
+            dismissDialog()
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            val result = cloudSyncUseCase.syncFileToCloud(item, providerType)
+            result.onSuccess { syncItem ->
+                dismissDialog()
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        userMessage = "File '${item.name}' successfully synced to ${providerType.displayName}!"
+                    )
+                }
+            }.onFailure { error ->
+                dismissDialog()
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        userMessage = "Cloud sync failed: ${error.localizedMessage}"
+                    )
+                }
+            }
+        }
+    }
+
     // -------------------------------------------------------------
     // RECYCLE BIN ACTIONS
     // -------------------------------------------------------------
@@ -470,7 +502,8 @@ class ExplorerViewModel(
             getCategorizedFilesUseCase: GetCategorizedFilesUseCase,
             getStorageOverviewUseCase: GetStorageOverviewUseCase,
             fileOperationsUseCase: FileOperationsUseCase,
-            recycleBinUseCase: RecycleBinUseCase
+            recycleBinUseCase: RecycleBinUseCase,
+            cloudSyncUseCase: CloudSyncUseCase? = null
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -479,7 +512,8 @@ class ExplorerViewModel(
                     getCategorizedFilesUseCase,
                     getStorageOverviewUseCase,
                     fileOperationsUseCase,
-                    recycleBinUseCase
+                    recycleBinUseCase,
+                    cloudSyncUseCase
                 ) as T
             }
         }

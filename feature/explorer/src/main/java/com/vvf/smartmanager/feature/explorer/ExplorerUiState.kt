@@ -14,6 +14,7 @@ sealed interface ExplorerDialogState {
     data class Rename(val file: FileItem) : ExplorerDialogState
     data class FileDetails(val file: FileItem) : ExplorerDialogState
     data class DeleteConfirm(val files: List<FileItem>) : ExplorerDialogState
+    data class SyncToCloudConfirm(val file: FileItem) : ExplorerDialogState
     data class PasteConfirm(val operation: String, val targetDir: String, val count: Int) : ExplorerDialogState
     data class Progress(val progress: FileOperationProgress) : ExplorerDialogState
 }

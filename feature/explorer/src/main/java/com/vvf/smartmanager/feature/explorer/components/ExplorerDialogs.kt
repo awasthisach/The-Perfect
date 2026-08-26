@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
@@ -423,4 +424,62 @@ private fun DetailRow(label: String, value: String) {
             color = MaterialTheme.colorScheme.onSurface
         )
     }
+}
+
+@Composable
+fun SyncToCloudDialog(
+    file: FileItem,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Default.CloudUpload,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(32.dp)
+            )
+        },
+        title = { Text(text = "Sync to Cloud", fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                Text(
+                    text = "Upload and synchronize this file to your connected Google Drive storage:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                DetailRow(label = "File Name", value = file.name)
+                Spacer(modifier = Modifier.height(6.dp))
+                DetailRow(label = "Size", value = FormatUtils.formatBytes(file.sizeBytes))
+                Spacer(modifier = Modifier.height(6.dp))
+                DetailRow(label = "Destination", value = "Google Drive / VVF_Smart_Manager / ${file.name}")
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.testTag("sync_cloud_confirm_button")
+            ) {
+                Text("Upload & Sync")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag("sync_cloud_cancel_button")
+            ) {
+                Text("Cancel")
+            }
+        },
+        shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.testTag("sync_cloud_dialog")
+    )
 }

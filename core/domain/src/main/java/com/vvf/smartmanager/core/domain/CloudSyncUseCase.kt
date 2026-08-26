@@ -135,4 +135,25 @@ class CloudSyncUseCase(
         _syncState.value = CloudSyncStatus.SUCCESS
         return Result.success(true)
     }
+
+    suspend fun syncFileToCloud(
+        fileItem: FileItem,
+        providerType: CloudProviderType = CloudProviderType.GOOGLE_DRIVE
+    ): Result<CloudSyncItem> {
+        _syncState.value = CloudSyncStatus.UPLOADING
+        val syncItem = CloudSyncItem(
+            id = UUID.randomUUID().toString(),
+            fileName = fileItem.name,
+            localPath = fileItem.path,
+            remotePath = "cloud://${providerType.name.lowercase()}/files/${fileItem.name}",
+            fileSize = fileItem.sizeBytes,
+            status = CloudSyncStatus.SUCCESS,
+            progress = 1.0f
+        )
+        val updatedQueue = _syncQueue.value.toMutableList()
+        updatedQueue.add(0, syncItem)
+        _syncQueue.value = updatedQueue
+        _syncState.value = CloudSyncStatus.SUCCESS
+        return Result.success(syncItem)
+    }
 }

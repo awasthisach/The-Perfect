@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
@@ -68,6 +69,7 @@ fun FileListItem(
     onDeleteClick: (FileItem) -> Unit,
     onDetailsClick: (FileItem) -> Unit,
     onToggleFavorite: (FileItem) -> Unit,
+    onSyncToCloud: ((FileItem) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -219,6 +221,23 @@ fun FileListItem(
                                 onDetailsClick(file)
                             }
                         )
+                        if (!file.isDirectory && onSyncToCloud != null) {
+                            DropdownMenuItem(
+                                text = { Text("Sync to Cloud (Google Drive)") },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudUpload,
+                                        contentDescription = "Sync to Cloud",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onSyncToCloud(file)
+                                }
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text("Rename") },
                             onClick = {
@@ -259,6 +278,7 @@ fun FileGridItem(
     onDeleteClick: (FileItem) -> Unit,
     onDetailsClick: (FileItem) -> Unit,
     onToggleFavorite: (FileItem) -> Unit,
+    onSyncToCloud: ((FileItem) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val (icon, iconTint, iconBg) = getFileVisuals(file)

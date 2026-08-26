@@ -98,6 +98,7 @@ import com.vvf.smartmanager.feature.explorer.components.OperationProgressDialog
 import com.vvf.smartmanager.feature.explorer.components.RecycleBinView
 import com.vvf.smartmanager.feature.explorer.components.RenameDialog
 import com.vvf.smartmanager.feature.explorer.components.StorageOverviewCard
+import com.vvf.smartmanager.feature.explorer.components.SyncToCloudDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -549,7 +550,8 @@ fun ExplorerScreen(
                                     onRenameClick = { clicked -> viewModel.showDialog(ExplorerDialogState.Rename(clicked)) },
                                     onDeleteClick = { clicked -> viewModel.showDialog(ExplorerDialogState.DeleteConfirm(listOf(clicked))) },
                                     onDetailsClick = { clicked -> viewModel.showDialog(ExplorerDialogState.FileDetails(clicked)) },
-                                    onToggleFavorite = { clicked -> viewModel.toggleFavorite(clicked) }
+                                    onToggleFavorite = { clicked -> viewModel.toggleFavorite(clicked) },
+                                    onSyncToCloud = { clicked -> viewModel.showDialog(ExplorerDialogState.SyncToCloudConfirm(clicked)) }
                                 )
                             }
                         }
@@ -573,7 +575,8 @@ fun ExplorerScreen(
                                     onRenameClick = { clicked -> viewModel.showDialog(ExplorerDialogState.Rename(clicked)) },
                                     onDeleteClick = { clicked -> viewModel.showDialog(ExplorerDialogState.DeleteConfirm(listOf(clicked))) },
                                     onDetailsClick = { clicked -> viewModel.showDialog(ExplorerDialogState.FileDetails(clicked)) },
-                                    onToggleFavorite = { clicked -> viewModel.toggleFavorite(clicked) }
+                                    onToggleFavorite = { clicked -> viewModel.toggleFavorite(clicked) },
+                                    onSyncToCloud = { clicked -> viewModel.showDialog(ExplorerDialogState.SyncToCloudConfirm(clicked)) }
                                 )
                             }
                         }
@@ -609,6 +612,13 @@ fun ExplorerScreen(
                 files = dialog.files,
                 onDismiss = { viewModel.dismissDialog() },
                 onConfirm = { permanent -> viewModel.deleteItems(dialog.files, permanent) }
+            )
+        }
+        is ExplorerDialogState.SyncToCloudConfirm -> {
+            SyncToCloudDialog(
+                file = dialog.file,
+                onDismiss = { viewModel.dismissDialog() },
+                onConfirm = { viewModel.syncFileToCloud(dialog.file) }
             )
         }
         is ExplorerDialogState.FileDetails -> {

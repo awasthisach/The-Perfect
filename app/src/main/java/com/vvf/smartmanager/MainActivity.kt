@@ -266,7 +266,8 @@ private fun VVFNavHost(
                     getCategorizedFilesUseCase = app.getCategorizedFilesUseCase,
                     getStorageOverviewUseCase = app.getStorageOverviewUseCase,
                     fileOperationsUseCase = app.fileOperationsUseCase,
-                    recycleBinUseCase = app.recycleBinUseCase
+                    recycleBinUseCase = app.recycleBinUseCase,
+                    cloudSyncUseCase = app.cloudSyncUseCase
                 )
             )
             ExplorerScreen(
