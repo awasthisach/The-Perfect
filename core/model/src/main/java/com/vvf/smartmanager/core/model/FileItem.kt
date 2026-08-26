@@ -18,6 +18,10 @@ data class FileItem(
     val originalPath: String? = null,
     val deletedTimestamp: Long? = null,
     val md5Hash: String? = null,
+    val sha256Hash: String? = null,
+    val localFileId: String? = null,
+    val canonicalUri: String? = null,
+    val contentIdentityVersion: Long = 1L,
     val itemCount: Int = 0,
     val tags: List<String> = emptyList()
 ) {
@@ -29,7 +33,62 @@ data class FileItem(
 
     val file: File
         get() = File(path)
+
+    val contentHash: String?
+        get() = sha256Hash ?: md5Hash
 }
+
+/**
+ * Derived index status machine for OCR, embeddings, thumbnails, and duplicate groups.
+ */
+enum class DerivedIndexStatus {
+    NOT_INDEXED,
+    PENDING,
+    INDEXED,
+    STALE,
+    FAILED
+}
+
+/**
+ * Explicit state model for on-device AI engines.
+ */
+enum class AIModelStatus {
+    MODEL_UNAVAILABLE,
+    MODEL_LOADING,
+    MODEL_READY,
+    FALLBACK_ACTIVE,
+    MODEL_FAILED
+}
+
+/**
+ * Durable operation journal state machine ensuring physical/database consistency.
+ */
+enum class DurableOperationState {
+    PLANNED,
+    PREPARING,
+    PHYSICAL_COMMITTING,
+    PHYSICAL_COMMITTED,
+    DB_COMMITTING,
+    COMPLETED,
+    FAILED_RETRYABLE,
+    FAILED_RECOVERABLE,
+    MANUAL_REVIEW
+}
+
+/**
+ * Durable journal record for atomic multi-stage file operations.
+ */
+data class DurableOperationJournal(
+    val operationId: String,
+    val sourcePath: String,
+    val targetPath: String?,
+    val expectedSha256: String?,
+    val operationType: FileOperationType,
+    val state: DurableOperationState,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
+    val errorMessage: String? = null
+)
 
 enum class FileCategory {
     ALL,

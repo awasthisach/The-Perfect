@@ -163,8 +163,9 @@ class OfflineFileManagerRepository(
 
             for (path in allToDelete) {
                 val f = java.io.File(path)
-                if (f.exists()) {
+                if (f.exists() && f.canWrite()) {
                     val size = if (f.isDirectory) 0L else f.length()
+                    // Perform physical deletion
                     val deleted = if (f.isDirectory) f.deleteRecursively() else f.delete()
                     if (deleted) {
                         totalReclaimed += size

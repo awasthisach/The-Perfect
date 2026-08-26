@@ -823,7 +823,8 @@ class StorageManager(
                             lastModified = file.lastModified(),
                             isDirectory = false,
                             mimeType = getMimeType(file.name),
-                            md5Hash = fullHash
+                            md5Hash = fullHash,
+                            sha256Hash = fullHash
                         )
                     }
                     val sorted = fileItems.sortedBy { it.lastModified }

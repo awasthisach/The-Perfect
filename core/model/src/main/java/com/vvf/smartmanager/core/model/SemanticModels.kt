@@ -29,6 +29,32 @@ data class SemanticSearchResult(
 )
 
 /**
+ * Immutable on-device vector embedding index record with content-version and model binding.
+ */
+data class SemanticIndexRecord(
+    val fileId: String,
+    val canonicalPath: String,
+    val contentIdentityVersion: Long,
+    val modelVersion: String,
+    val embeddingDimension: Int,
+    val embedding: FloatArray,
+    val status: DerivedIndexStatus = DerivedIndexStatus.INDEXED,
+    val createdAt: Long = System.currentTimeMillis()
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is SemanticIndexRecord) return false
+        return fileId == other.fileId && modelVersion == other.modelVersion
+    }
+
+    override fun hashCode(): Int {
+        var result = fileId.hashCode()
+        result = 31 * result + modelVersion.hashCode()
+        return result
+    }
+}
+
+/**
  * Options for AI Semantic Search query.
  */
 data class SemanticSearchOptions(

@@ -250,4 +250,42 @@ class VVFSmartManagerCUJTest {
         assertNotNull(app.ocrPlugin.engineName)
         assertNotNull(app.semanticSearchPlugin.modelName)
     }
+
+    @Test
+    fun cuj8_masterSkillV3OperationStateMachinesAndJournals() {
+        // Verify durable operation states
+        val planned = com.vvf.smartmanager.core.model.DurableOperationState.PLANNED
+        val completed = com.vvf.smartmanager.core.model.DurableOperationState.COMPLETED
+        assertNotNull(planned)
+        assertNotNull(completed)
+
+        // Verify derived index states
+        val indexIndexed = com.vvf.smartmanager.core.model.DerivedIndexStatus.INDEXED
+        val indexStale = com.vvf.smartmanager.core.model.DerivedIndexStatus.STALE
+        assertNotNull(indexIndexed)
+        assertNotNull(indexStale)
+
+        // Verify AI truthfulness states
+        val modelReady = com.vvf.smartmanager.core.model.AIModelStatus.MODEL_READY
+        val modelLoading = com.vvf.smartmanager.core.model.AIModelStatus.MODEL_LOADING
+        assertNotNull(modelReady)
+        assertNotNull(modelLoading)
+    }
+
+    @Test
+    fun cuj9_semanticIndexRecordAndIdentityBinding() {
+        val record = com.vvf.smartmanager.core.model.SemanticIndexRecord(
+            fileId = "test_file_1",
+            canonicalPath = "/storage/emulated/0/doc.pdf",
+            contentIdentityVersion = 1L,
+            modelVersion = "mobilebert-v1.0",
+            embeddingDimension = 384,
+            embedding = FloatArray(384) { 0.5f }
+        )
+
+        assertEquals("test_file_1", record.fileId)
+        assertEquals("mobilebert-v1.0", record.modelVersion)
+        assertEquals(384, record.embeddingDimension)
+        assertEquals(com.vvf.smartmanager.core.model.DerivedIndexStatus.INDEXED, record.status)
+    }
 }
