@@ -1,0 +1,6 @@
+{
+  "name": "VVF Smart Manager",
+  "description": "Enterprise-grade, offline-first smart file manager and encrypted vault with modular AI/OCR and multi-cloud extension capabilities.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

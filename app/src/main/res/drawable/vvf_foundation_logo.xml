@@ -1,0 +1,275 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="256dp"
+    android:height="256dp"
+    android:viewportWidth="256"
+    android:viewportHeight="256">
+
+    <!-- Layer 1: Outer Heavy Gold Beveled Medallion Rim -->
+    <path
+        android:pathData="M128,128m-124,0a124,124 0 1,1 248,0a124,124 0 1,1 -248,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="10"
+                android:startY="10"
+                android:endX="246"
+                android:endY="246"
+                android:type="linear">
+                <item android:color="#FFF1B8" android:offset="0.0" />
+                <item android:color="#D4A95A" android:offset="0.25" />
+                <item android:color="#9E7227" android:offset="0.5" />
+                <item android:color="#F7D87D" android:offset="0.75" />
+                <item android:color="#845D1C" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Layer 2: Outer Stepped Inner Groove Rim -->
+    <path
+        android:pathData="M128,128m-116,0a116,116 0 1,1 232,0a116,116 0 1,1 -232,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="12"
+                android:startY="12"
+                android:endX="244"
+                android:endY="244"
+                android:type="linear">
+                <item android:color="#B8860B" android:offset="0.0" />
+                <item android:color="#E5C158" android:offset="0.5" />
+                <item android:color="#785310" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Layer 3: Text Channel Dark Ring -->
+    <path
+        android:pathData="M128,128m-112,0a112,112 0 1,1 224,0a112,112 0 1,1 -224,0"
+        android:strokeColor="#523908"
+        android:strokeWidth="1.5">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="16"
+                android:startY="16"
+                android:endX="240"
+                android:endY="240"
+                android:type="linear">
+                <item android:color="#A97E25" android:offset="0.0" />
+                <item android:color="#6D4D0E" android:offset="0.5" />
+                <item android:color="#D6AC4F" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Layer 4: Inner Beaded Golden Border -->
+    <path
+        android:pathData="M128,128m-88,0a88,88 0 1,1 176,0a88,88 0 1,1 -176,0"
+        android:strokeColor="#FFF2B2"
+        android:strokeWidth="3">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="40"
+                android:startY="40"
+                android:endX="216"
+                android:endY="216"
+                android:type="linear">
+                <item android:color="#0A1832" android:offset="0.0" />
+                <item android:color="#102B52" android:offset="0.5" />
+                <item android:color="#061222" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Layer 5: Decorative Golden Text & Star Accents in Border Ring -->
+    <!-- Left Stars -->
+    <path
+        android:pathData="M32,128 L36,130 L34,134 L32,131 L30,134 L28,130 Z"
+        android:fillColor="#FFF6C7" />
+    <path
+        android:pathData="M224,128 L228,130 L226,134 L224,131 L222,134 L220,130 Z"
+        android:fillColor="#FFF6C7" />
+
+    <!-- Top Text Glyphs: V I S H V A   V I J A Y A A   F O U N D A T I O N -->
+    <path
+        android:pathData="M60,68 L64,78 L68,68 M74,78 L74,67 M81,65 C85,63 87,66 84,68 C80,70 85,73 88,71 M94,59 L94,70 M100,59 L100,70 M94,65 L100,65 M106,68 L110,57 L114,68 M124,56 L128,67 L132,56 M138,56 L138,67 M145,57 C149,57 149,66 145,66 M152,68 L156,57 L160,68 M166,69 L170,59 L174,69 M180,60 L180,71 M187,62 C192,64 192,72 187,74"
+        android:strokeColor="#FFE58F"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round" />
+
+    <!-- Bottom Text Glyphs: विजया ददाति विजयम् -->
+    <path
+        android:pathData="M66,188 L78,188 M70,188 L70,198 C70,202 76,200 76,195 M84,188 L98,188 M90,188 L90,200 M90,194 C96,194 96,200 90,200 M104,188 L118,188 M110,188 C115,190 115,196 110,198 C108,202 114,204 116,202 M124,188 L138,188 M130,188 C135,190 135,196 130,198 C128,202 134,204 136,202 M144,188 L158,188 M150,188 L150,202 M164,188 L178,188 L170,188 L170,198 C170,202 176,200 176,195 M184,188 L196,188 M190,188 L190,200 M190,194 C196,194 196,200 190,200"
+        android:strokeColor="#FFF6C7"
+        android:strokeWidth="2.0"
+        android:strokeLineCap="round" />
+
+    <!-- Layer 6: Inner Cosmic Swirl Canvas -->
+    <!-- Cosmic Deep Space Purple Swirl (Top Left) -->
+    <path
+        android:pathData="M128,40 C176,40 216,80 216,128 C216,150 206,170 190,184 C176,156 160,132 144,112 C132,96 118,80 100,72 C110,54 120,40 128,40 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="100"
+                android:startY="40"
+                android:endX="216"
+                android:endY="184"
+                android:type="linear">
+                <item android:color="#281A4C" android:offset="0.0" />
+                <item android:color="#120D2C" android:offset="0.6" />
+                <item android:color="#102B52" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Star specks in cosmic space -->
+    <path
+        android:pathData="M155,75 L157,78 L155,81 L153,78 Z M175,95 L176,97 L175,99 L174,97 Z M190,120 L191,122 L190,124 L189,122 Z M140,58 L141,60 L140,62 L139,60 Z"
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.85" />
+
+    <!-- Sky Cyan Air & Water Swirl (Top Right & Right) -->
+    <path
+        android:pathData="M216,128 C216,160 196,192 168,206 C182,186 186,160 178,136 C170,112 152,94 132,82 C162,86 196,100 216,128 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="132"
+                android:startY="82"
+                android:endX="216"
+                android:endY="206"
+                android:type="linear">
+                <item android:color="#BBE8F8" android:offset="0.0" />
+                <item android:color="#5BC0EB" android:offset="0.5" />
+                <item android:color="#0077B6" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Oceanic Blue Swirling Crest Waves (Left & Bottom Left) -->
+    <path
+        android:pathData="M40,128 C40,90 70,58 108,44 C84,60 68,88 66,118 C64,148 76,176 100,196 C74,188 52,162 40,128 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="40"
+                android:startY="44"
+                android:endX="108"
+                android:endY="196"
+                android:type="linear">
+                <item android:color="#0096C7" android:offset="0.0" />
+                <item android:color="#023E8A" android:offset="0.5" />
+                <item android:color="#03045E" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Ocean Wave Foam Accents -->
+    <path
+        android:pathData="M50,140 C56,122 72,108 92,102 C82,118 78,138 86,156 C70,154 58,148 50,140 Z"
+        android:fillColor="#E0F7FA"
+        android:fillAlpha="0.7" />
+
+    <!-- Emerald Green Earth & Mountain Landscape (Bottom) -->
+    <path
+        android:pathData="M66,168 C84,196 112,216 148,216 C176,216 200,202 212,180 C186,192 154,188 128,172 C104,158 86,160 66,168 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="66"
+                android:startY="158"
+                android:endX="212"
+                android:endY="216"
+                android:type="linear">
+                <item android:color="#52B788" android:offset="0.0" />
+                <item android:color="#3FA34D" android:offset="0.5" />
+                <item android:color="#1B4332" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Mountain Peaks & Earth Roots in Deep Brown -->
+    <path
+        android:pathData="M92,204 L106,186 L120,206 L134,188 L148,210 C132,214 110,214 92,204 Z"
+        android:fillColor="#582F0E" />
+    <path
+        android:pathData="M110,202 L118,214 M126,204 L132,215 M100,200 L94,210"
+        android:strokeColor="#7F4F24"
+        android:strokeWidth="1.5" />
+
+    <!-- Central Sacred Flame (Bhagwa Orange / Saffron Energy) -->
+    <path
+        android:pathData="M128,70 C146,88 162,114 162,142 C162,168 146,184 128,188 C110,184 94,168 94,142 C94,114 110,88 128,70 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="94"
+                android:startY="70"
+                android:endX="162"
+                android:endY="188"
+                android:type="linear">
+                <item android:color="#FFB703" android:offset="0.0" />
+                <item android:color="#F47B20" android:offset="0.45" />
+                <item android:color="#D00000" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Inner Golden Core Flame -->
+    <path
+        android:pathData="M128,92 C140,106 150,124 150,144 C150,162 140,174 128,178 C116,174 106,162 106,144 C106,124 116,106 128,92 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="106"
+                android:startY="92"
+                android:endX="150"
+                android:endY="178"
+                android:type="linear">
+                <item android:color="#FFF3B0" android:offset="0.0" />
+                <item android:color="#FFD166" android:offset="0.5" />
+                <item android:color="#F47B20" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Pure Gold & White Vijaya Sacred Leaf inside the Flame -->
+    <path
+        android:pathData="M128,98 C134,112 138,128 138,146 C138,158 134,166 128,170 C122,166 118,158 118,146 C118,128 122,112 128,98 Z"
+        android:fillColor="#FFFFFF" />
+
+    <!-- Left Upper Leaflet -->
+    <path
+        android:pathData="M128,124 C120,118 112,122 108,130 C106,136 110,142 116,142 C122,142 126,134 128,128 Z"
+        android:fillColor="#FFF8E7" />
+
+    <!-- Right Upper Leaflet -->
+    <path
+        android:pathData="M128,124 C136,118 144,122 148,130 C150,136 146,142 140,142 C134,142 130,134 128,128 Z"
+        android:fillColor="#FFF8E7" />
+
+    <!-- Left Lower Leaflet -->
+    <path
+        android:pathData="M128,144 C122,142 116,146 114,152 C113,156 116,160 120,160 C124,160 127,154 128,148 Z"
+        android:fillColor="#FFE699" />
+
+    <!-- Right Lower Leaflet -->
+    <path
+        android:pathData="M128,144 C134,142 140,146 142,152 C143,156 140,160 136,160 C132,160 129,154 128,148 Z"
+        android:fillColor="#FFE699" />
+
+    <!-- Leaf Center Stem / Radiant Spine in Pure Gold -->
+    <path
+        android:pathData="M128,102 L128,172"
+        android:strokeColor="#D4A95A"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round" />
+
+    <path
+        android:pathData="M128,126 L118,136 M128,126 L138,136 M128,142 L120,150 M128,142 L136,150"
+        android:strokeColor="#D4A95A"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round" />
+
+    <!-- Radiant Inner Glow Ring -->
+    <path
+        android:pathData="M128,128m-86,0a86,86 0 1,1 172,0a86,86 0 1,1 -172,0"
+        android:strokeColor="#FFE896"
+        android:strokeWidth="1.5"
+        android:strokeAlpha="0.6" />
+
+</vector>

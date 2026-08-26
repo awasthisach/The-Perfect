@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Safe-zone Outer Glowing Circular Shield (Center 54,54 - Radius 29) -->
+    <!-- Outer Golden Bevel Ring -->
+    <path
+        android:pathData="M54,54m-29,0a29,29 0 1,1 58,0a29,29 0 1,1 -58,0"
+        android:strokeWidth="3.2">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="25"
+                android:startY="25"
+                android:endX="83"
+                android:endY="83"
+                android:type="linear">
+                <item android:color="#FFFFFF" android:offset="0.0" />
+                <item android:color="#FDE047" android:offset="0.3" />
+                <item android:color="#F59E0B" android:offset="0.7" />
+                <item android:color="#D97706" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="25"
+                android:startY="25"
+                android:endX="83"
+                android:endY="83"
+                android:type="linear">
+                <item android:color="#1E293B" android:offset="0.0" />
+                <item android:color="#0F172A" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Inner Golden Trim Ring -->
+    <path
+        android:pathData="M54,54m-25,0a25,25 0 1,1 50,0a25,25 0 1,1 -50,0"
+        android:strokeColor="#FDE047"
+        android:strokeWidth="1.0"
+        android:strokeAlpha="0.85" />
+
+    <!-- Center Radiant Flame Backdrop (Vivid Amber-Orange) -->
+    <path
+        android:pathData="M54,30 C64,40 71,51 71,62 C71,72 64,79 54,80 C44,79 37,72 37,62 C37,51 44,40 54,30 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="37"
+                android:startY="30"
+                android:endX="71"
+                android:endY="80"
+                android:type="linear">
+                <item android:color="#FEF08A" android:offset="0.0" />
+                <item android:color="#F59E0B" android:offset="0.4" />
+                <item android:color="#DC2626" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Inner Core Flame (Luminous Gold & White) -->
+    <path
+        android:pathData="M54,37 C60,45 65,54 65,63 C65,70 60,75 54,76 C48,75 43,70 43,63 C43,54 48,45 54,37 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="43"
+                android:startY="37"
+                android:endX="65"
+                android:endY="76"
+                android:type="linear">
+                <item android:color="#FFFFFF" android:offset="0.0" />
+                <item android:color="#FEF08A" android:offset="0.45" />
+                <item android:color="#F59E0B" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Main Majestic Golden Leaf (Pure High-Contrast Silhouette) -->
+    <!-- Center Leaf Blade -->
+    <path
+        android:pathData="M54,34 C58,40 61,48 61,56 C61,63 58,69 54,72 C50,69 47,63 47,56 C47,48 50,40 54,34 Z"
+        android:fillColor="#FFFFFF" />
+
+    <!-- Upper Left Leaf Blade -->
+    <path
+        android:pathData="M54,46 C48,40 41,41 36,46 C35,49 37,52 42,51 C46,50 51,48 54,47 Z"
+        android:fillColor="#FFFBEB" />
+
+    <!-- Upper Right Leaf Blade -->
+    <path
+        android:pathData="M54,46 C60,40 67,41 72,46 C73,49 71,52 66,51 C62,50 57,48 54,47 Z"
+        android:fillColor="#FFFBEB" />
+
+    <!-- Mid Left Leaf Blade -->
+    <path
+        android:pathData="M54,54 C47,51 39,53 35,59 C34,62 37,64 41,63 C46,62 50,58 54,56 Z"
+        android:fillColor="#FEF3C7" />
+
+    <!-- Mid Right Leaf Blade -->
+    <path
+        android:pathData="M54,54 C61,51 69,53 73,59 C74,62 71,64 67,63 C62,62 58,58 54,56 Z"
+        android:fillColor="#FEF3C7" />
+
+    <!-- Center Vein Spine -->
+    <path
+        android:pathData="M54,35 L54,72"
+        android:strokeColor="#F59E0B"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round" />
+
+    <!-- Leaf Veins Branches -->
+    <path
+        android:pathData="M54,47 L45,43 M54,47 L63,43 M54,55 L43,55 M54,55 L65,55 M54,62 L47,64 M54,62 L61,64"
+        android:strokeColor="#F59E0B"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round" />
+
+    <!-- Bottom Badge Plaque (Crisp, High Contrast Banner) -->
+    <path
+        android:pathData="M34,74 L74,74 L71,83 L37,83 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="34"
+                android:startY="74"
+                android:endX="74"
+                android:endY="83"
+                android:type="linear">
+                <item android:color="#FDE047" android:offset="0.0" />
+                <item android:color="#F59E0B" android:offset="0.5" />
+                <item android:color="#D97706" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Inner Plaque Cutout -->
+    <path
+        android:pathData="M36,75.5 L72,75.5 L70,81.5 L38,81.5 Z"
+        android:fillColor="#0F172A" />
+
+    <!-- Bold V V F Crest Lettering (High Visibility) -->
+    <!-- V 1 -->
+    <path
+        android:pathData="M42,77 L44.5,80.5 L47,77"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- V 2 -->
+    <path
+        android:pathData="M48.5,77 L51,80.5 L53.5,77"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- F -->
+    <path
+        android:pathData="M56,77 L60.5,77 M56,79 L59.5,79 M56,77 L56,80.5"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+</vector>

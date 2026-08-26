@@ -1,0 +1,113 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="360dp"
+    android:height="160dp"
+    android:viewportWidth="360"
+    android:viewportHeight="160">
+
+    <!-- Background Curved Banner -->
+    <path
+        android:pathData="M 0,0 L 360,0 L 360,140 C 260,165 100,125 0,155 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="0"
+                android:startY="0"
+                android:endX="360"
+                android:endY="160"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#0D2240" />
+                <item android:offset="0.7" android:color="#1A3B66" />
+                <item android:offset="1.0" android:color="#08182D" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Ambient Glowing Rings -->
+    <path
+        android:pathData="M 180,80 a 70,70 0 1,0 0.1,0 Z"
+        android:fillColor="#155BC0EB" />
+
+    <!-- Big Central Cloud Shape -->
+    <path
+        android:pathData="M 130,95 C 122,95 115,88 115,80 C 115,73 120,67 127,65 C 129,52 140,42 153,42 C 163,42 172,48 176,57 C 180,54 185,52 190,52 C 201,52 210,61 210,72 C 216,74 220,79 220,85 C 220,92 214,97 207,97 L 130,97 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="115"
+                android:startY="42"
+                android:endX="220"
+                android:endY="97"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#5BC0EB" />
+                <item android:offset="1.0" android:color="#3A8BB0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Cloud Sync Arrows & Key Emblem -->
+    <path
+        android:pathData="M 168,75 L 168,58 L 160,66 M 168,58 L 176,66"
+        android:strokeWidth="2.5"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- Secure Vault Padlock in Cloud Center -->
+    <path
+        android:pathData="M 160,82 L 176,82 C 178,82 180,84 180,86 L 180,98 C 180,100 178,102 176,102 L 160,102 C 158,102 156,100 156,98 L 156,86 C 156,84 158,82 160,82 Z"
+        android:fillColor="#F47B20" />
+    <path
+        android:pathData="M 163,82 L 163,77 C 163,73 165,71 168,71 C 171,71 173,73 173,77 L 173,82"
+        android:strokeWidth="2"
+        android:strokeColor="#D4A95A"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M 168,88 L 168,94"
+        android:strokeWidth="2"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round" />
+
+    <!-- Left Data Stream Server -->
+    <path
+        android:pathData="M 50,55 L 85,55 C 88,55 90,57 90,60 L 90,105 C 90,108 88,110 85,110 L 50,110 C 47,110 45,108 45,105 L 45,60 C 45,57 47,55 50,55 Z"
+        android:fillColor="#152B4D"
+        android:strokeWidth="1.5"
+        android:strokeColor="#5BC0EB" />
+    <path
+        android:pathData="M 55,70 L 80,70 M 55,85 L 80,85 M 55,100 L 70,100"
+        android:strokeWidth="2"
+        android:strokeColor="#3FA34D"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M 78,100 a 2.5,2.5 0 1,0 0.1,0 Z"
+        android:fillColor="#F47B20" />
+
+    <!-- Right Encrypted Drive -->
+    <path
+        android:pathData="M 275,55 L 310,55 C 313,55 315,57 315,60 L 315,105 C 315,108 313,110 310,110 L 275,110 C 272,110 270,108 270,105 L 270,60 C 270,57 272,55 275,55 Z"
+        android:fillColor="#152B4D"
+        android:strokeWidth="1.5"
+        android:strokeColor="#D4A95A" />
+    <path
+        android:pathData="M 280,70 L 305,70 M 280,85 L 305,85"
+        android:strokeWidth="2"
+        android:strokeColor="#F47B20"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M 292,97 a 4,4 0 1,0 0.1,0 Z"
+        android:fillColor="#3FA34D" />
+
+    <!-- Connecting Sync Lines -->
+    <path
+        android:pathData="M 90,82 L 115,82"
+        android:strokeWidth="2"
+        android:strokeColor="#5BC0EB" />
+    <path
+        android:pathData="M 220,82 L 270,82"
+        android:strokeWidth="2"
+        android:strokeColor="#D4A95A" />
+
+    <!-- Golden Leaf Sparkle Top Right -->
+    <path
+        android:pathData="M 330,30 C 324,35 325,45 330,47 C 335,45 336,35 330,30 Z"
+        android:fillColor="#D4A95A" />
+</vector>

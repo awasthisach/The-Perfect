@@ -1,0 +1,94 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="360dp"
+    android:height="180dp"
+    android:viewportWidth="360"
+    android:viewportHeight="180">
+
+    <!-- Background Curved Banner -->
+    <path
+        android:pathData="M 0,0 L 360,0 L 360,160 C 270,185 90,140 0,175 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="0"
+                android:startY="0"
+                android:endX="360"
+                android:endY="180"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#102B52" />
+                <item android:offset="0.6" android:color="#183D6E" />
+                <item android:offset="1.0" android:color="#0B1D38" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Decorative Glow Circles -->
+    <path
+        android:pathData="M 280,40 a 60,60 0 1,0 0.1,0 Z"
+        android:fillColor="#15F47B20" />
+    <path
+        android:pathData="M 70,110 a 45,45 0 1,0 0.1,0 Z"
+        android:fillColor="#103FA34D" />
+
+    <!-- Folder Base -->
+    <path
+        android:pathData="M 40,55 L 75,55 L 85,68 L 130,68 C 134,68 136,70 136,74 L 136,115 C 136,119 134,122 130,122 L 40,122 C 36,122 34,119 34,115 L 34,62 C 34,58 36,55 40,55 Z"
+        android:fillColor="#F47B20" />
+
+    <!-- Secondary Folder Leaf Sheet -->
+    <path
+        android:pathData="M 46,70 L 124,70 C 127,70 129,72 129,75 L 129,118 C 129,121 127,123 124,123 L 46,123 C 43,123 41,121 41,118 L 41,75 C 41,72 43,70 46,70 Z"
+        android:fillColor="#FF9B42" />
+
+    <!-- Golden Leaf Emblem on Folder -->
+    <path
+        android:pathData="M 85,78 C 76,86 78,104 85,108 C 92,104 94,86 85,78 Z"
+        android:fillColor="#D4A95A" />
+    <path
+        android:pathData="M 85,82 L 85,106"
+        android:strokeWidth="1.5"
+        android:strokeColor="#FFFFFF" />
+
+    <!-- AI & Security Circuit Network Lines -->
+    <path
+        android:pathData="M 136,95 L 175,95 L 195,65 L 235,65"
+        android:strokeWidth="2"
+        android:strokeColor="#5BC0EB"
+        android:strokeAlpha="0.6" />
+    <path
+        android:pathData="M 175,95 L 195,120 L 240,120"
+        android:strokeWidth="2"
+        android:strokeColor="#F47B20"
+        android:strokeAlpha="0.6" />
+
+    <!-- Network Node Orbs -->
+    <path
+        android:pathData="M 175,95 a 4,4 0 1,0 0.1,0 Z"
+        android:fillColor="#5BC0EB" />
+    <path
+        android:pathData="M 195,65 a 4,4 0 1,0 0.1,0 Z"
+        android:fillColor="#D4A95A" />
+    <path
+        android:pathData="M 195,120 a 4,4 0 1,0 0.1,0 Z"
+        android:fillColor="#F47B20" />
+
+    <!-- AI Intelligence Chip Shield (Right Side) -->
+    <path
+        android:pathData="M 270,50 L 305,62 L 305,95 C 305,116 270,132 270,132 C 270,132 235,116 235,95 L 235,62 Z"
+        android:fillColor="#102B52"
+        android:strokeWidth="2.5"
+        android:strokeColor="#3FA34D" />
+
+    <!-- Security Checkmark -->
+    <path
+        android:pathData="M 256,92 L 266,102 L 284,80"
+        android:strokeWidth="3.5"
+        android:strokeColor="#3FA34D"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- Subtle Golden Sparkles -->
+    <path
+        android:pathData="M 320,35 L 322,40 L 327,42 L 322,44 L 320,49 L 318,44 L 313,42 L 318,40 Z"
+        android:fillColor="#D4A95A" />
+</vector>
