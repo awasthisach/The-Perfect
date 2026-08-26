@@ -25,20 +25,13 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-
-      - name: Grant Execute Permission for Gradle Wrapper
-        run: |
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-          fi
+        with:
+          gradle-version: '8.11.1'
 
       - name: Run Unit Tests across all modules
         run: |
-          if [ -f "./gradlew" ]; then
-            ./gradlew testDebugUnitTest --continue --stacktrace
-          else
-            gradle testDebugUnitTest --continue --stacktrace
-          fi
+          chmod +x ./gradlew || true
+          ./gradlew testDebugUnitTest --continue --stacktrace
 
       - name: Upload Coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -99,20 +92,13 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-
-      - name: Grant Execute Permission for Gradle Wrapper
-        run: |
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-          fi
+        with:
+          gradle-version: '8.11.1'
 
       - name: Build All Modules and Assemble Release
         run: |
-          if [ -f "./gradlew" ]; then
-            ./gradlew assembleRelease --stacktrace
-          else
-            gradle assembleRelease --stacktrace
-          fi
+          chmod +x ./gradlew || true
+          ./gradlew assembleRelease --stacktrace
 
       - name: Archive Release APK
         uses: actions/upload-artifact@v4
