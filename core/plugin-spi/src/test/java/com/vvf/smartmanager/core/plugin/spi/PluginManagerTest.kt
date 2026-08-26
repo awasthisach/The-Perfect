@@ -4,7 +4,6 @@ import com.vvf.smartmanager.core.model.FileItem
 import com.vvf.smartmanager.core.model.OcrOptions
 import com.vvf.smartmanager.core.model.OcrProgress
 import com.vvf.smartmanager.core.model.OcrResult
-import com.vvf.smartmanager.core.model.SimilarityMatch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
@@ -18,22 +17,22 @@ class PluginManagerTest {
 
     private class FakeOcrPlugin : OcrPluginSPI {
         override val isEnabled: Boolean = true
-        override val engineName: String = "Fake ML Kit"
+        override val displayName: String = "Fake ML Kit"
 
         override suspend fun isModelDownloaded(): Boolean = true
-        override suspend fun downloadModel(onProgress: (Float) -> Unit): Boolean {
-            onProgress(1.0f)
+        override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean {
+            progressCallback(1.0f)
             return true
         }
 
         override suspend fun extractText(
             fileItem: FileItem,
             options: OcrOptions,
-            onProgress: (OcrProgress) -> Unit
+            onProgress: ((OcrProgress) -> Unit)?
         ): Result<OcrResult> {
             return Result.success(
                 OcrResult(
-                    extractedText = "Sample OCR Text",
+                    fullText = "Sample OCR Text",
                     language = "en",
                     confidence = 0.98f,
                     totalWords = 3,
@@ -43,31 +42,40 @@ class PluginManagerTest {
             )
         }
 
-        override fun cancel() {}
+        override fun cancelOngoing() {}
     }
 
     private class FakeSemanticPlugin : SemanticSearchSPI {
         override val isEnabled: Boolean = true
-        override val modelName: String = "Fake TFLite MobileBERT"
-        override val embeddingDimension: Int = 256
+        override val displayName: String = "Fake TFLite MobileBERT"
 
-        override suspend fun isModelReady(): Boolean = true
-        override suspend fun downloadModel(onProgress: (Float) -> Unit): Boolean = true
+        override fun isModelReady(): Boolean = true
+        override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean = true
 
-        override suspend fun generateEmbedding(text: String): Result<FloatArray> {
-            return Result.success(FloatArray(256) { 0.1f })
+        override suspend fun generateEmbedding(text: String): FloatArray {
+            return FloatArray(256) { 0.1f }
         }
 
-        override suspend fun findSimilarFiles(
+        override suspend fun searchSimilar(
             query: String,
-            targetFiles: List<FileItem>,
-            minSimilarity: Float
-        ): Result<List<SimilarityMatch>> {
-            return Result.success(emptyList())
+            candidates: List<com.vvf.smartmanager.core.model.SemanticCandidate>,
+            options: com.vvf.smartmanager.core.model.SemanticSearchOptions
+        ): List<com.vvf.smartmanager.core.model.SemanticSearchResult> {
+            return emptyList()
         }
 
-        override fun calculateCosineSimilarity(vec1: FloatArray, vec2: FloatArray): Float = 0.95f
-        override fun release() {}
+        override suspend fun findNearDuplicates(
+            candidates: List<com.vvf.smartmanager.core.model.SemanticCandidate>,
+            similarityThreshold: Float
+        ): List<com.vvf.smartmanager.core.model.NearDuplicateCluster> {
+            return emptyList()
+        }
+
+        override suspend fun suggestTags(candidate: com.vvf.smartmanager.core.model.SemanticCandidate): List<com.vvf.smartmanager.core.model.AiSuggestedTag> {
+            return emptyList()
+        }
+
+        override fun computeCosineSimilarity(vectorA: FloatArray, vectorB: FloatArray): Float = 0.95f
     }
 
     @Test

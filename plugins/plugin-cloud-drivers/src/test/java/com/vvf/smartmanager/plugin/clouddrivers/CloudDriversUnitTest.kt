@@ -66,35 +66,35 @@ class CloudDriversUnitTest {
     fun testNextCloudDriverLifecycle() = runBlocking {
         val driver = NextCloudDriverImpl()
         assertEquals("plugin.cloud.nextcloud", driver.driverId)
-        assertEquals("Nextcloud", driver.displayName)
+        assertEquals("NextCloud (Self-Hosted)", driver.displayName)
 
         assertTrue(driver.authenticate())
         val files = driver.listRemoteFiles("/")
         assertEquals(1, files.size)
-        assertEquals("Financial_Statement.xlsx", files[0].name)
+        assertEquals("Nextcloud_Sync_Archive.zip", files[0].name)
     }
 
     @Test
     fun testS3DriverLifecycle() = runBlocking {
-        val driver = S3CompatibleDriverImpl()
+        val driver = S3StorageDriverImpl()
         assertEquals("plugin.cloud.s3", driver.driverId)
-        assertEquals("Amazon S3 / MinIO", driver.displayName)
+        assertEquals("AWS S3 / S3-Compatible", driver.displayName)
 
         assertTrue(driver.authenticate())
         val files = driver.listRemoteFiles("/")
         assertEquals(1, files.size)
-        assertEquals("Database_Backup.sql.gz", files[0].name)
+        assertEquals("system_logs_2026.log", files[0].name)
     }
 
     @Test
     fun testLocalNasDriverLifecycle() = runBlocking {
         val driver = LocalNasDriverImpl()
         assertEquals("plugin.cloud.nas", driver.driverId)
-        assertEquals("Local NAS / WebDAV", driver.displayName)
+        assertEquals("Local NAS (WebDAV/SMB)", driver.displayName)
 
         assertTrue(driver.authenticate())
         val files = driver.listRemoteFiles("/")
         assertEquals(1, files.size)
-        assertEquals("Media_Archive.mkv", files[0].name)
+        assertEquals("Media_Library_Backup.iso", files[0].name)
     }
 }

@@ -277,16 +277,17 @@ class VVFSmartManagerCUJTest {
     fun cuj9_semanticIndexRecordAndIdentityBinding() {
         val record = SemanticIndexRecord(
             fileId = "local_doc_101",
+            canonicalPath = "/storage/emulated/0/Documents/doc101.pdf",
             contentIdentityVersion = 1L,
             modelVersion = "tflite_mobilebert_v1",
-            dimension = 384,
-            vector = FloatArray(384) { 0.5f },
-            indexedTimestamp = System.currentTimeMillis()
+            embeddingDimension = 384,
+            embedding = FloatArray(384) { 0.5f },
+            createdAt = System.currentTimeMillis()
         )
-        assertEquals(384, record.dimension)
+        assertEquals(384, record.embeddingDimension)
         assertEquals("local_doc_101", record.fileId)
         assertEquals(1L, record.contentIdentityVersion)
-        assertEquals(384, record.vector.size)
+        assertEquals(384, record.embedding.size)
     }
 }
 
