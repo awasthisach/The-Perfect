@@ -22,13 +22,23 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: gradle
 
-      - name: Grant Execute Permission for Gradle
-        run: chmod +x gradlew || true
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant Execute Permission for Gradle Wrapper
+        run: |
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+          fi
 
       - name: Run Unit Tests across all modules
-        run: ./gradlew testDebugUnitTest --continue --stacktrace
+        run: |
+          if [ -f "./gradlew" ]; then
+            ./gradlew testDebugUnitTest --continue --stacktrace
+          else
+            gradle testDebugUnitTest --continue --stacktrace
+          fi
 
       - name: Upload Coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -45,7 +55,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: unit-test-reports
-          path: "**/build/reports/tests/"
+          path: "**/build/reports/tests/**"
+          if-no-files-found: ignore
 
   license_compliance:
     name: FOSSA & Open Source License Compliance
@@ -60,7 +71,9 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Run FOSSA License Scan
         uses: fossas/fossa-action@v1
@@ -83,10 +96,23 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant Execute Permission for Gradle Wrapper
+        run: |
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+          fi
 
       - name: Build All Modules and Assemble Release
-        run: ./gradlew assembleRelease --stacktrace
+        run: |
+          if [ -f "./gradlew" ]; then
+            ./gradlew assembleRelease --stacktrace
+          else
+            gradle assembleRelease --stacktrace
+          fi
 
       - name: Archive Release APK
         uses: actions/upload-artifact@v4
@@ -94,3 +120,4 @@ jobs:
           name: vvf-smartmanager-release-apk
           path: "**/build/outputs/apk/release/*.apk"
           if-no-files-found: ignore
+
