@@ -19,17 +19,20 @@ android {
     targetSdk = 36
     versionCode = 1
     versionName = "1.0"
-
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
   signingConfigs {
     create("release") {
-      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
+      val keystorePath = System.getenv("KEYSTORE_PATH")
+        ?: throw GradleException("KEYSTORE_PATH is required for release builds")
       storeFile = file(keystorePath)
       storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
+        ?: throw GradleException("STORE_PASSWORD is required for release builds")
+      keyAlias = System.getenv("KEY_ALIAS")
+        ?: throw GradleException("KEY_ALIAS is required for release builds")
       keyPassword = System.getenv("KEY_PASSWORD")
+        ?: throw GradleException("KEY_PASSWORD is required for release builds")
     }
     create("debugConfig") {
       storeFile = file("${rootDir}/debug.keystore")
@@ -44,12 +47,7 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      val customKeystore = file(System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks")
-      signingConfig = if (customKeystore.exists()) {
-        signingConfigs.getByName("release")
-      } else {
-        signingConfigs.getByName("debugConfig")
-      }
+      signingConfig = signingConfigs.getByName("release")
     }
     debug { signingConfig = signingConfigs.getByName("debugConfig") }
   }
@@ -68,8 +66,6 @@ android {
   }
 }
 
-// Configure the Secrets Gradle Plugin to use .env and .env.example files
-// to match the convention used in Web projects.
 secrets {
   propertiesFileName = ".env"
   defaultPropertiesFileName = ".env.example"
@@ -78,10 +74,7 @@ secrets {
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
 
-// Some unused dependencies are commented out below instead of being removed.
-// This makes it easy to add them back in the future if needed.
 dependencies {
-  // Core module dependencies
   implementation(project(":core:common"))
   implementation(project(":core:model"))
   implementation(project(":core:security"))
@@ -91,8 +84,6 @@ dependencies {
   implementation(project(":core:background"))
   implementation(project(":core:cloud-gdrive"))
   implementation(project(":core:plugin-spi"))
-
-  // Feature module dependencies
   implementation(project(":feature:explorer"))
   implementation(project(":feature:vault"))
   implementation(project(":feature:cleaner"))
@@ -100,20 +91,12 @@ dependencies {
   implementation(project(":feature:cloud"))
   implementation(project(":feature:settings"))
   implementation(project(":feature:plugins"))
-
-  // Dynamic Plugin placeholders
   implementation(project(":plugins:plugin-ocr"))
   implementation(project(":plugins:plugin-semantic-search"))
   implementation(project(":plugins:plugin-cloud-drivers"))
-
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
-  // implementation(libs.accompanist.permissions)
   implementation(libs.androidx.activity.compose)
-  // implementation(libs.androidx.camera.camera2)
-  // implementation(libs.androidx.camera.core)
-  // implementation(libs.androidx.camera.lifecycle)
-  // implementation(libs.androidx.camera.view)
   implementation(libs.androidx.compose.material.icons.core)
   implementation(libs.androidx.compose.material.icons.extended)
   implementation(libs.androidx.compose.material3)
@@ -121,7 +104,6 @@ dependencies {
   implementation(libs.androidx.compose.ui.graphics)
   implementation(libs.androidx.compose.ui.tooling.preview)
   implementation(libs.androidx.core.ktx)
-  // implementation(libs.androidx.datastore.preferences)
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
@@ -157,4 +139,3 @@ dependencies {
   "ksp"(libs.androidx.room.compiler)
   "ksp"(libs.moshi.kotlin.codegen)
 }
-
