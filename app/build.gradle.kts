@@ -1,13 +1,26 @@
-import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
-
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.roborazzi)
   alias(libs.plugins.secrets)
-  alias(libs.plugins.google.services)
+  alias(libs.plugins.google.services) apply false
 }
+
+val hasGoogleServicesConfig = file("google-services.json").exists() ||
+  file("src/debug/google-services.json").exists() ||
+  file("src/release/google-services.json").exists()
+if (hasGoogleServicesConfig) {
+  apply(plugin = "com.google.gms.google-services")
+}
+
+val releaseSigningValues = listOf(
+  System.getenv("KEYSTORE_PATH"),
+  System.getenv("STORE_PASSWORD"),
+  System.getenv("KEY_ALIAS"),
+  System.getenv("KEY_PASSWORD")
+)
+val releaseSigningConfigured = releaseSigningValues.all { !it.isNullOrBlank() }
 
 android {
   namespace = "com.vvf.smartmanager"
@@ -23,16 +36,13 @@ android {
   }
 
   signingConfigs {
-    create("release") {
-      val keystorePath = System.getenv("KEYSTORE_PATH")
-        ?: throw GradleException("KEYSTORE_PATH is required for release builds")
-      storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD")
-        ?: throw GradleException("STORE_PASSWORD is required for release builds")
-      keyAlias = System.getenv("KEY_ALIAS")
-        ?: throw GradleException("KEY_ALIAS is required for release builds")
-      keyPassword = System.getenv("KEY_PASSWORD")
-        ?: throw GradleException("KEY_PASSWORD is required for release builds")
+    if (releaseSigningConfigured) {
+      create("release") {
+        storeFile = file(requireNotNull(System.getenv("KEYSTORE_PATH")))
+        storePassword = requireNotNull(System.getenv("STORE_PASSWORD"))
+        keyAlias = requireNotNull(System.getenv("KEY_ALIAS"))
+        keyPassword = requireNotNull(System.getenv("KEY_PASSWORD"))
+      }
     }
     create("debugConfig") {
       storeFile = file("${rootDir}/debug.keystore")
@@ -47,7 +57,9 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = signingConfigs.getByName("release")
+      if (releaseSigningConfigured) {
+        signingConfig = signingConfigs.getByName("release")
+      }
     }
     debug { signingConfig = signingConfigs.getByName("debugConfig") }
   }
@@ -66,13 +78,27 @@ android {
   }
 }
 
+tasks.register("verifyReleaseSigning") {
+  group = "verification"
+  description = "Verifies that production release signing credentials are configured."
+  doLast {
+    if (!releaseSigningConfigured) {
+      throw GradleException(
+        "Production release signing is not configured. Set KEYSTORE_PATH, STORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD."
+      )
+    }
+  }
+}
+
+tasks.matching { it.name == "assembleRelease" }.configureEach {
+  dependsOn("verifyReleaseSigning")
+}
+
 secrets {
   propertiesFileName = ".env"
   defaultPropertiesFileName = ".env.example"
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
 }
-
-googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
 
 dependencies {
   implementation(project(":core:common"))
