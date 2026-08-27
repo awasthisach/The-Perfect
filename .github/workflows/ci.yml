@@ -18,15 +18,10 @@ jobs:
           fetch-depth: 0
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '17'
           distribution: 'temurin'
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          validate-wrappers: true
 
       - name: Restore missing Gradle wrapper JAR
         if: ${{ !hashFiles('gradle/wrapper/gradle-wrapper.jar') }}
@@ -42,6 +37,11 @@ jobs:
           test -x ./gradlew
           test -s gradle/wrapper/gradle-wrapper.jar
           ./gradlew --version
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: true
 
       - name: Run Unit Tests across all modules
         run: ./gradlew testDebugUnitTest --continue --stacktrace
@@ -78,11 +78,10 @@ jobs:
         with:
           api-key: ${{ secrets.FOSSA_API_KEY }}
           run-tests: true
-        continue-on-error: true
 
   build_and_release:
     name: Build & Assemble Release
-    needs: [test_and_coverage]
+    needs: [test_and_coverage, license_compliance]
     runs-on: ubuntu-latest
 
     steps:
@@ -90,15 +89,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '17'
           distribution: 'temurin'
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          validate-wrappers: true
 
       - name: Restore missing Gradle wrapper JAR
         if: ${{ !hashFiles('gradle/wrapper/gradle-wrapper.jar') }}
@@ -115,6 +109,11 @@ jobs:
           test -s gradle/wrapper/gradle-wrapper.jar
           ./gradlew --version
 
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: true
+
       - name: Build All Modules and Assemble Release
         run: ./gradlew assembleRelease --stacktrace
 
@@ -123,4 +122,4 @@ jobs:
         with:
           name: vvf-smartmanager-release-apk
           path: "**/build/outputs/apk/release/*.apk"
-          if-no-files-found: ignore
+          if-no-files-found: error
