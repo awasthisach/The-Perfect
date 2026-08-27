@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ "main", "develop" ]
 
+env:
+  CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
 jobs:
   test_and_coverage:
     name: Unit Tests, JaCoCo Coverage & Codecov
@@ -37,24 +40,17 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           validate-wrappers: true
-      - name: Verify required Firebase configuration
-        run: |
-          test -f app/google-services.json || {
-            echo "ERROR: app/google-services.json is required for CI."
-            echo "Provide the environment-specific Firebase config through the repository's approved secret/configuration mechanism."
-            exit 1
-          }
       - name: Run Unit Tests across all modules
         run: ./gradlew testDebugUnitTest --continue --stacktrace
       - name: Upload Coverage to Codecov
-        if: always()
-        uses: codecov/codecov-action@v4
+        if: ${{ always() && env.CODECOV_TOKEN != '' }}
+        uses: codecov/codecov-action@v6
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+          token: ${{ env.CODECOV_TOKEN }}
           files: |
             **/build/reports/jacoco/**/*.xml
             **/build/reports/jacoco/testDebugUnitTestCoverage/testDebugUnitTestCoverage.xml
-          fail_ci_if_error: false
+          fail_ci_if_error: true
           verbose: true
       - name: Archive Test Reports
         if: always()
@@ -71,7 +67,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
       - name: Run FOSSA License Scan
-        uses: fossas/fossa-action@v1
+        uses: fossas/fossa-action@v2
         with:
           api-key: ${{ secrets.FOSSA_API_KEY }}
           run-tests: true
@@ -111,8 +107,24 @@ jobs:
             echo "ERROR: app/google-services.json is required for release CI."
             exit 1
           }
+      - name: Verify production signing configuration
+        run: |
+          test -n "$KEYSTORE_PATH" || { echo "ERROR: KEYSTORE_PATH is missing"; exit 1; }
+          test -n "$STORE_PASSWORD" || { echo "ERROR: STORE_PASSWORD is missing"; exit 1; }
+          test -n "$KEY_ALIAS" || { echo "ERROR: KEY_ALIAS is missing"; exit 1; }
+          test -n "$KEY_PASSWORD" || { echo "ERROR: KEY_PASSWORD is missing"; exit 1; }
+        env:
+          KEYSTORE_PATH: ${{ secrets.KEYSTORE_PATH }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
       - name: Build All Modules and Assemble Release
         run: ./gradlew assembleRelease --stacktrace
+        env:
+          KEYSTORE_PATH: ${{ secrets.KEYSTORE_PATH }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
       - name: Archive Release APK
         uses: actions/upload-artifact@v4
         with:
