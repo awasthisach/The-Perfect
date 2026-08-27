@@ -28,10 +28,26 @@ jobs:
         with:
           validate-wrappers: true
 
+      - name: Restore missing Gradle wrapper JAR
+        if: ${{ !hashFiles('gradle/wrapper/gradle-wrapper.jar') }}
+        run: |
+          mkdir -p gradle/wrapper
+          curl --fail --silent --show-error --location \
+            https://raw.githubusercontent.com/gradle/gradle/v9.3.1/gradle/wrapper/gradle-wrapper.jar \
+            --output gradle/wrapper/gradle-wrapper.jar
+          test -s gradle/wrapper/gradle-wrapper.jar
+
+      - name: Verify Gradle wrapper
+        run: |
+          test -x ./gradlew
+          test -s gradle/wrapper/gradle-wrapper.jar
+          ./gradlew --version
+
       - name: Run Unit Tests across all modules
         run: ./gradlew testDebugUnitTest --continue --stacktrace
 
       - name: Upload Coverage to Codecov
+        if: always()
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -62,7 +78,7 @@ jobs:
         with:
           api-key: ${{ secrets.FOSSA_API_KEY }}
           run-tests: true
-        continue-on-error: true # Allow PR builds to succeed even if token is not yet provisioned
+        continue-on-error: true
 
   build_and_release:
     name: Build & Assemble Release
@@ -83,6 +99,21 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           validate-wrappers: true
+
+      - name: Restore missing Gradle wrapper JAR
+        if: ${{ !hashFiles('gradle/wrapper/gradle-wrapper.jar') }}
+        run: |
+          mkdir -p gradle/wrapper
+          curl --fail --silent --show-error --location \
+            https://raw.githubusercontent.com/gradle/gradle/v9.3.1/gradle/wrapper/gradle-wrapper.jar \
+            --output gradle/wrapper/gradle-wrapper.jar
+          test -s gradle/wrapper/gradle-wrapper.jar
+
+      - name: Verify Gradle wrapper
+        run: |
+          test -x ./gradlew
+          test -s gradle/wrapper/gradle-wrapper.jar
+          ./gradlew --version
 
       - name: Build All Modules and Assemble Release
         run: ./gradlew assembleRelease --stacktrace
