@@ -29,9 +29,12 @@ jobs:
           gradle-version: '8.11.1'
           validate-wrappers: false
 
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew || true
+
       - name: Run Unit Tests across all modules
         run: |
-          gradle testDebugUnitTest --continue --stacktrace
+          ./gradlew testDebugUnitTest --continue --stacktrace || gradle testDebugUnitTest --continue --stacktrace
 
       - name: Upload Coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -99,9 +102,12 @@ jobs:
           gradle-version: '8.11.1'
           validate-wrappers: false
 
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew || true
+
       - name: Build All Modules and Assemble Release
         run: |
-          gradle assembleRelease --stacktrace
+          ./gradlew assembleRelease --stacktrace || gradle assembleRelease --stacktrace
 
       - name: Archive Release APK
         uses: actions/upload-artifact@v4
