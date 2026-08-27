@@ -69,20 +69,20 @@ jobs:
   license_compliance:
     name: FOSSA & Open Source License Compliance
     runs-on: ubuntu-latest
+    env:
+      FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
       - name: Run FOSSA License Scan
-        if: ${{ secrets.FOSSA_API_KEY != '' }}
+        if: ${{ env.FOSSA_API_KEY != '' }}
         uses: fossas/fossa-action@v2
         with:
-          api-key: ${{ secrets.FOSSA_API_KEY }}
+          api-key: ${{ env.FOSSA_API_KEY }}
           run-tests: true
-      - name: Report unavailable FOSSA credential
-        if: ${{ secrets.FOSSA_API_KEY == '' }}
-        run: |
-          echo "FOSSA_API_KEY is not available to this workflow; FOSSA scan was skipped."
-          echo "Add FOSSA_API_KEY as a repository Actions secret to enable the FOSSA gate."
+      - name: Report skipped FOSSA scan
+        if: ${{ env.FOSSA_API_KEY == '' }}
+        run: echo "FOSSA scan skipped because FOSSA_API_KEY is not available to this workflow run."
 
   build_and_release:
     name: Build & Assemble Release
