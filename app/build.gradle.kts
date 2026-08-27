@@ -61,7 +61,10 @@ android {
         signingConfig = signingConfigs.getByName("release")
       }
     }
-    debug { signingConfig = signingConfigs.getByName("debugConfig") }
+    debug {
+      signingConfig = signingConfigs.getByName("debugConfig")
+      enableUnitTestCoverage = true
+    }
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11
