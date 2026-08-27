@@ -73,10 +73,16 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v6
       - name: Run FOSSA License Scan
+        if: ${{ secrets.FOSSA_API_KEY != '' }}
         uses: fossas/fossa-action@v2
         with:
           api-key: ${{ secrets.FOSSA_API_KEY }}
           run-tests: true
+      - name: Report unavailable FOSSA credential
+        if: ${{ secrets.FOSSA_API_KEY == '' }}
+        run: |
+          echo "FOSSA_API_KEY is not available to this workflow; FOSSA scan was skipped."
+          echo "Add FOSSA_API_KEY as a repository Actions secret to enable the FOSSA gate."
 
   build_and_release:
     name: Build & Assemble Release
