@@ -1,27 +1,33 @@
-# Google Drive real API setup
+# Google Drive (production)
 
-## What is in the repo now
+## Architecture
 
-- `DriveApi` + `DriveNetwork` — Retrofit client for Drive REST v3
-- `GoogleDriveServiceImpl` — still uses offline/simulated auth until OAuth client is configured
+- `DriveApi` — Retrofit interface for Drive v3 (`files`, `about`, multipart upload, media download).
+- `DriveNetwork` — OkHttp + Moshi; optional default Bearer via `setDefaultAccessToken`.
+- `GoogleDriveServiceImpl` — production service: **no simulated files**. Requires OAuth access token.
 
-## Required secrets (never commit)
+## Wire OAuth (app module)
 
-1. Google Cloud Console → OAuth 2.0 Client ID (Android + optional Web for Credential Manager)
-2. Restrict API key / enable **Google Drive API**
-3. Put client id in local `.env` / CI secret, e.g.:
+1. Create OAuth client in Google Cloud Console (Android package + SHA-1).
+2. Use Credential Manager / Google Identity Services to obtain an access token with scope:
+   - `https://www.googleapis.com/auth/drive.file` (recommended minimum), or
+   - `https://www.googleapis.com/auth/drive` (full Drive — justify for Play review).
+3. After sign-in:
 
+```kotlin
+val drive = (application as VVFApplication).googleDriveService as GoogleDriveServiceImpl
+drive.setAccessToken(accessToken)
+drive.authenticate() // verifies token via about.storageQuota
 ```
-GOOGLE_WEB_CLIENT_ID=xxxxx.apps.googleusercontent.com
-```
 
-## Production path
+4. On sign-out: `drive.disconnect()`.
 
-1. Credential Manager → Google ID token / access token
-2. Pass `Authorization: Bearer <access_token>` into `DriveApi`
-3. Replace simulated delays in `GoogleDriveServiceImpl` with `DriveApi` calls
-4. Rotate any leaked keys from secret scanning (see Security tab)
+## Secrets
+
+- Never commit OAuth client secrets or refresh tokens.
+- Do not log Authorization headers (logging stays at NONE / BASIC only).
+- Rotate any keys previously leaked in `google-services.json` (Secret Scanning).
 
 ## CI
 
-Release APK builds without real OAuth. Connect flow requires a device/emulator with Play Services and a valid client id.
+Unit tests do not call live Drive. Integration tests need a test token injected via secrets (optional future job).

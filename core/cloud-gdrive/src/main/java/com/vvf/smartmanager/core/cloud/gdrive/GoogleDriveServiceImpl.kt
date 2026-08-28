@@ -2,139 +2,192 @@ package com.vvf.smartmanager.core.cloud.gdrive
 
 import android.content.Context
 import com.vvf.smartmanager.core.model.CloudAccount
-import com.vvf.smartmanager.core.model.CloudBackupInfo
 import com.vvf.smartmanager.core.model.CloudProviderType
-import com.vvf.smartmanager.core.model.FileCategory
 import com.vvf.smartmanager.core.model.FileItem
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
+import java.time.Instant
 
 /**
- * Concrete production-ready implementation of GoogleDriveService.
- * Uses REST API endpoints and CredentialManager credentials for Google Drive v3 API.
+ * Google Drive v3 REST implementation.
+ *
+ * Production path: call [setAccessToken] after OAuth / Credential Manager, then use list/upload/download.
+ * Without a token, operations fail with a clear error (no simulated cloud data).
  */
 class GoogleDriveServiceImpl(
-    private val context: Context
+    private val context: Context,
+    private val driveApi: DriveApi = DriveNetwork.createApi()
 ) : GoogleDriveService {
+
+    @Volatile
+    private var accessToken: String? = null
 
     private var currentAccount: CloudAccount = CloudAccount(
         providerType = CloudProviderType.GOOGLE_DRIVE,
         accountEmail = "",
-        displayName = "Google Drive (Offline)",
+        displayName = "Google Drive",
         isConnected = false,
         usedBytes = 0L,
-        totalBytes = 15L * 1024 * 1024 * 1024 // 15 GB default Drive quota
+        totalBytes = 0L
     )
+
+    /**
+ * Stores the OAuth access token used for Drive REST calls.
+ * Prefer short-lived tokens; clear with null on sign-out.
+ */
+    fun setAccessToken(token: String?) {
+        accessToken = token
+        DriveNetwork.setDefaultAccessToken(token)
+        if (token.isNullOrBlank()) {
+            currentAccount = currentAccount.copy(isConnected = false, accountEmail = "", displayName = "Google Drive")
+        }
+    }
+
+    private fun bearer(): String {
+        val t = accessToken
+        if (t.isNullOrBlank()) {
+            throw IllegalStateException(
+                "Google Drive not authenticated. Complete OAuth / Credential Manager and call setAccessToken()."
+            )
+        }
+        return "Bearer $t"
+    }
 
     override suspend fun authenticate(): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            // Simulated real token exchange with Play Services Credential Manager / Drive REST v3
-            delay(600)
+            if (accessToken.isNullOrBlank()) {
+                return@withContext Result.failure(
+                    IllegalStateException(
+                        "No access token. Wire Google Sign-In / Credential Manager and call setAccessToken(token)."
+                    )
+                )
+            }
+            val about = driveApi.about(bearer())
+            val usage = about.storageQuota?.usage?.toLongOrNull() ?: 0L
+            val limit = about.storageQuota?.limit?.toLongOrNull() ?: 0L
             currentAccount = currentAccount.copy(
-                accountEmail = "user.vvf@gmail.com",
-                displayName = "VVF Smart Cloud User",
                 isConnected = true,
-                usedBytes = 4L * 1024 * 1024 * 1024 + 500 * 1024 * 1024, // 4.5 GB used
-                totalBytes = 15L * 1024 * 1024 * 1024,
+                usedBytes = usage,
+                totalBytes = limit,
                 lastSyncTimestamp = System.currentTimeMillis()
             )
             Result.success(true)
         } catch (e: Exception) {
+            currentAccount = currentAccount.copy(isConnected = false)
             Result.failure(e)
         }
     }
 
     override suspend fun listDriveFiles(folderId: String): Result<List<FileItem>> = withContext(Dispatchers.IO) {
         try {
-            if (!currentAccount.isConnected) {
-                return@withContext Result.failure(IllegalStateException("Google Drive not connected"))
-            }
-            delay(400)
-            // Simulated listing of Drive files
-            val driveItems = listOf(
+            val parent = folderId.ifBlank { "root" }
+            val q = "'$parent' in parents and trashed = false"
+            val response = driveApi.listFiles(bearer = bearer(), query = q)
+            val items = response.files.map { dto ->
                 FileItem(
-                    path = "gdrive://root/VVF_Backup_Snapshot_2026.vvfbak",
-                    name = "VVF_Backup_Snapshot_2026.vvfbak",
-                    sizeBytes = 14 * 1024 * 1024L,
-                    lastModified = System.currentTimeMillis() - 86400000L,
-                    isDirectory = false,
-                    mimeType = "application/octet-stream"
-                ),
-                FileItem(
-                    path = "gdrive://root/Work_Financial_Audit.pdf",
-                    name = "Work_Financial_Audit.pdf",
-                    sizeBytes = 3 * 1024 * 1024L,
-                    lastModified = System.currentTimeMillis() - 172800000L,
-                    isDirectory = false,
-                    mimeType = "application/pdf"
-                ),
-                FileItem(
-                    path = "gdrive://root/SmartManager_Vault_Encrypted_Backup.enc",
-                    name = "SmartManager_Vault_Encrypted_Backup.enc",
-                    sizeBytes = 45 * 1024 * 1024L,
-                    lastModified = System.currentTimeMillis() - 3600000L,
-                    isDirectory = false,
-                    mimeType = "application/octet-stream"
+                    path = "gdrive://${dto.id.orEmpty()}",
+                    name = dto.name.orEmpty(),
+                    sizeBytes = dto.size?.toLongOrNull() ?: 0L,
+                    lastModified = parseDriveTime(dto.modifiedTime),
+                    isDirectory = dto.mimeType == "application/vnd.google-apps.folder",
+                    mimeType = dto.mimeType.orEmpty()
                 )
-            )
-            Result.success(driveItems)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    override suspend fun uploadFile(localFile: FileItem, remoteFolderId: String): Result<String> = withContext(Dispatchers.IO) {
-        try {
-            if (!currentAccount.isConnected) {
-                return@withContext Result.failure(IllegalStateException("Google Drive not connected"))
             }
-            delay(500)
-            val generatedRemoteId = "gdrive_file_${System.currentTimeMillis()}"
             currentAccount = currentAccount.copy(
-                usedBytes = currentAccount.usedBytes + localFile.sizeBytes,
+                isConnected = true,
                 lastSyncTimestamp = System.currentTimeMillis()
             )
-            Result.success(generatedRemoteId)
+            Result.success(items)
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    override suspend fun downloadFile(fileId: String, destinationPath: String): Result<Boolean> = withContext(Dispatchers.IO) {
-        try {
-            if (!currentAccount.isConnected) {
-                return@withContext Result.failure(IllegalStateException("Google Drive not connected"))
+    override suspend fun uploadFile(localFile: FileItem, remoteFolderId: String): Result<String> =
+        withContext(Dispatchers.IO) {
+            try {
+                val path = localFile.path
+                val file = File(path)
+                if (!file.exists() || !file.isFile) {
+                    return@withContext Result.failure(IllegalArgumentException("Local file not found: $path"))
+                }
+                val parent = remoteFolderId.ifBlank { "root" }
+                val metadataJson =
+                    """{"name":"${file.name.replace("\"", "\\\"")}","parents":["$parent"]}"""
+                val metadataBody = metadataJson.toRequestBody("application/json; charset=UTF-8".toMediaType())
+                val fileBody = file.asRequestBody(
+                    (localFile.mimeType.ifBlank { "application/octet-stream" }).toMediaType()
+                )
+                val part = MultipartBody.Part.createFormData("file", file.name, fileBody)
+                val uploaded = driveApi.uploadFile(bearer(), metadataBody, part)
+                val id = uploaded.id
+                    ?: return@withContext Result.failure(IllegalStateException("Upload succeeded but no file id returned"))
+                currentAccount = currentAccount.copy(
+                    usedBytes = currentAccount.usedBytes + file.length(),
+                    lastSyncTimestamp = System.currentTimeMillis()
+                )
+                Result.success(id)
+            } catch (e: Exception) {
+                Result.failure(e)
             }
-            delay(600)
-            val dest = File(destinationPath)
-            if (!dest.exists()) {
-                dest.parentFile?.mkdirs()
-                dest.createNewFile()
-            }
-            Result.success(true)
-        } catch (e: Exception) {
-            Result.failure(e)
         }
-    }
+
+    override suspend fun downloadFile(fileId: String, destinationPath: String): Result<Boolean> =
+        withContext(Dispatchers.IO) {
+            try {
+                val body = driveApi.downloadFile(bearer(), fileId)
+                val dest = File(destinationPath)
+                dest.parentFile?.mkdirs()
+                body.byteStream().use { input ->
+                    dest.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                Result.success(true)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
 
     override suspend fun getStorageQuota(): Result<Pair<Long, Long>> = withContext(Dispatchers.IO) {
-        if (currentAccount.isConnected) {
-            Result.success(Pair(currentAccount.usedBytes, currentAccount.totalBytes))
-        } else {
-            Result.failure(IllegalStateException("Google Drive not authenticated"))
+        try {
+            val about = driveApi.about(bearer())
+            val usage = about.storageQuota?.usage?.toLongOrNull() ?: 0L
+            val limit = about.storageQuota?.limit?.toLongOrNull() ?: 0L
+            currentAccount = currentAccount.copy(
+                isConnected = true,
+                usedBytes = usage,
+                totalBytes = limit
+            )
+            Result.success(Pair(usage, limit))
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 
     fun getAccountInfo(): CloudAccount = currentAccount
 
     fun disconnect() {
+        setAccessToken(null)
         currentAccount = CloudAccount(
             providerType = CloudProviderType.GOOGLE_DRIVE,
             isConnected = false,
             usedBytes = 0L,
-            totalBytes = 15L * 1024 * 1024 * 1024
+            totalBytes = 0L
         )
+    }
+
+    private fun parseDriveTime(iso: String?): Long {
+        if (iso.isNullOrBlank()) return 0L
+        return try {
+            Instant.parse(iso).toEpochMilli()
+        } catch (_: Exception) {
+            0L
+        }
     }
 }
