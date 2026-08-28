@@ -2,13 +2,19 @@ package com.vvf.smartmanager
 
 import android.app.Application
 import android.util.Log
+import com.vvf.smartmanager.core.background.BackgroundSyncManager
+import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
+import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveServiceImpl
 import com.vvf.smartmanager.core.data.repository.OfflineFileManagerRepository
 import com.vvf.smartmanager.core.data.repository.OfflineSearchRepository
 import com.vvf.smartmanager.core.data.repository.SecureVaultRepository
 import com.vvf.smartmanager.core.data.storage.StorageManager
 import com.vvf.smartmanager.core.database.VVFDatabase
 import com.vvf.smartmanager.core.domain.AiIntelligenceUseCase
+import com.vvf.smartmanager.core.domain.CloudSyncUseCase
+import com.vvf.smartmanager.core.domain.DeleteVaultItemUseCase
 import com.vvf.smartmanager.core.domain.DuplicateCleanerUseCase
+import com.vvf.smartmanager.core.domain.ExportVaultItemUseCase
 import com.vvf.smartmanager.core.domain.ExtractTextUseCase
 import com.vvf.smartmanager.core.domain.FileOperationsUseCase
 import com.vvf.smartmanager.core.domain.GetCategorizedFilesUseCase
@@ -22,28 +28,23 @@ import com.vvf.smartmanager.core.domain.OcrIndexingService
 import com.vvf.smartmanager.core.domain.RecycleBinUseCase
 import com.vvf.smartmanager.core.domain.RestoreVaultItemUseCase
 import com.vvf.smartmanager.core.domain.SaveOcrTextUseCase
-import com.vvf.smartmanager.core.domain.ExportVaultItemUseCase
-import com.vvf.smartmanager.core.domain.DeleteVaultItemUseCase
 import com.vvf.smartmanager.core.domain.SearchFilesUseCase
 import com.vvf.smartmanager.core.domain.SearchHistoryUseCase
 import com.vvf.smartmanager.core.domain.SemanticSearchUseCase
 import com.vvf.smartmanager.core.domain.TagManagementUseCase
 import com.vvf.smartmanager.core.domain.VaultAuthUseCase
+import com.vvf.smartmanager.core.model.CloudProviderType
 import com.vvf.smartmanager.core.plugin.spi.ISemanticSearchEngine
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
-import com.vvf.smartmanager.plugin.ocr.OcrEnginePlugin
-import com.vvf.smartmanager.plugin.ocr.OcrPluginImpl
-import com.vvf.smartmanager.plugin.semanticsearch.SemanticSearchPluginImpl
-import com.vvf.smartmanager.core.background.BackgroundSyncManager
-import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
-import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveServiceImpl
-import com.vvf.smartmanager.core.domain.CloudSyncUseCase
-import com.vvf.smartmanager.core.model.CloudProviderType
 import com.vvf.smartmanager.plugin.clouddrivers.DropboxDriverImpl
 import com.vvf.smartmanager.plugin.clouddrivers.LocalNasDriverImpl
 import com.vvf.smartmanager.plugin.clouddrivers.NextCloudDriverImpl
 import com.vvf.smartmanager.plugin.clouddrivers.OneDriveDriverImpl
 import com.vvf.smartmanager.plugin.clouddrivers.S3StorageDriverImpl
+import com.vvf.smartmanager.plugin.ocr.OcrEnginePlugin
+import com.vvf.smartmanager.plugin.ocr.OcrPluginImpl
+import com.vvf.smartmanager.plugin.semanticsearch.SemanticSearchPluginImpl
+import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -51,8 +52,14 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * Root Application entry point for VVF Smart Manager with manual DI container.
+ * Root Application entry point.
+ *
+ * Hilt Phase A: [@HiltAndroidApp] generates the application component.
+ * Manual DI graph below remains the runtime source of truth until Phase C
+ * migrates ViewModels to [@dagger.hilt.android.lifecycle.HiltViewModel].
+ * See docs/HILT_MIGRATION.md.
  */
+@HiltAndroidApp
 class VVFApplication : Application() {
 
     lateinit var cryptoSecurityManager: CryptoSecurityManager
@@ -76,7 +83,6 @@ class VVFApplication : Application() {
     lateinit var backgroundSyncManager: BackgroundSyncManager
         private set
 
-    // Domain UseCases & Services
     lateinit var getStorageOverviewUseCase: GetStorageOverviewUseCase
         private set
     lateinit var getDirectoryFilesUseCase: GetDirectoryFilesUseCase
@@ -154,8 +160,6 @@ class VVFApplication : Application() {
         database = try {
             VVFDatabase.buildEncryptedDatabase(this, passphrase)
         } catch (e: UnsatisfiedLinkError) {
-            // Production must never fall back to plaintext in-memory DB.
-            // Only allow in-memory when running under known test runners (Robolectric).
             val isTestEnv = try {
                 Class.forName("org.robolectric.Robolectric") != null
             } catch (_: ClassNotFoundException) {
@@ -203,7 +207,6 @@ class VVFApplication : Application() {
 
         ocrPlugin = OcrPluginImpl(this)
 
-        // Initialize UseCases
         getStorageOverviewUseCase = GetStorageOverviewUseCase(fileManagerRepository)
         getDirectoryFilesUseCase = GetDirectoryFilesUseCase(fileManagerRepository)
         getCategorizedFilesUseCase = GetCategorizedFilesUseCase(fileManagerRepository)

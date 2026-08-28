@@ -4,6 +4,7 @@ plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.google.devtools.ksp)
+  alias(libs.plugins.hilt)
   alias(libs.plugins.roborazzi)
   alias(libs.plugins.secrets)
   alias(libs.plugins.google.services)
@@ -46,7 +47,6 @@ android {
       isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       val customKeystore = file(System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks")
-      // Prefer release keystore when present; otherwise fall back to debug signing so CI can still assemble.
       signingConfig = if (customKeystore.exists()) {
         signingConfigs.getByName("release")
       } else {
@@ -70,8 +70,6 @@ android {
   }
 }
 
-// Configure the Secrets Gradle Plugin to use .env and .env.example files
-// to match the convention used in Web projects.
 secrets {
   propertiesFileName = ".env"
   defaultPropertiesFileName = ".env.example"
@@ -81,7 +79,6 @@ secrets {
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
 
 dependencies {
-  // Core module dependencies
   implementation(project(":core:common"))
   implementation(project(":core:model"))
   implementation(project(":core:security"))
@@ -92,7 +89,6 @@ dependencies {
   implementation(project(":core:cloud-gdrive"))
   implementation(project(":core:plugin-spi"))
 
-  // Feature module dependencies
   implementation(project(":feature:explorer"))
   implementation(project(":feature:vault"))
   implementation(project(":feature:cleaner"))
@@ -101,7 +97,6 @@ dependencies {
   implementation(project(":feature:settings"))
   implementation(project(":feature:plugins"))
 
-  // Dynamic Plugin placeholders
   implementation(project(":plugins:plugin-ocr"))
   implementation(project(":plugins:plugin-semantic-search"))
   implementation(project(":plugins:plugin-cloud-drivers"))
@@ -132,6 +127,12 @@ dependencies {
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
   implementation(libs.retrofit)
+
+  // Hilt (Phase A foundation — manual DI still active in VVFApplication)
+  implementation(libs.hilt.android)
+  implementation(libs.androidx.hilt.navigation.compose)
+  "ksp"(libs.hilt.compiler)
+
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
