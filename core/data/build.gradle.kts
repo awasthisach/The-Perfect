@@ -5,7 +5,7 @@ plugins {
 
 android {
   namespace = "com.vvf.smartmanager.core.data"
-  compileSdk { version = release(36) { minorApiLevel = 1 } }
+  compileSdk = 36
 
   defaultConfig {
     minSdk = 24

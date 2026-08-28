@@ -1,24 +1,33 @@
-# VVF Smart Manager — Security & Privacy Whitepaper
+# VVF Smart Manager — Security Whitepaper
 
-## 1. Zero-Knowledge Architecture & Privacy Guarantees
-VVF Smart Manager is designed with an **Offline-First & Zero-Knowledge** security posture:
-- **No Telemetry / No Tracking**: No user files, filenames, search queries, or biometric credentials are ever sent to remote tracking servers.
-- **On-Device AI Inference**: All OCR text recognition and TensorFlow Lite semantic vector embeddings execute 100% locally on the user's device without cloud dependencies.
-- **Standalone Integrity**: The application remains fully functional even in total airplane/offline mode.
+## Zero-Knowledge Architecture
 
----
+- Database passphrase is generated on-device (256-bit), encrypted with Android Keystore (AES-256-GCM), and never leaves the device.
+- Vault files are streamed with AES-256-GCM; plaintext is never written to disk.
+- PIN is hardened with **PBKDF2-HMAC-SHA256 at 600,000 iterations** (OWASP 2023 recommended minimum).
+- Decoy / plausible-deniability PIN supported.
+- `android:allowBackup="false"` — no cloud backup of app data.
 
-## 2. Cryptographic Specifications
+## Cryptography
 
-### A. Secure Vault (`:core:security` & `:feature:vault`)
-- **Cipher Algorithm**: `AES/GCM/NoPadding` (256-bit encryption key).
-- **Key Derivation**: 100,000 rounds of `PBKDF2WithHmacSHA256` with a secure random 32-byte salt (`SecureRandom`).
-- **Initialization Vector (IV)**: Fresh 12-byte cryptographically secure random nonce generated per encrypted file item.
-- **Storage Isolation**: Encrypted files are stored inside the protected `context.filesDir` sandbox with randomized `.vvfvault` extensions, preventing any third-party app access.
-- **Hardware-Backed Protection**: Android Keystore integration protects master keys using hardware security modules (TEE / StrongBox) when available.
+| Asset | Algorithm | Notes |
+|-------|-----------|-------|
+| SQLCipher DB | AES-256 (SQLCipher) + Keystore-wrapped passphrase | Hardware-backed when available |
+| Vault files | AES-256-GCM streaming (64 KB buffers) | IV prepended |
+| PIN | PBKDF2-HMAC-SHA256, 600,000 iterations, 256-bit | Salt + Keystore-encrypted hash |
+| Master keys | Android Keystore AES-256-GCM | User-auth gated for vault content key |
 
-### B. Database Encryption (SQLCipher)
-- SQLite database tables storing file metadata, vault items, and tags are encrypted using SQLCipher 4.5+ AES-256-CBC.
+## Biometrics
 
-### C. Biometric Authentication
-- Biometric authentication leverages AndroidX `BiometricPrompt` with `BIOMETRIC_STRONG` crypto objects to protect against PIN brute-force attempts and enforce rate-limiting.
+Vault content key may require `BIOMETRIC_STRONG` or device credential (API 30+).
+Devices without strong biometrics can still unlock with PIN.
+
+## Network / Telemetry
+
+- Core vault and file manager operate fully offline.
+- Optional cloud drivers and Firebase AI require explicit user action and network.
+- No automatic telemetry of vault contents.
+
+## Known migration note
+
+PIN hashes created before the 600k-iteration upgrade must be re-set by the user after update.
