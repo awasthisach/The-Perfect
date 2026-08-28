@@ -1,0 +1,75 @@
+name: Bootstrap Gradle Wrapper
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - "gradle/wrapper/gradle-wrapper.properties"
+      - ".github/workflows/bootstrap-wrapper.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bootstrap-wrapper
+  cancel-in-progress: true
+
+jobs:
+  commit-wrapper-jar:
+    name: Generate & commit gradle-wrapper.jar
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Skip if jar already present
+        id: check
+        run: |
+          if [ -f gradle/wrapper/gradle-wrapper.jar ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "gradle-wrapper.jar already in repo — nothing to do."
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "gradle-wrapper.jar MISSING — will generate and commit."
+          fi
+
+      - name: Set up JDK 17
+        if: steps.check.outputs.present == 'false'
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Setup Gradle (system, not wrapper)
+        if: steps.check.outputs.present == 'false'
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.3.1"
+          validate-wrappers: false
+
+      - name: Generate wrapper (creates gradle-wrapper.jar)
+        if: steps.check.outputs.present == 'false'
+        run: |
+          gradle wrapper --gradle-version 9.3.1 --distribution-type bin
+          test -f gradle/wrapper/gradle-wrapper.jar
+          ls -la gradle/wrapper/
+          file gradle/wrapper/gradle-wrapper.jar
+
+      - name: Commit and push gradle-wrapper.jar
+        if: steps.check.outputs.present == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f gradle/wrapper/gradle-wrapper.jar
+          # Also keep properties/scripts consistent if gradle wrapper rewrote them
+          git add gradle/wrapper/gradle-wrapper.properties gradlew gradlew.bat || true
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "chore: add gradle-wrapper.jar (Gradle 9.3.1)"
+          git push
