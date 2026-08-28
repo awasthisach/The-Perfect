@@ -80,6 +80,12 @@ class SecureVaultRepository(
             "Source file does not exist or is a directory: ${sourceFile.absolutePath}"
         }
 
+        val canonicalSource = sourceFile.canonicalFile
+        val canonicalVault = vaultDirectory.canonicalFile
+        require(!canonicalSource.canonicalPath.startsWith(canonicalVault.canonicalPath)) {
+            "Source file cannot already be inside the vault directory: ${sourceFile.absolutePath}"
+        }
+
         if (!vaultDirectory.exists()) {
             vaultDirectory.mkdirs()
         }
@@ -179,6 +185,12 @@ class SecureVaultRepository(
             val parent = originalFile.parentFile
             if (parent != null && !parent.exists()) parent.mkdirs()
             originalFile
+        }
+
+        val targetCanonical = targetFile.canonicalFile
+        val canonicalVault = vaultDirectory.canonicalFile
+        require(!targetCanonical.canonicalPath.startsWith(canonicalVault.canonicalPath)) {
+            "Restore destination cannot be inside the isolated secure vault directory"
         }
 
         // Decrypt AES-256-GCM stream

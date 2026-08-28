@@ -2,6 +2,7 @@
 .gradle
 .kotlin
 /local.properties
+local.properties
 /.idea/caches
 /.idea/libraries
 /.idea/modules.xml
@@ -10,9 +11,17 @@
 /.idea/assetWizardSettings.xml
 .DS_Store
 /build
+**/build/
 /captures
 .externalNativeBuild
 .cxx
-local.properties
 .env
-debug.keystore
+.env.local
+*.keystore
+!debug.keystore
+!debug.keystore.base64
+*.bin
+__pycache__/
+*.py[cod]
+*$py.class
+*.log

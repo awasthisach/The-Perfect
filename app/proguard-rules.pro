@@ -56,5 +56,6 @@
 # VVF Smart Manager Models & SPI
 -keep class com.vvf.smartmanager.core.model.** { *; }
 -keep class com.vvf.smartmanager.core.plugin.spi.** { *; }
+-keep class com.vvf.smartmanager.core.database.model.** { *; }
 -keep class com.vvf.smartmanager.core.database.entity.** { *; }
 

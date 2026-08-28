@@ -49,6 +49,41 @@ class StorageManager(
         dir
     }
 
+    fun getAllowedStorageRoots(): List<File> {
+        val roots = mutableListOf<File>()
+        try {
+            context.filesDir?.let { roots.add(it.canonicalFile) }
+            context.cacheDir?.let { roots.add(it.canonicalFile) }
+            context.getExternalFilesDirs(null)?.filterNotNull()?.forEach { roots.add(it.canonicalFile) }
+            context.getExternalCacheDirs()?.filterNotNull()?.forEach { roots.add(it.canonicalFile) }
+            val extStorage = Environment.getExternalStorageDirectory()
+            if (extStorage != null) {
+                roots.add(extStorage.canonicalFile)
+            }
+        } catch (_: Exception) {}
+        return roots
+    }
+
+    fun requireAllowedPhysicalPath(path: String): File {
+        require(path.isNotBlank()) { "Physical path cannot be blank" }
+        val candidate = File(path).canonicalFile
+        val allowedRoots = getAllowedStorageRoots()
+        val isAllowed = allowedRoots.isEmpty() || allowedRoots.any { root ->
+            candidate.absolutePath == root.absolutePath || candidate.absolutePath.startsWith(root.absolutePath + File.separator)
+        }
+        require(isAllowed) { "Access denied: Path '$path' is outside approved storage boundaries" }
+        return candidate
+    }
+
+    fun isAllowedPhysicalPath(path: String): Boolean {
+        return try {
+            requireAllowedPhysicalPath(path)
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     fun getPrimaryStoragePath(): String {
         return try {
             val extDir = Environment.getExternalStorageDirectory()
@@ -338,9 +373,9 @@ class StorageManager(
 
     suspend fun createDirectory(parentPath: String, directoryName: String): Result<FileItem> = withContext(Dispatchers.IO) {
         try {
-            val parent = File(parentPath)
+            val parent = requireAllowedPhysicalPath(parentPath)
             if (!parent.exists()) parent.mkdirs()
-            val newDir = File(parent, directoryName)
+            val newDir = requireAllowedPhysicalPath(File(parent, directoryName).absolutePath)
             if (newDir.exists()) {
                 return@withContext Result.failure(IllegalArgumentException("Folder already exists with name '$directoryName'"))
             }
@@ -377,9 +412,9 @@ class StorageManager(
 
     suspend fun createFile(parentPath: String, fileName: String, content: ByteArray): Result<FileItem> = withContext(Dispatchers.IO) {
         try {
-            val parent = File(parentPath)
+            val parent = requireAllowedPhysicalPath(parentPath)
             if (!parent.exists()) parent.mkdirs()
-            val newFile = File(parent, fileName)
+            val newFile = requireAllowedPhysicalPath(File(parent, fileName).absolutePath)
             FileOutputStream(newFile).use { it.write(content) }
             val item = FileItem(
                 path = newFile.absolutePath,
@@ -408,12 +443,12 @@ class StorageManager(
 
     suspend fun rename(oldPath: String, newName: String): Result<FileItem> = withContext(Dispatchers.IO) {
         try {
-            val oldFile = File(oldPath)
+            val oldFile = requireAllowedPhysicalPath(oldPath)
             if (!oldFile.exists()) {
                 return@withContext Result.failure(IllegalArgumentException("File not found at $oldPath"))
             }
             val parent = oldFile.parentFile ?: return@withContext Result.failure(IllegalStateException("No parent directory"))
-            val targetFile = File(parent, newName)
+            val targetFile = requireAllowedPhysicalPath(File(parent, newName).absolutePath)
             if (targetFile.exists()) {
                 return@withContext Result.failure(IllegalArgumentException("A file with name '$newName' already exists"))
             }
@@ -454,14 +489,14 @@ class StorageManager(
         onProgress: ((FileOperationProgress) -> Unit)? = null
     ): Result<Int> = withContext(Dispatchers.IO) {
         try {
-            val destDir = File(destinationDirectory)
+            val destDir = requireAllowedPhysicalPath(destinationDirectory)
             if (!destDir.exists()) destDir.mkdirs()
 
             var count = 0
             val total = sourcePaths.size
 
             for ((index, srcPath) in sourcePaths.withIndex()) {
-                val src = File(srcPath)
+                val src = requireAllowedPhysicalPath(srcPath)
                 if (!src.exists()) continue
 
                 val dest = getUniqueDestinationFile(destDir, src.name)
@@ -528,14 +563,14 @@ class StorageManager(
         onProgress: ((FileOperationProgress) -> Unit)? = null
     ): Result<Int> = withContext(Dispatchers.IO) {
         try {
-            val destDir = File(destinationDirectory)
+            val destDir = requireAllowedPhysicalPath(destinationDirectory)
             if (!destDir.exists()) destDir.mkdirs()
 
             var count = 0
             val total = sourcePaths.size
 
             for ((index, srcPath) in sourcePaths.withIndex()) {
-                val src = File(srcPath)
+                val src = requireAllowedPhysicalPath(srcPath)
                 if (!src.exists()) continue
 
                 val dest = getUniqueDestinationFile(destDir, src.name)
@@ -604,7 +639,7 @@ class StorageManager(
 
     fun deleteSafely(path: String): Result<Boolean> {
         return try {
-            val f = File(path)
+            val f = requireAllowedPhysicalPath(path)
             if (f.exists() && f.canWrite()) {
                 val deleted = if (f.isDirectory) f.deleteRecursively() else f.delete()
                 if (deleted) Result.success(true) else Result.failure(Exception("Failed to delete"))
@@ -620,7 +655,7 @@ class StorageManager(
         try {
             var count = 0
             for (path in paths) {
-                val file = File(path)
+                val file = requireAllowedPhysicalPath(path)
                 if (file.exists()) {
                     if (file.isDirectory) file.deleteRecursively() else file.delete()
                 }
@@ -643,7 +678,7 @@ class StorageManager(
             val timestamp = System.currentTimeMillis()
 
             for (path in paths) {
-                val src = File(path)
+                val src = requireAllowedPhysicalPath(path)
                 if (!src.exists()) continue
 
                 val trashId = UUID.randomUUID().toString().take(8)
@@ -693,10 +728,10 @@ class StorageManager(
         try {
             var count = 0
             for (trashPath in trashPaths) {
-                val trashFile = File(trashPath)
+                val trashFile = requireAllowedPhysicalPath(trashPath)
                 val entity = fileDao.getByPath(trashPath)
                 val originalPath = entity?.originalPath ?: continue
-                val targetFile = File(originalPath)
+                val targetFile = requireAllowedPhysicalPath(originalPath)
 
                 val parent = targetFile.parentFile
                 if (parent != null && !parent.exists()) parent.mkdirs()
