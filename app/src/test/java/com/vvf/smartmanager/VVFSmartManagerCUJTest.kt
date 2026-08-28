@@ -10,6 +10,7 @@ import com.vvf.smartmanager.core.model.DerivedIndexStatus
 import com.vvf.smartmanager.core.model.DurableOperationState
 import com.vvf.smartmanager.core.model.FileItem
 import com.vvf.smartmanager.core.model.SemanticIndexRecord
+import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -289,6 +290,34 @@ class VVFSmartManagerCUJTest {
 
         val illegalDeleteResult = storageManager.deleteSafely(disallowedPath)
         assertTrue("Disallowed path mutation must fail", illegalDeleteResult.isFailure)
+    }
+
+    @Test
+    fun cuj11_vaultPinLifecycleAndDecoyIsolation() {
+        val cryptoManager = CryptoSecurityManager(context, "InUnitTestMemory")
+
+        // 1. Setup real PIN and decoy PIN
+        assertTrue(cryptoManager.setupVaultPin("123456"))
+        assertTrue(cryptoManager.setupDecoyPin("654321"))
+
+        // 2. Verify real PIN returns SUCCESS_REAL
+        val realAuth = cryptoManager.verifyVaultPinWithResult("123456")
+        assertEquals(CryptoSecurityManager.VaultAuthResult.SUCCESS_REAL, realAuth)
+        assertTrue(cryptoManager.verifyVaultPin("123456"))
+
+        // 3. Verify decoy PIN returns SUCCESS_DECOY
+        val decoyAuth = cryptoManager.verifyVaultPinWithResult("654321")
+        assertEquals(CryptoSecurityManager.VaultAuthResult.SUCCESS_DECOY, decoyAuth)
+        assertTrue(cryptoManager.verifyDecoyPin("654321"))
+
+        // 4. Invalid PIN returns INVALID_PIN
+        val invalidAuth = cryptoManager.verifyVaultPinWithResult("000000")
+        assertTrue(invalidAuth is CryptoSecurityManager.VaultAuthResult.INVALID_PIN)
+
+        // 5. Buffer wipe test
+        val secretBytes = byteArrayOf(1, 2, 3, 4, 5, 6, 7, 8)
+        cryptoManager.wipeBuffer(secretBytes)
+        assertTrue(secretBytes.all { it == 0.toByte() })
     }
 }
 

@@ -160,6 +160,8 @@ class VVFApplication : Application() {
                 "Secure database initialization failed: Failed to construct encrypted SQLCipher database",
                 e
             )
+        } finally {
+            cryptoSecurityManager.wipeBuffer(passphrase)
         }
 
         storageManager = StorageManager(this, database.fileDao())
@@ -261,7 +263,6 @@ class VVFApplication : Application() {
             try {
                 ocrPlugin.cancelOngoing()
             } catch (_: Throwable) {}
-            System.gc()
         }
     }
 
@@ -270,6 +271,5 @@ class VVFApplication : Application() {
         try {
             ocrPlugin.cancelOngoing()
         } catch (_: Throwable) {}
-        System.gc()
     }
 }

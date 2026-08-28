@@ -34,11 +34,7 @@ jobs:
 
       - name: Run Unit Tests across all modules
         run: |
-          if [ -f "gradle/wrapper/gradle-wrapper.jar" ]; then
-            ./gradlew testDebugUnitTest --continue --stacktrace
-          else
-            gradle testDebugUnitTest --continue --stacktrace
-          fi
+          gradle testDebugUnitTest --continue --stacktrace
 
       - name: Upload Coverage to Codecov
         if: ${{ env.CODECOV_TOKEN != '' }}
@@ -116,11 +112,7 @@ jobs:
 
       - name: Build All Modules and Assemble Release
         run: |
-          if [ -f "gradle/wrapper/gradle-wrapper.jar" ]; then
-            ./gradlew assembleRelease --stacktrace
-          else
-            gradle assembleRelease --stacktrace
-          fi
+          gradle assembleRelease --stacktrace
 
       - name: Archive Release APK
         uses: actions/upload-artifact@v4

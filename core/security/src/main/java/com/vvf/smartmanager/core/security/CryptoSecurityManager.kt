@@ -44,6 +44,7 @@ class CryptoSecurityManager(
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val DB_KEY_ALIAS = "vvf_db_passphrase_key_v1"
         private const val VAULT_KEY_ALIAS = "vvf_vault_master_key_v1"
+        private const val VAULT_META_KEY_ALIAS = "vvf_vault_meta_key_v1"
 
         private const val AES_GCM_TRANSFORMATION = "AES/GCM/NoPadding"
         private const val GCM_TAG_LENGTH_BITS = 128
@@ -77,6 +78,7 @@ class CryptoSecurityManager(
     init {
         ensureMasterKeyExists(DB_KEY_ALIAS)
         ensureMasterKeyExists(VAULT_KEY_ALIAS)
+        ensureMasterKeyExists(VAULT_META_KEY_ALIAS)
     }
 
     /**
@@ -99,6 +101,11 @@ class CryptoSecurityManager(
                     .setKeySize(256)
                     .setRandomizedEncryptionRequired(true)
                 
+                // IMPORTANT: VAULT_META_KEY_ALIAS is intentionally NOT auth-gated.
+                // It protects the PIN hash/salt, which is what verifies the PIN in the
+                // first place — gating it behind biometric auth creates a circular
+                // dependency that locks out users who type the correct PIN. Only the
+                // vault CONTENT key (VAULT_KEY_ALIAS) may require biometric auth.
                 if (alias == VAULT_KEY_ALIAS && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
                     builder.setUserAuthenticationRequired(true)
                     builder.setUserAuthenticationParameters(
@@ -418,8 +425,8 @@ class CryptoSecurityManager(
         SecureRandom().nextBytes(salt)
         val hash = hashPin(pin, salt)
 
-        val (encHash, hashIv) = encryptBytes(hash)
-        val (encSalt, saltIv) = encryptBytes(salt)
+        val (encHash, hashIv) = encryptBytes(hash, alias = VAULT_META_KEY_ALIAS)
+        val (encSalt, saltIv) = encryptBytes(salt, alias = VAULT_META_KEY_ALIAS)
 
         prefs.edit()
             .putString("vault_pin_hash", Base64.encodeToString(encHash, Base64.NO_WRAP))
@@ -442,8 +449,8 @@ class CryptoSecurityManager(
         SecureRandom().nextBytes(salt)
         val hash = hashPin(decoyPin, salt)
 
-        val (encHash, hashIv) = encryptBytes(hash)
-        val (encSalt, saltIv) = encryptBytes(salt)
+        val (encHash, hashIv) = encryptBytes(hash, alias = VAULT_META_KEY_ALIAS)
+        val (encSalt, saltIv) = encryptBytes(salt, alias = VAULT_META_KEY_ALIAS)
 
         prefs.edit()
             .putString("vault_decoy_pin_hash", Base64.encodeToString(encHash, Base64.NO_WRAP))
@@ -500,8 +507,8 @@ class CryptoSecurityManager(
                 val encSalt = Base64.decode(realSaltStr, Base64.NO_WRAP)
                 val saltIv = Base64.decode(realSaltIvStr, Base64.NO_WRAP)
 
-                val expectedHash = decryptBytes(encHash, hashIv)
-                val salt = decryptBytes(encSalt, saltIv)
+                val expectedHash = decryptBytes(encHash, hashIv, alias = VAULT_META_KEY_ALIAS)
+                val salt = decryptBytes(encSalt, saltIv, alias = VAULT_META_KEY_ALIAS)
                 val computedHash = hashPin(pin, salt)
 
                 if (java.security.MessageDigest.isEqual(expectedHash, computedHash)) {
@@ -526,8 +533,8 @@ class CryptoSecurityManager(
                 val encSalt = Base64.decode(decoySaltStr, Base64.NO_WRAP)
                 val saltIv = Base64.decode(decoySaltIvStr, Base64.NO_WRAP)
 
-                val expectedHash = decryptBytes(encHash, hashIv)
-                val salt = decryptBytes(encSalt, saltIv)
+                val expectedHash = decryptBytes(encHash, hashIv, alias = VAULT_META_KEY_ALIAS)
+                val salt = decryptBytes(encSalt, saltIv, alias = VAULT_META_KEY_ALIAS)
                 val computedHash = hashPin(pin, salt)
 
                 if (java.security.MessageDigest.isEqual(expectedHash, computedHash)) {
