@@ -44,7 +44,6 @@ import com.vvf.smartmanager.plugin.clouddrivers.S3StorageDriverImpl
 import com.vvf.smartmanager.plugin.ocr.OcrEnginePlugin
 import com.vvf.smartmanager.plugin.ocr.OcrPluginImpl
 import com.vvf.smartmanager.plugin.semanticsearch.SemanticSearchPluginImpl
-import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -52,14 +51,11 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * Root Application entry point.
+ * Root Application entry point with manual DI container.
  *
- * Hilt Phase A: [@HiltAndroidApp] generates the application component.
- * Manual DI graph below remains the runtime source of truth until Phase C
- * migrates ViewModels to [@dagger.hilt.android.lifecycle.HiltViewModel].
- * See docs/HILT_MIGRATION.md.
+ * Hilt is deferred: Hilt 2.55 fails on AGP 9 with
+ * "Android BaseExtension not found". See docs/HILT_MIGRATION.md.
  */
-@HiltAndroidApp
 class VVFApplication : Application() {
 
     lateinit var cryptoSecurityManager: CryptoSecurityManager

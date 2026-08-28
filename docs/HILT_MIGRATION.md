@@ -1,50 +1,40 @@
 # Hilt Migration Plan (VVF Smart Manager)
 
-## Current state (post-foundation)
+## Blocker (2026-08-28)
 
-- Manual DI lives in `VVFApplication.onCreate()`.
-- Feature ViewModels use `ViewModelProvider.Factory` / `provideFactory`.
-- Catalog already contains Hilt 2.55, KSP compiler, Navigation Compose, WorkManager Hilt.
+Enabling Hilt **2.55** on **AGP 9.1.1** fails at configuration time:
 
-## Goal
+```
+Failed to apply plugin 'com.google.dagger.hilt.android'.
+Caused by: java.lang.IllegalStateException: Android BaseExtension not found.
+```
 
-Replace manual DI with `@HiltAndroidApp` + `@Module` / `@InstallIn` + `@HiltViewModel` without changing product behavior.
+Phase A was **reverted** so CI stays green. Manual DI in `VVFApplication` remains the runtime graph.
 
-## Phased rollout (dedicated PR recommended)
+## Next attempt prerequisites
 
-### Phase A — Foundation (safe, no behavior change)
-1. Apply `alias(libs.plugins.hilt)` + KSP hilt-compiler on `:app`.
-2. Annotate `VVFApplication` with `@HiltAndroidApp` (keep existing `onCreate` DI).
-3. Add empty/skeleton modules under `app/src/main/java/.../di/`.
-4. Keep all `provideFactory` paths working so CI stays green.
+1. Upgrade Hilt to a release that supports AGP 9 (track [google/dagger](https://github.com/google/dagger/releases) — try **≥ 2.56** when available with AGP 9 notes).
+2. Or temporarily pin AGP to 8.x only for a Hilt migration branch (not preferred for production track).
+3. Apply order: `android.application` → `kotlin` → `ksp` → `hilt`.
+4. Then `@HiltAndroidApp`, modules, `@HiltViewModel`, `@AndroidEntryPoint`.
+
+## Phases (when unblocked)
+
+### Phase A — Foundation
+- Plugin + KSP compiler + `@HiltAndroidApp`
+- Keep manual `onCreate` DI until ViewModels migrate
 
 ### Phase B — Core bindings
-1. `@Module` `@InstallIn(SingletonComponent::class)` for:
-   - `CryptoSecurityManager`, `VVFDatabase`, repositories, use cases, plugins, Drive.
-2. Prefer constructor injection; use `@Provides` only where Android `Context` / builders are required.
-3. Do **not** delete manual `onCreate` until Phase C verifies inject paths.
+- `@Module` `@InstallIn(SingletonComponent::class)` for DB, crypto, repos, use cases
 
-### Phase C — UI layer
-1. `@AndroidEntryPoint` on `MainActivity`.
-2. Each feature ViewModel → `@HiltViewModel` + `@Inject constructor`.
-3. Compose: `hiltViewModel()` instead of `viewModel(factory = ...)`.
-4. Remove `provideFactory` companions.
-5. Remove leftover `lateinit` graph from `VVFApplication` once unused.
+### Phase C — UI
+- `@AndroidEntryPoint` on `MainActivity`
+- `@HiltViewModel` + `hiltViewModel()`; remove `provideFactory`
 
-### Phase D — WorkManager / background
-1. `@HiltWorker` + `HiltWorkerFactory` in `Configuration.Provider`.
-2. Verify periodic indexing / junk scan still schedules.
+### Phase D — WorkManager
+- `@HiltWorker` + `HiltWorkerFactory`
 
-## Constraints
+## Verification
 
-- Encrypted SQLCipher DB must remain required in production (no silent in-memory fallback).
-- Do not leak passphrase / PIN in logs.
-- One module group per PR if CI time is limited; never merge a half-migrated ViewModel graph.
-
-## Verification checklist
-
-- [ ] `./gradlew testDebugUnitTest`
-- [ ] `./gradlew assembleRelease`
-- [ ] Vault unlock / lock CUJ
-- [ ] OCR plugin toggle
-- [ ] Cloud screen connect flow
+- `./gradlew testDebugUnitTest assembleRelease`
+- Vault / OCR / Cloud CUJs
