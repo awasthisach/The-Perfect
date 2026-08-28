@@ -11,7 +11,9 @@ import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
-import java.time.Instant
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 
 /**
  * Google Drive v3 REST implementation.
@@ -37,14 +39,18 @@ class GoogleDriveServiceImpl(
     )
 
     /**
- * Stores the OAuth access token used for Drive REST calls.
- * Prefer short-lived tokens; clear with null on sign-out.
- */
+     * Stores the OAuth access token used for Drive REST calls.
+     * Prefer short-lived tokens; clear with null on sign-out.
+     */
     fun setAccessToken(token: String?) {
         accessToken = token
         DriveNetwork.setDefaultAccessToken(token)
         if (token.isNullOrBlank()) {
-            currentAccount = currentAccount.copy(isConnected = false, accountEmail = "", displayName = "Google Drive")
+            currentAccount = currentAccount.copy(
+                isConnected = false,
+                accountEmail = "",
+                displayName = "Google Drive"
+            )
         }
     }
 
@@ -95,7 +101,7 @@ class GoogleDriveServiceImpl(
                     sizeBytes = dto.size?.toLongOrNull() ?: 0L,
                     lastModified = parseDriveTime(dto.modifiedTime),
                     isDirectory = dto.mimeType == "application/vnd.google-apps.folder",
-                    mimeType = dto.mimeType.orEmpty()
+                    mimeType = dto.mimeType
                 )
             }
             currentAccount = currentAccount.copy(
@@ -117,12 +123,12 @@ class GoogleDriveServiceImpl(
                     return@withContext Result.failure(IllegalArgumentException("Local file not found: $path"))
                 }
                 val parent = remoteFolderId.ifBlank { "root" }
-                val metadataJson =
-                    """{"name":"${file.name.replace("\"", "\\\"")}","parents":["$parent"]}"""
+                val safeName = file.name.replace("\\", "\\\\").replace("\"", "\\\"")
+                val metadataJson = """{"name":"$safeName","parents":["$parent"]}"""
                 val metadataBody = metadataJson.toRequestBody("application/json; charset=UTF-8".toMediaType())
-                val fileBody = file.asRequestBody(
-                    (localFile.mimeType.ifBlank { "application/octet-stream" }).toMediaType()
-                )
+                val mediaType = (localFile.mimeType?.takeIf { it.isNotBlank() } ?: "application/octet-stream")
+                    .toMediaType()
+                val fileBody = file.asRequestBody(mediaType)
                 val part = MultipartBody.Part.createFormData("file", file.name, fileBody)
                 val uploaded = driveApi.uploadFile(bearer(), metadataBody, part)
                 val id = uploaded.id
@@ -185,9 +191,19 @@ class GoogleDriveServiceImpl(
     private fun parseDriveTime(iso: String?): Long {
         if (iso.isNullOrBlank()) return 0L
         return try {
-            Instant.parse(iso).toEpochMilli()
+            val fmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            fmt.parse(iso)?.time ?: 0L
         } catch (_: Exception) {
-            0L
+            try {
+                val fmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                    timeZone = TimeZone.getTimeZone("UTC")
+                }
+                fmt.parse(iso)?.time ?: 0L
+            } catch (_: Exception) {
+                0L
+            }
         }
     }
 }
