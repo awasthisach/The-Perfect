@@ -1,5 +1,6 @@
 plugins {
   alias(libs.plugins.android.library)
+  alias(libs.plugins.google.devtools.ksp)
 }
 
 android {
@@ -19,5 +20,6 @@ android {
 
 dependencies {
   implementation(libs.androidx.core.ktx)
-  testImplementation(libs.junit)
+  implementation(libs.kotlinx.coroutines.core)
+  implementation(libs.kotlinx.serialization.json)
 }

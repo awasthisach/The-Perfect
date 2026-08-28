@@ -14,8 +14,8 @@ android {
   }
 
   compileOptions {
-    sourceCompatibility = JavaVersion.VERSION_11
-    targetCompatibility = JavaVersion.VERSION_11
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
   }
 
   buildFeatures {
@@ -24,11 +24,10 @@ android {
 }
 
 dependencies {
-  api(project(":core:plugin-spi"))
   api(project(":core:domain"))
   api(project(":core:model"))
   api(project(":core:common"))
-  implementation(project(":plugins:plugin-ocr"))
+  api(project(":core:plugin-spi"))
   implementation(platform(libs.androidx.compose.bom))
   implementation(libs.androidx.compose.ui)
   implementation(libs.androidx.compose.ui.graphics)
@@ -38,6 +37,4 @@ dependencies {
   implementation(libs.androidx.compose.material.icons.extended)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
   implementation(libs.androidx.lifecycle.runtime.compose)
-  testImplementation(libs.junit)
-  testImplementation(libs.kotlinx.coroutines.test)
 }

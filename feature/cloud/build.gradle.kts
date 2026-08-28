@@ -14,8 +14,8 @@ android {
   }
 
   compileOptions {
-    sourceCompatibility = JavaVersion.VERSION_11
-    targetCompatibility = JavaVersion.VERSION_11
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
   }
 
   buildFeatures {
@@ -25,10 +25,9 @@ android {
 
 dependencies {
   api(project(":core:domain"))
-  api(project(":core:cloud-gdrive"))
-  api(project(":core:plugin-spi"))
   api(project(":core:model"))
   api(project(":core:common"))
+  api(project(":core:cloud-gdrive"))
   implementation(platform(libs.androidx.compose.bom))
   implementation(libs.androidx.compose.ui)
   implementation(libs.androidx.compose.ui.graphics)

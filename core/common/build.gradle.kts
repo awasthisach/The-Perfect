@@ -1,5 +1,6 @@
 plugins {
   alias(libs.plugins.android.library)
+  alias(libs.plugins.google.devtools.ksp)
 }
 
 android {
@@ -18,8 +19,8 @@ android {
 }
 
 dependencies {
+  api(project(":core:model"))
   implementation(libs.androidx.core.ktx)
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.kotlinx.coroutines.android)
-  testImplementation(libs.junit)
 }
