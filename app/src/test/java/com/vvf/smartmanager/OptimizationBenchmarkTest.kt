@@ -18,11 +18,10 @@ import kotlin.system.measureTimeMillis
 
 /**
  * Phase 15 Benchmark and Optimization Verification Test.
- * Validates cold start duration (< 1000ms in JVM test environment),
- * memory trim callbacks safety, and sub-100ms database query SLA.
+ * Robolectric SDK pinned to 34 (compileSdk 36 is not yet fully supported by Robolectric).
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE)
+@Config(sdk = [34], manifest = Config.NONE)
 class OptimizationBenchmarkTest {
 
     private lateinit var context: Context
@@ -38,17 +37,14 @@ class OptimizationBenchmarkTest {
     fun testColdStartContainerInitializationTime() {
         val startupDurationMs = measureTimeMillis {
             val app = ApplicationProvider.getApplicationContext<VVFApplication>()
-            // Validate application instance creation is extremely fast (well under target threshold)
             assertNotNull(app)
         }
-        // JVM cold init target is < 2000ms; Device cold boot target is < 10000ms
         assertTrue("Startup container init must be under 2000ms, actual: ${startupDurationMs}ms", startupDurationMs < 2000)
     }
 
     @Test
     fun testMemoryTrimmingExecutionSafety() {
         val app = ApplicationProvider.getApplicationContext<VVFApplication>()
-        // Execute low memory trim callbacks to ensure safe garbage collection without crashes
         app.onTrimMemory(ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)
         app.onLowMemory()
         assertNotNull(app)
@@ -58,7 +54,6 @@ class OptimizationBenchmarkTest {
     fun testDatabaseQueryResponseSla() = runBlocking {
         val fileDao = database.fileDao()
 
-        // Seed benchmark files
         val testFiles = (1..50).map { i ->
             FileMetadataEntity(
                 path = "/storage/emulated/0/Documents/Benchmark_Document_$i.pdf",
@@ -72,7 +67,6 @@ class OptimizationBenchmarkTest {
         }
         testFiles.forEach { fileDao.insertOrUpdate(it) }
 
-        // Query execution SLA benchmark
         val queryDurationMs = measureTimeMillis {
             val result = fileDao.getFilesByDirectory("/storage/emulated/0/Documents").first()
             assertTrue(result.isNotEmpty())
@@ -81,4 +75,3 @@ class OptimizationBenchmarkTest {
         assertTrue("Room Database query execution SLA must be < 1000ms in test container, actual: ${queryDurationMs}ms", queryDurationMs < 1000)
     }
 }
-
