@@ -1,6 +1,5 @@
 plugins {
   alias(libs.plugins.android.library)
-  alias(libs.plugins.google.devtools.ksp)
 }
 
 android {
@@ -13,19 +12,15 @@ android {
   }
 
   compileOptions {
-    sourceCompatibility = JavaVersion.VERSION_11
-    targetCompatibility = JavaVersion.VERSION_11
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
   }
 }
 
 dependencies {
-  api(project(":core:common"))
-  api(project(":core:model"))
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.security.crypto)
-  implementation(libs.kotlinx.coroutines.core)
-  implementation(libs.hilt.android)
-
+  implementation(libs.androidx.biometric)
   testImplementation(libs.junit)
   testImplementation(libs.robolectric)
   testImplementation(libs.androidx.core)
