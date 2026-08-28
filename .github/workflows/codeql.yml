@@ -67,7 +67,7 @@ jobs:
 
       - name: Compile Sources for CodeQL Analysis
         run: |
-          ./gradlew compileDebugKotlin compileDebugJavaWithJavac --stacktrace || true
+          ./gradlew compileDebugKotlin compileDebugJavaWithJavac --stacktrace
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
