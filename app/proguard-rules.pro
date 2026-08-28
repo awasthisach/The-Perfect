@@ -53,9 +53,32 @@
 -keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
 -dontwarn kotlinx.coroutines.**
 
+# Retrofit 2
+-dontwarn retrofit2.**
+-keep class retrofit2.** { *; }
+-keepattributes Signature
+-keepattributes Exceptions
+-keepclasseswithmembers class * {
+    @retrofit2.http.* <methods>;
+}
+
+# Moshi
+-keep class com.squareup.moshi.** { *; }
+-keep interface com.squareup.moshi.** { *; }
+-keepclassmembers class * {
+    @com.squareup.moshi.Json <fields>;
+}
+-keep class **JsonAdapter { *; }
+-dontwarn com.squareup.moshi.**
+
+# OkHttp
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-keep class okhttp3.** { *; }
+-keep interface okhttp3.** { *; }
+
 # VVF Smart Manager Models & SPI
 -keep class com.vvf.smartmanager.core.model.** { *; }
 -keep class com.vvf.smartmanager.core.plugin.spi.** { *; }
 -keep class com.vvf.smartmanager.core.database.model.** { *; }
 -keep class com.vvf.smartmanager.core.database.entity.** { *; }
-

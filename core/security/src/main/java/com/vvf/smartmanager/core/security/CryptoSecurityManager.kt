@@ -221,7 +221,7 @@ class CryptoSecurityManager(
         }
 
         val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
-        val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
+        val cipher = Cipher.getInstance(AES_GCM_TRANSFORM)
         cipher.init(Cipher.DECRYPT_MODE, getSecretKey(VAULT_KEY_ALIAS), spec)
 
         var totalBytes: Long = 0
@@ -247,7 +247,7 @@ class CryptoSecurityManager(
     }
 
     fun encryptBytes(data: ByteArray, alias: String = VAULT_KEY_ALIAS): Pair<ByteArray, ByteArray> {
-        val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
+        val cipher = Cipher.getInstance(AES_GCM_TRANSFORM)
         cipher.init(Cipher.ENCRYPT_MODE, getSecretKey(alias))
         val iv = cipher.iv
         val encryptedData = cipher.doFinal(data)
@@ -256,14 +256,14 @@ class CryptoSecurityManager(
 
     fun decryptBytes(encryptedData: ByteArray, iv: ByteArray, alias: String = VAULT_KEY_ALIAS): ByteArray {
         val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
-        val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
+        val cipher = Cipher.getInstance(AES_GCM_TRANSFORM)
         cipher.init(Cipher.DECRYPT_MODE, getSecretKey(alias), spec)
         return cipher.doFinal(encryptedData)
     }
 
     private fun decryptWithKeystore(encryptedData: ByteArray, iv: ByteArray, alias: String): ByteArray {
         val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
-        val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
+        val cipher = Cipher.getInstance(AES_GCM_TRANSFORM)
         cipher.init(Cipher.DECRYPT_MODE, getSecretKey(alias), spec)
         return cipher.doFinal(encryptedData)
     }
@@ -510,10 +510,20 @@ class CryptoSecurityManager(
 
     /**
      * PBKDF2WithHmacSHA256 (600_000 iterations — OWASP 2023 recommended minimum).
+     * Clears PIN char array and PBEKeySpec after use to reduce in-memory exposure.
      */
     private fun hashPin(pin: String, salt: ByteArray): ByteArray {
-        val spec = javax.crypto.spec.PBEKeySpec(pin.toCharArray(), salt, PBKDF2_ITERATIONS, 256)
-        val skf = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-        return skf.generateSecret(spec).encoded
+        val pinChars = pin.toCharArray()
+        return try {
+            val spec = javax.crypto.spec.PBEKeySpec(pinChars, salt, PBKDF2_ITERATIONS, 256)
+            try {
+                val skf = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+                skf.generateSecret(spec).encoded
+            } finally {
+                spec.clearPassword()
+            }
+        } finally {
+            pinChars.fill('\u0000')
+        }
     }
 }
