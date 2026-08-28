@@ -271,5 +271,24 @@ class VVFSmartManagerCUJTest {
         assertEquals(1L, record.contentIdentityVersion)
         assertEquals(384, record.embedding.size)
     }
+
+    @Test
+    fun cuj10_physicalStorageBoundaryValidation() = runBlocking {
+        val storageManager = com.vvf.smartmanager.core.data.storage.StorageManager(context, database.fileDao())
+        
+        // 1. Allowed paths check
+        val allowedRoots = storageManager.getAllowedStorageRoots()
+        assertTrue("Storage roots must be present", allowedRoots.isNotEmpty())
+
+        val validCachePath = context.cacheDir.absolutePath
+        assertTrue("Cache dir must be allowed", storageManager.isAllowedPhysicalPath(validCachePath))
+
+        // 2. Reject root escalation attempts
+        val disallowedPath = "/data/system/users/0/secret.xml"
+        assertFalse("System path must be disallowed", storageManager.isAllowedPhysicalPath(disallowedPath))
+
+        val illegalDeleteResult = storageManager.deleteSafely(disallowedPath)
+        assertTrue("Disallowed path mutation must fail", illegalDeleteResult.isFailure)
+    }
 }
 
