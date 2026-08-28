@@ -23,18 +23,21 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
-          validate-wrappers: false
+          validate-wrappers: true
 
       - name: Grant execute permission for gradlew
-        run: chmod +x gradlew || true
+        run: chmod +x gradlew
 
       - name: Run Unit Tests across all modules
         run: |
-          gradle testDebugUnitTest --continue --stacktrace
+          ./gradlew testDebugUnitTest --continue --stacktrace
 
       - name: Upload Coverage to Codecov
         if: ${{ env.CODECOV_TOKEN != '' }}
@@ -75,7 +78,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
-          validate-wrappers: false
+          validate-wrappers: true
 
       - name: Run FOSSA License Scan
         if: ${{ env.FOSSA_API_KEY != '' }}
@@ -101,18 +104,21 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
-          validate-wrappers: false
+          validate-wrappers: true
 
       - name: Grant execute permission for gradlew
-        run: chmod +x gradlew || true
+        run: chmod +x gradlew
 
       - name: Build All Modules and Assemble Release
         run: |
-          gradle assembleRelease --stacktrace
+          ./gradlew assembleRelease --stacktrace
 
       - name: Archive Release APK
         uses: actions/upload-artifact@v4
@@ -120,4 +126,3 @@ jobs:
           name: vvf-smartmanager-release-apk
           path: "**/build/outputs/apk/release/*.apk"
           if-no-files-found: ignore
-
