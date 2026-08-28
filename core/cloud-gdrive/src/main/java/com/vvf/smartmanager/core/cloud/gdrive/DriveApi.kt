@@ -1,9 +1,9 @@
 package com.vvf.smartmanager.core.cloud.gdrive
 
 import com.squareup.moshi.Json
-import com.squareup.moshi.JsonClass
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
+import okhttp3.ResponseBody
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.Multipart
@@ -12,11 +12,13 @@ import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
 import retrofit2.http.Streaming
-import okhttp3.ResponseBody
 
 /**
  * Google Drive REST API v3 (https://www.googleapis.com/drive/v3/).
  * Authenticated via Bearer access token from Credential Manager / OAuth.
+ *
+ * DTOs use Moshi reflection ([com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory])
+ * so :core:cloud-gdrive does not require KSP codegen.
  */
 interface DriveApi {
 
@@ -52,12 +54,10 @@ interface DriveApi {
     ): DriveAboutResponse
 }
 
-@JsonClass(generateAdapter = true)
 data class DriveFileListResponse(
     @Json(name = "files") val files: List<DriveFileDto> = emptyList()
 )
 
-@JsonClass(generateAdapter = true)
 data class DriveFileDto(
     @Json(name = "id") val id: String? = null,
     @Json(name = "name") val name: String? = null,
@@ -66,12 +66,10 @@ data class DriveFileDto(
     @Json(name = "modifiedTime") val modifiedTime: String? = null
 )
 
-@JsonClass(generateAdapter = true)
 data class DriveAboutResponse(
     @Json(name = "storageQuota") val storageQuota: DriveStorageQuota? = null
 )
 
-@JsonClass(generateAdapter = true)
 data class DriveStorageQuota(
     @Json(name = "limit") val limit: String? = null,
     @Json(name = "usage") val usage: String? = null
