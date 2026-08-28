@@ -42,14 +42,14 @@ android {
   buildTypes {
     release {
       isCrunchPngs = false
-      isMinifyEnabled = false
+      isMinifyEnabled = true
+      isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       val customKeystore = file(System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks")
-      signingConfig = if (customKeystore.exists()) {
-        signingConfigs.getByName("release")
-      } else {
-        signingConfigs.getByName("debugConfig")
+      if (!customKeystore.exists() && System.getenv("CI") != null) {
+          throw GradleException("Release keystore is required for production builds")
       }
+      signingConfig = if (customKeystore.exists()) signingConfigs.getByName("release") else signingConfigs.getByName("debugConfig")
     }
     debug { signingConfig = signingConfigs.getByName("debugConfig") }
   }

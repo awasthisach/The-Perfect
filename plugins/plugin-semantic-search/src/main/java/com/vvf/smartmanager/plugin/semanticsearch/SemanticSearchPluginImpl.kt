@@ -205,9 +205,9 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
             if (similarFiles.isNotEmpty()) {
                 visited.add(base.fileItem.path)
                 val avgScore = similaritySum / similarFiles.size
-                // Default pre-select all similar files except the oldest/original base file
+                // Audit Fix (H-04): Do not pre-select any files. AI similarity is only a recommendation.
                 val allSorted = (listOf(base.fileItem) + similarFiles).sortedBy { it.lastModified }
-                val defaultSelected = allSorted.drop(1).map { it.path }.toSet()
+                val defaultSelected = emptySet<String>()
 
                 clusters.add(
                     NearDuplicateCluster(

@@ -67,6 +67,15 @@ class StorageManager(
         }
     }
 
+    fun getFileSize(path: String): Long {
+        return try {
+            val f = File(path)
+            if (f.exists() && !f.isDirectory) f.length() else 0L
+        } catch (_: Exception) {
+            0L
+        }
+    }
+
     /**
      * Calculates storage breakdown metrics using StatFs.
      */
@@ -589,6 +598,20 @@ class StorageManager(
                     errorMessage = e.localizedMessage
                 )
             )
+            Result.failure(e)
+        }
+    }
+
+    fun deleteSafely(path: String): Result<Boolean> {
+        return try {
+            val f = File(path)
+            if (f.exists() && f.canWrite()) {
+                val deleted = if (f.isDirectory) f.deleteRecursively() else f.delete()
+                if (deleted) Result.success(true) else Result.failure(Exception("Failed to delete"))
+            } else {
+                Result.failure(Exception("File not found or not writable"))
+            }
+        } catch (e: Exception) {
             Result.failure(e)
         }
     }

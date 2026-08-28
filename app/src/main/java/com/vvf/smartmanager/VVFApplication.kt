@@ -173,7 +173,8 @@ class VVFApplication : Application() {
         vaultRepository = SecureVaultRepository(
             vaultDao = database.vaultDao(),
             cryptoManager = cryptoSecurityManager,
-            vaultDirectory = vaultDir
+            vaultDirectory = vaultDir,
+            vaultJournalDao = database.vaultJournalDao()
         )
 
         searchRepository = OfflineSearchRepository(

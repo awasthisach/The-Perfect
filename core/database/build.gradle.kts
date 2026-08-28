@@ -18,6 +18,10 @@ android {
   }
 }
 
+ksp {
+  arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
   api(project(":core:model"))
   api(project(":core:common"))

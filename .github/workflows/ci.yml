@@ -34,9 +34,16 @@ jobs:
 
       - name: Run Unit Tests across all modules
         run: |
-          ./gradlew testDebugUnitTest --continue --stacktrace || gradle testDebugUnitTest --continue --stacktrace
+          if [ -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+            ./gradlew testDebugUnitTest --continue --stacktrace
+          else
+            gradle testDebugUnitTest --continue --stacktrace
+          fi
 
       - name: Upload Coverage to Codecov
+        if: ${{ env.CODECOV_TOKEN != '' }}
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -75,11 +82,13 @@ jobs:
           validate-wrappers: false
 
       - name: Run FOSSA License Scan
+        if: ${{ env.FOSSA_API_KEY != '' }}
+        env:
+          FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
         uses: fossas/fossa-action@v1
         with:
           api-key: ${{ secrets.FOSSA_API_KEY }}
           run-tests: true
-        continue-on-error: true # Allow PR builds to succeed even if token is not yet provisioned
 
   build_and_release:
     name: Build & Assemble Release
@@ -107,7 +116,11 @@ jobs:
 
       - name: Build All Modules and Assemble Release
         run: |
-          ./gradlew assembleRelease --stacktrace || gradle assembleRelease --stacktrace
+          if [ -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+            ./gradlew assembleRelease --stacktrace
+          else
+            gradle assembleRelease --stacktrace
+          fi
 
       - name: Archive Release APK
         uses: actions/upload-artifact@v4

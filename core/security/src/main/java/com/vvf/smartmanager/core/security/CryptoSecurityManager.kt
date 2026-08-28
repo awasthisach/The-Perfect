@@ -90,7 +90,7 @@ class CryptoSecurityManager(
                     KeyProperties.KEY_ALGORITHM_AES,
                     ANDROID_KEYSTORE
                 )
-                val parameterSpec = KeyGenParameterSpec.Builder(
+                val builder = KeyGenParameterSpec.Builder(
                     alias,
                     KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
                 )
@@ -98,9 +98,20 @@ class CryptoSecurityManager(
                     .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                     .setKeySize(256)
                     .setRandomizedEncryptionRequired(true)
-                    .build()
+                
+                if (alias == VAULT_KEY_ALIAS && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    builder.setUserAuthenticationRequired(true)
+                    builder.setUserAuthenticationParameters(
+                        300, // 5 minutes timeout
+                        KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL
+                    )
+                } else if (alias == VAULT_KEY_ALIAS && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                    builder.setUserAuthenticationRequired(true)
+                    @Suppress("DEPRECATION")
+                    builder.setUserAuthenticationValidityDurationSeconds(300)
+                }
 
-                keyGenerator.init(parameterSpec)
+                keyGenerator.init(builder.build())
                 keyGenerator.generateKey()
             }
         } else {

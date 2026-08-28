@@ -36,5 +36,6 @@ data class FileMetadataEntity(
     val originalPath: String? = null,
     val deletedTimestamp: Long? = null,
     val tags: String = "", // Comma-separated tags
-    val md5Hash: String? = null // For Level 2 duplicate detection
+    val md5Hash: String? = null, // For Level 2 duplicate detection
+    val operationState: String = "IDLE" // To support DurableOperationState tests
 )

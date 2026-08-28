@@ -36,7 +36,7 @@ import net.sqlcipher.database.SupportFactory
         CloudSyncEntity::class
     ],
     version = 2,
-    exportSchema = false
+    exportSchema = true
 )
 abstract class VVFDatabase : RoomDatabase() {
 
@@ -83,7 +83,6 @@ abstract class VVFDatabase : RoomDatabase() {
             )
                 .openHelperFactory(openHelperFactory)
                 .addMigrations(MIGRATION_1_2)
-                .fallbackToDestructiveMigration()
                 .build()
         }
 

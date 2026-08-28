@@ -31,9 +31,6 @@ data class FileItem(
     val isHidden: Boolean
         get() = name.startsWith('.')
 
-    val file: File
-        get() = File(path)
-
     val contentHash: String?
         get() = sha256Hash ?: md5Hash
 }

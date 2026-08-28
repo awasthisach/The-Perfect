@@ -19,7 +19,7 @@ class SecureVaultRepository(
     private val vaultDao: VaultDao,
     private val cryptoManager: CryptoSecurityManager,
     private val vaultDirectory: File,
-    private val vaultJournalDao: VaultJournalDao? = null
+    private val vaultJournalDao: VaultJournalDao
 ) {
     fun getAllVaultItems(isDecoy: Boolean = false): Flow<List<VaultItem>> =
         vaultDao.getAllVaultItems(isDecoy).map { list -> list.map { it.toDomainModel() } }
@@ -38,7 +38,6 @@ class SecureVaultRepository(
      * Recover any incomplete vault transactions from app crashes using the Vault Operation Journal.
      */
     suspend fun recoverOrphanedJournals(): Int {
-        if (vaultJournalDao == null) return 0
         val pendingJournals = vaultJournalDao.getPendingJournals("PENDING")
         var recoveredCount = 0
 
@@ -90,7 +89,7 @@ class SecureVaultRepository(
         val destinationFile = File(vaultDirectory, encryptedFileName)
 
         // Write PENDING Journal Entry for crash protection
-        val journalId = vaultJournalDao?.insertJournal(
+        val journalId = vaultJournalDao.insertJournal(
             VaultJournalEntity(
                 operationType = "ENCRYPT",
                 originalPath = sourceFile.absolutePath,
@@ -125,7 +124,7 @@ class SecureVaultRepository(
             }
 
             if (journalId > 0L) {
-                vaultJournalDao?.updateJournal(
+                vaultJournalDao.updateJournal(
                     VaultJournalEntity(
                         id = journalId,
                         operationType = "ENCRYPT",
@@ -139,7 +138,7 @@ class SecureVaultRepository(
             entity.toDomainModel()
         } catch (e: Exception) {
             if (journalId > 0L) {
-                vaultJournalDao?.updateJournal(
+                vaultJournalDao.updateJournal(
                     VaultJournalEntity(
                         id = journalId,
                         operationType = "ENCRYPT",

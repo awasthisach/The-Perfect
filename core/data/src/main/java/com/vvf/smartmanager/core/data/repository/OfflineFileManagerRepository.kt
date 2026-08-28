@@ -162,15 +162,12 @@ class OfflineFileManagerRepository(
             val allToDelete = (selectedDuplicatePaths + selectedJunkPaths).distinct()
 
             for (path in allToDelete) {
-                val f = java.io.File(path)
-                if (f.exists() && f.canWrite()) {
-                    val size = if (f.isDirectory) 0L else f.length()
-                    // Perform physical deletion
-                    val deleted = if (f.isDirectory) f.deleteRecursively() else f.delete()
-                    if (deleted) {
-                        totalReclaimed += size
-                        fileDao.deleteByPath(path)
-                    }
+                // Audit Fix (H-12): Route physical deletion through StorageManager
+                val size = storageManager.getFileSize(path)
+                val deleted = storageManager.deleteSafely(path)
+                if (deleted.isSuccess) {
+                    totalReclaimed += size
+                    fileDao.deleteByPath(path)
                 }
             }
             Result.success(totalReclaimed)
