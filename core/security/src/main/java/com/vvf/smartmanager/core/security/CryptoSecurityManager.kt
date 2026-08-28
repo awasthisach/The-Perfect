@@ -221,7 +221,7 @@ class CryptoSecurityManager(
         }
 
         val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
-        val cipher = Cipher.getInstance(AES_GCM_TRANSFORM)
+        val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
         cipher.init(Cipher.DECRYPT_MODE, getSecretKey(VAULT_KEY_ALIAS), spec)
 
         var totalBytes: Long = 0
@@ -247,7 +247,7 @@ class CryptoSecurityManager(
     }
 
     fun encryptBytes(data: ByteArray, alias: String = VAULT_KEY_ALIAS): Pair<ByteArray, ByteArray> {
-        val cipher = Cipher.getInstance(AES_GCM_TRANSFORM)
+        val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, getSecretKey(alias))
         val iv = cipher.iv
         val encryptedData = cipher.doFinal(data)
@@ -256,14 +256,14 @@ class CryptoSecurityManager(
 
     fun decryptBytes(encryptedData: ByteArray, iv: ByteArray, alias: String = VAULT_KEY_ALIAS): ByteArray {
         val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
-        val cipher = Cipher.getInstance(AES_GCM_TRANSFORM)
+        val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
         cipher.init(Cipher.DECRYPT_MODE, getSecretKey(alias), spec)
         return cipher.doFinal(encryptedData)
     }
 
     private fun decryptWithKeystore(encryptedData: ByteArray, iv: ByteArray, alias: String): ByteArray {
         val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
-        val cipher = Cipher.getInstance(AES_GCM_TRANSFORM)
+        val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
         cipher.init(Cipher.DECRYPT_MODE, getSecretKey(alias), spec)
         return cipher.doFinal(encryptedData)
     }
