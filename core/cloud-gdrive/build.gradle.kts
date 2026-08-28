@@ -28,6 +28,7 @@ dependencies {
   implementation(libs.googleid)
   implementation(libs.retrofit)
   implementation(libs.converter.moshi)
+  implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
   implementation(libs.logging.interceptor)
   testImplementation(libs.junit)
