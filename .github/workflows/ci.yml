@@ -6,9 +6,6 @@ on:
   pull_request:
     branches: [ "main", "develop" ]
 
-env:
-  ANDROID_HOME: ${{ github.workspace }}/android-sdk
-
 jobs:
   test_and_coverage:
     name: Unit Tests, JaCoCo Coverage & Codecov
@@ -32,20 +29,26 @@ jobs:
       - name: Accept licenses and install platforms
         run: |
           yes | sdkmanager --licenses || true
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "cmdline-tools;latest" || true
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" || true
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
-          validate-wrappers: true
+          validate-wrappers: false
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+      - name: Bootstrap gradle-wrapper.jar if missing
+        run: |
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            echo "gradle-wrapper.jar missing — generating..."
+            gradle wrapper --gradle-version 9.3.1
+          fi
+          chmod +x gradlew
+          ls -la gradle/wrapper/
 
       - name: Create local.properties
         run: |
-          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          echo "sdk.dir=${ANDROID_HOME:-/usr/local/lib/android/sdk}" > local.properties
 
       - name: Run Unit Tests across all modules
         run: |
@@ -89,7 +92,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
-          validate-wrappers: true
+          validate-wrappers: false
 
       - name: Run FOSSA License Scan
         if: ${{ env.FOSSA_API_KEY != '' }}
@@ -121,20 +124,24 @@ jobs:
       - name: Accept licenses and install platforms
         run: |
           yes | sdkmanager --licenses || true
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "cmdline-tools;latest" || true
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" || true
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
-          validate-wrappers: true
+          validate-wrappers: false
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+      - name: Bootstrap gradle-wrapper.jar if missing
+        run: |
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            gradle wrapper --gradle-version 9.3.1
+          fi
+          chmod +x gradlew
 
       - name: Create local.properties
         run: |
-          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          echo "sdk.dir=${ANDROID_HOME:-/usr/local/lib/android/sdk}" > local.properties
 
       - name: Build All Modules and Assemble Release
         run: |

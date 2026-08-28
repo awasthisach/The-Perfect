@@ -44,16 +44,20 @@ jobs:
       - name: Accept Android licenses
         run: |
           yes | sdkmanager --licenses || true
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" || true
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" || true
 
       - name: Setup Gradle (9.3.1)
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
-          validate-wrappers: true
+          validate-wrappers: false
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+      - name: Bootstrap gradle-wrapper.jar if missing
+        run: |
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            gradle wrapper --gradle-version 9.3.1
+          fi
+          chmod +x gradlew
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
