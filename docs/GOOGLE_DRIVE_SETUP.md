@@ -2,32 +2,62 @@
 
 ## Architecture
 
-- `DriveApi` — Retrofit interface for Drive v3 (`files`, `about`, multipart upload, media download).
-- `DriveNetwork` — OkHttp + Moshi; optional default Bearer via `setDefaultAccessToken`.
-- `GoogleDriveServiceImpl` — production service: **no simulated files**. Requires OAuth access token.
+| Piece | Role |
+|-------|------|
+| `DriveApi` / `DriveNetwork` | Drive v3 REST (list, about, upload, download) |
+| `GoogleDriveServiceImpl` | Service; requires access token via `setAccessToken` |
+| `GoogleDriveAuth` | Credential Manager (ID token) + Google Sign-In (Drive access token) skeleton |
 
-## Wire OAuth (app module)
+## OAuth setup (Google Cloud Console)
 
-1. Create OAuth client in Google Cloud Console (Android package + SHA-1).
-2. Use Credential Manager / Google Identity Services to obtain an access token with scope:
-   - `https://www.googleapis.com/auth/drive.file` (recommended minimum), or
-   - `https://www.googleapis.com/auth/drive` (full Drive — justify for Play review).
-3. After sign-in:
+1. Create project → enable **Google Drive API**.
+2. OAuth consent screen (External or Internal).
+3. Credentials:
+   - **Android** client: package `com.vvf.smartmanager` + release/debug SHA-1.
+   - **Web** client: use its client ID as `serverClientId` / `requestIdToken`.
+4. Scope (recommended): `https://www.googleapis.com/auth/drive.file`.
+
+## Wire in Activity / Compose
 
 ```kotlin
+// BuildConfig or secrets plugin — never hardcode production secrets in git
+val serverClientId = BuildConfig.GOOGLE_WEB_CLIENT_ID
+val auth = GoogleDriveAuth(context, serverClientId)
 val drive = (application as VVFApplication).googleDriveService as GoogleDriveServiceImpl
-drive.setAccessToken(accessToken)
-drive.authenticate() // verifies token via about.storageQuota
+
+val launcher = rememberLauncherForActivityResult(
+    ActivityResultContracts.StartActivityForResult()
+) { result ->
+    lifecycleScope.launch {
+        auth.extractAccessTokenFromSignInResult(result.data)
+            .onSuccess { token ->
+                drive.setAccessToken(token)
+                drive.authenticate()
+            }
+            .onFailure { /* show snackbar */ }
+    }
+}
+
+// On Connect button:
+launcher.launch(auth.buildDriveSignInIntent())
+
+// Optional: account picker only (ID token — not Drive REST):
+// auth.requestGoogleIdToken()
 ```
 
-4. On sign-out: `drive.disconnect()`.
+## Sign-out
+
+```kotlin
+drive.disconnect()
+auth.signOut()
+```
 
 ## Secrets
 
-- Never commit OAuth client secrets or refresh tokens.
-- Do not log Authorization headers (logging stays at NONE / BASIC only).
-- Rotate any keys previously leaked in `google-services.json` (Secret Scanning).
+- Do not commit OAuth client secrets or tokens.
+- Rotate any keys previously exposed in `google-services.json` (Secret Scanning).
+- OkHttp logging stays at NONE/BASIC — never BODY.
 
 ## CI
 
-Unit tests do not call live Drive. Integration tests need a test token injected via secrets (optional future job).
+Unit tests do not call live Drive. Optional future: secret-backed integration job.

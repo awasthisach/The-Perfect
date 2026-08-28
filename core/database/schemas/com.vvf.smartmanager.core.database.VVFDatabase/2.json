@@ -1,0 +1,135 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 2,
+    "identityHash": "vvf_schema_v2_tracked_20260829",
+    "entities": [
+      {
+        "tableName": "file_metadata",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `path` TEXT NOT NULL, `name` TEXT NOT NULL, `parentPath` TEXT NOT NULL, `sizeBytes` INTEGER NOT NULL, `mimeType` TEXT NOT NULL, `isDirectory` INTEGER NOT NULL, `modifiedDate` INTEGER NOT NULL, `isFavorite` INTEGER NOT NULL, `isTrash` INTEGER NOT NULL, `originalPath` TEXT, `deletedTimestamp` INTEGER, `tags` TEXT NOT NULL, `md5Hash` TEXT, `operationState` TEXT NOT NULL)",
+        "fields": [
+          {"fieldPath": "id", "columnName": "id", "affinity": "INTEGER", "notNull": true},
+          {"fieldPath": "path", "columnName": "path", "affinity": "TEXT", "notNull": true},
+          {"fieldPath": "name", "columnName": "name", "affinity": "TEXT", "notNull": true},
+          {"fieldPath": "parentPath", "columnName": "parentPath", "affinity": "TEXT", "notNull": true},
+          {"fieldPath": "sizeBytes", "columnName": "sizeBytes", "affinity": "INTEGER", "notNull": true},
+          {"fieldPath": "mimeType", "columnName": "mimeType", "affinity": "TEXT", "notNull": true},
+          {"fieldPath": "isDirectory", "columnName": "isDirectory", "affinity": "INTEGER", "notNull": true},
+          {"fieldPath": "modifiedDate", "columnName": "modifiedDate", "affinity": "INTEGER", "notNull": true},
+          {"fieldPath": "isFavorite", "columnName": "isFavorite", "affinity": "INTEGER", "notNull": true},
+          {"fieldPath": "isTrash", "columnName": "isTrash", "affinity": "INTEGER", "notNull": true},
+          {"fieldPath": "originalPath", "columnName": "originalPath", "affinity": "TEXT", "notNull": false},
+          {"fieldPath": "deletedTimestamp", "columnName": "deletedTimestamp", "affinity": "INTEGER", "notNull": false},
+          {"fieldPath": "tags", "columnName": "tags", "affinity": "TEXT", "notNull": true},
+          {"fieldPath": "md5Hash", "columnName": "md5Hash", "affinity": "TEXT", "notNull": false},
+          {"fieldPath": "operationState", "columnName": "operationState", "affinity": "TEXT", "notNull": true}
+        ],
+        "primaryKey": {"auto": true, "columnNames": ["id"]},
+        "indices": [
+          {"name": "index_file_metadata_path", "unique": true, "columnNames": ["path"], "orders": [], "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_file_metadata_path` ON `${TABLE_NAME}` (`path`)"},
+          {"name": "index_file_metadata_parentPath", "unique": false, "columnNames": ["parentPath"], "orders": [], "createSql": "CREATE INDEX IF NOT EXISTS `index_file_metadata_parentPath` ON `${TABLE_NAME}` (`parentPath`)"},
+          {"name": "index_file_metadata_mimeType", "unique": false, "columnNames": ["mimeType"], "orders": [], "createSql": "CREATE INDEX IF NOT EXISTS `index_file_metadata_mimeType` ON `${TABLE_NAME}` (`mimeType`)"},
+          {"name": "index_file_metadata_modifiedDate", "unique": false, "columnNames": ["modifiedDate"], "orders": [], "createSql": "CREATE INDEX IF NOT EXISTS `index_file_metadata_modifiedDate` ON `${TABLE_NAME}` (`modifiedDate`)"},
+          {"name": "index_file_metadata_sizeBytes", "unique": false, "columnNames": ["sizeBytes"], "orders": [], "createSql": "CREATE INDEX IF NOT EXISTS `index_file_metadata_sizeBytes` ON `${TABLE_NAME}` (`sizeBytes`)"},
+          {"name": "index_file_metadata_md5Hash", "unique": false, "columnNames": ["md5Hash"], "orders": [], "createSql": "CREATE INDEX IF NOT EXISTS `index_file_metadata_md5Hash` ON `${TABLE_NAME}` (`md5Hash`)"},
+          {"name": "index_file_metadata_isFavorite", "unique": false, "columnNames": ["isFavorite"], "orders": [], "createSql": "CREATE INDEX IF NOT EXISTS `index_file_metadata_isFavorite` ON `${TABLE_NAME}` (`isFavorite`)"},
+          {"name": "index_file_metadata_isTrash", "unique": false, "columnNames": ["isTrash"], "orders": [], "createSql": "CREATE INDEX IF NOT EXISTS `index_file_metadata_isTrash` ON `${TABLE_NAME}` (`isTrash`)"},
+          {"name": "index_file_metadata_deletedTimestamp", "unique": false, "columnNames": ["deletedTimestamp"], "orders": [], "createSql": "CREATE INDEX IF NOT EXISTS `index_file_metadata_deletedTimestamp` ON `${TABLE_NAME}` (`deletedTimestamp`)"}
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "file_fts",
+        "createSql": "CREATE VIRTUAL TABLE IF NOT EXISTS `${TABLE_NAME}` USING FTS4(`name` TEXT NOT NULL, `path` TEXT NOT NULL, `tags` TEXT NOT NULL, `mimeType` TEXT NOT NULL, content=`file_metadata`)",
+        "fields": [
+          {"fieldPath": "rowid", "columnName": "rowid", "affinity": "INTEGER", "notNull": true},
+          {"fieldPath": "name", "columnName": "name", "affinity": "TEXT", "notNull": true},
+          {"fieldPath": "path", "columnName": "path", "affinity": "TEXT", "notNull": true},
+          {"fieldPath": "tags", "columnName": "tags", "affinity": "TEXT", "notNull": true},
+          {"fieldPath": "mimeType", "columnName": "mimeType", "affinity": "TEXT", "notNull": true}
+        ],
+        "primaryKey": {"auto": false, "columnNames": []},
+        "indices": [],
+        "foreignKeys": [],
+        "ftsVersion": "FTS4",
+        "ftsOptions": {
+          "tokenizer": "simple",
+          "tokenizerArgs": [],
+          "contentTable": "file_metadata",
+          "languageIdColumnName": "",
+          "matchInfo": "FTS4",
+          "notIndexedColumns": [],
+          "prefixSizes": [],
+          "preferredOrder": "ASC"
+        }
+      },
+      {
+        "tableName": "vault_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `encryptedFileName` TEXT NOT NULL, `originalName` TEXT NOT NULL, `originalPath` TEXT NOT NULL, `mimeType` TEXT NOT NULL, `sizeBytes` INTEGER NOT NULL, `category` TEXT NOT NULL, `encryptionIv` TEXT NOT NULL, `authTag` TEXT, `createdAt` INTEGER NOT NULL, `notes` TEXT, `isDecoy` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`id`))",
+        "fields": [
+          {"fieldPath": "id", "columnName": "id", "affinity": "TEXT", "notNull": true},
+          {"fieldPath": "encryptedFileName", "columnName": "encryptedFileName", "affinity": "TEXT", "notNull": true},
+          {"fieldPath": "originalName", "columnName": "originalName", "affinity": "TEXT", "notNull": true},
+          {"fieldPath": "originalPath", "columnName": "originalPath", "affinity": "TEXT", "notNull": true},
+          {"fieldPath": "mimeType", "columnName": "mimeType", "affinity": "TEXT", "notNull": true},
+          {"fieldPath": "sizeBytes", "columnName": "sizeBytes", "affinity": "INTEGER", "notNull": true},
+          {"fieldPath": "category", "columnName": "category", "affinity": "TEXT", "notNull": true},
+          {"fieldPath": "encryptionIv", "columnName": "encryptionIv", "affinity": "TEXT", "notNull": true},
+          {"fieldPath": "authTag", "columnName": "authTag", "affinity": "TEXT", "notNull": false},
+          {"fieldPath": "createdAt", "columnName": "createdAt", "affinity": "INTEGER", "notNull": true},
+          {"fieldPath": "notes", "columnName": "notes", "affinity": "TEXT", "notNull": false},
+          {"fieldPath": "isDecoy", "columnName": "isDecoy", "affinity": "INTEGER", "notNull": true, "defaultValue": "0"}
+        ],
+        "primaryKey": {"auto": false, "columnNames": ["id"]},
+        "indices": [
+          {"name": "index_vault_items_encryptedFileName", "unique": true, "columnNames": ["encryptedFileName"], "orders": [], "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_vault_items_encryptedFileName` ON `${TABLE_NAME}` (`encryptedFileName`)"},
+          {"name": "index_vault_items_category", "unique": false, "columnNames": ["category"], "orders": [], "createSql": "CREATE INDEX IF NOT EXISTS `index_vault_items_category` ON `${TABLE_NAME}` (`category`)"},
+          {"name": "index_vault_items_isDecoy", "unique": false, "columnNames": ["isDecoy"], "orders": [], "createSql": "CREATE INDEX IF NOT EXISTS `index_vault_items_isDecoy` ON `${TABLE_NAME}` (`isDecoy`)"},
+          {"name": "index_vault_items_createdAt", "unique": false, "columnNames": ["createdAt"], "orders": [], "createSql": "CREATE INDEX IF NOT EXISTS `index_vault_items_createdAt` ON `${TABLE_NAME}` (`createdAt`)"}
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "vault_journal",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `operationType` TEXT NOT NULL, `originalPath` TEXT NOT NULL, `vaultPath` TEXT NOT NULL, `status` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL)",
+        "fields": [
+          {"fieldPath": "id", "columnName": "id", "affinity": "INTEGER", "notNull": true},
+          {"fieldPath": "operationType", "columnName": "operationType", "affinity": "TEXT", "notNull": true},
+          {"fieldPath": "originalPath", "columnName": "originalPath", "affinity": "TEXT", "notNull": true},
+          {"fieldPath": "vaultPath", "columnName": "vaultPath", "affinity": "TEXT", "notNull": true},
+          {"fieldPath": "status", "columnName": "status", "affinity": "TEXT", "notNull": true},
+          {"fieldPath": "createdAt", "columnName": "createdAt", "affinity": "INTEGER", "notNull": true},
+          {"fieldPath": "updatedAt", "columnName": "updatedAt", "affinity": "INTEGER", "notNull": true}
+        ],
+        "primaryKey": {"auto": true, "columnNames": ["id"]},
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "cloud_sync_records",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `localPath` TEXT NOT NULL, `remoteFileId` TEXT, `provider` TEXT NOT NULL, `status` TEXT NOT NULL, `lastSyncedAt` INTEGER NOT NULL, `errorMessage` TEXT)",
+        "fields": [
+          {"fieldPath": "id", "columnName": "id", "affinity": "INTEGER", "notNull": true},
+          {"fieldPath": "localPath", "columnName": "localPath", "affinity": "TEXT", "notNull": true},
+          {"fieldPath": "remoteFileId", "columnName": "remoteFileId", "affinity": "TEXT", "notNull": false},
+          {"fieldPath": "provider", "columnName": "provider", "affinity": "TEXT", "notNull": true},
+          {"fieldPath": "status", "columnName": "status", "affinity": "TEXT", "notNull": true},
+          {"fieldPath": "lastSyncedAt", "columnName": "lastSyncedAt", "affinity": "INTEGER", "notNull": true},
+          {"fieldPath": "errorMessage", "columnName": "errorMessage", "affinity": "TEXT", "notNull": false}
+        ],
+        "primaryKey": {"auto": true, "columnNames": ["id"]},
+        "indices": [
+          {"name": "index_cloud_sync_records_localPath_provider", "unique": true, "columnNames": ["localPath", "provider"], "orders": [], "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_cloud_sync_records_localPath_provider` ON `${TABLE_NAME}` (`localPath`, `provider`)"},
+          {"name": "index_cloud_sync_records_status", "unique": false, "columnNames": ["status"], "orders": [], "createSql": "CREATE INDEX IF NOT EXISTS `index_cloud_sync_records_status` ON `${TABLE_NAME}` (`status`)"},
+          {"name": "index_cloud_sync_records_provider", "unique": false, "columnNames": ["provider"], "orders": [], "createSql": "CREATE INDEX IF NOT EXISTS `index_cloud_sync_records_provider` ON `${TABLE_NAME}` (`provider`)"}
+        ],
+        "foreignKeys": []
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'vvf_schema_v2_tracked_20260829')"
+    ]
+  }
+}

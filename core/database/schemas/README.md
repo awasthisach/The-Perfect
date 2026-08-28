@@ -1,10 +1,18 @@
-# Room schema exports
+# Room schema export (tracked in git)
 
-This directory stores Room database schema JSON exports used for migration validation.
+- `exportSchema = true` on `VVFDatabase`
+- KSP arg: `room.schemaLocation = $projectDir/schemas`
+- Version **2** snapshot: `com.vvf.smartmanager.core.database.VVFDatabase/2.json`
 
-- Configured via KSP: `room.schemaLocation = $projectDir/schemas`
-- `VVFDatabase` has `exportSchema = true`
-- Generate/update after schema changes:
-  `./gradlew :core:database:kspDebugKotlin`
+## Regenerate after entity changes
 
-Commit the generated JSON files under this directory with migration PRs.
+```bash
+./gradlew :core:database:kspDebugKotlin
+# commit any updated JSON under schemas/
+```
+
+If KSP rewrites `identityHash`, commit the new file — that is expected.
+
+## Policy
+
+Schema JSON is **source of truth for migrations**. Do not delete historical version files (`1.json`, `2.json`, …).
