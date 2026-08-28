@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1066157662177",
+    "project_id": "the-vvf",
+    "storage_bucket": "the-vvf.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1066157662177:android:021a0f97e5a35321a8bca0",
+        "android_client_info": {
+          "package_name": "com.aistudio.vvfsmartmanager.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBMyoQ8xOxXS_c7qkPZagSOZeZQwurBs4w"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
