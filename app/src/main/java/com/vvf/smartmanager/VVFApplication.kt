@@ -1,6 +1,7 @@
 package com.vvf.smartmanager
 
 import android.app.Application
+import android.util.Log
 import com.vvf.smartmanager.core.data.repository.OfflineFileManagerRepository
 import com.vvf.smartmanager.core.data.repository.OfflineSearchRepository
 import com.vvf.smartmanager.core.data.repository.SecureVaultRepository
@@ -28,9 +29,7 @@ import com.vvf.smartmanager.core.domain.SearchHistoryUseCase
 import com.vvf.smartmanager.core.domain.SemanticSearchUseCase
 import com.vvf.smartmanager.core.domain.TagManagementUseCase
 import com.vvf.smartmanager.core.domain.VaultAuthUseCase
-import com.vvf.smartmanager.core.plugin.spi.IOcrEngine
 import com.vvf.smartmanager.core.plugin.spi.ISemanticSearchEngine
-import com.vvf.smartmanager.core.plugin.spi.OcrPluginSPI
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import com.vvf.smartmanager.plugin.ocr.OcrEnginePlugin
 import com.vvf.smartmanager.plugin.ocr.OcrPluginImpl
@@ -47,11 +46,12 @@ import com.vvf.smartmanager.plugin.clouddrivers.OneDriveDriverImpl
 import com.vvf.smartmanager.plugin.clouddrivers.S3StorageDriverImpl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * Root Application entry point for VVF Smart Manager with AppContainer for clean DI.
+ * Root Application entry point for VVF Smart Manager with manual DI container.
  */
 class VVFApplication : Application() {
 
@@ -131,6 +131,7 @@ class VVFApplication : Application() {
         private set
 
     companion object {
+        private const val TAG = "VVFApplication"
         lateinit var instance: VVFApplication
             private set
     }
@@ -153,8 +154,22 @@ class VVFApplication : Application() {
         database = try {
             VVFDatabase.buildEncryptedDatabase(this, passphrase)
         } catch (e: UnsatisfiedLinkError) {
-            // Local JVM unit test environment (Robolectric) lacks native SQLCipher (.so) libraries
-            VVFDatabase.buildInMemoryDatabase(this)
+            // Production must never fall back to plaintext in-memory DB.
+            // Only allow in-memory when running under known test runners (Robolectric).
+            val isTestEnv = try {
+                Class.forName("org.robolectric.Robolectric") != null
+            } catch (_: ClassNotFoundException) {
+                false
+            }
+            if (isTestEnv) {
+                Log.w(TAG, "SQLCipher native lib missing under test — using in-memory DB")
+                VVFDatabase.buildInMemoryDatabase(this)
+            } else {
+                throw SecurityException(
+                    "SQLCipher native library failed to load. Encrypted database is required in production.",
+                    e
+                )
+            }
         } catch (e: Throwable) {
             throw SecurityException(
                 "Secure database initialization failed: Failed to construct encrypted SQLCipher database",
@@ -242,27 +257,27 @@ class VVFApplication : Application() {
         )
 
         backgroundSyncManager = BackgroundSyncManager(this)
-        // Optimize Cold Start: schedule non-critical background sync tasks asynchronously with SupervisorJob & Exception Handler
         val bgExceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
-            android.util.Log.e("VVFApplication", "Background sync scheduling failed safely", throwable)
+            Log.e(TAG, "Background sync scheduling failed safely", throwable)
         }
-        kotlinx.coroutines.CoroutineScope(
-            kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO + bgExceptionHandler
-        ).launch {
+        CoroutineScope(SupervisorJob() + Dispatchers.IO + bgExceptionHandler).launch {
             try {
                 backgroundSyncManager.schedulePeriodicIndexing(intervalHours = 6L)
                 backgroundSyncManager.schedulePeriodicJunkScan(intervalHours = 12L)
-            } catch (_: Throwable) {}
+            } catch (e: Throwable) {
+                Log.e(TAG, "Background sync scheduling failed", e)
+            }
         }
     }
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         if (level >= TRIM_MEMORY_MODERATE) {
-            // Trim non-critical memory caches and release active OCR working buffers
             try {
                 ocrPlugin.cancelOngoing()
-            } catch (_: Throwable) {}
+            } catch (e: Throwable) {
+                Log.w(TAG, "OCR cancel on trim failed", e)
+            }
         }
     }
 
@@ -270,6 +285,8 @@ class VVFApplication : Application() {
         super.onLowMemory()
         try {
             ocrPlugin.cancelOngoing()
-        } catch (_: Throwable) {}
+        } catch (e: Throwable) {
+            Log.w(TAG, "OCR cancel on low memory failed", e)
+        }
     }
 }
