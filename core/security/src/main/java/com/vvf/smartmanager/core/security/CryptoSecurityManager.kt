@@ -470,7 +470,7 @@ class CryptoSecurityManager(
 
                 val expectedHash = decryptBytes(encHash, hashIv, alias = VAULT_META_KEY_ALIAS)
                 val salt = decryptBytes(encSalt, saltIv, alias = VAULT_META_KEY_ALIAS)
-                val computedHash = hashPin(decoyPin = pin, salt)
+                val computedHash = hashPin(pin, salt)
 
                 if (java.security.MessageDigest.isEqual(expectedHash, computedHash)) {
                     resetFailedAttempts()
