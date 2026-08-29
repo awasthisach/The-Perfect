@@ -8,10 +8,8 @@ import com.vvf.smartmanager.core.model.CloudSyncItem
 import com.vvf.smartmanager.core.model.CloudSyncStatus
 import com.vvf.smartmanager.core.model.FileItem
 import com.vvf.smartmanager.core.plugin.spi.CloudDriverSPI
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.flow
 import java.util.UUID
 
 /**
@@ -46,30 +44,46 @@ class CloudSyncUseCase(
 
     suspend fun getAccount(providerType: CloudProviderType): CloudAccount {
         return if (providerType == CloudProviderType.GOOGLE_DRIVE) {
-            val quota = googleDriveService.getStorageQuota().getOrDefault(Pair(0L, 15L * 1024 * 1024 * 1024))
-            CloudAccount(
-                providerType = CloudProviderType.GOOGLE_DRIVE,
-                accountEmail = "user.vvf@gmail.com",
-                displayName = "Google Drive",
-                isConnected = quota.first > 0 || quota.second > 0,
-                usedBytes = quota.first,
-                totalBytes = quota.second,
-                lastSyncTimestamp = System.currentTimeMillis() - 7200000L,
-                autoSyncEnabled = true
+            googleDriveService.getStorageQuota().fold(
+                onSuccess = { quota ->
+                    CloudAccount(
+                        providerType = CloudProviderType.GOOGLE_DRIVE,
+                        displayName = "Google Drive",
+                        isConnected = true,
+                        usedBytes = quota.first,
+                        totalBytes = quota.second,
+                        autoSyncEnabled = true
+                    )
+                },
+                onFailure = {
+                    CloudAccount(
+                        providerType = CloudProviderType.GOOGLE_DRIVE,
+                        displayName = "Google Drive",
+                        isConnected = false
+                    )
+                }
             )
         } else {
             val driver = pluginDrivers[providerType]
             if (driver != null) {
-                val quota = driver.getQuotaUsage()
-                CloudAccount(
-                    providerType = providerType,
-                    accountEmail = "${providerType.name.lowercase()}@connected.plugin",
-                    displayName = driver.displayName,
-                    isConnected = true,
-                    usedBytes = quota.first,
-                    totalBytes = quota.second,
-                    lastSyncTimestamp = System.currentTimeMillis() - 14400000L,
-                    autoSyncEnabled = false
+                runCatching { driver.getQuotaUsage() }.fold(
+                    onSuccess = { quota ->
+                        CloudAccount(
+                            providerType = providerType,
+                            displayName = driver.displayName,
+                            isConnected = true,
+                            usedBytes = quota.first,
+                            totalBytes = quota.second,
+                            autoSyncEnabled = false
+                        )
+                    },
+                    onFailure = {
+                        CloudAccount(
+                            providerType = providerType,
+                            displayName = driver.displayName,
+                            isConnected = false
+                        )
+                    }
                 )
             } else {
                 CloudAccount(
@@ -77,7 +91,7 @@ class CloudSyncUseCase(
                     displayName = providerType.displayName,
                     isConnected = false,
                     usedBytes = 0L,
-                    totalBytes = 10L * 1024 * 1024 * 1024
+                    totalBytes = 0L
                 )
             }
         }
@@ -101,39 +115,21 @@ class CloudSyncUseCase(
         includeVault: Boolean = false,
         includeDatabase: Boolean = true
     ): Result<CloudBackupInfo> {
-        _syncState.value = CloudSyncStatus.SYNCING
-        val backupSnapshot = CloudBackupInfo(
-            backupId = UUID.randomUUID().toString(),
-            timestamp = System.currentTimeMillis(),
-            backupName = "VVF_Cloud_Backup_${System.currentTimeMillis() / 1000}.vvfbak",
-            backupSizeBytes = if (includeVault) 58 * 1024 * 1024L else 14 * 1024 * 1024L,
-            includesVault = includeVault,
-            includesDatabase = includeDatabase,
-            includesPreferences = true
+        _syncState.value = CloudSyncStatus.ERROR
+        return Result.failure(
+            UnsupportedOperationException(
+                "Cloud backup is unavailable: no real archive/export pipeline is configured for ${providerType.displayName}."
+            )
         )
-
-        // Register dummy sync item to track progress
-        val syncItem = CloudSyncItem(
-            id = backupSnapshot.backupId,
-            fileName = backupSnapshot.backupName,
-            localPath = "/data/user/0/com.vvf.smartmanager/databases/vvf_vault.db",
-            remotePath = "cloud://${providerType.name.lowercase()}/backups/${backupSnapshot.backupName}",
-            fileSize = backupSnapshot.backupSizeBytes,
-            status = CloudSyncStatus.UPLOADING,
-            progress = 0.5f
-        )
-        _syncQueue.value = listOf(syncItem)
-
-        // Complete upload
-        _syncState.value = CloudSyncStatus.SUCCESS
-        _syncQueue.value = listOf(syncItem.copy(status = CloudSyncStatus.SUCCESS, progress = 1.0f))
-        return Result.success(backupSnapshot)
     }
 
     suspend fun restoreCloudBackup(backupInfo: CloudBackupInfo): Result<Boolean> {
-        _syncState.value = CloudSyncStatus.DOWNLOADING
-        _syncState.value = CloudSyncStatus.SUCCESS
-        return Result.success(true)
+        _syncState.value = CloudSyncStatus.ERROR
+        return Result.failure(
+            UnsupportedOperationException(
+                "Cloud restore is unavailable until archive download and verified local restore are implemented for ${backupInfo.backupName}."
+            )
+        )
     }
 
     suspend fun syncFileToCloud(
@@ -141,19 +137,43 @@ class CloudSyncUseCase(
         providerType: CloudProviderType = CloudProviderType.GOOGLE_DRIVE
     ): Result<CloudSyncItem> {
         _syncState.value = CloudSyncStatus.UPLOADING
-        val syncItem = CloudSyncItem(
-            id = UUID.randomUUID().toString(),
-            fileName = fileItem.name,
-            localPath = fileItem.path,
-            remotePath = "cloud://${providerType.name.lowercase()}/files/${fileItem.name}",
-            fileSize = fileItem.sizeBytes,
-            status = CloudSyncStatus.SUCCESS,
-            progress = 1.0f
-        )
-        val updatedQueue = _syncQueue.value.toMutableList()
-        updatedQueue.add(0, syncItem)
-        _syncQueue.value = updatedQueue
-        _syncState.value = CloudSyncStatus.SUCCESS
-        return Result.success(syncItem)
+        val itemId = UUID.randomUUID().toString()
+        return try {
+            val remoteId = if (providerType == CloudProviderType.GOOGLE_DRIVE) {
+                googleDriveService.uploadFile(fileItem).getOrElse { throw it }
+            } else {
+                val driver = pluginDrivers[providerType]
+                    ?: throw IllegalStateException("Provider plugin not found")
+                if (!driver.uploadFile(fileItem, "root")) {
+                    throw IllegalStateException("${driver.displayName} rejected the upload")
+                }
+                "${providerType.name.lowercase()}:$itemId"
+            }
+            val syncItem = CloudSyncItem(
+                id = itemId,
+                fileName = fileItem.name,
+                localPath = fileItem.path,
+                remotePath = remoteId,
+                fileSize = fileItem.sizeBytes,
+                status = CloudSyncStatus.SUCCESS,
+                progress = 1.0f
+            )
+            _syncQueue.value = listOf(syncItem) + _syncQueue.value
+            _syncState.value = CloudSyncStatus.SUCCESS
+            Result.success(syncItem)
+        } catch (error: Throwable) {
+            val failedItem = CloudSyncItem(
+                id = itemId,
+                fileName = fileItem.name,
+                localPath = fileItem.path,
+                remotePath = "",
+                fileSize = fileItem.sizeBytes,
+                status = CloudSyncStatus.ERROR,
+                errorMessage = error.message ?: "Cloud upload failed"
+            )
+            _syncQueue.value = listOf(failedItem) + _syncQueue.value
+            _syncState.value = CloudSyncStatus.ERROR
+            Result.failure(error)
+        }
     }
 }

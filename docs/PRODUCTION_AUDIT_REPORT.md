@@ -26,7 +26,7 @@ This audit distinguishes between **Static Source Code Verification** (AST/Inspec
 | **ARCH-01** | File Identity & State Machine Model | Versioned Hash Binding | Verified in `FileItem.kt` (`localFileId`, `canonicalUri`, `contentIdentityVersion`, `sha256Hash`, `DurableOperationState`). | `PASS` ✅ |
 | **ARCH-02** | Offline-First vs `metadata.json` Capability | `MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API` in `metadata.json` | Clarified: Platform-level container requirement strictly preserved for AI Studio web build runner compatibility. Android app codebase runtime has **zero mandatory network calls** and performs 100% on-device search via TFLite and ML Kit plugins. | `PASS` ✅ |
 | **CI-01** | `gradlew` Executable Permissions | File permissions without +x on clean clones | Added explicit `chmod +x gradlew` and dual-runner fallback (`./gradlew ... || gradle ...`) in `.github/workflows/ci.yml`. | `PASS` ✅ |
-| **CI-02** | Unit Test Suite & SPI Mismatches | Signature drift in test doubles | Updated `PluginManagerTest.kt`, `VVFSmartManagerCUJTest.kt`, and `CloudDriversUnitTest.kt`. All 404 Gradle tasks compile and pass. | `PASS` ✅ |
+| **CI-02** | Unit Test Suite & SPI Mismatches | Signature drift in test doubles | Static test files are present, but local Gradle execution is blocked before compilation because the Android SDK path is not configured. The historical green result was not independently re-run in this audit. | `UNVERIFIED` ⚠️ |
 
 ---
 
@@ -50,7 +50,7 @@ This audit distinguishes between **Static Source Code Verification** (AST/Inspec
 
 ## 4. Test Suite Execution & Verification Record
 
-All test suites executed locally on JVM and verified with Gradle:
+Local Gradle execution was attempted but did not reach compilation because the Android SDK path is not configured in this environment. The following files are an inventory of the intended test suites, not a claim of a fresh passing run:
 - **`VVFSmartManagerCUJTest.kt`** (9 Critical User Journeys):
   1. `cuj1_fileIdentityAndHashIntegrity` — Verifies immutable file identity binding.
   2. `cuj2_vaultEncryptionAndDecryptionRoundtrip` — Tests AES-256-GCM vault isolation.
@@ -65,7 +65,7 @@ All test suites executed locally on JVM and verified with Gradle:
 - **`PluginManagerTest.kt`**: Validates dynamic SPI plugin lifecycle, loading, and fallback.
 - **`OptimizationBenchmarkTest.kt`**: Validates memory trim levels and cold-start optimizations.
 
-**Test Task Output**: `BUILD SUCCESSFUL in 18s (404 actionable tasks: 11 executed, 2 from cache, 391 up-to-date)`.
+**Verification result:** `./gradlew test` and `./gradlew :core:domain:test` stopped before compilation with `SDK location not found`; no fresh green build is claimed.
 
 ---
 
@@ -85,5 +85,5 @@ All test suites executed locally on JVM and verified with Gradle:
 
 ## 6. Audit Verdict & Release Readiness
 
-**Verdict**: 🟢 **READY FOR PRODUCTION / PLAY STORE RELEASE**  
-All static security concerns, manifest declarations, unit tests, and CI workflow configurations have been inspected, reconciled with actual code evidence, and verified with successful compilation.
+**Verdict**: 🔴 **NOT YET VERIFIED FOR PRODUCTION / PLAY STORE RELEASE**
+The repository contains substantial security and architecture work, but a fresh build was not verified in this environment. In addition, the cloud backup/restore paths required fail-closed remediation because they previously returned success without performing the corresponding data operations. See `docs/PRODUCTION_AUDIT_REPORT_MANUS.md` for the evidence-based audit and current remediation status.
