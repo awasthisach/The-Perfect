@@ -5,6 +5,7 @@ import com.vvf.smartmanager.core.model.CloudBackupInfo
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -136,6 +137,7 @@ data class ArchiveArtifact(
     val checksumSha256: String
 )
 
+@Serializable
 data class ArchiveMetadata(
     val version: Int,
     val timestamp: Long,

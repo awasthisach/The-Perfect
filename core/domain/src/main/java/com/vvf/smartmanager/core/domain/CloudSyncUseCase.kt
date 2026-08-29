@@ -117,11 +117,15 @@ class CloudSyncUseCase(
         includeVault: Boolean = false,
         includeDatabase: Boolean = true
     ): Result<CloudBackupInfo> {
-        val service = archiveService ?: return Result.failure(
-            UnsupportedOperationException(
-                "Cloud backup is unavailable: no real archive/export pipeline is configured for ${providerType.displayName}."
+        val service = archiveService
+        if (service == null) {
+            _syncState.value = CloudSyncStatus.ERROR
+            return Result.failure(
+                UnsupportedOperationException(
+                    "Cloud backup is unavailable: no real archive/export pipeline is configured for ${providerType.displayName}."
+                )
             )
-        ).also { _syncState.value = CloudSyncStatus.ERROR }
+        }
 
         _syncState.value = CloudSyncStatus.SYNCING
         return service.createArchive(
@@ -138,7 +142,7 @@ class CloudSyncUseCase(
                     mimeType = "application/octet-stream"
                 )
                 val uploadResult = if (providerType == CloudProviderType.GOOGLE_DRIVE) {
-                    googleDriveService.uploadFile(fileItem)
+                    googleDriveService.uploadFile(fileItem, "VVF_Backups")
                 } else {
                     val driver = pluginDrivers[providerType]
                         ?: return@fold Result.failure(IllegalStateException("Provider plugin not found"))
@@ -146,9 +150,9 @@ class CloudSyncUseCase(
                     else Result.failure(IllegalStateException("${driver.displayName} rejected the backup upload"))
                 }
                 uploadResult.fold(
-                    onSuccess = {
+                    onSuccess = { remoteId ->
                         _syncState.value = CloudSyncStatus.SUCCESS
-                        Result.success(artifact.backupInfo)
+                        Result.success(artifact.backupInfo.copy(backupId = remoteId))
                     },
                     onFailure = { error ->
                         _syncState.value = CloudSyncStatus.ERROR

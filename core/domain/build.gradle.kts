@@ -1,6 +1,7 @@
 plugins {
   alias(libs.plugins.android.library)
   alias(libs.plugins.google.devtools.ksp)
+  alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -25,6 +26,7 @@ dependencies {
   api(project(":core:cloud-gdrive"))
   api(project(":core:common"))
   implementation(libs.kotlinx.coroutines.core)
+  implementation(libs.kotlinx.serialization.json)
   testImplementation(libs.junit)
   testImplementation(libs.kotlinx.coroutines.test)
 }
