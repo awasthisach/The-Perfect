@@ -80,6 +80,17 @@ jobs:
           path: "**/build/reports/tests/**"
           if-no-files-found: ignore
 
+      - name: Archive Room schema exports (KSP-generated)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: room-schemas
+          path: |
+            core/database/schemas/**/*.json
+            core/database/build/generated/**/schemas/**/*.json
+            **/schemas/**/*.json
+          if-no-files-found: ignore
+
   license_compliance:
     name: FOSSA & Open Source License Compliance
     runs-on: ubuntu-latest

@@ -1,9 +1,7 @@
 package com.vvf.smartmanager.core.cloud.gdrive
 
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
-import androidx.activity.result.ActivityResultLauncher
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialException
@@ -17,18 +15,12 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
 /**
- * OAuth / Credential Manager skeleton for Google Drive access.
+ * OAuth / Credential Manager for Google Drive access.
  *
- * Two paths:
- * 1. [requestGoogleIdToken] — Credential Manager account picker (OpenID id_token).
- *    Useful for identifying the user; **not** a Drive access token by itself.
- * 2. [buildDriveSignInIntent] / [extractAccessTokenFromSignInResult] — classic Google Sign-In
- *    with `DRIVE_FILE` scope to obtain a usable access token for [GoogleDriveServiceImpl].
- *
- * Production checklist:
- * - Web client ID (OAuth) in Google Cloud Console → [serverClientId]
- * - Android OAuth client with package name + SHA-1
- * - Prefer scope `https://www.googleapis.com/auth/drive.file` (app-created files only)
+ * Paths:
+ * 1. [requestGoogleIdToken] — Credential Manager (OpenID id_token only).
+ * 2. [buildDriveSignInIntent] + [extractAccessTokenFromSignInResult] — Drive access token
+ *    with scope [DRIVE_FILE_SCOPE] for [GoogleDriveServiceImpl.setAccessToken].
  */
 class GoogleDriveAuth(
     private val context: Context,
@@ -37,9 +29,6 @@ class GoogleDriveAuth(
 
     private val credentialManager = CredentialManager.create(context)
 
-    /**
-     * Credential Manager: returns Google ID token (JWT), not Drive REST access token.
-     */
     suspend fun requestGoogleIdToken(
         filterByAuthorizedAccounts: Boolean = false
     ): Result<String> = withContext(Dispatchers.Main) {
@@ -72,10 +61,6 @@ class GoogleDriveAuth(
         }
     }
 
-    /**
-     * Builds a Google Sign-In intent requesting Drive file scope + email/id.
-     * Launch via [ActivityResultLauncher]; then [extractAccessTokenFromSignInResult].
-     */
     fun buildDriveSignInIntent(): Intent {
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestEmail()
@@ -85,30 +70,25 @@ class GoogleDriveAuth(
         return GoogleSignIn.getClient(context, gso).signInIntent
     }
 
-    /**
-     * After Sign-In activity result, returns an OAuth **access token** suitable for Drive v3 REST.
-     */
     suspend fun extractAccessTokenFromSignInResult(data: Intent?): Result<String> =
         withContext(Dispatchers.IO) {
             try {
-                val task = GoogleSignIn.getSignedInAccountFromIntent(data)
-                val account = task.await()
-                val tokenTask = account.account?.let { acct ->
-                    // Use GoogleAuthUtil path via silent permission — account must have Drive scope
-                    com.google.android.gms.auth.GoogleAuthUtil.getToken(
-                        context,
-                        acct,
-                        "oauth2:$DRIVE_FILE_SCOPE"
-                    )
-                }
-                if (tokenTask.isNullOrBlank()) {
+                val account = GoogleSignIn.getSignedInAccountFromIntent(data).await()
+                val acct = account.account
+                    ?: return@withContext Result.failure(IllegalStateException("No Google account on result"))
+                val token = com.google.android.gms.auth.GoogleAuthUtil.getToken(
+                    context,
+                    acct,
+                    "oauth2:$DRIVE_FILE_SCOPE"
+                )
+                if (token.isNullOrBlank()) {
                     Result.failure(
                         IllegalStateException(
-                            "No access token. Ensure Drive scope was granted and Google Play Services is available."
+                            "No access token. Ensure Drive scope was granted and Play Services is available."
                         )
                     )
                 } else {
-                    Result.success(tokenTask)
+                    Result.success(token)
                 }
             } catch (e: Exception) {
                 Result.failure(e)
@@ -130,21 +110,5 @@ class GoogleDriveAuth(
 
     companion object {
         const val DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
-
-        /**
-         * Helper for Activity: run full connect → token → [GoogleDriveServiceImpl.setAccessToken].
-         */
-        fun registerSignInLauncher(
-            activity: Activity,
-            launcher: ActivityResultLauncher<Intent>,
-            onIntentReady: (Intent) -> Unit
-        ) {
-            // Call site owns ActivityResultContracts.StartActivityForResult
-            // Example in docs/GOOGLE_DRIVE_SETUP.md
-            onIntentReady.invoke(
-                // no-op placeholder — prefer instance.buildDriveSignInIntent()
-                Intent()
-            )
-        }
     }
 }

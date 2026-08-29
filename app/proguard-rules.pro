@@ -82,3 +82,10 @@
 -keep class com.vvf.smartmanager.core.plugin.spi.** { *; }
 -keep class com.vvf.smartmanager.core.database.model.** { *; }
 -keep class com.vvf.smartmanager.core.database.entity.** { *; }
+
+# Drive REST DTOs (Moshi reflection)
+-keep class com.vvf.smartmanager.core.cloud.gdrive.DriveFileListResponse { *; }
+-keep class com.vvf.smartmanager.core.cloud.gdrive.DriveFileDto { *; }
+-keep class com.vvf.smartmanager.core.cloud.gdrive.DriveAboutResponse { *; }
+-keep class com.vvf.smartmanager.core.cloud.gdrive.DriveStorageQuota { *; }
+-keep class com.vvf.smartmanager.core.cloud.gdrive.DriveApi { *; }
