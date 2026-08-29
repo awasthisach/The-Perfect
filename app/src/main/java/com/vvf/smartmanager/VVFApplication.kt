@@ -5,12 +5,15 @@ import android.util.Log
 import com.vvf.smartmanager.core.background.BackgroundSyncManager
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveServiceImpl
+import com.vvf.smartmanager.core.data.backup.InjectedVaultSnapshotSource
+import com.vvf.smartmanager.core.data.backup.ReadOnlyDatabaseSnapshotSource
 import com.vvf.smartmanager.core.data.repository.OfflineFileManagerRepository
 import com.vvf.smartmanager.core.data.repository.OfflineSearchRepository
 import com.vvf.smartmanager.core.data.repository.SecureVaultRepository
 import com.vvf.smartmanager.core.data.storage.StorageManager
 import com.vvf.smartmanager.core.database.VVFDatabase
 import com.vvf.smartmanager.core.domain.AiIntelligenceUseCase
+import com.vvf.smartmanager.core.domain.backup.ArchiveService
 import com.vvf.smartmanager.core.domain.CloudSyncUseCase
 import com.vvf.smartmanager.core.domain.DeleteVaultItemUseCase
 import com.vvf.smartmanager.core.domain.DuplicateCleanerUseCase
@@ -250,9 +253,18 @@ class VVFApplication : Application() {
             CloudProviderType.LOCAL_NAS to LocalNasDriverImpl()
         )
 
+        val archiveService = ArchiveService(
+            cacheDir = cacheDir,
+            snapshotSources = listOf(
+                ReadOnlyDatabaseSnapshotSource(File(filesDir, VVFDatabase.DATABASE_NAME)),
+                InjectedVaultSnapshotSource(vaultDir)
+            ),
+            cryptoSecurityManager = cryptoSecurityManager
+        )
         cloudSyncUseCase = CloudSyncUseCase(
             googleDriveService = googleDriveService,
-            pluginDrivers = cloudDrivers
+            pluginDrivers = cloudDrivers,
+            archiveService = archiveService
         )
 
         backgroundSyncManager = BackgroundSyncManager(this)

@@ -1,6 +1,7 @@
 package com.vvf.smartmanager.core.domain
 
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
+import com.vvf.smartmanager.core.domain.backup.ArchiveService
 import com.vvf.smartmanager.core.model.CloudAccount
 import com.vvf.smartmanager.core.model.CloudBackupInfo
 import com.vvf.smartmanager.core.model.CloudProviderType
@@ -19,7 +20,8 @@ import java.util.UUID
  */
 class CloudSyncUseCase(
     private val googleDriveService: GoogleDriveService,
-    private val pluginDrivers: Map<CloudProviderType, CloudDriverSPI> = emptyMap()
+    private val pluginDrivers: Map<CloudProviderType, CloudDriverSPI> = emptyMap(),
+    private val archiveService: ArchiveService? = null
 ) {
 
     private val _syncState = MutableStateFlow(CloudSyncStatus.IDLE)
@@ -115,11 +117,49 @@ class CloudSyncUseCase(
         includeVault: Boolean = false,
         includeDatabase: Boolean = true
     ): Result<CloudBackupInfo> {
-        _syncState.value = CloudSyncStatus.ERROR
-        return Result.failure(
+        val service = archiveService ?: return Result.failure(
             UnsupportedOperationException(
                 "Cloud backup is unavailable: no real archive/export pipeline is configured for ${providerType.displayName}."
             )
+        ).also { _syncState.value = CloudSyncStatus.ERROR }
+
+        _syncState.value = CloudSyncStatus.SYNCING
+        return service.createArchive(
+            includeVault = includeVault,
+            includeDatabase = includeDatabase
+        ).fold(
+            onSuccess = { artifact ->
+                val fileItem = FileItem(
+                    path = artifact.file.absolutePath,
+                    name = artifact.file.name,
+                    sizeBytes = artifact.file.length(),
+                    lastModified = artifact.file.lastModified(),
+                    isDirectory = false,
+                    mimeType = "application/octet-stream"
+                )
+                val uploadResult = if (providerType == CloudProviderType.GOOGLE_DRIVE) {
+                    googleDriveService.uploadFile(fileItem)
+                } else {
+                    val driver = pluginDrivers[providerType]
+                        ?: return@fold Result.failure(IllegalStateException("Provider plugin not found"))
+                    if (driver.uploadFile(fileItem, "root")) Result.success(artifact.backupInfo.backupId)
+                    else Result.failure(IllegalStateException("${driver.displayName} rejected the backup upload"))
+                }
+                uploadResult.fold(
+                    onSuccess = {
+                        _syncState.value = CloudSyncStatus.SUCCESS
+                        Result.success(artifact.backupInfo)
+                    },
+                    onFailure = { error ->
+                        _syncState.value = CloudSyncStatus.ERROR
+                        Result.failure(error)
+                    }
+                )
+            },
+            onFailure = { error ->
+                _syncState.value = CloudSyncStatus.ERROR
+                Result.failure(error)
+            }
         )
     }
 

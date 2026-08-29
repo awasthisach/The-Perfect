@@ -26,4 +26,5 @@ dependencies {
   api(project(":core:plugin-spi"))
   implementation(libs.androidx.core.ktx)
   implementation(libs.kotlinx.coroutines.core)
+  testImplementation(libs.junit)
 }
