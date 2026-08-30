@@ -34,42 +34,34 @@ jobs:
 
       - name: Accept licenses and install platforms
         run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager "platform-tools" "platforms;android-34" "platforms;android-36" "build-tools;34.0.0" "build-tools;36.0.0" || true
+          yes | sdkmanager --licenses
+          sdkmanager "platform-tools" "platforms;android-34" "platforms;android-36" "build-tools;34.0.0" "build-tools;36.0.0"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.3.1'
-          validate-wrappers: false
+          validate-wrappers: true
 
-      - name: Bootstrap gradle-wrapper.jar if missing
+      - name: Verify Gradle wrapper
         run: |
-          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
-            echo "gradle-wrapper.jar missing — generating..."
-            gradle wrapper --gradle-version 9.3.1
-          fi
+          test -f gradle/wrapper/gradle-wrapper.jar
           chmod +x gradlew
-          ls -la gradle/wrapper/
+          ./gradlew --version
 
       - name: Create local.properties
-        run: |
-          echo "sdk.dir=${ANDROID_HOME:-/usr/local/lib/android/sdk}" > local.properties
+        run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
 
       - name: Run Unit Tests across all modules
-        run: |
-          ./gradlew testDebugUnitTest --continue --stacktrace
+        run: ./gradlew testDebugUnitTest --continue --stacktrace
 
       - name: Upload Coverage to Codecov
-        if: ${{ env.CODECOV_TOKEN != '' }}
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-        uses: codecov/codecov-action@v4
+        if: ${{ secrets.CODECOV_TOKEN != '' }}
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: |
             **/build/reports/jacoco/**/*.xml
-          fail_ci_if_error: false
+          fail_ci_if_error: true
           verbose: true
 
       - name: Archive Test Reports
@@ -108,11 +100,16 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.3.1'
-          validate-wrappers: false
+          validate-wrappers: true
+
+      - name: Verify Gradle wrapper
+        run: |
+          test -f gradle/wrapper/gradle-wrapper.jar
+          chmod +x gradlew
+          ./gradlew --version
 
       - name: Run FOSSA License Scan
-        if: ${{ env.FOSSA_API_KEY != '' }}
+        if: ${{ secrets.FOSSA_API_KEY != '' }}
         env:
           FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
         uses: fossas/fossa-action@v1
@@ -140,46 +137,44 @@ jobs:
 
       - name: Accept licenses and install platforms
         run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager "platform-tools" "platforms;android-34" "platforms;android-36" "build-tools;34.0.0" "build-tools;36.0.0" || true
+          yes | sdkmanager --licenses
+          sdkmanager "platform-tools" "platforms;android-34" "platforms;android-36" "build-tools;34.0.0" "build-tools;36.0.0"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.3.1'
-          validate-wrappers: false
+          validate-wrappers: true
 
-      - name: Bootstrap gradle-wrapper.jar if missing
+      - name: Verify Gradle wrapper
         run: |
-          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
-            gradle wrapper --gradle-version 9.3.1
-          fi
+          test -f gradle/wrapper/gradle-wrapper.jar
           chmod +x gradlew
+          ./gradlew --version
 
       - name: Create local.properties
-        run: |
-          echo "sdk.dir=${ANDROID_HOME:-/usr/local/lib/android/sdk}" > local.properties
+        run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
 
-      - name: Ensure debug.keystore for CI release signing fallback
+      - name: Verify production signing configuration
+        env:
+          KEYSTORE_PATH: ${{ secrets.KEYSTORE_PATH }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          if [ ! -f debug.keystore ]; then
-            keytool -genkeypair -v \
-              -keystore debug.keystore \
-              -storepass android \
-              -alias androiddebugkey \
-              -keypass android \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
-          ls -la debug.keystore
+          test -n "$KEYSTORE_PATH"
+          test -n "$STORE_PASSWORD"
+          test -n "$KEY_PASSWORD"
+          test -f "$KEYSTORE_PATH"
 
-      - name: Build All Modules and Assemble Release
-        run: |
-          ./gradlew assembleRelease --stacktrace
+      - name: Build Release APK
+        env:
+          KEYSTORE_PATH: ${{ secrets.KEYSTORE_PATH }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --stacktrace
 
       - name: Archive Release APK
         uses: actions/upload-artifact@v4
         with:
           name: vvf-smartmanager-release-apk
           path: "**/build/outputs/apk/release/*.apk"
-          if-no-files-found: ignore
+          if-no-files-found: error
