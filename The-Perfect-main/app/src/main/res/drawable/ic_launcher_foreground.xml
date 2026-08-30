@@ -1,0 +1,427 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- ========================================================================= -->
+    <!-- 1. ORNATE CIRCULAR GOLDEN CREST & FILIGREE (Center 54, 40 | Radius ~23) -->
+    <!-- ========================================================================= -->
+
+    <!-- Outer Circular Golden Rim with Antique Bevel -->
+    <path
+        android:pathData="M54,40m-24,0a24,24 0 1,1 48,0a24,24 0 1,1 -48,0"
+        android:strokeWidth="1.8">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="30"
+                android:startY="16"
+                android:endX="78"
+                android:endY="64"
+                android:type="linear">
+                <item android:color="#FFEAA7" android:offset="0.0" />
+                <item android:color="#D4A95A" android:offset="0.5" />
+                <item android:color="#8C6621" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Inner Concentric Golden Ring -->
+    <path
+        android:pathData="M54,40m-20.5,0a20.5,20.5 0 1,1 41,0a20.5,20.5 0 1,1 -41,0"
+        android:strokeWidth="0.9"
+        android:strokeAlpha="0.85">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="33.5"
+                android:startY="19.5"
+                android:endX="74.5"
+                android:endY="60.5"
+                android:type="linear">
+                <item android:color="#FFF3C4" android:offset="0.0" />
+                <item android:color="#D4A95A" android:offset="0.6" />
+                <item android:color="#785514" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Radiating Circular Filigree Leaves & Buds Around Crest -->
+    <!-- Top-Left Crest Leaves -->
+    <path
+        android:pathData="M38,28 C37,25 40,24 43,26 C43,28 41,30 38,28 Z"
+        android:fillColor="#E5BE6C" />
+    <path
+        android:pathData="M33,35 C31,33 33,30 36,32 C36,34 35,36 33,35 Z"
+        android:fillColor="#D4A95A" />
+    <!-- Top-Right Crest Leaves -->
+    <path
+        android:pathData="M70,28 C71,25 68,24 65,26 C65,28 67,30 70,28 Z"
+        android:fillColor="#E5BE6C" />
+    <path
+        android:pathData="M75,35 C77,33 75,30 72,32 C72,34 73,36 75,35 Z"
+        android:fillColor="#D4A95A" />
+    <!-- Bottom Arch Filigree Flourishes -->
+    <path
+        android:pathData="M33,48 C31,51 34,53 37,50 C37,48 35,47 33,48 Z"
+        android:fillColor="#C49746" />
+    <path
+        android:pathData="M75,48 C77,51 74,53 71,50 C71,48 73,47 75,48 Z"
+        android:fillColor="#C49746" />
+    <path
+        android:pathData="M38,55 C37,58 41,58 43,55 C42,54 39,53 38,55 Z"
+        android:fillColor="#B38435" />
+    <path
+        android:pathData="M70,55 C71,58 67,58 65,55 C66,54 69,53 70,55 Z"
+        android:fillColor="#B38435" />
+
+    <!-- ========================================================================= -->
+    <!-- 2. CENTRAL 7-POINTED GOLDEN LEAF WITH 3D RELIEF FACETS                    -->
+    <!-- ========================================================================= -->
+
+    <!-- Leaf 1: Center Main Leaf Blade (Top Vertical) -->
+    <!-- Left Light Facet -->
+    <path
+        android:pathData="M54,19 L51,26 L53,27 L49,33 L52,35 L47,42 L54,54 L54,19 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="47"
+                android:startY="19"
+                android:endX="54"
+                android:endY="54"
+                android:type="linear">
+                <item android:color="#FFF8D6" android:offset="0.0" />
+                <item android:color="#F4CE75" android:offset="0.5" />
+                <item android:color="#D4A95A" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Right Shadow Facet -->
+    <path
+        android:pathData="M54,19 L57,26 L55,27 L59,33 L56,35 L61,42 L54,54 L54,19 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="54"
+                android:startY="19"
+                android:endX="61"
+                android:endY="54"
+                android:type="linear">
+                <item android:color="#E0B65E" android:offset="0.0" />
+                <item android:color="#B38435" android:offset="0.5" />
+                <item android:color="#785514" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Leaf 2: Upper-Left Serrated Blade -->
+    <!-- Upper Highlight Facet -->
+    <path
+        android:pathData="M36,25 L41,29 L40,31 L45,34 L44,36 L48,40 L54,49 L36,25 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="36"
+                android:startY="25"
+                android:endX="54"
+                android:endY="49"
+                android:type="linear">
+                <item android:color="#FFF1C2" android:offset="0.0" />
+                <item android:color="#E5BE6C" android:offset="0.6" />
+                <item android:color="#B38435" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Lower Shadow Facet -->
+    <path
+        android:pathData="M36,25 L39,30 L38,32 L43,36 L42,38 L46,43 L54,49 L36,25 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="36"
+                android:startY="25"
+                android:endX="54"
+                android:endY="49"
+                android:type="linear">
+                <item android:color="#D4A95A" android:offset="0.0" />
+                <item android:color="#9E7328" android:offset="0.6" />
+                <item android:color="#61440C" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Leaf 3: Upper-Right Serrated Blade -->
+    <!-- Upper Highlight Facet -->
+    <path
+        android:pathData="M72,25 L67,29 L68,31 L63,34 L64,36 L60,40 L54,49 L72,25 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="72"
+                android:startY="25"
+                android:endX="54"
+                android:endY="49"
+                android:type="linear">
+                <item android:color="#FFF1C2" android:offset="0.0" />
+                <item android:color="#E5BE6C" android:offset="0.5" />
+                <item android:color="#B38435" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Lower Shadow Facet -->
+    <path
+        android:pathData="M72,25 L69,30 L70,32 L65,36 L66,38 L62,43 L54,49 L72,25 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="72"
+                android:startY="25"
+                android:endX="54"
+                android:endY="49"
+                android:type="linear">
+                <item android:color="#C49746" android:offset="0.0" />
+                <item android:color="#8C6621" android:offset="0.6" />
+                <item android:color="#523908" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Leaf 4: Middle-Left Serrated Blade -->
+    <path
+        android:pathData="M27,37 L33,38 L32,40 L38,42 L38,44 L44,46 L54,52 L27,37 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="27"
+                android:startY="37"
+                android:endX="54"
+                android:endY="52"
+                android:type="linear">
+                <item android:color="#FFE8A3" android:offset="0.0" />
+                <item android:color="#D4A95A" android:offset="0.5" />
+                <item android:color="#8C6621" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path
+        android:pathData="M27,37 L32,41 L31,43 L37,46 L43,49 L54,52 L27,37 Z"
+        android:fillColor="#8C6621"
+        android:fillAlpha="0.75" />
+
+    <!-- Leaf 5: Middle-Right Serrated Blade -->
+    <path
+        android:pathData="M81,37 L75,38 L76,40 L70,42 L70,44 L64,46 L54,52 L81,37 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="81"
+                android:startY="37"
+                android:endX="54"
+                android:endY="52"
+                android:type="linear">
+                <item android:color="#FFE8A3" android:offset="0.0" />
+                <item android:color="#D4A95A" android:offset="0.5" />
+                <item android:color="#8C6621" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path
+        android:pathData="M81,37 L76,41 L77,43 L71,46 L65,49 L54,52 L81,37 Z"
+        android:fillColor="#785514"
+        android:fillAlpha="0.8" />
+
+    <!-- Leaf 6 & 7: Lower Small Side Blades -->
+    <path
+        android:pathData="M35,51 L40,49 L44,52 L54,54 L35,51 Z"
+        android:fillColor="#D4A95A" />
+    <path
+        android:pathData="M73,51 L68,49 L64,52 L54,54 L73,51 Z"
+        android:fillColor="#B38435" />
+
+    <!-- Stem & Base Flourish -->
+    <path
+        android:pathData="M54,54 L52.5,60 L54,62 L55.5,60 Z"
+        android:fillColor="#E5BE6C" />
+    <path
+        android:pathData="M54,20 L54,55"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="0.8"
+        android:strokeAlpha="0.9" />
+
+    <!-- ========================================================================= -->
+    <!-- 3. EMBOSSED 3D GOLDEN TYPOGRAPHY: "THE VVF"                               -->
+    <!-- ========================================================================= -->
+
+    <!-- "T" -->
+    <path
+        android:pathData="M18,65 L27,65 L27,67.5 L24,67.5 L24,76 L26,76 L26,77.5 L19,77.5 L19,76 L21,76 L21,67.5 L18,67.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="18"
+                android:startY="65"
+                android:endX="27"
+                android:endY="77.5"
+                android:type="linear">
+                <item android:color="#FFF6D6" android:offset="0.0" />
+                <item android:color="#E5BE6C" android:offset="0.4" />
+                <item android:color="#9E7328" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- "H" -->
+    <path
+        android:pathData="M29,65 L32,65 L32,70 L36,70 L36,65 L39,65 L39,77.5 L36,77.5 L36,72 L32,72 L32,77.5 L29,77.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="29"
+                android:startY="65"
+                android:endX="39"
+                android:endY="77.5"
+                android:type="linear">
+                <item android:color="#FFF6D6" android:offset="0.0" />
+                <item android:color="#E5BE6C" android:offset="0.4" />
+                <item android:color="#9E7328" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- "E" -->
+    <path
+        android:pathData="M41,65 L48,65 L48,67.5 L44,67.5 L44,70 L47.5,70 L47.5,72 L44,72 L44,75 L48.5,75 L48.5,77.5 L41,77.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="41"
+                android:startY="65"
+                android:endX="48.5"
+                android:endY="77.5"
+                android:type="linear">
+                <item android:color="#FFF6D6" android:offset="0.0" />
+                <item android:color="#E5BE6C" android:offset="0.4" />
+                <item android:color="#9E7328" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- "V" (First V) -->
+    <path
+        android:pathData="M52,65 L56.5,65 L60.5,75 L64.5,65 L69,65 L63,77.5 L58,77.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="52"
+                android:startY="65"
+                android:endX="69"
+                android:endY="77.5"
+                android:type="linear">
+                <item android:color="#FFF9DF" android:offset="0.0" />
+                <item android:color="#F4CE75" android:offset="0.35" />
+                <item android:color="#A87A2B" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- "V" (Second V) -->
+    <path
+        android:pathData="M67,65 L71.5,65 L75.5,75 L79.5,65 L84,65 L78,77.5 L73,77.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="67"
+                android:startY="65"
+                android:endX="84"
+                android:endY="77.5"
+                android:type="linear">
+                <item android:color="#FFF9DF" android:offset="0.0" />
+                <item android:color="#F4CE75" android:offset="0.35" />
+                <item android:color="#A87A2B" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- "F" -->
+    <path
+        android:pathData="M83,65 L91,65 L91,67.5 L86.5,67.5 L86.5,70 L90,70 L90,72 L86.5,72 L86.5,77.5 L83,77.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="83"
+                android:startY="65"
+                android:endX="91"
+                android:endY="77.5"
+                android:type="linear">
+                <item android:color="#FFF9DF" android:offset="0.0" />
+                <item android:color="#E5BE6C" android:offset="0.4" />
+                <item android:color="#9E7328" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- ========================================================================= -->
+    <!-- 4. BOTTOM GOLDEN RIBBON BANNER & "AI SEARCH"                              -->
+    <!-- ========================================================================= -->
+
+    <!-- Golden Ribbon Plate Base with Decorative Notched Ends -->
+    <path
+        android:pathData="M23,82 L20,85.5 L23,89 L85,89 L88,85.5 L85,82 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="20"
+                android:startY="82"
+                android:endX="88"
+                android:endY="89"
+                android:type="linear">
+                <item android:color="#FFEAA7" android:offset="0.0" />
+                <item android:color="#D4A95A" android:offset="0.5" />
+                <item android:color="#8C6621" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Inner Recessed Plaque Bed (Charcoal) -->
+    <path
+        android:pathData="M24.5,83.2 L22,85.5 L24.5,87.8 L83.5,87.8 L86,85.5 L83.5,83.2 Z"
+        android:fillColor="#15181C" />
+
+    <!-- Left & Right Golden Rivet Studs -->
+    <path
+        android:pathData="M25.5,85.5m-1,0a1,1 0 1,1 2,0a1,1 0 1,1 -2,0"
+        android:fillColor="#FFE8A3" />
+    <path
+        android:pathData="M82.5,85.5m-1,0a1,1 0 1,1 2,0a1,1 0 1,1 -2,0"
+        android:fillColor="#FFE8A3" />
+
+    <!-- "AI SEARCH" Crisp Text in Gold (Coordinates y: 84.2 to 86.8) -->
+    <!-- A -->
+    <path
+        android:pathData="M33,87 L34.5,84 L35.5,84 L37,87 L36,87 L35.7,86.2 L34.3,86.2 L34,87 Z M34.6,85.5 L35.4,85.5 L35,84.6 Z"
+        android:fillColor="#FFEAA7" />
+
+    <!-- I -->
+    <path
+        android:pathData="M38.5,84 L40.2,84 L40.2,87 L38.5,87 Z"
+        android:fillColor="#FFEAA7" />
+
+    <!-- S -->
+    <path
+        android:pathData="M44.5,84.7 C44.2,84.2 43.5,84 42.8,84 C42,84 41.5,84.4 41.5,84.9 C41.5,85.8 44.5,85.4 44.5,86.4 C44.5,87 43.8,87.2 42.8,87.2 C42,87.2 41.2,86.8 41.1,86.3 L42,86 C42.1,86.3 42.4,86.5 42.8,86.5 C43.3,86.5 43.6,86.3 43.6,86 C43.6,85.2 40.6,85.5 40.6,84.6 C40.6,84.1 41.3,83.8 42.5,83.8 C43.3,83.8 44.1,84.1 44.4,84.5 Z"
+        android:fillColor="#FFEAA7" />
+
+    <!-- E -->
+    <path
+        android:pathData="M46,84 L49,84 L49,84.7 L47,84.7 L47,85.2 L48.7,85.2 L48.7,85.8 L47,85.8 L47,86.3 L49.2,86.3 L49.2,87 L46,87 Z"
+        android:fillColor="#FFEAA7" />
+
+    <!-- A -->
+    <path
+        android:pathData="M50.5,87 L52,84 L53,84 L54.5,87 L53.5,87 L53.2,86.2 L51.8,86.2 L51.5,87 Z M52.1,85.5 L52.9,85.5 L52.5,84.6 Z"
+        android:fillColor="#FFEAA7" />
+
+    <!-- R -->
+    <path
+        android:pathData="M56,84 L58.5,84 C59.3,84 59.8,84.4 59.8,85 C59.8,85.5 59.4,85.8 58.8,85.9 L60,87 L58.8,87 L57.8,86 L57,86 L57,87 L56,87 Z M57,85.3 L58.3,85.3 C58.7,85.3 58.9,85.2 58.9,84.8 C58.9,84.5 58.7,84.5 58.3,84.5 L57,84.5 Z"
+        android:fillColor="#FFEAA7" />
+
+    <!-- C -->
+    <path
+        android:pathData="M64,84.7 C63.6,84.2 62.8,84 62.1,84 C61,84 60.2,84.8 60.2,85.5 C60.2,86.2 61,87 62.1,87 C62.8,87 63.6,86.8 64,86.3 L63.4,85.8 C63.1,86.1 62.6,86.3 62.1,86.3 C61.5,86.3 61.1,85.9 61.1,85.5 C61.1,85.1 61.5,84.7 62.1,84.7 C62.6,84.7 63.1,84.9 63.4,85.2 Z"
+        android:fillColor="#FFEAA7" />
+
+    <!-- H -->
+    <path
+        android:pathData="M65.5,84 L66.5,84 L66.5,85.1 L68.5,85.1 L68.5,84 L69.5,84 L69.5,87 L68.5,87 L68.5,85.9 L66.5,85.9 L66.5,87 L65.5,87 Z"
+        android:fillColor="#FFEAA7" />
+
+</vector>
+

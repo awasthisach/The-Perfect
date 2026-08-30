@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bhagwa_orange">#F47B20</color>
+    <color name="cosmic_blue">#102B52</color>
+    <color name="emerald_green">#3FA34D</color>
+    <color name="sky_cyan">#5BC0EB</color>
+    <color name="soft_gold">#D4A95A</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>
