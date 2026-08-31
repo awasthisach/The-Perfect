@@ -1,4 +1,47 @@
 [versions]
+agp = "9.1.1"
+coreKtx = "1.18.0"
+junit = "4.13.2"
+junitVersion = "1.3.0"
+espressoCore = "3.7.0"
+lifecycleRuntimeKtx = "2.8.7"
+lifecycleViewmodelCompose = "2.8.7"
+lifecycleRuntimeCompose = "2.8.7"
+activityCompose = "1.10.1"
+kotlin = "2.2.10"
+composeBom = "2024.09.00"
+googleDevtoolsKsp = "2.3.6"
+navigationCompose = "2.8.9"
+roomRuntime = "2.7.0"
+roomKtx = "2.7.0"
+roomCompiler = "2.7.0"
+kotlinxCoroutinesTest = "1.10.2"
+core = "1.6.1"
+runner = "1.6.2"
+coilCompose = "2.7.0"
+retrofit = "2.12.0"
+converterMoshi = "2.12.0"
+kotlinxCoroutinesAndroid = "1.10.2"
+kotlinxCoroutinesCore = "1.10.2"
+kotlinxCoroutinesPlayServices = "1.10.2"
+accompanistPermissions = "0.37.3"
+playServicesLocation = "21.3.0"
+playServicesAuth = "21.3.0"
+mlkitTextRecognition = "19.0.1"
+cameraCamera2 = "1.5.0"
+cameraLifecycle = "1.5.0"
+cameraView = "1.5.0"
+cameraCore = "1.5.0"
+loggingInterceptor = "4.10.0"
+okhttp = "4.10.0"
+moshiKotlin = "1.15.2"
+moshiKotlinCodegen = "1.15.2"
+datastorePreferences = "1.1.7"
+robolectric = "4.16.1"
+roborazzi = "1.59.0"
+firebaseBom = "34.17.0"
+secretsGradlePlugin = "2.0.1"
+googleServices = "4.5.0"
 credentials = "1.5.0"
 googleid = "1.1.1"
 hilt = "2.60.1"
@@ -64,7 +107,7 @@ firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.r
 firebase-ai = { group = "com.google.firebase", name = "firebase-ai" }
 firebase-appcheck-recaptcha = { group = "com.google.firebase", name = "firebase-appcheck-recaptcha" }
 firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore" }
-firebase-auth = { group = "com.google.firebase", name = "firebase-auth" }
+firebase-auth = { group = "firebase-auth", name = "firebase-auth" }
 androidx-credentials = { group = "androidx.credentials", name = "credentials", version.ref = "credentials" }
 androidx-credentials-play-services = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentials" }
 googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleid" }
@@ -72,7 +115,7 @@ hiltAndroidRuntime = { group = "com.google.dagger", name = "hilt-android", versi
 hiltCompiler = { group = "com.google.dagger", name = "hilt-compiler", version.ref = "hilt" }
 androidx-hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version.ref = "hiltNavigationCompose" }
 androidx-hilt-work = { group = "androidx.hilt", name = "hilt-work", version.ref = "hiltWork" }
-androidx-hilt-compiler = { group = "androidx.hilt", name = "hilt-compiler", version.ref = "hiltWork" }
+androidx-hilt-compiler = { group = "com.google.dagger", name = "hilt-compiler", version.ref = "hiltWork" }
 androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }
 androidx-work-testing = { group = "androidx.work", name = "work-testing", version.ref = "workManager" }
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
@@ -87,3 +130,8 @@ android-library = { id = "com.android.library", version.ref = "agp" }
 android-dynamic-feature = { id = "com.android.dynamic-feature", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+google-devtools-ksp = { id = "com.google.devtools.ksp", version.ref = "googleDevtoolsKsp" }
+hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+roborazzi = { id = "io.github.takahirom.roborazzi", version.ref = "roborazzi" }
+secrets = { id = "com.google.android.libraries.mapsplatform.secrets-gradle-plugin", version.ref = "secretsGradlePlugin" }
+google-services = { id = "com.google.gms.google-services", version.ref = "googleServices" }
