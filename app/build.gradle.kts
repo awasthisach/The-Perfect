@@ -17,8 +17,11 @@ android {
     applicationId = "com.vvf.smartmanager"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+
+    val configuredVersionCode = providers.environmentVariable("VERSION_CODE").orNull?.toIntOrNull() ?: 1
+    require(configuredVersionCode > 0) { "VERSION_CODE must be a positive integer" }
+    versionCode = configuredVersionCode
+    versionName = providers.environmentVariable("VERSION_NAME").orNull ?: "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
