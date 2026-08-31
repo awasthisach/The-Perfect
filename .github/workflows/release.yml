@@ -45,11 +45,17 @@ jobs:
         env:
           VERSION_NAME: ${{ inputs.version_name }}
           VERSION_CODE: ${{ inputs.version_code }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           test -n "$VERSION_NAME" || { echo "version_name is required"; exit 1; }
           [[ "$VERSION_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || { echo "version_name must be SemVer-like (for example 1.2.3)"; exit 1; }
           [[ "$VERSION_CODE" =~ ^[1-9][0-9]*$ ]] || { echo "version_code must be a positive integer"; exit 1; }
-          (( VERSION_CODE <= 2147483647 )) || { echo "version_code exceeds Android integer range"; exit 1; }
+          (( VERSION_CODE <= 2100000000 )) || { echo "version_code exceeds the configured Android safety limit"; exit 1; }
+          test -n "$STORE_PASSWORD" || { echo "ANDROID_KEYSTORE_PASSWORD secret is required"; exit 1; }
+          test -n "$KEY_ALIAS" || { echo "ANDROID_KEY_ALIAS secret is required"; exit 1; }
+          test -n "$KEY_PASSWORD" || { echo "ANDROID_KEY_PASSWORD secret is required"; exit 1; }
 
       - name: Materialize signing keystore
         env:
@@ -58,6 +64,10 @@ jobs:
           test -n "$ANDROID_KEYSTORE_BASE64" || { echo "ANDROID_KEYSTORE_BASE64 is required"; exit 1; }
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > release-upload-key.jks
           test -s release-upload-key.jks || { echo "Signing keystore is empty or invalid"; exit 1; }
+          keytool -list -keystore release-upload-key.jks -storepass "$ANDROID_KEYSTORE_PASSWORD" >/dev/null
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
 
       - name: Assemble signed release
         env:
@@ -69,12 +79,19 @@ jobs:
           VERSION_CODE: ${{ inputs.version_code }}
         run: ./gradlew --no-daemon assembleRelease --stacktrace
 
+      - name: Verify APK signature
+        run: |
+          apk="$(find . -path '*/build/outputs/apk/release/*.apk' -type f -print -quit)"
+          test -n "$apk" || { echo "Signed release APK not found"; exit 1; }
+          apksigner verify --verbose "$apk"
+
       - name: Upload signed release APK
         uses: actions/upload-artifact@v4
         with:
           name: vvf-smartmanager-release-${{ inputs.version_name }}-${{ inputs.version_code }}
           path: "**/build/outputs/apk/release/*.apk"
           if-no-files-found: error
+          retention-days: 7
 
       - name: Remove signing material
         if: always()
