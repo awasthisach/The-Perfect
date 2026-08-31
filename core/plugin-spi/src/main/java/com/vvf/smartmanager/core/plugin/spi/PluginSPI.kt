@@ -38,10 +38,10 @@ interface CloudDriverSPI {
     suspend fun listRemoteFiles(remotePath: String): List<FileItem>
 
     /**
-     * Uploads a file and returns its canonical remote identity.
-     * Implementations must not report success without a durable identity.
+     * Uploads a file. Implementations must return true only after the remote
+     * provider has durably accepted the upload.
      */
-    suspend fun uploadFile(localFile: FileItem, remoteDirectory: String): CloudUploadResult
+    suspend fun uploadFile(localFile: FileItem, remoteDirectory: String): Boolean
 
     suspend fun downloadFile(remoteFile: FileItem, localDestination: String): Boolean
     suspend fun getQuotaUsage(): Pair<Long, Long>
