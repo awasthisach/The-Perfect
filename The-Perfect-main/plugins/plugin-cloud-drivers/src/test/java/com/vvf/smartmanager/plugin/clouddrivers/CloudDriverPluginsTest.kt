@@ -3,59 +3,36 @@ package com.vvf.smartmanager.plugin.clouddrivers
 import com.vvf.smartmanager.core.model.FileItem
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CloudDriverPluginsTest {
+    private val sample = FileItem(
+        path = "/tmp/sample.txt",
+        name = "sample.txt",
+        sizeBytes = 10L,
+        lastModified = 0L,
+        isDirectory = false,
+        mimeType = "text/plain"
+    )
 
     @Test
-    fun testOneDriveDriverLifecycle() = runBlocking {
-        val driver = OneDriveDriverImpl()
-        assertEquals("plugin.cloud.onedrive", driver.driverId)
-        
-        val auth = driver.authenticate()
-        assertTrue(auth)
-
-        val files = driver.listRemoteFiles("/")
-        assertTrue(files.isNotEmpty())
-
-        val (used, total) = driver.getQuotaUsage()
-        assertTrue(total == 5_000_000_000L)
-        assertTrue(used > 0L)
-    }
-
-    @Test
-    fun testDropboxDriverLifecycle() = runBlocking {
-        val driver = DropboxDriverImpl()
-        assertEquals("plugin.cloud.dropbox", driver.driverId)
-
-        val auth = driver.authenticate()
-        assertTrue(auth)
-
-        val files = driver.listRemoteFiles("/")
-        assertTrue(files.isNotEmpty())
-
-        val testFile = FileItem(
-            path = "/storage/emulated/0/DCIM/photo.jpg",
-            name = "photo.jpg",
-            sizeBytes = 1000L,
-            lastModified = 0L,
-            isDirectory = false,
-            mimeType = "image/jpeg"
+    fun allPlaceholderDrivers_failClosed() = runBlocking {
+        val drivers = listOf(
+            OneDriveDriverImpl(),
+            DropboxDriverImpl(),
+            NextCloudDriverImpl(),
+            S3StorageDriverImpl(),
+            LocalNasDriverImpl()
         )
-        val uploaded = driver.uploadFile(testFile, "/Photos")
-        assertTrue(uploaded)
-    }
 
-    @Test
-    fun testNextCloudDriverLifecycle() = runBlocking {
-        val driver = NextCloudDriverImpl()
-        assertEquals("plugin.cloud.nextcloud", driver.driverId)
-
-        val auth = driver.authenticate()
-        assertTrue(auth)
-
-        val files = driver.listRemoteFiles("/")
-        assertTrue(files.isNotEmpty())
+        drivers.forEach { driver ->
+            assertFalse("${driver.displayName} must not claim authentication", driver.authenticate())
+            assertTrue("${driver.displayName} must not expose synthetic files", driver.listRemoteFiles("root").isEmpty())
+            assertFalse("${driver.displayName} must reject uploads", driver.uploadFile(sample, "root"))
+            assertFalse("${driver.displayName} must reject downloads", driver.downloadFile(sample, "/tmp/out"))
+            assertEquals("${driver.displayName} must not report synthetic quota", 0L to 0L, driver.getQuotaUsage())
+        }
     }
 }
