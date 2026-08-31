@@ -33,12 +33,8 @@ android {
 
   signingConfigs {
     create("release") {
-      // Values are assigned here, but validation is deliberately task-scoped below.
-      // Debug/unit-test configuration must never require production signing secrets.
       val keystorePath = providers.environmentVariable("KEYSTORE_PATH").orNull
-      if (!keystorePath.isNullOrBlank()) {
-        storeFile = file(keystorePath)
-      }
+      if (!keystorePath.isNullOrBlank()) storeFile = file(keystorePath)
       storePassword = providers.environmentVariable("STORE_PASSWORD").orNull
       keyAlias = providers.environmentVariable("KEY_ALIAS").orNull
       keyPassword = providers.environmentVariable("KEY_PASSWORD").orNull
@@ -97,9 +93,7 @@ if (releaseTaskRequested) {
     )
   }
   val releaseKeystore = providers.environmentVariable("KEYSTORE_PATH").orNull!!
-  require(file(releaseKeystore).isFile) {
-    "KEYSTORE_PATH does not point to a readable keystore: $releaseKeystore"
-  }
+  require(file(releaseKeystore).isFile) { "KEYSTORE_PATH does not point to a readable keystore: $releaseKeystore" }
   if (!file("google-services.json").isFile) {
     throw GradleException(
       "google-services.json is required for production release builds. " +
@@ -108,7 +102,8 @@ if (releaseTaskRequested) {
   }
 }
 
-googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
+// Firebase is optional for debug/unit-test builds. Production release validation above is fail-closed.
+googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.IGNORE }
 
 dependencies {
   implementation(project(":core:common"))
