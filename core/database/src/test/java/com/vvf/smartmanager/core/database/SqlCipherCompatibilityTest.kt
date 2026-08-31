@@ -29,8 +29,11 @@ class SqlCipherCompatibilityTest {
 
         LegacySQLiteDatabase.loadLibs(context)
         val legacyDatabase = LegacySQLiteDatabase.openOrCreateDatabase(
-            databaseFile,
+            databaseFile.absolutePath,
             passphrase,
+            null,
+            LegacySQLiteDatabase.CREATE_IF_NECESSARY,
+            null,
             null
         )
         try {
