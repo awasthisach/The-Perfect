@@ -56,8 +56,9 @@ import java.io.File
 /**
  * Root Application entry point with manual DI container.
  *
- * Hilt is deferred: Hilt 2.55 fails on AGP 9 with
- * "Android BaseExtension not found". See docs/HILT_MIGRATION.md.
+ * Hilt dependencies are now aligned with the AGP 9 build (Hilt 2.60.1).
+ * Migration is intentionally incremental; the manual graph remains the
+ * active composition root until each dependency can be moved safely.
  */
 class VVFApplication : Application() {
 
