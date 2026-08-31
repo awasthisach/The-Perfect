@@ -17,6 +17,7 @@ jobs:
   test_and_quality:
     name: Build, Test, Lint & Quality
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout Repository
@@ -40,16 +41,16 @@ jobs:
         run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
 
       - name: Verify Gradle wrapper
-        run: ./gradlew --version
+        run: ./gradlew --no-daemon --version
 
       - name: Run unit tests
-        run: ./gradlew testDebugUnitTest --stacktrace
+        run: ./gradlew --no-daemon testDebugUnitTest --stacktrace
 
       - name: Run Android lint
-        run: ./gradlew lintDebug --stacktrace
+        run: ./gradlew --no-daemon lintDebug --stacktrace
 
       - name: Assemble debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: ./gradlew --no-daemon assembleDebug --stacktrace
 
       - name: Upload test reports
         if: always()
@@ -78,6 +79,7 @@ jobs:
   license_compliance:
     name: Open Source License Compliance
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       FOSSA_ENABLED: ${{ secrets.FOSSA_API_KEY != '' }}
 
