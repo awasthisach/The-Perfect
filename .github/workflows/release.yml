@@ -7,6 +7,10 @@ on:
         description: "Release version name"
         required: true
         type: string
+      version_code:
+        description: "Monotonically increasing Android version code"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -49,12 +53,14 @@ jobs:
           STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_CODE: ${{ inputs.version_code }}
         run: ./gradlew assembleRelease --stacktrace
 
       - name: Upload signed release APK
         uses: actions/upload-artifact@v4
         with:
-          name: vvf-smartmanager-release-${{ inputs.version_name }}
+          name: vvf-smartmanager-release-${{ inputs.version_name }}-${{ inputs.version_code }}
           path: "**/build/outputs/apk/release/*.apk"
           if-no-files-found: error
 
