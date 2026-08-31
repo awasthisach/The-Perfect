@@ -37,14 +37,17 @@ class SecureVaultRepository(
 
     suspend fun recoverOrphanedJournals(): Int {
         val pendingJournals = vaultJournalDao.getPendingJournals("PENDING")
+        val canonicalVault = vaultDirectory.canonicalFile
         var recoveredCount = 0
 
         for (journal in pendingJournals) {
             try {
                 when (journal.operationType) {
                     "ENCRYPT" -> {
-                        val encFile = File(journal.vaultPath)
-                        if (encFile.exists() && encFile.length() == 0L) {
+                        val encFile = File(journal.vaultPath).canonicalFile
+                        // Never trust a persisted journal path for filesystem mutation.
+                        // A corrupted/tampered journal must not become an arbitrary-file delete primitive.
+                        if (isInsideDirectory(encFile, canonicalVault) && encFile.exists() && encFile.length() == 0L) {
                             encFile.delete()
                         }
                         vaultJournalDao.updateJournal(journal.copy(status = "FAILED"))
@@ -86,8 +89,8 @@ class SecureVaultRepository(
 
         val fileId = UUID.randomUUID().toString()
         val encryptedFileName = "enc_${fileId}.vvf"
-        val destinationFile = File(vaultDirectory, encryptedFileName)
-        require(!isInsideDirectory(destinationFile.canonicalFile, canonicalVault).not()) {
+        val destinationFile = File(vaultDirectory, encryptedFileName).canonicalFile
+        require(isInsideDirectory(destinationFile, canonicalVault)) {
             "Encrypted destination escaped the secure vault directory"
         }
 
@@ -139,6 +142,9 @@ class SecureVaultRepository(
 
             entity.toDomainModel()
         } catch (e: Exception) {
+            // Roll back metadata as well as the encrypted artifact. Otherwise a failed
+            // operation can leave a DB row pointing at a file that no longer exists.
+            vaultDao.deleteById(fileId)
             if (journalId > 0L) {
                 vaultJournalDao.updateJournal(
                     VaultJournalEntity(
@@ -210,8 +216,11 @@ class SecureVaultRepository(
             throw e
         }
 
-        cryptoManager.secureShredFile(encryptedFile)
-        vaultDao.deleteById(vaultItemId)
+        // Plaintext is now successfully restored. If secure shredding fails, retain the encrypted
+        // source and DB record rather than creating a false state in which the item disappears.
+        if (cryptoManager.secureShredFile(encryptedFile)) {
+            vaultDao.deleteById(vaultItemId)
+        }
 
         targetCanonical
     }
