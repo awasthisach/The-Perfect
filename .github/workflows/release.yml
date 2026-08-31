@@ -40,16 +40,14 @@ jobs:
       - name: Install Android SDK components
         run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Create local.properties
-        run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
-
-      - name: Validate release inputs
+      - name: Validate release inputs and secrets
         env:
           VERSION_NAME: ${{ inputs.version_name }}
           VERSION_CODE: ${{ inputs.version_code }}
           STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
         run: |
           set -euo pipefail
           test -n "$VERSION_NAME" || { echo "version_name is required"; exit 1; }
@@ -59,17 +57,30 @@ jobs:
           test -n "$STORE_PASSWORD" || { echo "ANDROID_KEYSTORE_PASSWORD secret is required"; exit 1; }
           test -n "$KEY_ALIAS" || { echo "ANDROID_KEY_ALIAS secret is required"; exit 1; }
           test -n "$KEY_PASSWORD" || { echo "ANDROID_KEY_PASSWORD secret is required"; exit 1; }
+          test -n "$GOOGLE_SERVICES_JSON_BASE64" || { echo "GOOGLE_SERVICES_JSON_BASE64 secret is required"; exit 1; }
 
-      - name: Materialize signing keystore
+      - name: Materialize signing and Firebase configuration
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
         run: |
           set -euo pipefail
           test -n "$ANDROID_KEYSTORE_BASE64" || { echo "ANDROID_KEYSTORE_BASE64 is required"; exit 1; }
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > release-upload-key.jks
           test -s release-upload-key.jks || { echo "Signing keystore is empty or invalid"; exit 1; }
           keytool -list -keystore release-upload-key.jks -storepass "$ANDROID_KEYSTORE_PASSWORD" >/dev/null
+          printf '%s' "$GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > app/google-services.json
+          test -s app/google-services.json || { echo "Firebase configuration is empty or invalid"; exit 1; }
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          payload = json.loads(Path("app/google-services.json").read_text())
+          if not payload.get("project_info", {}).get("project_id"):
+              raise SystemExit("google-services.json is missing project_info.project_id")
+          if not payload.get("client"):
+              raise SystemExit("google-services.json contains no Firebase client configuration")
+          PY
 
       - name: Assemble signed release
         env:
@@ -101,6 +112,6 @@ jobs:
         with:
           subject-path: "**/build/outputs/apk/release/*.apk"
 
-      - name: Remove signing material
+      - name: Remove signing and Firebase material
         if: always()
-        run: rm -f release-upload-key.jks
+        run: rm -f release-upload-key.jks app/google-services.json
