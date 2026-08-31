@@ -32,7 +32,6 @@ class SqlCipherCompatibilityTest {
             databaseFile.absolutePath,
             passphrase,
             null,
-            LegacySQLiteDatabase.CREATE_IF_NECESSARY,
             null,
             null
         )
