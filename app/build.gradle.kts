@@ -63,7 +63,7 @@ android {
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
   dependenciesInfo {
-    includeInApk = false
+    includeInApk = true
     includeInBundle = true
   }
 }
