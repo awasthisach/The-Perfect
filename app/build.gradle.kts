@@ -26,17 +26,27 @@ android {
   val releaseKeystorePath = System.getenv("KEYSTORE_PATH")
   val releaseStorePassword = System.getenv("STORE_PASSWORD")
   val releaseKeyPassword = System.getenv("KEY_PASSWORD")
+  val releaseKeyAlias = System.getenv("KEY_ALIAS") ?: "upload"
   val releaseKeystore = releaseKeystorePath?.let(::file)
   val hasReleaseSigning = releaseKeystore?.isFile == true &&
     !releaseStorePassword.isNullOrBlank() &&
     !releaseKeyPassword.isNullOrBlank()
+  val releaseTaskRequested = gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }
+  val allowUnsignedRelease = System.getenv("ALLOW_UNSIGNED_RELEASE")?.equals("true", ignoreCase = true) == true
+
+  if (releaseTaskRequested && !hasReleaseSigning && !allowUnsignedRelease) {
+    throw GradleException(
+      "Release signing material is missing. Set KEYSTORE_PATH, STORE_PASSWORD, KEY_PASSWORD and optionally KEY_ALIAS, " +
+        "or explicitly set ALLOW_UNSIGNED_RELEASE=true for non-production CI verification."
+    )
+  }
 
   signingConfigs {
     create("release") {
       if (hasReleaseSigning) {
         storeFile = releaseKeystore
         storePassword = releaseStorePassword
-        keyAlias = "upload"
+        keyAlias = releaseKeyAlias
         keyPassword = releaseKeyPassword
       }
     }
@@ -54,7 +64,6 @@ android {
       isMinifyEnabled = true
       isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      // Never silently sign a production build with the Android debug key.
       if (hasReleaseSigning) {
         signingConfig = signingConfigs.getByName("release")
       }
