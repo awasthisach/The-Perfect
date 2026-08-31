@@ -30,46 +30,38 @@ jobs:
           distribution: 'temurin'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Accept licenses and install platforms
-        run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager "platform-tools" "platforms;android-34" "platforms;android-36" "build-tools;34.0.0" "build-tools;36.0.0" || true
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
+          accept-android-sdk-licenses: true
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.3.1'
-          validate-wrappers: false
+          validate-wrappers: true
 
-      - name: Bootstrap gradle-wrapper.jar if missing
+      - name: Verify committed Gradle wrapper
         run: |
-          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
-            echo "gradle-wrapper.jar missing — generating..."
-            gradle wrapper --gradle-version 9.3.1
-          fi
+          test -f gradle/wrapper/gradle-wrapper.jar
           chmod +x gradlew
-          ls -la gradle/wrapper/
+          ./gradlew --version
 
       - name: Create local.properties
-        run: |
-          echo "sdk.dir=${ANDROID_HOME:-/usr/local/lib/android/sdk}" > local.properties
+        run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
 
       - name: Run Unit Tests across all modules
-        run: |
-          ./gradlew testDebugUnitTest --continue --stacktrace
+        run: ./gradlew testDebugUnitTest --continue --stacktrace
 
       - name: Upload Coverage to Codecov
         if: ${{ env.CODECOV_TOKEN != '' }}
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: |
             **/build/reports/jacoco/**/*.xml
-          fail_ci_if_error: false
+          fail_ci_if_error: true
           verbose: true
 
       - name: Archive Test Reports
@@ -80,7 +72,7 @@ jobs:
           path: "**/build/reports/tests/**"
           if-no-files-found: ignore
 
-      - name: Archive Room schema exports (KSP-generated)
+      - name: Archive Room schema exports
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -108,8 +100,13 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.3.1'
-          validate-wrappers: false
+          validate-wrappers: true
+
+      - name: Verify committed Gradle wrapper
+        run: |
+          test -f gradle/wrapper/gradle-wrapper.jar
+          chmod +x gradlew
+          ./gradlew --version
 
       - name: Run FOSSA License Scan
         if: ${{ env.FOSSA_API_KEY != '' }}
@@ -121,9 +118,11 @@ jobs:
           run-tests: true
 
   build_and_release:
-    name: Build & Assemble Release
+    name: Build Release (unsigned CI verification)
     needs: [test_and_coverage]
     runs-on: ubuntu-latest
+    env:
+      ALLOW_UNSIGNED_RELEASE: "true"
 
     steps:
       - name: Checkout Repository
@@ -136,50 +135,31 @@ jobs:
           distribution: 'temurin'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Accept licenses and install platforms
-        run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager "platform-tools" "platforms;android-34" "platforms;android-36" "build-tools;34.0.0" "build-tools;36.0.0" || true
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
+          accept-android-sdk-licenses: true
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.3.1'
-          validate-wrappers: false
+          validate-wrappers: true
 
-      - name: Bootstrap gradle-wrapper.jar if missing
+      - name: Verify committed Gradle wrapper
         run: |
-          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
-            gradle wrapper --gradle-version 9.3.1
-          fi
+          test -f gradle/wrapper/gradle-wrapper.jar
           chmod +x gradlew
+          ./gradlew --version
 
       - name: Create local.properties
-        run: |
-          echo "sdk.dir=${ANDROID_HOME:-/usr/local/lib/android/sdk}" > local.properties
+        run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
 
-      - name: Ensure debug.keystore for CI release signing fallback
-        run: |
-          if [ ! -f debug.keystore ]; then
-            keytool -genkeypair -v \
-              -keystore debug.keystore \
-              -storepass android \
-              -alias androiddebugkey \
-              -keypass android \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
-          ls -la debug.keystore
-
-      - name: Build All Modules and Assemble Release
-        run: |
-          ./gradlew assembleRelease --stacktrace
+      - name: Build unsigned release artifact
+        run: ./gradlew assembleRelease --stacktrace
 
       - name: Archive Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: vvf-smartmanager-release-apk
+          name: vvf-smartmanager-release-apk-unsigned
           path: "**/build/outputs/apk/release/*.apk"
-          if-no-files-found: ignore
+          if-no-files-found: error
