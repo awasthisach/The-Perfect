@@ -20,6 +20,7 @@ local.properties
 *.keystore
 !debug.keystore
 !debug.keystore.base64
+**/google-services.json
 *.bin
 __pycache__/
 *.py[cod]
