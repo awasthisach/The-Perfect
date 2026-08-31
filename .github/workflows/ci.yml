@@ -53,10 +53,11 @@ jobs:
           curl -fsSL https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz -o /tmp/sqlcipher-4.5.4.tar.gz
           tar -xzf /tmp/sqlcipher-4.5.4.tar.gz -C /tmp
           cd /tmp/sqlcipher-4.5.4
-          ./configure --with-tempstore=yes --enable-fts5 \
-            CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown" \
+          ./configure --enable-tempstore=yes --enable-fts5 \
+            CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown -DSQLCIPHER_CRYPTO_OPENSSL" \
             LDFLAGS="-lcrypto"
-          make -j2 sqlcipher
+          make -j2
+          ./sqlcipher :memory: "PRAGMA cipher_version;"
           printf '%s\n' \
             "PRAGMA key = 'vvf-sqlcipher-compatibility-test';" \
             "CREATE TABLE compatibility_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL);" \
