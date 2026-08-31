@@ -9,6 +9,7 @@ import com.vvf.smartmanager.core.model.CloudSyncItem
 import com.vvf.smartmanager.core.model.CloudSyncStatus
 import com.vvf.smartmanager.core.model.FileItem
 import com.vvf.smartmanager.core.plugin.spi.CloudDriverSPI
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.UUID
@@ -16,7 +17,7 @@ import java.util.UUID
 /**
  * Unified Cloud Core & Plugin Driver Domain UseCase.
  * Handles authentication, multi-provider syncing, automated database/vault snapshots,
- * and quota analytics across Google Drive (Core) and modular plugins (OneDrive, Dropbox, S3, NextCloud, NAS).
+ * and quota analytics across Google Drive (Core) and modular plugins.
  */
 class CloudSyncUseCase(
     private val googleDriveService: GoogleDriveService,
@@ -36,8 +37,7 @@ class CloudSyncUseCase(
         } else {
             val driver = pluginDrivers[providerType]
             if (driver != null) {
-                val success = driver.authenticate()
-                Result.success(success)
+                Result.success(driver.authenticate())
             } else {
                 Result.failure(IllegalArgumentException("Plugin for ${providerType.displayName} is not installed or enabled."))
             }
@@ -133,32 +133,43 @@ class CloudSyncUseCase(
             includeDatabase = includeDatabase
         ).fold(
             onSuccess = { artifact ->
-                val fileItem = FileItem(
-                    path = artifact.file.absolutePath,
-                    name = artifact.file.name,
-                    sizeBytes = artifact.file.length(),
-                    lastModified = artifact.file.lastModified(),
-                    isDirectory = false,
-                    mimeType = "application/octet-stream"
-                )
-                val uploadResult = if (providerType == CloudProviderType.GOOGLE_DRIVE) {
-                    googleDriveService.uploadFile(fileItem, "VVF_Backups")
-                } else {
-                    val driver = pluginDrivers[providerType]
-                        ?: return@fold Result.failure(IllegalStateException("Provider plugin not found"))
-                    if (driver.uploadFile(fileItem, "root")) Result.success(artifact.backupInfo.backupId)
-                    else Result.failure(IllegalStateException("${driver.displayName} rejected the backup upload"))
-                }
-                uploadResult.fold(
-                    onSuccess = { remoteId ->
-                        _syncState.value = CloudSyncStatus.SUCCESS
-                        Result.success(artifact.backupInfo.copy(backupId = remoteId))
-                    },
-                    onFailure = { error ->
-                        _syncState.value = CloudSyncStatus.ERROR
-                        Result.failure(error)
+                try {
+                    val fileItem = FileItem(
+                        path = artifact.file.absolutePath,
+                        name = artifact.file.name,
+                        sizeBytes = artifact.file.length(),
+                        lastModified = artifact.file.lastModified(),
+                        isDirectory = false,
+                        mimeType = "application/octet-stream"
+                    )
+                    val uploadResult = if (providerType == CloudProviderType.GOOGLE_DRIVE) {
+                        googleDriveService.uploadFile(fileItem, "VVF_Backups")
+                    } else {
+                        val driver = pluginDrivers[providerType]
+                            ?: return@fold Result.failure(IllegalStateException("Provider plugin not found"))
+                        if (driver.uploadFile(fileItem, "root")) {
+                            Result.success(artifact.backupInfo.backupId)
+                        } else {
+                            Result.failure(IllegalStateException("${driver.displayName} rejected the backup upload"))
+                        }
                     }
-                )
+                    uploadResult.fold(
+                        onSuccess = { remoteId ->
+                            _syncState.value = CloudSyncStatus.SUCCESS
+                            Result.success(artifact.backupInfo.copy(backupId = remoteId))
+                        },
+                        onFailure = { error ->
+                            _syncState.value = CloudSyncStatus.ERROR
+                            Result.failure(error)
+                        }
+                    )
+                } catch (error: Throwable) {
+                    if (error is CancellationException) throw error
+                    _syncState.value = CloudSyncStatus.ERROR
+                    Result.failure(error)
+                } finally {
+                    artifact.file.delete()
+                }
             },
             onFailure = { error ->
                 _syncState.value = CloudSyncStatus.ERROR
@@ -206,6 +217,7 @@ class CloudSyncUseCase(
             _syncState.value = CloudSyncStatus.SUCCESS
             Result.success(syncItem)
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             val failedItem = CloudSyncItem(
                 id = itemId,
                 fileName = fileItem.name,

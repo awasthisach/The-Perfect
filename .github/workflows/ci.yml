@@ -2,77 +2,56 @@ name: VVF Smart Manager CI & Quality Gate
 
 on:
   push:
-    branches: [ "main", "develop" ]
+    branches: ["main", "develop"]
   pull_request:
-    branches: [ "main", "develop" ]
+    branches: ["main", "develop"]
 
 permissions:
   contents: read
-  actions: read
-  checks: write
-  pull-requests: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test_and_coverage:
-    name: Unit Tests, JaCoCo Coverage & Codecov
+  test_and_quality:
+    name: Build, Test, Lint & Coverage
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
-          java-version: '17'
-          distribution: 'temurin'
+          java-version: "17"
+          distribution: "temurin"
+          cache: gradle
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Accept licenses and install platforms
+      - name: Install Android SDK components
         run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager "platform-tools" "platforms;android-34" "platforms;android-36" "build-tools;34.0.0" "build-tools;36.0.0" || true
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.3.1'
-          validate-wrappers: false
-
-      - name: Bootstrap gradle-wrapper.jar if missing
-        run: |
-          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
-            echo "gradle-wrapper.jar missing — generating..."
-            gradle wrapper --gradle-version 9.3.1
-          fi
-          chmod +x gradlew
-          ls -la gradle/wrapper/
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Create local.properties
-        run: |
-          echo "sdk.dir=${ANDROID_HOME:-/usr/local/lib/android/sdk}" > local.properties
+        run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
 
-      - name: Run Unit Tests across all modules
-        run: |
-          ./gradlew testDebugUnitTest --continue --stacktrace
+      - name: Verify Gradle wrapper
+        run: ./gradlew --version
 
-      - name: Upload Coverage to Codecov
-        if: ${{ env.CODECOV_TOKEN != '' }}
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-        uses: codecov/codecov-action@v4
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: |
-            **/build/reports/jacoco/**/*.xml
-          fail_ci_if_error: false
-          verbose: true
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --stacktrace
 
-      - name: Archive Test Reports
+      - name: Run Android lint
+        run: ./gradlew lintDebug --stacktrace
+
+      - name: Assemble debug APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -80,20 +59,27 @@ jobs:
           path: "**/build/reports/tests/**"
           if-no-files-found: ignore
 
-      - name: Archive Room schema exports (KSP-generated)
+      - name: Upload lint reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: room-schemas
-          path: |
-            core/database/schemas/**/*.json
-            core/database/build/generated/**/schemas/**/*.json
-            **/schemas/**/*.json
+          name: lint-reports
+          path: "**/build/reports/lint-results-*.html"
           if-no-files-found: ignore
 
+      - name: Upload debug APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vvf-smartmanager-debug-apk
+          path: "**/build/outputs/apk/debug/*.apk"
+          if-no-files-found: error
+
   license_compliance:
-    name: FOSSA & Open Source License Compliance
+    name: Open Source License Compliance
     runs-on: ubuntu-latest
+    env:
+      FOSSA_ENABLED: ${{ secrets.FOSSA_API_KEY != '' }}
 
     steps:
       - name: Checkout Repository
@@ -102,84 +88,15 @@ jobs:
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.3.1'
-          validate-wrappers: false
+          java-version: "17"
+          distribution: "temurin"
+          cache: gradle
 
       - name: Run FOSSA License Scan
-        if: ${{ env.FOSSA_API_KEY != '' }}
+        if: ${{ env.FOSSA_ENABLED == 'true' }}
         env:
           FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
         uses: fossas/fossa-action@v1
         with:
           api-key: ${{ secrets.FOSSA_API_KEY }}
           run-tests: true
-
-  build_and_release:
-    name: Build & Assemble Release
-    needs: [test_and_coverage]
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Accept licenses and install platforms
-        run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager "platform-tools" "platforms;android-34" "platforms;android-36" "build-tools;34.0.0" "build-tools;36.0.0" || true
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.3.1'
-          validate-wrappers: false
-
-      - name: Bootstrap gradle-wrapper.jar if missing
-        run: |
-          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
-            gradle wrapper --gradle-version 9.3.1
-          fi
-          chmod +x gradlew
-
-      - name: Create local.properties
-        run: |
-          echo "sdk.dir=${ANDROID_HOME:-/usr/local/lib/android/sdk}" > local.properties
-
-      - name: Ensure debug.keystore for CI release signing fallback
-        run: |
-          if [ ! -f debug.keystore ]; then
-            keytool -genkeypair -v \
-              -keystore debug.keystore \
-              -storepass android \
-              -alias androiddebugkey \
-              -keypass android \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
-          ls -la debug.keystore
-
-      - name: Build All Modules and Assemble Release
-        run: |
-          ./gradlew assembleRelease --stacktrace
-
-      - name: Archive Release APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: vvf-smartmanager-release-apk
-          path: "**/build/outputs/apk/release/*.apk"
-          if-no-files-found: ignore
