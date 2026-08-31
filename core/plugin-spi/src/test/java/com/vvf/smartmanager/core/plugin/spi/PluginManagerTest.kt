@@ -81,6 +81,7 @@ class PluginManagerTest {
         assertThrows(IllegalArgumentException::class.java) {
             manager.updateDownloadProgress("plugin.ocr.mlkit", 1.5f, false)
         }
+        Unit
     }
 
     @Test
