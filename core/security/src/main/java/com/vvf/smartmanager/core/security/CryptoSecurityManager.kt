@@ -117,6 +117,11 @@ class CryptoSecurityManager(
                 keyGenerator.generateKey()
             }
         } else {
+            if (keyStoreProvider == ANDROID_KEYSTORE) {
+                throw IllegalStateException(
+                    "AndroidKeyStore is unavailable in a production environment; refusing to use in-memory keys"
+                )
+            }
             if (!memoryKeyMap.containsKey(alias)) {
                 val rawKey = ByteArray(32)
                 SecureRandom().nextBytes(rawKey)
@@ -130,6 +135,9 @@ class CryptoSecurityManager(
         return if (ks != null && ks.containsAlias(alias)) {
             (ks.getEntry(alias, null) as KeyStore.SecretKeyEntry).secretKey
         } else {
+            if (keyStoreProvider == ANDROID_KEYSTORE) {
+                throw IllegalStateException("KeyStore unavailable for alias: $alias")
+            }
             memoryKeyMap.getOrPut(alias) {
                 val rawKey = ByteArray(32)
                 SecureRandom().nextBytes(rawKey)
