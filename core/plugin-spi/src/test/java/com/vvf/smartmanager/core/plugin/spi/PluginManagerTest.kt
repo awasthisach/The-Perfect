@@ -83,8 +83,7 @@ class PluginManagerTest {
             override val iconResName = "test"
             override suspend fun authenticate() = true
             override suspend fun listRemoteFiles(remotePath: String) = emptyList<FileItem>()
-            override suspend fun uploadFile(localFile: FileItem, remoteDirectory: String) =
-                CloudUploadResult("id", "/backup", 0)
+            override suspend fun uploadFile(localFile: FileItem, remoteDirectory: String) = true
             override suspend fun downloadFile(remoteFile: FileItem, localDestination: String) = true
             override suspend fun getQuotaUsage() = 0L to 1L
         }
