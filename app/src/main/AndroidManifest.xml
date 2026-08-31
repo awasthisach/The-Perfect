@@ -6,19 +6,20 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- Full File Access (Play Store: Full File Manager justification required) -->
+    <!-- Full file access is intentionally retained for the file-manager use case.
+         The runtime must gate this capability behind an explicit user flow. -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
 
-    <!-- Legacy storage permissions (maxSdkVersion handles automatic fallback) -->
+    <!-- Legacy storage permissions for supported legacy Android versions only. -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" tools:ignore="ScopedStorage" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" tools:ignore="ScopedStorage" />
 
-    <!-- Modern Media Permissions (Android 13+) -->
+    <!-- Modern media permissions (Android 13+). Request only the media types the user selects. -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
-    <!-- Biometric for vault unlock -->
+    <!-- Biometric for vault unlock. USE_FINGERPRINT is only needed on pre-29 devices. -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="android.permission.USE_FINGERPRINT" android:maxSdkVersion="28" />
 

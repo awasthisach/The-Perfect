@@ -19,9 +19,14 @@ android {
     targetSdk = 36
 
     val configuredVersionCode = providers.environmentVariable("VERSION_CODE").orNull?.toIntOrNull() ?: 1
-    require(configuredVersionCode > 0) { "VERSION_CODE must be a positive integer" }
+    require(configuredVersionCode in 1..2100000000) { "VERSION_CODE must be between 1 and 2100000000" }
     versionCode = configuredVersionCode
-    versionName = providers.environmentVariable("VERSION_NAME").orNull ?: "1.0"
+
+    val configuredVersionName = providers.environmentVariable("VERSION_NAME").orNull ?: "1.0.0"
+    require(configuredVersionName.matches(Regex("\\d+\\.\\d+\\.\\d+(?:[-+][0-9A-Za-z.-]+)?"))) {
+      "VERSION_NAME must use semantic-version form such as 1.2.3 or 1.2.3-beta.1"
+    }
+    versionName = configuredVersionName
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -29,10 +34,18 @@ android {
   signingConfigs {
     create("release") {
       val keystorePath = providers.environmentVariable("KEYSTORE_PATH").orNull
-      storeFile = keystorePath?.let(::file)
+      if (keystorePath.isNullOrBlank()) {
+        throw GradleException("KEYSTORE_PATH is required for release signing")
+      }
+      val keystoreFile = file(keystorePath)
+      require(keystoreFile.isFile) { "KEYSTORE_PATH does not point to a readable keystore: $keystorePath" }
+      storeFile = keystoreFile
       storePassword = providers.environmentVariable("STORE_PASSWORD").orNull
-      keyAlias = providers.environmentVariable("KEY_ALIAS").orNull ?: "upload"
+      keyAlias = providers.environmentVariable("KEY_ALIAS").orNull
       keyPassword = providers.environmentVariable("KEY_PASSWORD").orNull
+      require(!storePassword.isNullOrBlank()) { "STORE_PASSWORD is required for release signing" }
+      require(!keyAlias.isNullOrBlank()) { "KEY_ALIAS is required for release signing" }
+      require(!keyPassword.isNullOrBlank()) { "KEY_PASSWORD is required for release signing" }
     }
     create("debugConfig") {
       storeFile = file("${rootDir}/debug.keystore")
@@ -49,7 +62,7 @@ android {
       isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
 
-      val requiredSigningVars = listOf("KEYSTORE_PATH", "STORE_PASSWORD", "KEY_PASSWORD")
+      val requiredSigningVars = listOf("KEYSTORE_PATH", "STORE_PASSWORD", "KEY_ALIAS", "KEY_PASSWORD")
       val missingSigningVars = requiredSigningVars.filter { providers.environmentVariable(it).orNull.isNullOrBlank() }
       if (missingSigningVars.isNotEmpty()) {
         throw GradleException(
