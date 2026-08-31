@@ -19,17 +19,30 @@ android {
     targetSdk = 36
     versionCode = 1
     versionName = "1.0"
-
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+  }
+
+  val releaseKeystorePath = System.getenv("KEYSTORE_PATH")
+  val releaseStorePassword = System.getenv("STORE_PASSWORD")
+  val releaseKeyPassword = System.getenv("KEY_PASSWORD")
+  val releaseKeyAlias = System.getenv("KEY_ALIAS") ?: "upload"
+  val releaseKeystore = releaseKeystorePath?.let(::file)
+  val hasReleaseSigning = releaseKeystore?.isFile == true && !releaseStorePassword.isNullOrBlank() && !releaseKeyPassword.isNullOrBlank()
+  val releaseTaskRequested = gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }
+  val allowUnsignedRelease = System.getenv("ALLOW_UNSIGNED_RELEASE")?.equals("true", ignoreCase = true) == true
+
+  if (releaseTaskRequested && !hasReleaseSigning && !allowUnsignedRelease) {
+    throw GradleException("Release signing material is missing. Set KEYSTORE_PATH, STORE_PASSWORD, KEY_PASSWORD and optionally KEY_ALIAS, or explicitly set ALLOW_UNSIGNED_RELEASE=true for non-production CI verification.")
   }
 
   signingConfigs {
     create("release") {
-      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-      storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD")
+      if (hasReleaseSigning) {
+        storeFile = releaseKeystore
+        storePassword = releaseStorePassword
+        keyAlias = releaseKeyAlias
+        keyPassword = releaseKeyPassword
+      }
     }
     create("debugConfig") {
       storeFile = file("${rootDir}/debug.keystore")
@@ -45,28 +58,18 @@ android {
       isMinifyEnabled = true
       isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      val customKeystore = file(System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks")
-      signingConfig = if (customKeystore.exists()) {
-        signingConfigs.getByName("release")
-      } else {
-        signingConfigs.getByName("debugConfig")
-      }
+      if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
     }
     debug { signingConfig = signingConfigs.getByName("debugConfig") }
   }
+
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
   }
-  buildFeatures {
-    compose = true
-    buildConfig = true
-  }
+  buildFeatures { compose = true; buildConfig = true }
   testOptions { unitTests { isIncludeAndroidResources = true } }
-  dependenciesInfo {
-    includeInApk = false
-    includeInBundle = true
-  }
+  dependenciesInfo { includeInApk = false; includeInBundle = true }
 }
 
 secrets {
@@ -87,7 +90,6 @@ dependencies {
   implementation(project(":core:background"))
   implementation(project(":core:cloud-gdrive"))
   implementation(project(":core:plugin-spi"))
-
   implementation(project(":feature:explorer"))
   implementation(project(":feature:vault"))
   implementation(project(":feature:cleaner"))
@@ -95,11 +97,9 @@ dependencies {
   implementation(project(":feature:cloud"))
   implementation(project(":feature:settings"))
   implementation(project(":feature:plugins"))
-
   implementation(project(":plugins:plugin-ocr"))
   implementation(project(":plugins:plugin-semantic-search"))
   implementation(project(":plugins:plugin-cloud-drivers"))
-
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
   implementation(libs.androidx.activity.compose)
