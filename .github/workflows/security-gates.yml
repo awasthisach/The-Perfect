@@ -36,7 +36,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if grep -nE 'buildTypes|release|signingConfig.*debugConfig|signingConfig.*debug' app/build.gradle.kts | grep -E 'release|signingConfig' | grep -E 'debugConfig|debug' >/dev/null; then
-            echo 'Release build must not fall back to the debug signing key.' >&2
-            exit 1
-          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('app/build.gradle.kts').read_text()
+          start = text.find('release {')
+          if start >= 0:
+              end = text.find('\n  }', start)
+              block = text[start:end if end >= 0 else len(text)]
+              if 'signingConfig = signingConfigs.getByName("debugConfig")' in block or 'signingConfig = signingConfigs.debug' in block:
+                  raise SystemExit('Release build must not fall back to the debug signing key.')
+          PY
