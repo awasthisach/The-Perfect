@@ -25,11 +25,11 @@ android {
 
   signingConfigs {
     create("release") {
-      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-      storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD")
+      val keystorePath = providers.environmentVariable("KEYSTORE_PATH").orNull
+      storeFile = keystorePath?.let(::file)
+      storePassword = providers.environmentVariable("STORE_PASSWORD").orNull
+      keyAlias = providers.environmentVariable("KEY_ALIAS").orNull ?: "upload"
+      keyPassword = providers.environmentVariable("KEY_PASSWORD").orNull
     }
     create("debugConfig") {
       storeFile = file("${rootDir}/debug.keystore")
@@ -45,12 +45,16 @@ android {
       isMinifyEnabled = true
       isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      val customKeystore = file(System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks")
-      signingConfig = if (customKeystore.exists()) {
-        signingConfigs.getByName("release")
-      } else {
-        signingConfigs.getByName("debugConfig")
+
+      val requiredSigningVars = listOf("KEYSTORE_PATH", "STORE_PASSWORD", "KEY_PASSWORD")
+      val missingSigningVars = requiredSigningVars.filter { providers.environmentVariable(it).orNull.isNullOrBlank() }
+      if (missingSigningVars.isNotEmpty()) {
+        throw GradleException(
+          "Release signing is not configured. Set ${missingSigningVars.joinToString()} before running assembleRelease. " +
+            "Release builds must never fall back to the Android debug keystore."
+        )
       }
+      signingConfig = signingConfigs.getByName("release")
     }
     debug { signingConfig = signingConfigs.getByName("debugConfig") }
   }
