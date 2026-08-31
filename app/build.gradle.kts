@@ -1,7 +1,5 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
 
-val releaseTaskRequested = gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }
-
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
@@ -25,16 +23,18 @@ android {
     versionCode = configuredVersionCode
 
     val configuredVersionName = providers.environmentVariable("VERSION_NAME").orNull ?: "1.0.0"
+    versionName = configuredVersionName
     require(configuredVersionName.matches(Regex("\\d+\\.\\d+\\.\\d+(?:[-+][0-9A-Za-z.-]+)?"))) {
       "VERSION_NAME must use semantic-version form such as 1.2.3 or 1.2.3-beta.1"
     }
-    versionName = configuredVersionName
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
   signingConfigs {
     create("release") {
+      // Values are assigned here, but validation is deliberately task-scoped below.
+      // Debug/unit-test configuration must never require production signing secrets.
       val keystorePath = providers.environmentVariable("KEYSTORE_PATH").orNull
       if (!keystorePath.isNullOrBlank()) {
         storeFile = file(keystorePath)
@@ -57,24 +57,11 @@ android {
       isMinifyEnabled = true
       isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-
-      val requiredSigningVars = listOf("KEYSTORE_PATH", "STORE_PASSWORD", "KEY_ALIAS", "KEY_PASSWORD")
-      val missingSigningVars = requiredSigningVars.filter { providers.environmentVariable(it).orNull.isNullOrBlank() }
-      if (missingSigningVars.isNotEmpty()) {
-        throw GradleException(
-          "Release signing is not configured. Set ${missingSigningVars.joinToString()} before running assembleRelease. " +
-            "Release builds must never fall back to the Android debug keystore."
-        )
-      }
-      val releaseKeystore = providers.environmentVariable("KEYSTORE_PATH").orNull
-        ?: throw GradleException("KEYSTORE_PATH is required for release signing")
-      require(file(releaseKeystore).isFile) {
-        "KEYSTORE_PATH does not point to a readable keystore: $releaseKeystore"
-      }
       signingConfig = signingConfigs.getByName("release")
     }
     debug { signingConfig = signingConfigs.getByName("debugConfig") }
   }
+
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
@@ -96,11 +83,29 @@ secrets {
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
 }
 
-if (releaseTaskRequested && !file("google-services.json").isFile) {
-  throw GradleException(
-    "google-services.json is required for production release builds. " +
-      "Provide the production Firebase configuration through the release secret injection step."
-  )
+val releaseTaskRequested = gradle.startParameter.taskNames.any {
+  it.contains("release", ignoreCase = true) || it.contains("bundle", ignoreCase = true)
+}
+
+if (releaseTaskRequested) {
+  val requiredSigningVars = listOf("KEYSTORE_PATH", "STORE_PASSWORD", "KEY_ALIAS", "KEY_PASSWORD")
+  val missingSigningVars = requiredSigningVars.filter { providers.environmentVariable(it).orNull.isNullOrBlank() }
+  if (missingSigningVars.isNotEmpty()) {
+    throw GradleException(
+      "Release signing is not configured. Set ${missingSigningVars.joinToString()} before running a release task. " +
+        "Release builds must never fall back to the Android debug keystore."
+    )
+  }
+  val releaseKeystore = providers.environmentVariable("KEYSTORE_PATH").orNull!!
+  require(file(releaseKeystore).isFile) {
+    "KEYSTORE_PATH does not point to a readable keystore: $releaseKeystore"
+  }
+  if (!file("google-services.json").isFile) {
+    throw GradleException(
+      "google-services.json is required for production release builds. " +
+        "Provide the production Firebase configuration through the release secret injection step."
+    )
+  }
 }
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
