@@ -62,55 +62,57 @@ class CryptoSecurityManagerTest {
     fun testTamperedCiphertextFailsAuthentication() {
         val payload = "tamper detection".toByteArray(Charsets.UTF_8)
         val (encrypted, iv) = cryptoSecurityManager.encryptBytes(payload)
-        val tampered = encrypted.clone()
-        tampered[tampered.lastIndex] = (tampered.last().toInt() xor 0x01).toByte()
+        encrypted[encrypted.lastIndex] = (encrypted.last().toInt() xor 0x01).toByte()
 
-        var failed = false
-        try {
-            cryptoSecurityManager.decryptBytes(tampered, iv)
-        } catch (_: Exception) {
-            failed = true
+        assertThrowsSecurityFailure {
+            cryptoSecurityManager.decryptBytes(encrypted, iv)
         }
-        assertTrue(failed)
     }
 
     @Test
     fun testTamperedIvFailsAuthentication() {
-        val payload = "tamper iv".toByteArray(Charsets.UTF_8)
+        val payload = "tamper detection".toByteArray(Charsets.UTF_8)
         val (encrypted, iv) = cryptoSecurityManager.encryptBytes(payload)
-        val tamperedIv = iv.clone()
-        tamperedIv[0] = (tamperedIv[0].toInt() xor 0x01).toByte()
+        iv[0] = (iv[0].toInt() xor 0x01).toByte()
 
-        var failed = false
-        try {
-            cryptoSecurityManager.decryptBytes(encrypted, tamperedIv)
-        } catch (_: Exception) {
-            failed = true
+        assertThrowsSecurityFailure {
+            cryptoSecurityManager.decryptBytes(encrypted, iv)
         }
-        assertTrue(failed)
     }
 
     @Test
     fun testStreamingEncryptionDecryptionRoundtrip() {
-        val original = ByteArray(150_000) { (it % 251).toByte() }
-        val encrypted = ByteArrayOutputStream()
-        cryptoSecurityManager.encryptStream(ByteArrayInputStream(original), encrypted)
+        val payload = "Testing AES-256-GCM Streaming File Encryption for Secure Vault.\n".repeat(500)
+        val originalBytes = payload.toByteArray(Charsets.UTF_8)
 
-        val decrypted = ByteArrayOutputStream()
-        cryptoSecurityManager.decryptStream(ByteArrayInputStream(encrypted.toByteArray()), decrypted)
+        val encryptedOut = ByteArrayOutputStream()
+        val result = cryptoSecurityManager.encryptStream(
+            ByteArrayInputStream(originalBytes),
+            encryptedOut
+        )
+        assertTrue(result.totalBytesEncrypted == originalBytes.size.toLong())
+        assertNotNull(result.ivBase64)
 
-        assertArrayEquals(original, decrypted.toByteArray())
+        val encryptedBytes = encryptedOut.toByteArray()
+        assertTrue(encryptedBytes.size > originalBytes.size)
+
+        val decryptedOut = ByteArrayOutputStream()
+        val totalDecrypted = cryptoSecurityManager.decryptStream(
+            ByteArrayInputStream(encryptedBytes),
+            decryptedOut
+        )
+        assertEquals(originalBytes.size.toLong(), totalDecrypted)
+        assertArrayEquals(originalBytes, decryptedOut.toByteArray())
     }
 
     @Test
     fun testTruncatedStreamingHeaderIsRejected() {
-        var failed = false
-        try {
-            cryptoSecurityManager.decryptStream(ByteArrayInputStream(ByteArray(11)), ByteArrayOutputStream())
-        } catch (_: IllegalArgumentException) {
-            failed = true
+        assertThrowsSecurityFailure {
+            cryptoSecurityManager.decryptStream(
+                ByteArrayInputStream(ByteArray(11)),
+                ByteArrayOutputStream()
+            )
         }
-        assertTrue(failed)
     }
 
     @Test
@@ -120,5 +122,21 @@ class CryptoSecurityManagerTest {
         assertFalse(cryptoSecurityManager.isValidPinFormat("123"))
         assertFalse(cryptoSecurityManager.isValidPinFormat("1234567"))
         assertFalse(cryptoSecurityManager.isValidPinFormat("12a4"))
+        assertFalse(cryptoSecurityManager.isValidPinFormat(""))
+    }
+
+    private fun assertThrowsSecurityFailure(block: () -> Unit) {
+        try {
+            block()
+            throw AssertionError("Expected cryptographic authentication/format failure")
+        } catch (expected: Throwable) {
+            assertTrue(
+                "Unexpected exception type: ${expected::class.java.name}",
+                expected is SecurityException ||
+                    expected is IllegalArgumentException ||
+                    expected is javax.crypto.AEADBadTagException ||
+                    expected.cause is javax.crypto.AEADBadTagException
+            )
+        }
     }
 }
