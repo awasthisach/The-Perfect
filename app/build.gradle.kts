@@ -1,5 +1,7 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
 
+val releaseTaskRequested = gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
@@ -34,18 +36,12 @@ android {
   signingConfigs {
     create("release") {
       val keystorePath = providers.environmentVariable("KEYSTORE_PATH").orNull
-      if (keystorePath.isNullOrBlank()) {
-        throw GradleException("KEYSTORE_PATH is required for release signing")
+      if (!keystorePath.isNullOrBlank()) {
+        storeFile = file(keystorePath)
       }
-      val keystoreFile = file(keystorePath)
-      require(keystoreFile.isFile) { "KEYSTORE_PATH does not point to a readable keystore: $keystorePath" }
-      storeFile = keystoreFile
       storePassword = providers.environmentVariable("STORE_PASSWORD").orNull
       keyAlias = providers.environmentVariable("KEY_ALIAS").orNull
       keyPassword = providers.environmentVariable("KEY_PASSWORD").orNull
-      require(!storePassword.isNullOrBlank()) { "STORE_PASSWORD is required for release signing" }
-      require(!keyAlias.isNullOrBlank()) { "KEY_ALIAS is required for release signing" }
-      require(!keyPassword.isNullOrBlank()) { "KEY_PASSWORD is required for release signing" }
     }
     create("debugConfig") {
       storeFile = file("${rootDir}/debug.keystore")
@@ -69,6 +65,11 @@ android {
           "Release signing is not configured. Set ${missingSigningVars.joinToString()} before running assembleRelease. " +
             "Release builds must never fall back to the Android debug keystore."
         )
+      }
+      val releaseKeystore = providers.environmentVariable("KEYSTORE_PATH").orNull
+        ?: throw GradleException("KEYSTORE_PATH is required for release signing")
+      require(file(releaseKeystore).isFile) {
+        "KEYSTORE_PATH does not point to a readable keystore: $releaseKeystore"
       }
       signingConfig = signingConfigs.getByName("release")
     }
@@ -95,7 +96,6 @@ secrets {
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
 }
 
-val releaseTaskRequested = gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }
 if (releaseTaskRequested && !file("google-services.json").isFile) {
   throw GradleException(
     "google-services.json is required for production release builds. " +
