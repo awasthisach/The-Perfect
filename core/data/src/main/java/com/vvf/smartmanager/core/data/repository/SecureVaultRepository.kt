@@ -86,8 +86,8 @@ class SecureVaultRepository(
 
         val fileId = UUID.randomUUID().toString()
         val encryptedFileName = "enc_${fileId}.vvf"
-        val destinationFile = File(vaultDirectory, encryptedFileName)
-        require(!isInsideDirectory(destinationFile.canonicalFile, canonicalVault).not()) {
+        val destinationFile = File(vaultDirectory, encryptedFileName).canonicalFile
+        require(isInsideDirectory(destinationFile, canonicalVault)) {
             "Encrypted destination escaped the secure vault directory"
         }
 
@@ -139,6 +139,9 @@ class SecureVaultRepository(
 
             entity.toDomainModel()
         } catch (e: Exception) {
+            // Roll back metadata as well as the encrypted artifact. Otherwise a failed
+            // operation can leave a DB row pointing at a file that no longer exists.
+            vaultDao.deleteById(fileId)
             if (journalId > 0L) {
                 vaultJournalDao.updateJournal(
                     VaultJournalEntity(
@@ -210,8 +213,12 @@ class SecureVaultRepository(
             throw e
         }
 
-        cryptoManager.secureShredFile(encryptedFile)
-        vaultDao.deleteById(vaultItemId)
+        // Plaintext is now successfully restored. If secure shredding fails, retain the vault
+        // record and encrypted copy rather than reporting a false total-success state or
+        // deleting the only recoverable encrypted source.
+        if (cryptoManager.secureShredFile(encryptedFile)) {
+            vaultDao.deleteById(vaultItemId)
+        }
 
         targetCanonical
     }
