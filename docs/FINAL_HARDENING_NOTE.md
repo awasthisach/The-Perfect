@@ -1,0 +1,1 @@
+Production hardening is applied through the audit branch. Credentials are never stored in the repository. Provider integrations that do not have a real transport are fail-closed rather than reporting synthetic success. Storage authorization is fail-closed and production file listing does not create demo data.
