@@ -10,6 +10,7 @@ import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.security.KeyStore
+import java.security.MessageDigest
 import java.security.SecureRandom
 import java.security.Security
 import javax.crypto.Cipher
@@ -49,16 +50,16 @@ class CryptoSecurityManager(
         private const val AES_GCM_TRANSFORMATION = "AES/GCM/NoPadding"
         private const val GCM_TAG_LENGTH_BITS = 128
         private const val GCM_IV_LENGTH_BYTES = 12
-        private const val DB_KEY_LENGTH_BYTES = 32 // 256-bit AES key for SQLCipher
-        private const val STREAM_BUFFER_SIZE = 64 * 1024 // 64 KB streaming buffer
+        private const val DB_KEY_LENGTH_BYTES = 32
+        private const val STREAM_BUFFER_SIZE = 64 * 1024
 
         private const val ENCRYPTED_DB_PASSPHRASE_FILE = "vvf_db_enc_passphrase.bin"
         private const val DB_PASSPHRASE_IV_FILE = "vvf_db_passphrase_iv.bin"
+        private const val DB_PASSPHRASE_V2_FILE = "vvf_db_passphrase_v2.bin"
+        private const val DB_PASSPHRASE_TEMP_SUFFIX = ".tmp"
+        private const val DB_PASSPHRASE_FORMAT_VERSION: Byte = 2
 
-        // OWASP 2023 recommendation: >= 600_000 iterations for PBKDF2-HMAC-SHA256
         private const val PBKDF2_ITERATIONS = 600_000
-
-        // In-memory fallback map for non-AndroidKeyStore test environments
         private val memoryKeyMap = mutableMapOf<String, SecretKey>()
     }
 
@@ -148,34 +149,89 @@ class CryptoSecurityManager(
 
     @Synchronized
     fun getOrCreateDatabasePassphrase(): ByteArray {
-        val encFile = File(context.filesDir, ENCRYPTED_DB_PASSPHRASE_FILE)
-        val ivFile = File(context.filesDir, DB_PASSPHRASE_IV_FILE)
+        val v2File = File(context.filesDir, DB_PASSPHRASE_V2_FILE)
+        val legacyEncFile = File(context.filesDir, ENCRYPTED_DB_PASSPHRASE_FILE)
+        val legacyIvFile = File(context.filesDir, DB_PASSPHRASE_IV_FILE)
 
-        if (encFile.exists() && ivFile.exists()) {
-            try {
-                val encryptedPassphrase = encFile.readBytes()
-                val iv = ivFile.readBytes()
-                return decryptWithKeystore(encryptedPassphrase, iv, DB_KEY_ALIAS)
+        if (v2File.exists()) {
+            return try {
+                readV2DatabasePassphrase(v2File)
             } catch (e: Throwable) {
                 throw SecurityException(
-                    "Secure database initialization failed: Unable to decrypt database passphrase with KeyStore",
+                    "Secure database initialization failed: invalid v2 database passphrase file",
                     e
                 )
             }
         }
 
+        if (legacyEncFile.exists() || legacyIvFile.exists()) {
+            if (!legacyEncFile.exists() || !legacyIvFile.exists()) {
+                throw SecurityException("Secure database initialization failed: incomplete legacy passphrase files")
+            }
+
+            val migratedPassphrase = try {
+                decryptWithKeystore(legacyEncFile.readBytes(), legacyIvFile.readBytes(), DB_KEY_ALIAS)
+            } catch (e: Throwable) {
+                throw SecurityException(
+                    "Secure database initialization failed: unable to decrypt legacy database passphrase",
+                    e
+                )
+            }
+
+            writeV2DatabasePassphraseAtomically(v2File, migratedPassphrase)
+            val verified = readV2DatabasePassphrase(v2File)
+            if (!MessageDigest.isEqual(migratedPassphrase, verified)) {
+                throw SecurityException("Secure database passphrase migration verification failed")
+            }
+
+            check(legacyEncFile.delete()) { "Failed to remove legacy encrypted database passphrase" }
+            check(legacyIvFile.delete()) { "Failed to remove legacy database passphrase IV" }
+            return migratedPassphrase
+        }
+
         val freshPassphrase = ByteArray(DB_KEY_LENGTH_BYTES)
         SecureRandom().nextBytes(freshPassphrase)
+        writeV2DatabasePassphraseAtomically(v2File, freshPassphrase)
+        val verified = readV2DatabasePassphrase(v2File)
+        if (!MessageDigest.isEqual(freshPassphrase, verified)) {
+            throw SecurityException("Secure database passphrase write verification failed")
+        }
+        return freshPassphrase
+    }
 
+    private fun readV2DatabasePassphrase(file: File): ByteArray {
+        val bytes = file.readBytes()
+        val minimumSize = 1 + GCM_IV_LENGTH_BYTES + 16
+        require(bytes.size >= minimumSize) { "Invalid v2 database passphrase file" }
+        require(bytes[0] == DB_PASSPHRASE_FORMAT_VERSION) { "Unsupported database passphrase version" }
+
+        val iv = bytes.copyOfRange(1, 1 + GCM_IV_LENGTH_BYTES)
+        val encrypted = bytes.copyOfRange(1 + GCM_IV_LENGTH_BYTES, bytes.size)
+        return decryptWithKeystore(encrypted, iv, DB_KEY_ALIAS)
+    }
+
+    private fun writeV2DatabasePassphraseAtomically(file: File, passphrase: ByteArray) {
         val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, getSecretKey(DB_KEY_ALIAS))
         val iv = cipher.iv
-        val encryptedPassphrase = cipher.doFinal(freshPassphrase)
+        val encrypted = cipher.doFinal(passphrase)
+        val payload = ByteArray(1 + iv.size + encrypted.size)
+        payload[0] = DB_PASSPHRASE_FORMAT_VERSION
+        System.arraycopy(iv, 0, payload, 1, iv.size)
+        System.arraycopy(encrypted, 0, payload, 1 + iv.size, encrypted.size)
 
-        encFile.writeBytes(encryptedPassphrase)
-        ivFile.writeBytes(iv)
-
-        return freshPassphrase
+        val tempFile = File(file.parentFile, file.name + DB_PASSPHRASE_TEMP_SUFFIX)
+        try {
+            FileOutputStream(tempFile).use { output ->
+                output.write(payload)
+                output.flush()
+                output.fd.sync()
+            }
+            check(tempFile.renameTo(file)) { "Failed to atomically replace database passphrase file" }
+        } catch (e: Throwable) {
+            tempFile.delete()
+            throw e
+        }
     }
 
     data class StreamEncryptionResult(
@@ -183,14 +239,10 @@ class CryptoSecurityManager(
         val totalBytesEncrypted: Long
     )
 
-    fun encryptStream(
-        sourceStream: InputStream,
-        destinationStream: OutputStream
-    ): StreamEncryptionResult {
+    fun encryptStream(sourceStream: InputStream, destinationStream: OutputStream): StreamEncryptionResult {
         val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, getSecretKey(VAULT_KEY_ALIAS))
         val iv = cipher.iv
-
         destinationStream.write(iv)
 
         var totalBytes: Long = 0
@@ -203,34 +255,17 @@ class CryptoSecurityManager(
             }
             cos.flush()
         }
-
-        return StreamEncryptionResult(
-            ivBase64 = Base64.encodeToString(iv, Base64.NO_WRAP),
-            totalBytesEncrypted = totalBytes
-        )
+        return StreamEncryptionResult(Base64.encodeToString(iv, Base64.NO_WRAP), totalBytes)
     }
 
-    fun encryptFile(sourceFile: File, destinationFile: File): StreamEncryptionResult {
-        return FileInputStream(sourceFile).use { fis ->
-            FileOutputStream(destinationFile).use { fos ->
-                encryptStream(fis, fos)
-            }
-        }
-    }
+    fun encryptFile(sourceFile: File, destinationFile: File): StreamEncryptionResult =
+        FileInputStream(sourceFile).use { fis -> FileOutputStream(destinationFile).use { fos -> encryptStream(fis, fos) } }
 
-    fun decryptStream(
-        sourceStream: InputStream,
-        destinationStream: OutputStream
-    ): Long {
+    fun decryptStream(sourceStream: InputStream, destinationStream: OutputStream): Long {
         val iv = ByteArray(GCM_IV_LENGTH_BYTES)
-        val ivBytesRead = sourceStream.read(iv)
-        require(ivBytesRead == GCM_IV_LENGTH_BYTES) {
-            "Invalid encrypted stream: Missing or corrupt IV header"
-        }
-
-        val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
+        require(sourceStream.read(iv) == GCM_IV_LENGTH_BYTES) { "Invalid encrypted stream: Missing or corrupt IV header" }
         val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
-        cipher.init(Cipher.DECRYPT_MODE, getSecretKey(VAULT_KEY_ALIAS), spec)
+        cipher.init(Cipher.DECRYPT_MODE, getSecretKey(VAULT_KEY_ALIAS), GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv))
 
         var totalBytes: Long = 0
         CipherInputStream(sourceStream, cipher).use { cis ->
@@ -242,39 +277,26 @@ class CryptoSecurityManager(
             }
             destinationStream.flush()
         }
-
         return totalBytes
     }
 
-    fun decryptFile(sourceFile: File, destinationFile: File): Long {
-        return FileInputStream(sourceFile).use { fis ->
-            FileOutputStream(destinationFile).use { fos ->
-                decryptStream(fis, fos)
-            }
-        }
-    }
+    fun decryptFile(sourceFile: File, destinationFile: File): Long =
+        FileInputStream(sourceFile).use { fis -> FileOutputStream(destinationFile).use { fos -> decryptStream(fis, fos) } }
 
     fun encryptBytes(data: ByteArray, alias: String = VAULT_KEY_ALIAS): Pair<ByteArray, ByteArray> {
         val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, getSecretKey(alias))
-        val iv = cipher.iv
-        val encryptedData = cipher.doFinal(data)
-        return Pair(encryptedData, iv)
+        return Pair(cipher.doFinal(data), cipher.iv)
     }
 
     fun decryptBytes(encryptedData: ByteArray, iv: ByteArray, alias: String = VAULT_KEY_ALIAS): ByteArray {
-        val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
         val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
-        cipher.init(Cipher.DECRYPT_MODE, getSecretKey(alias), spec)
+        cipher.init(Cipher.DECRYPT_MODE, getSecretKey(alias), GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv))
         return cipher.doFinal(encryptedData)
     }
 
-    private fun decryptWithKeystore(encryptedData: ByteArray, iv: ByteArray, alias: String): ByteArray {
-        val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
-        val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
-        cipher.init(Cipher.DECRYPT_MODE, getSecretKey(alias), spec)
-        return cipher.doFinal(encryptedData)
-    }
+    private fun decryptWithKeystore(encryptedData: ByteArray, iv: ByteArray, alias: String): ByteArray =
+        decryptBytes(encryptedData, iv, alias)
 
     fun secureShredFile(file: File): Boolean {
         if (!file.exists()) return true
@@ -307,82 +329,50 @@ class CryptoSecurityManager(
         data object INVALID_FORMAT : VaultAuthResult
     }
 
-    private val prefs by lazy {
-        context.getSharedPreferences("vvf_secure_vault_prefs", Context.MODE_PRIVATE)
-    }
+    private val prefs by lazy { context.getSharedPreferences("vvf_secure_vault_prefs", Context.MODE_PRIVATE) }
 
-    fun isValidPinFormat(pin: String): Boolean {
-        return pin.length in 4..6 && pin.all { it.isDigit() }
-    }
-
+    fun isValidPinFormat(pin: String): Boolean = pin.length in 4..6 && pin.all { it.isDigit() }
     fun isVaultPinSet(): Boolean = isVaultConfigured()
-
     fun saveVaultPin(pin: String): Boolean = setupVaultPin(pin)
-
     fun isDecoyPinSet(): Boolean = isDecoyVaultConfigured()
-
     fun saveDecoyPin(pin: String): Boolean = setupDecoyPin(pin)
 
     fun getRemainingLockoutSeconds(): Int {
         val lockoutUntilMs = prefs.getLong("vault_lockout_until_ms", 0L)
         val now = System.currentTimeMillis()
-        return if (lockoutUntilMs > now) {
-            ((lockoutUntilMs - now) / 1000L).toInt().coerceAtLeast(1)
-        } else {
-            0
-        }
+        return if (lockoutUntilMs > now) ((lockoutUntilMs - now) / 1000L).toInt().coerceAtLeast(1) else 0
     }
 
-    fun getFailedAttemptsCount(): Int {
-        return prefs.getInt("vault_failed_attempts", 0)
-    }
+    fun getFailedAttemptsCount(): Int = prefs.getInt("vault_failed_attempts", 0)
 
     private fun recordFailedAttempt(): VaultAuthResult.INVALID_PIN {
         val attempts = getFailedAttemptsCount() + 1
-        var lockoutSec = 0
-        val now = System.currentTimeMillis()
-
-        if (attempts >= 15) {
-            lockoutSec = 1800
-        } else if (attempts >= 10) {
-            lockoutSec = 300
-        } else if (attempts >= 5) {
-            lockoutSec = 30
+        val lockoutSec = when {
+            attempts >= 15 -> 1800
+            attempts >= 10 -> 300
+            attempts >= 5 -> 30
+            else -> 0
         }
-
         val editor = prefs.edit().putInt("vault_failed_attempts", attempts)
-        if (lockoutSec > 0) {
-            editor.putLong("vault_lockout_until_ms", now + (lockoutSec * 1000L))
-        }
+        if (lockoutSec > 0) editor.putLong("vault_lockout_until_ms", System.currentTimeMillis() + lockoutSec * 1000L)
         editor.apply()
-
         return VaultAuthResult.INVALID_PIN(attempts, lockoutSec)
     }
 
     private fun resetFailedAttempts() {
-        prefs.edit()
-            .remove("vault_failed_attempts")
-            .remove("vault_lockout_until_ms")
-            .apply()
+        prefs.edit().remove("vault_failed_attempts").remove("vault_lockout_until_ms").apply()
     }
 
-    fun isVaultConfigured(): Boolean {
-        return prefs.contains("vault_pin_hash") && prefs.contains("vault_pin_salt")
-    }
-
-    fun isDecoyVaultConfigured(): Boolean {
-        return prefs.contains("vault_decoy_pin_hash") && prefs.contains("vault_decoy_pin_salt")
-    }
+    fun isVaultConfigured(): Boolean = prefs.contains("vault_pin_hash") && prefs.contains("vault_pin_salt")
+    fun isDecoyVaultConfigured(): Boolean = prefs.contains("vault_decoy_pin_hash") && prefs.contains("vault_decoy_pin_salt")
 
     fun setupVaultPin(pin: String): Boolean {
         if (!isValidPinFormat(pin)) return false
         val salt = ByteArray(16)
         SecureRandom().nextBytes(salt)
         val hash = hashPin(pin, salt)
-
         val (encHash, hashIv) = encryptBytes(hash, alias = VAULT_META_KEY_ALIAS)
         val (encSalt, saltIv) = encryptBytes(salt, alias = VAULT_META_KEY_ALIAS)
-
         prefs.edit()
             .putString("vault_pin_hash", Base64.encodeToString(encHash, Base64.NO_WRAP))
             .putString("vault_pin_hash_iv", Base64.encodeToString(hashIv, Base64.NO_WRAP))
@@ -395,14 +385,11 @@ class CryptoSecurityManager(
     fun setupDecoyPin(decoyPin: String): Boolean {
         if (!isValidPinFormat(decoyPin)) return false
         if (verifyVaultPin(decoyPin)) return false
-
         val salt = ByteArray(16)
         SecureRandom().nextBytes(salt)
         val hash = hashPin(decoyPin, salt)
-
         val (encHash, hashIv) = encryptBytes(hash, alias = VAULT_META_KEY_ALIAS)
         val (encSalt, saltIv) = encryptBytes(salt, alias = VAULT_META_KEY_ALIAS)
-
         prefs.edit()
             .putString("vault_decoy_pin_hash", Base64.encodeToString(encHash, Base64.NO_WRAP))
             .putString("vault_decoy_pin_hash_iv", Base64.encodeToString(hashIv, Base64.NO_WRAP))
@@ -413,81 +400,48 @@ class CryptoSecurityManager(
     }
 
     fun removeDecoyPin(): Boolean {
-        prefs.edit()
-            .remove("vault_decoy_pin_hash")
-            .remove("vault_decoy_pin_hash_iv")
-            .remove("vault_decoy_pin_salt")
-            .remove("vault_decoy_pin_salt_iv")
-            .apply()
+        prefs.edit().remove("vault_decoy_pin_hash").remove("vault_decoy_pin_hash_iv")
+            .remove("vault_decoy_pin_salt").remove("vault_decoy_pin_salt_iv").apply()
         return true
     }
 
-    fun verifyVaultPin(pin: String): Boolean {
-        return verifyVaultPinWithResult(pin) == VaultAuthResult.SUCCESS_REAL
-    }
-
-    fun verifyDecoyPin(pin: String): Boolean {
-        return verifyVaultPinWithResult(pin) == VaultAuthResult.SUCCESS_DECOY
-    }
+    fun verifyVaultPin(pin: String): Boolean = verifyVaultPinWithResult(pin) == VaultAuthResult.SUCCESS_REAL
+    fun verifyDecoyPin(pin: String): Boolean = verifyVaultPinWithResult(pin) == VaultAuthResult.SUCCESS_DECOY
 
     fun verifyVaultPinWithResult(pin: String): VaultAuthResult {
-        if (!isValidPinFormat(pin)) {
-            return VaultAuthResult.INVALID_FORMAT
-        }
-
+        if (!isValidPinFormat(pin)) return VaultAuthResult.INVALID_FORMAT
         val remainingLockout = getRemainingLockoutSeconds()
-        if (remainingLockout > 0) {
-            return VaultAuthResult.LOCKED_OUT(remainingLockout)
-        }
+        if (remainingLockout > 0) return VaultAuthResult.LOCKED_OUT(remainingLockout)
 
         val realHashStr = prefs.getString("vault_pin_hash", null)
         val realHashIvStr = prefs.getString("vault_pin_hash_iv", null)
         val realSaltStr = prefs.getString("vault_pin_salt", null)
         val realSaltIvStr = prefs.getString("vault_pin_salt_iv", null)
-
         if (realHashStr != null && realHashIvStr != null && realSaltStr != null && realSaltIvStr != null) {
             try {
-                val encHash = Base64.decode(realHashStr, Base64.NO_WRAP)
-                val hashIv = Base64.decode(realHashIvStr, Base64.NO_WRAP)
-                val encSalt = Base64.decode(realSaltStr, Base64.NO_WRAP)
-                val saltIv = Base64.decode(realSaltIvStr, Base64.NO_WRAP)
-
-                val expectedHash = decryptBytes(encHash, hashIv, alias = VAULT_META_KEY_ALIAS)
-                val salt = decryptBytes(encSalt, saltIv, alias = VAULT_META_KEY_ALIAS)
-                val computedHash = hashPin(pin, salt)
-
-                if (java.security.MessageDigest.isEqual(expectedHash, computedHash)) {
+                val expectedHash = decryptBytes(Base64.decode(realHashStr, Base64.NO_WRAP), Base64.decode(realHashIvStr, Base64.NO_WRAP), VAULT_META_KEY_ALIAS)
+                val salt = decryptBytes(Base64.decode(realSaltStr, Base64.NO_WRAP), Base64.decode(realSaltIvStr, Base64.NO_WRAP), VAULT_META_KEY_ALIAS)
+                if (MessageDigest.isEqual(expectedHash, hashPin(pin, salt))) {
                     resetFailedAttempts()
                     return VaultAuthResult.SUCCESS_REAL
                 }
-            } catch (_: Exception) {
-            }
+            } catch (_: Exception) { }
         }
 
         val decoyHashStr = prefs.getString("vault_decoy_pin_hash", null)
         val decoyHashIvStr = prefs.getString("vault_decoy_pin_hash_iv", null)
         val decoySaltStr = prefs.getString("vault_decoy_pin_salt", null)
         val decoySaltIvStr = prefs.getString("vault_decoy_pin_salt_iv", null)
-
         if (decoyHashStr != null && decoyHashIvStr != null && decoySaltStr != null && decoySaltIvStr != null) {
             try {
-                val encHash = Base64.decode(decoyHashStr, Base64.NO_WRAP)
-                val hashIv = Base64.decode(decoyHashIvStr, Base64.NO_WRAP)
-                val encSalt = Base64.decode(decoySaltStr, Base64.NO_WRAP)
-                val saltIv = Base64.decode(decoySaltIvStr, Base64.NO_WRAP)
-
-                val expectedHash = decryptBytes(encHash, hashIv, alias = VAULT_META_KEY_ALIAS)
-                val salt = decryptBytes(encSalt, saltIv, alias = VAULT_META_KEY_ALIAS)
-                val computedHash = hashPin(pin, salt)
-
-                if (java.security.MessageDigest.isEqual(expectedHash, computedHash)) {
+                val expectedHash = decryptBytes(Base64.decode(decoyHashStr, Base64.NO_WRAP), Base64.decode(decoyHashIvStr, Base64.NO_WRAP), VAULT_META_KEY_ALIAS)
+                val salt = decryptBytes(Base64.decode(decoySaltStr, Base64.NO_WRAP), Base64.decode(decoySaltIvStr, Base64.NO_WRAP), VAULT_META_KEY_ALIAS)
+                if (MessageDigest.isEqual(expectedHash, hashPin(pin, salt))) {
                     resetFailedAttempts()
                     return VaultAuthResult.SUCCESS_DECOY
                 }
-            } catch (_: Exception) {
-            }
+            } catch (_: Exception) { }
         }
-
         return recordFailedAttempt()
     }
 
@@ -496,37 +450,18 @@ class CryptoSecurityManager(
         return setupVaultPin(newPin)
     }
 
-    fun isBiometricEnabled(): Boolean {
-        return prefs.getBoolean("vault_biometric_enabled", false)
-    }
+    fun isBiometricEnabled(): Boolean = prefs.getBoolean("vault_biometric_enabled", false)
+    fun setBiometricEnabled(enabled: Boolean) { prefs.edit().putBoolean("vault_biometric_enabled", enabled).apply() }
+    fun getAutoLockTimeoutSeconds(): Int = prefs.getInt("vault_auto_lock_seconds", 60)
+    fun setAutoLockTimeoutSeconds(seconds: Int) { prefs.edit().putInt("vault_auto_lock_seconds", seconds).apply() }
+    fun wipeBuffer(buffer: ByteArray) { buffer.fill(0) }
 
-    fun setBiometricEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean("vault_biometric_enabled", enabled).apply()
-    }
-
-    fun getAutoLockTimeoutSeconds(): Int {
-        return prefs.getInt("vault_auto_lock_seconds", 60)
-    }
-
-    fun setAutoLockTimeoutSeconds(seconds: Int) {
-        prefs.edit().putInt("vault_auto_lock_seconds", seconds).apply()
-    }
-
-    fun wipeBuffer(buffer: ByteArray) {
-        buffer.fill(0)
-    }
-
-    /**
-     * PBKDF2WithHmacSHA256 (600_000 iterations — OWASP 2023 recommended minimum).
-     * Clears PIN char array and PBEKeySpec after use to reduce in-memory exposure.
-     */
     private fun hashPin(pin: String, salt: ByteArray): ByteArray {
         val pinChars = pin.toCharArray()
         return try {
             val spec = javax.crypto.spec.PBEKeySpec(pinChars, salt, PBKDF2_ITERATIONS, 256)
             try {
-                val skf = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-                skf.generateSecret(spec).encoded
+                javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
             } finally {
                 spec.clearPassword()
             }
