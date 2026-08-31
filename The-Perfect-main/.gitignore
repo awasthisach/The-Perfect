@@ -16,11 +16,12 @@ local.properties
 .externalNativeBuild
 .cxx
 .env
-.env.local
+.env.*
 *.keystore
-!debug.keystore
-!debug.keystore.base64
+*.jks
 *.bin
+app/google-services.json
+**/google-services.json
 __pycache__/
 *.py[cod]
 *$py.class
