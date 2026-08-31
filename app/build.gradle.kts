@@ -95,6 +95,14 @@ secrets {
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
 }
 
+val releaseTaskRequested = gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }
+if (releaseTaskRequested && !file("google-services.json").isFile) {
+  throw GradleException(
+    "google-services.json is required for production release builds. " +
+      "Provide the production Firebase configuration through the release secret injection step."
+  )
+}
+
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
 
 dependencies {
@@ -107,7 +115,6 @@ dependencies {
   implementation(project(":core:background"))
   implementation(project(":core:cloud-gdrive"))
   implementation(project(":core:plugin-spi"))
-
   implementation(project(":feature:explorer"))
   implementation(project(":feature:vault"))
   implementation(project(":feature:cleaner"))
@@ -115,7 +122,6 @@ dependencies {
   implementation(project(":feature:cloud"))
   implementation(project(":feature:settings"))
   implementation(project(":feature:plugins"))
-
   implementation(project(":plugins:plugin-ocr"))
   implementation(project(":plugins:plugin-semantic-search"))
   implementation(project(":plugins:plugin-cloud-drivers"))
