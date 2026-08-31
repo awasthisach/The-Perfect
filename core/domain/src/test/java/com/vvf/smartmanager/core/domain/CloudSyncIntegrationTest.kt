@@ -20,8 +20,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import org.mockito.kotlin.any
-import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
 import java.io.File
@@ -119,16 +117,18 @@ class CloudSyncIntegrationTest {
         val drive = HttpFakeDriveService(server)
         val archive = mock<ArchiveService>()
         val artifactFile = File(tempDir, "backup.vvfbak").apply { writeText("encrypted") }
+        val expectedSizeBytes = artifactFile.length()
         whenever(archive.createArchive(includeVault = false, includeDatabase = true)).thenReturn(
             Result.success(artifact(artifactFile))
         )
         val useCase = CloudSyncUseCase(drive, archiveService = archive)
 
-        useCase.createCloudBackup(CloudProviderType.GOOGLE_DRIVE)
+        val result = useCase.createCloudBackup(CloudProviderType.GOOGLE_DRIVE)
 
+        assertTrue(result.isSuccess)
         val item = drive.lastUploadedItem
         assertEquals("backup.vvfbak", item?.name)
-        assertEquals(artifactFile.length(), item?.sizeBytes)
+        assertEquals(expectedSizeBytes, item?.sizeBytes)
         assertFalse(item?.isDirectory ?: true)
         assertEquals("application/octet-stream", item?.mimeType)
         assertTrue((item?.path ?: "").isNotEmpty())
