@@ -35,4 +35,5 @@ dependencies {
   testImplementation(libs.robolectric)
   testImplementation(libs.androidx.core)
   testImplementation(libs.kotlinx.coroutines.test)
+  testImplementation(libs.sqlcipher.android.compat)
 }
