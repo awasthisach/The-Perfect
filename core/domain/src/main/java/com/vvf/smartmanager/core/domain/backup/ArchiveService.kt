@@ -3,6 +3,7 @@ package com.vvf.smartmanager.core.domain.backup
 import com.vvf.smartmanager.core.data.backup.SnapshotSource
 import com.vvf.smartmanager.core.model.CloudBackupInfo
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -93,6 +94,7 @@ class ArchiveService(
                 )
             )
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             encryptedFile.delete()
             Result.failure(ArchiveException("Archive creation failed", error))
         } finally {
