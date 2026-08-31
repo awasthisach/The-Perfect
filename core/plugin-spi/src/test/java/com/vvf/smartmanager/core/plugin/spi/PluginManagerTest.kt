@@ -26,7 +26,15 @@ class PluginManagerTest {
             options: OcrOptions,
             onProgress: ((OcrProgress) -> Unit)?
         ): Result<OcrResult> = Result.success(
-            OcrResult("Sample OCR Text", "en", 0.98f, 3, 1, 150L)
+            OcrResult(
+                fullText = "Sample OCR Text",
+                totalWords = 3,
+                totalLines = 1,
+                pageCount = 1,
+                processingDurationMs = 150L,
+                language = "en",
+                confidence = 0.98f
+            )
         )
         override fun cancelOngoing() = Unit
     }
