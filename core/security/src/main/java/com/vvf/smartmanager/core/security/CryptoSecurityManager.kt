@@ -43,8 +43,19 @@ class CryptoSecurityManager(
 
     companion object {
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
+        /**
+         * Database master key. Deliberately does NOT require user authentication:
+         * the SQLCipher DB must open at app startup without a biometric prompt.
+         * Metadata protection relies on AndroidKeyStore hardware binding, not user
+         * presence. Rotating this key invalidates the stored DB passphrase file.
+         */
         private const val DB_KEY_ALIAS = "vvf_db_passphrase_key_v1"
         private const val VAULT_KEY_ALIAS = "vvf_vault_master_key_v1"
+        /**
+         * Vault metadata key (PIN hash/salt encryption). No user auth required:
+         * it must be usable while evaluating PIN entry before unlock. Compromise
+         * does not expose vault file contents.
+         */
         private const val VAULT_META_KEY_ALIAS = "vvf_vault_meta_key_v1"
 
         private const val AES_GCM_TRANSFORMATION = "AES/GCM/NoPadding"
