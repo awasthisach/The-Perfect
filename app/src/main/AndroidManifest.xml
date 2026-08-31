@@ -6,12 +6,12 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- Full File Access (Play Store: Full File Manager justification required) -->
+    <!-- Full File Access: retain only for the core full-file-manager use case; Play policy eligibility must be verified. -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
 
-    <!-- Legacy storage permissions (maxSdkVersion handles automatic fallback) -->
+    <!-- Legacy storage permissions, restricted to Android versions that used them. -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" tools:ignore="ScopedStorage" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
     <!-- Modern Media Permissions (Android 13+) -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
@@ -33,7 +33,6 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.MyApplication">
-        
         <activity
             android:name=".MainActivity"
             android:exported="true"
