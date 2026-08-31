@@ -57,7 +57,7 @@ jobs:
             CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown -DSQLCIPHER_CRYPTO_OPENSSL" \
             LDFLAGS="-lcrypto"
           make -j2 sqlite3.c
-          gcc -DSQLITE_HAS_CODEC -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown -DSQLCIPHER_CRYPTO_OPENSSL -DSQLITE_ENABLE_FTS5 -DSQLITE_THREADSAFE=1 -DSQLITE_HAVE_ZLIB=1 -DSQLITE_TEMP_STORE=2 -I. -I/tmp/sqlcipher-4.5.4/src -o sqlcipher shell.c sqlite3.c /tmp/sqlcipher-4.5.4/src/crypto.c /tmp/sqlcipher-4.5.4/src/crypto_impl.c /tmp/sqlcipher-4.5.4/src/crypto_openssl.c -lcrypto -lm -lz
+          gcc -DSQLITE_HAS_CODEC -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown -DSQLCIPHER_CRYPTO_OPENSSL -DSQLITE_ENABLE_FTS5 -DSQLITE_THREADSAFE=1 -DSQLITE_HAVE_ZLIB=1 -DSQLITE_TEMP_STORE=2 -DSQLITE_PRIVATE= -I. -I/tmp/sqlcipher-4.5.4/src -o sqlcipher shell.c sqlite3.c /tmp/sqlcipher-4.5.4/src/crypto.c /tmp/sqlcipher-4.5.4/src/crypto_impl.c /tmp/sqlcipher-4.5.4/src/crypto_openssl.c -lcrypto -lm -lz
           ./sqlcipher :memory: "SELECT cipher_version;"
           printf '%s\n' \
             "PRAGMA key = 'vvf-sqlcipher-compatibility-test';" \
