@@ -37,14 +37,17 @@ class SecureVaultRepository(
 
     suspend fun recoverOrphanedJournals(): Int {
         val pendingJournals = vaultJournalDao.getPendingJournals("PENDING")
+        val canonicalVault = vaultDirectory.canonicalFile
         var recoveredCount = 0
 
         for (journal in pendingJournals) {
             try {
                 when (journal.operationType) {
                     "ENCRYPT" -> {
-                        val encFile = File(journal.vaultPath)
-                        if (encFile.exists() && encFile.length() == 0L) {
+                        val encFile = File(journal.vaultPath).canonicalFile
+                        // Never trust a persisted journal path for filesystem mutation.
+                        // A corrupted/tampered journal must not become an arbitrary-file delete primitive.
+                        if (isInsideDirectory(encFile, canonicalVault) && encFile.exists() && encFile.length() == 0L) {
                             encFile.delete()
                         }
                         vaultJournalDao.updateJournal(journal.copy(status = "FAILED"))
@@ -213,9 +216,8 @@ class SecureVaultRepository(
             throw e
         }
 
-        // Plaintext is now successfully restored. If secure shredding fails, retain the vault
-        // record and encrypted copy rather than reporting a false total-success state or
-        // deleting the only recoverable encrypted source.
+        // Plaintext is now successfully restored. If secure shredding fails, retain the encrypted
+        // source and DB record rather than creating a false state in which the item disappears.
         if (cryptoManager.secureShredFile(encryptedFile)) {
             vaultDao.deleteById(vaultItemId)
         }
