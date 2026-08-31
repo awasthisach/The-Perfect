@@ -60,14 +60,12 @@ jobs:
       - name: Materialize signing keystore
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
           test -n "$ANDROID_KEYSTORE_BASE64" || { echo "ANDROID_KEYSTORE_BASE64 is required"; exit 1; }
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > release-upload-key.jks
           test -s release-upload-key.jks || { echo "Signing keystore is empty or invalid"; exit 1; }
           keytool -list -keystore release-upload-key.jks -storepass "$ANDROID_KEYSTORE_PASSWORD" >/dev/null
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
 
       - name: Assemble signed release
         env:
