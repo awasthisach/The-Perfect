@@ -9,6 +9,7 @@ import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.io.File
+import java.io.IOException
 import java.util.UUID
 
 /**
@@ -34,9 +35,6 @@ class SecureVaultRepository(
     suspend fun getVaultItemById(id: String): VaultItem? =
         vaultDao.getVaultItemById(id)?.toDomainModel()
 
-    /**
-     * Recover any incomplete vault transactions from app crashes using the Vault Operation Journal.
-     */
     suspend fun recoverOrphanedJournals(): Int {
         val pendingJournals = vaultJournalDao.getPendingJournals("PENDING")
         var recoveredCount = 0
@@ -57,7 +55,7 @@ class SecureVaultRepository(
                         recoveredCount++
                     }
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 vaultJournalDao.updateJournal(journal.copy(status = "FAILED"))
             }
         }
@@ -65,10 +63,6 @@ class SecureVaultRepository(
         return recoveredCount
     }
 
-    /**
-     * Encrypts and locks an external file into the isolated secure vault.
-     * Uses Vault Operation Journaling to prevent split-brain states during crashes.
-     */
     suspend fun lockFileInVault(
         sourceFile: File,
         category: String = "Other",
@@ -82,19 +76,21 @@ class SecureVaultRepository(
 
         val canonicalSource = sourceFile.canonicalFile
         val canonicalVault = vaultDirectory.canonicalFile
-        require(!canonicalSource.canonicalPath.startsWith(canonicalVault.canonicalPath)) {
+        require(!isInsideDirectory(canonicalSource, canonicalVault)) {
             "Source file cannot already be inside the vault directory: ${sourceFile.absolutePath}"
         }
 
-        if (!vaultDirectory.exists()) {
-            vaultDirectory.mkdirs()
+        require(vaultDirectory.exists() || vaultDirectory.mkdirs()) {
+            "Unable to create secure vault directory: ${vaultDirectory.absolutePath}"
         }
 
         val fileId = UUID.randomUUID().toString()
         val encryptedFileName = "enc_${fileId}.vvf"
         val destinationFile = File(vaultDirectory, encryptedFileName)
+        require(!isInsideDirectory(destinationFile.canonicalFile, canonicalVault).not()) {
+            "Encrypted destination escaped the secure vault directory"
+        }
 
-        // Write PENDING Journal Entry for crash protection
         val journalId = vaultJournalDao.insertJournal(
             VaultJournalEntity(
                 operationType = "ENCRYPT",
@@ -105,7 +101,6 @@ class SecureVaultRepository(
         ) ?: 0L
 
         try {
-            // Stream encrypt with Keystore AES-256-GCM
             val result = cryptoManager.encryptFile(sourceFile, destinationFile)
 
             val entity = VaultItemEntity(
@@ -124,9 +119,10 @@ class SecureVaultRepository(
 
             vaultDao.insertVaultItem(entity)
 
-            // Secure zero-knowledge file shredding of original plaintext file
             if (deleteOriginal) {
-                cryptoManager.secureShredFile(sourceFile)
+                require(cryptoManager.secureShredFile(sourceFile)) {
+                    "Encrypted vault copy was created, but original plaintext could not be securely removed"
+                }
             }
 
             if (journalId > 0L) {
@@ -155,16 +151,12 @@ class SecureVaultRepository(
                 )
             }
             if (destinationFile.exists()) {
-                destinationFile.delete()
+                cryptoManager.secureShredFile(destinationFile)
             }
             throw e
         }
     }
 
-    /**
-     * Restores and decrypts an encrypted vault file back to disk.
-     * Decrypts to [destinationDir] or the original path, and removes the encrypted vault file.
-     */
     suspend fun restoreFileFromVault(
         vaultItemId: String,
         destinationDir: File? = null
@@ -172,112 +164,150 @@ class SecureVaultRepository(
         val entity = vaultDao.getVaultItemById(vaultItemId)
             ?: throw IllegalStateException("Vault item not found in database: $vaultItemId")
 
-        val encryptedFile = File(vaultDirectory, entity.encryptedFileName)
-        if (!encryptedFile.exists()) {
+        val encryptedFile = File(vaultDirectory, entity.encryptedFileName).canonicalFile
+        val canonicalVault = vaultDirectory.canonicalFile
+        require(isInsideDirectory(encryptedFile, canonicalVault)) {
+            "Encrypted vault path escaped the isolated secure vault directory"
+        }
+        if (!encryptedFile.exists() || !encryptedFile.isFile) {
             throw IllegalStateException("Encrypted file not found on disk: ${entity.encryptedFileName}")
         }
 
         val targetFile = if (destinationDir != null) {
-            if (!destinationDir.exists()) destinationDir.mkdirs()
+            require(destinationDir.exists() || destinationDir.mkdirs()) {
+                "Unable to create restore destination: ${destinationDir.absolutePath}"
+            }
             File(destinationDir, entity.originalName)
         } else {
             val originalFile = File(entity.originalPath)
             val parent = originalFile.parentFile
-            if (parent != null && !parent.exists()) parent.mkdirs()
+            if (parent != null) {
+                require(parent.exists() || parent.mkdirs()) {
+                    "Unable to create restore destination: ${parent.absolutePath}"
+                }
+            }
             originalFile
         }
 
         val targetCanonical = targetFile.canonicalFile
-        val canonicalVault = vaultDirectory.canonicalFile
-        require(!targetCanonical.canonicalPath.startsWith(canonicalVault.canonicalPath)) {
+        require(!isInsideDirectory(targetCanonical, canonicalVault)) {
             "Restore destination cannot be inside the isolated secure vault directory"
         }
+        require(!targetCanonical.exists()) {
+            "Restore destination already exists; refusing to overwrite plaintext: ${targetCanonical.absolutePath}"
+        }
 
-        // Decrypt AES-256-GCM stream
-        cryptoManager.decryptFile(encryptedFile, targetFile)
+        // GCM authentication is only known after EOF. Decrypt to a same-directory temporary file
+        // and publish it only after authenticated decryption succeeds.
+        val tempFile = createSiblingTempFile(targetCanonical)
+        try {
+            cryptoManager.decryptFile(encryptedFile, tempFile)
+            require(tempFile.renameTo(targetCanonical)) {
+                "Unable to atomically publish restored file: ${targetCanonical.absolutePath}"
+            }
+        } catch (e: Exception) {
+            tempFile.delete()
+            throw e
+        }
 
-        // Shred encrypted file and delete record from DB
         cryptoManager.secureShredFile(encryptedFile)
         vaultDao.deleteById(vaultItemId)
 
-        targetFile
+        targetCanonical
     }
 
-    /**
-     * Decrypts and exports a decrypted copy of the vault item without deleting it from vault.
-     */
     suspend fun exportFileFromVault(
         vaultItemId: String,
         destinationFile: File
     ): Result<File> = runCatching {
-        val canonicalDest = destinationFile.canonicalPath
-        val canonicalVault = vaultDirectory.canonicalPath
-        require(!canonicalDest.startsWith(canonicalVault)) {
+        val canonicalDest = destinationFile.canonicalFile
+        val canonicalVault = vaultDirectory.canonicalFile
+        require(!isInsideDirectory(canonicalDest, canonicalVault)) {
             "Export destination cannot be inside the isolated secure vault directory"
+        }
+        require(!canonicalDest.exists()) {
+            "Export destination already exists; refusing to overwrite plaintext: ${canonicalDest.absolutePath}"
         }
 
         val entity = vaultDao.getVaultItemById(vaultItemId)
             ?: throw IllegalStateException("Vault item not found in database: $vaultItemId")
 
-        val encryptedFile = File(vaultDirectory, entity.encryptedFileName)
-        if (!encryptedFile.exists()) {
+        val encryptedFile = File(vaultDirectory, entity.encryptedFileName).canonicalFile
+        require(isInsideDirectory(encryptedFile, canonicalVault)) {
+            "Encrypted vault path escaped the isolated secure vault directory"
+        }
+        if (!encryptedFile.exists() || !encryptedFile.isFile) {
             throw IllegalStateException("Encrypted file not found on disk: ${entity.encryptedFileName}")
         }
 
-        val parent = destinationFile.parentFile
-        if (parent != null && !parent.exists()) parent.mkdirs()
+        val parent = canonicalDest.parentFile
+        if (parent != null) {
+            require(parent.exists() || parent.mkdirs()) {
+                "Unable to create export destination: ${parent.absolutePath}"
+            }
+        }
 
-        cryptoManager.decryptFile(encryptedFile, destinationFile)
-        destinationFile
+        val tempFile = createSiblingTempFile(canonicalDest)
+        try {
+            cryptoManager.decryptFile(encryptedFile, tempFile)
+            require(tempFile.renameTo(canonicalDest)) {
+                "Unable to publish exported file: ${canonicalDest.absolutePath}"
+            }
+        } catch (e: Exception) {
+            tempFile.delete()
+            throw e
+        }
+
+        canonicalDest
     }
 
-    /**
-     * Permanently and securely deletes a vault item from disk and DB.
-     */
     suspend fun deleteVaultItemPermanently(vaultItemId: String): Result<Boolean> = runCatching {
         val entity = vaultDao.getVaultItemById(vaultItemId)
         if (entity != null) {
-            val encryptedFile = File(vaultDirectory, entity.encryptedFileName)
+            val encryptedFile = File(vaultDirectory, entity.encryptedFileName).canonicalFile
+            val canonicalVault = vaultDirectory.canonicalFile
+            require(isInsideDirectory(encryptedFile, canonicalVault)) {
+                "Encrypted vault path escaped the isolated secure vault directory"
+            }
             if (encryptedFile.exists()) {
-                cryptoManager.secureShredFile(encryptedFile)
+                require(cryptoManager.secureShredFile(encryptedFile)) {
+                    "Unable to securely remove encrypted vault file"
+                }
             }
             vaultDao.deleteById(vaultItemId)
         }
         true
     }
 
-    // ========================================================================
-    // PIN & Biometric Management (Supports Decoy/Fake Vault)
-    // ========================================================================
-
     fun isVaultConfigured(): Boolean = cryptoManager.isVaultConfigured()
-
     fun isDecoyVaultConfigured(): Boolean = cryptoManager.isDecoyVaultConfigured()
-
     fun setupPin(pin: String): Boolean = cryptoManager.setupVaultPin(pin)
-
     fun setupDecoyPin(pin: String): Boolean = cryptoManager.setupDecoyPin(pin)
-
     fun removeDecoyPin(): Boolean = cryptoManager.removeDecoyPin()
-
     fun verifyPin(pin: String): Boolean = cryptoManager.verifyVaultPin(pin)
-
     fun verifyPinWithResult(pin: String): CryptoSecurityManager.VaultAuthResult =
         cryptoManager.verifyVaultPinWithResult(pin)
-
     fun getRemainingLockoutSeconds(): Int = cryptoManager.getRemainingLockoutSeconds()
-
     fun getFailedAttemptsCount(): Int = cryptoManager.getFailedAttemptsCount()
-
     fun changePin(oldPin: String, newPin: String): Boolean = cryptoManager.changeVaultPin(oldPin, newPin)
-
     fun isBiometricEnabled(): Boolean = cryptoManager.isBiometricEnabled()
-
     fun setBiometricEnabled(enabled: Boolean) = cryptoManager.setBiometricEnabled(enabled)
-
     fun getAutoLockTimeoutSeconds(): Int = cryptoManager.getAutoLockTimeoutSeconds()
-
     fun setAutoLockTimeoutSeconds(seconds: Int) = cryptoManager.setAutoLockTimeoutSeconds(seconds)
+
+    private fun isInsideDirectory(file: File, directory: File): Boolean {
+        val filePath = file.canonicalPath
+        val directoryPath = directory.canonicalPath
+        return filePath == directoryPath || filePath.startsWith(directoryPath + File.separator)
+    }
+
+    private fun createSiblingTempFile(target: File): File {
+        val parent = target.parentFile ?: throw IOException("Target file has no parent directory")
+        require(parent.exists() || parent.mkdirs()) { "Unable to create target directory: ${parent.absolutePath}" }
+        return File(parent, ".${target.name}.${UUID.randomUUID()}.tmp").also {
+            require(!it.exists()) { "Temporary restore file unexpectedly exists" }
+        }
+    }
 
     private fun VaultItemEntity.toDomainModel(): VaultItem {
         return VaultItem(
