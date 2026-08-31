@@ -24,7 +24,7 @@ dependencies {
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.security.crypto)
   implementation(libs.kotlinx.coroutines.core)
-  implementation(libs.hilt.android)
+  implementation(libs.hiltAndroidRuntime)
 
   testImplementation(libs.junit)
   testImplementation(libs.robolectric)
