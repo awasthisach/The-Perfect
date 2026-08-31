@@ -39,12 +39,6 @@ android {
       keyAlias = providers.environmentVariable("KEY_ALIAS").orNull
       keyPassword = providers.environmentVariable("KEY_PASSWORD").orNull
     }
-    create("debugConfig") {
-      storeFile = file("${rootDir}/debug.keystore")
-      storePassword = "android"
-      keyAlias = "androiddebugkey"
-      keyPassword = "android"
-    }
   }
 
   buildTypes {
@@ -55,7 +49,8 @@ android {
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
     }
-    debug { signingConfig = signingConfigs.getByName("debugConfig") }
+    // AGP owns the debug signing key; CI must not depend on a checked-in keystore.
+    debug { }
   }
 
   compileOptions {
@@ -102,7 +97,6 @@ if (releaseTaskRequested) {
   }
 }
 
-// Firebase is optional for debug/unit-test builds. Production release validation above is fail-closed.
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.IGNORE }
 
 dependencies {
