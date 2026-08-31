@@ -1,0 +1,42 @@
+name: Security Gates
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  static-security-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Reject committed secrets and demo-data production hooks
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RInE --exclude-dir=.git --exclude='*.md' --exclude='*.txt' \
+            'AIza[0-9A-Za-z_-]{20,}|sk-proj-[A-Za-z0-9_-]{20,}|OPENAI_API_KEY[[:space:]]*=[[:space:]]*[^$\{[:space:]]' .; then
+            echo 'Potential credential found in tracked source.' >&2
+            exit 1
+          fi
+          if grep -RIn --exclude-dir=.git --include='*.kt' \
+            -E 'ensureSampleFilesIfEmpty|ensureSampleCategoryFiles' .; then
+            echo 'Production demo-data mutation hook found.' >&2
+            exit 1
+          fi
+
+      - name: Reject release debug-signing fallback
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -nE 'buildTypes|release|signingConfig.*debugConfig|signingConfig.*debug' app/build.gradle.kts | grep -E 'release|signingConfig' | grep -E 'debugConfig|debug' >/dev/null; then
+            echo 'Release build must not fall back to the debug signing key.' >&2
+            exit 1
+          fi
