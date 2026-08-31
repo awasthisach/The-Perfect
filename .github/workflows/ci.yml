@@ -56,8 +56,9 @@ jobs:
           ./configure --enable-tempstore=yes --enable-fts5 \
             CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown -DSQLCIPHER_CRYPTO_OPENSSL" \
             LDFLAGS="-lcrypto"
-          make -j2
-          ./sqlcipher :memory: "PRAGMA cipher_version;"
+          make -j2 sqlite3.c
+          gcc -DSQLITE_HAS_CODEC -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown -DSQLCIPHER_CRYPTO_OPENSSL -DSQLITE_ENABLE_FTS5 -DSQLITE_THREADSAFE=1 -DSQLITE_HAVE_ZLIB=1 -DSQLITE_TEMP_STORE=2 -I. -I/tmp/sqlcipher-4.5.4/src -o sqlcipher shell.c sqlite3.c crypto.c crypto_impl.c crypto_openssl.c -lcrypto -lm -lz
+          ./sqlcipher :memory: "SELECT cipher_version;"
           printf '%s\n' \
             "PRAGMA key = 'vvf-sqlcipher-compatibility-test';" \
             "CREATE TABLE compatibility_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL);" \
