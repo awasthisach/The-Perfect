@@ -2,6 +2,7 @@ package com.vvf.smartmanager
 
 import android.app.Application
 import android.util.Log
+import com.google.dagger.hilt.android.HiltAndroidApp
 import com.vvf.smartmanager.core.background.BackgroundSyncManager
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveServiceImpl
@@ -54,12 +55,13 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * Root Application entry point with manual DI container.
+ * Root Application entry point with an incremental Hilt migration.
  *
- * Hilt dependencies are now aligned with the AGP 9 build (Hilt 2.60.1).
- * Migration is intentionally incremental; the manual graph remains the
- * active composition root until each dependency can be moved safely.
+ * Hilt 2.60.1 is enabled at the application boundary. The existing manual
+ * graph remains active until individual providers are migrated and verified,
+ * preventing a half-migrated graph from changing runtime behavior.
  */
+@HiltAndroidApp
 class VVFApplication : Application() {
 
     lateinit var cryptoSecurityManager: CryptoSecurityManager
