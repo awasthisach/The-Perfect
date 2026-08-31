@@ -5,6 +5,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
+private const val OCR_PLUGIN_ID = "plugin.ocr.mlkit"
+private const val SEMANTIC_PLUGIN_ID = "plugin.semantic.tflite"
+private const val CLOUD_PLUGIN_ID = "plugin.cloud.drivers"
+
 enum class PluginCategory {
     OCR,
     SEMANTIC_AI,
@@ -26,31 +30,32 @@ data class PluginDescriptor(
     val sizeMb: Int = 0
 )
 
-/**
- * Central Dynamic Plugin Registry & Lifecycle Manager for VVF Smart Manager.
- * Ensures strict separation between Core APK and downloadable On-Demand plugins.
- */
+/** Central dynamic plugin registry and lifecycle manager. */
 class PluginManager(
     private var ocrPlugin: OcrPluginSPI? = null,
     private var semanticSearchPlugin: SemanticSearchSPI? = null,
-    private val cloudDrivers: MutableList<CloudDriverSPI> = mutableListOf()
+    cloudDrivers: List<CloudDriverSPI> = emptyList()
 ) {
+    private val cloudDrivers = cloudDrivers
+        .distinctBy { it.driverId }
+        .toMutableList()
 
     private val _pluginsState = MutableStateFlow<List<PluginDescriptor>>(emptyList())
     val pluginsState: StateFlow<List<PluginDescriptor>> = _pluginsState.asStateFlow()
 
     fun registerOcrPlugin(plugin: OcrPluginSPI) {
-        this.ocrPlugin = plugin
+        require(plugin.pluginId == OCR_PLUGIN_ID) { "Unexpected OCR plugin id: ${plugin.pluginId}" }
+        ocrPlugin = plugin
     }
 
     fun registerSemanticPlugin(plugin: SemanticSearchSPI) {
-        this.semanticSearchPlugin = plugin
+        require(plugin.pluginId == SEMANTIC_PLUGIN_ID) { "Unexpected semantic plugin id: ${plugin.pluginId}" }
+        semanticSearchPlugin = plugin
     }
 
     fun registerCloudDriver(driver: CloudDriverSPI) {
-        if (cloudDrivers.none { it.driverId == driver.driverId }) {
-            cloudDrivers.add(driver)
-        }
+        require(driver.driverId.isNotBlank()) { "Cloud driver id must not be blank" }
+        if (cloudDrivers.none { it.driverId == driver.driverId }) cloudDrivers.add(driver)
     }
 
     fun getOcrPlugin(): OcrPluginSPI? = ocrPlugin
@@ -64,71 +69,56 @@ class PluginManager(
     }
 
     fun updateDownloadProgress(pluginId: String, progress: Float?, isDownloaded: Boolean) {
+        require(progress == null || progress in 0f..1f) { "progress must be between 0 and 1" }
         _pluginsState.update { list ->
-            list.map {
-                if (it.id == pluginId) {
-                    it.copy(
-                        downloadProgress = progress,
-                        isModelDownloaded = isDownloaded,
-                        isInstalled = isDownloaded
-                    )
-                } else it
+            list.map { descriptor ->
+                if (descriptor.id == pluginId) descriptor.copy(
+                    downloadProgress = progress,
+                    isModelDownloaded = isDownloaded,
+                    isInstalled = isDownloaded
+                ) else descriptor
             }
         }
     }
 
     suspend fun refreshPluginDescriptors() {
-        val list = mutableListOf<PluginDescriptor>()
+        val ocrDownloaded = ocrPlugin?.isModelDownloaded() ?: false
+        val semanticReady = semanticSearchPlugin?.isModelReady() ?: false
 
-        val isOcrDownloaded = ocrPlugin?.isModelDownloaded() ?: true
-
-        // 1. OCR Plugin
-        list.add(
+        _pluginsState.value = listOf(
             PluginDescriptor(
-                id = "plugin.ocr.mlkit",
+                id = OCR_PLUGIN_ID,
                 name = "ML Kit OCR Text Scanner",
-                description = "On-demand downloadable ML Kit OCR plugin for PDF & image text extraction.",
+                description = "On-demand OCR for PDF and image text extraction.",
                 version = ocrPlugin?.version ?: "1.0.0",
                 category = PluginCategory.OCR,
-                isInstalled = isOcrDownloaded,
-                isEnabled = ocrPlugin?.isEnabled ?: true,
-                isModelDownloaded = isOcrDownloaded,
+                isInstalled = ocrPlugin != null && ocrDownloaded,
+                isEnabled = ocrPlugin?.isEnabled ?: false,
+                isModelDownloaded = ocrDownloaded,
                 sizeMb = 12
-            )
-        )
-
-        val isSemanticReady = semanticSearchPlugin?.isModelReady() ?: false
-
-        // 2. Semantic Search AI Plugin
-        list.add(
+            ),
             PluginDescriptor(
-                id = "plugin.semantic.tflite",
+                id = SEMANTIC_PLUGIN_ID,
                 name = "AI Semantic Search Engine",
-                description = "Lightweight local TFLite vector embedding model for concept-based document search.",
+                description = "Local TFLite vector embedding model for concept-based search.",
                 version = semanticSearchPlugin?.version ?: "1.0.0",
                 category = PluginCategory.SEMANTIC_AI,
-                isInstalled = isSemanticReady,
-                isEnabled = semanticSearchPlugin?.isEnabled ?: true,
-                isModelDownloaded = isSemanticReady,
+                isInstalled = semanticSearchPlugin != null && semanticReady,
+                isEnabled = semanticSearchPlugin?.isEnabled ?: false,
+                isModelDownloaded = semanticReady,
                 sizeMb = 18
-            )
-        )
-
-        // 3. Multi-Cloud Drivers Plugin
-        list.add(
+            ),
             PluginDescriptor(
-                id = "plugin.cloud.drivers",
+                id = CLOUD_PLUGIN_ID,
                 name = "Multi-Cloud & Network Drivers",
-                description = "Plugins for OneDrive, Dropbox, NextCloud, S3, and local NAS network storage.",
+                description = "Drivers for supported cloud and network storage providers.",
                 version = "1.0.0",
                 category = PluginCategory.CLOUD_DRIVER,
                 isInstalled = cloudDrivers.isNotEmpty(),
-                isEnabled = true,
+                isEnabled = cloudDrivers.isNotEmpty(),
                 isModelDownloaded = true,
                 sizeMb = 5
             )
         )
-
-        _pluginsState.value = list
     }
 }
