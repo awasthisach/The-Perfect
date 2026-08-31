@@ -4,113 +4,108 @@ import com.vvf.smartmanager.core.model.FileItem
 import com.vvf.smartmanager.core.model.OcrOptions
 import com.vvf.smartmanager.core.model.OcrProgress
 import com.vvf.smartmanager.core.model.OcrResult
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PluginManagerTest {
-
     private class FakeOcrPlugin : OcrPluginSPI {
         override val isEnabled: Boolean = true
         override val displayName: String = "Fake ML Kit"
-
         override suspend fun isModelDownloaded(): Boolean = true
         override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean {
             progressCallback(1.0f)
             return true
         }
-
         override suspend fun extractText(
             fileItem: FileItem,
             options: OcrOptions,
             onProgress: ((OcrProgress) -> Unit)?
-        ): Result<OcrResult> {
-            return Result.success(
-                OcrResult(
-                    fullText = "Sample OCR Text",
-                    language = "en",
-                    confidence = 0.98f,
-                    totalWords = 3,
-                    pageCount = 1,
-                    processingDurationMs = 150L
-                )
-            )
-        }
-
-        override fun cancelOngoing() {}
+        ): Result<OcrResult> = Result.success(
+            OcrResult("Sample OCR Text", "en", 0.98f, 3, 1, 150L)
+        )
+        override fun cancelOngoing() = Unit
     }
 
     private class FakeSemanticPlugin : SemanticSearchSPI {
         override val isEnabled: Boolean = true
         override val displayName: String = "Fake TFLite MobileBERT"
-
         override fun isModelReady(): Boolean = true
         override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean = true
-
-        override suspend fun generateEmbedding(text: String): FloatArray {
-            return FloatArray(256) { 0.1f }
-        }
-
+        override suspend fun generateEmbedding(text: String): FloatArray = FloatArray(256) { 0.1f }
         override suspend fun searchSimilar(
             query: String,
             candidates: List<com.vvf.smartmanager.core.model.SemanticCandidate>,
             options: com.vvf.smartmanager.core.model.SemanticSearchOptions
-        ): List<com.vvf.smartmanager.core.model.SemanticSearchResult> {
-            return emptyList()
-        }
-
+        ) = emptyList<com.vvf.smartmanager.core.model.SemanticSearchResult>()
         override suspend fun findNearDuplicates(
             candidates: List<com.vvf.smartmanager.core.model.SemanticCandidate>,
             similarityThreshold: Float
-        ): List<com.vvf.smartmanager.core.model.NearDuplicateCluster> {
-            return emptyList()
-        }
-
-        override suspend fun suggestTags(candidate: com.vvf.smartmanager.core.model.SemanticCandidate): List<com.vvf.smartmanager.core.model.AiSuggestedTag> {
-            return emptyList()
-        }
-
+        ) = emptyList<com.vvf.smartmanager.core.model.NearDuplicateCluster>()
+        override suspend fun suggestTags(candidate: com.vvf.smartmanager.core.model.SemanticCandidate) =
+            emptyList<com.vvf.smartmanager.core.model.AiSuggestedTag>()
         override fun computeCosineSimilarity(vectorA: FloatArray, vectorB: FloatArray): Float = 0.95f
     }
 
     @Test
-    fun testPluginManagerRegistrationAndLifecycle() = runBlocking {
-        val pluginManager = PluginManager()
+    fun registeredPluginsAreReflectedInDescriptors() = runBlocking {
+        val manager = PluginManager()
+        manager.registerOcrPlugin(FakeOcrPlugin())
+        manager.registerSemanticPlugin(FakeSemanticPlugin())
+        manager.refreshPluginDescriptors()
 
-        val ocrPlugin = FakeOcrPlugin()
-        val semanticPlugin = FakeSemanticPlugin()
+        assertEquals(3, manager.pluginsState.value.size)
+        assertTrue(manager.pluginsState.value.first { it.id == "plugin.ocr.mlkit" }.isInstalled)
+        assertTrue(manager.pluginsState.value.first { it.id == "plugin.semantic.tflite" }.isInstalled)
 
-        pluginManager.registerOcrPlugin(ocrPlugin)
-        pluginManager.registerSemanticPlugin(semanticPlugin)
+        manager.setPluginEnabled("plugin.ocr.mlkit", false)
+        assertFalse(manager.pluginsState.value.first { it.id == "plugin.ocr.mlkit" }.isEnabled)
+    }
 
-        assertNotNull(pluginManager.getOcrPlugin())
-        assertNotNull(pluginManager.getSemanticPlugin())
+    @Test
+    fun invalidDownloadProgressIsRejected() = runBlocking {
+        val manager = PluginManager()
+        manager.refreshPluginDescriptors()
+        assertThrows(IllegalArgumentException::class.java) {
+            manager.updateDownloadProgress("plugin.ocr.mlkit", 1.5f, false)
+        }
+    }
 
-        // Refresh descriptors
-        pluginManager.refreshPluginDescriptors()
-        val plugins = pluginManager.pluginsState.value
+    @Test
+    fun duplicateCloudDriverIdsAreIgnored() {
+        val driver = object : CloudDriverSPI {
+            override val driverId = "test"
+            override val displayName = "Test"
+            override val iconResName = "test"
+            override suspend fun authenticate() = true
+            override suspend fun listRemoteFiles(remotePath: String) = emptyList<FileItem>()
+            override suspend fun uploadFile(localFile: FileItem, remoteDirectory: String) =
+                CloudUploadResult("id", "/backup", 0)
+            override suspend fun downloadFile(remoteFile: FileItem, localDestination: String) = true
+            override suspend fun getQuotaUsage() = 0L to 1L
+        }
 
-        assertEquals(3, plugins.size) // OCR, Semantic AI, Cloud Drivers
+        val manager = PluginManager(cloudDrivers = listOf(driver, driver))
+        assertNotNull(manager.getCloudDrivers())
+        assertEquals(1, manager.getCloudDrivers().size)
+    }
 
-        val ocrDescriptor = plugins.find { it.category == PluginCategory.OCR }
-        assertNotNull(ocrDescriptor)
-        assertEquals("plugin.ocr.mlkit", ocrDescriptor?.id)
-        assertTrue(ocrDescriptor?.isInstalled == true)
+    @Test
+    fun cloudUploadResultRejectsInvalidIdentity() {
+        assertThrows(IllegalArgumentException::class.java) { CloudUploadResult("", "/backup", 1) }
+        assertThrows(IllegalArgumentException::class.java) { CloudUploadResult("id", "", 1) }
+        assertThrows(IllegalArgumentException::class.java) { CloudUploadResult("id", "/backup", -1) }
+    }
 
-        val semanticDescriptor = plugins.find { it.category == PluginCategory.SEMANTIC_AI }
-        assertNotNull(semanticDescriptor)
-        assertEquals("plugin.semantic.tflite", semanticDescriptor?.id)
-        assertTrue(semanticDescriptor?.isInstalled == true)
-
-        // Toggle state
-        pluginManager.setPluginEnabled("plugin.ocr.mlkit", false)
-        val updatedPlugins = pluginManager.pluginsState.value
-        val updatedOcr = updatedPlugins.find { it.id == "plugin.ocr.mlkit" }
-        assertFalse(updatedOcr?.isEnabled == true)
+    @Test
+    fun cloudUploadResultPreservesCanonicalMetadata() {
+        val result = CloudUploadResult("remote-123", "/backup/archive.enc", 4096)
+        assertEquals("remote-123", result.remoteId)
+        assertEquals("/backup/archive.enc", result.remotePath)
+        assertEquals(4096, result.sizeBytes)
     }
 }
