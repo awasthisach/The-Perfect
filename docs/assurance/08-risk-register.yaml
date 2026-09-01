@@ -1,0 +1,27 @@
+schema_version: 1
+finding_lifecycle: [discovered, triaged, reproduced, root_cause_verified, repair_implemented, tested, ci_verified, closed]
+
+open_findings:
+  - id: PROD-001
+    severity: high
+    title: Storage boundary must fail closed
+    status: triaged
+    closure_requires: [root_cause_verified, targeted_regression, relevant_ci_verified]
+
+  - id: PROD-002
+    severity: critical
+    title: Durable cloud upload result contract
+    status: triaged
+    closure_requires: [provider_contract, integration_test, relevant_ci_verified]
+
+  - id: PROD-003
+    severity: critical
+    title: Fail-closed cloud restore pipeline
+    status: triaged
+    closure_requires: [integrity_verification, atomic_staging, rollback, clean_device_test]
+
+  - id: PROD-007
+    severity: high
+    title: Android storage permission and policy gate
+    status: triaged
+    closure_requires: [actual_flow_review, runtime_gate, policy_justification, verification]
