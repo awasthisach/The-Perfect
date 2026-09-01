@@ -56,7 +56,27 @@ jobs:
           ./configure --with-tempstore=yes --enable-fts5 \
             CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown" \
             LDFLAGS="-lcrypto"
-          make -j2 sqlcipher
+          make -j2 sqlite3.c
+          gcc -DSQLITE_HAS_CODEC \
+            -DSQLITE_EXTRA_INIT=sqlcipher_extra_init \
+            -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown \
+            -DSQLCIPHER_CRYPTO_OPENSSL \
+            -DSQLITE_OS_UNIX=1 \
+            -D_HAVE_SQLITE_CONFIG_H -DBUILD_sqlite -DNDEBUG \
+            -DSQLITE_THREADSAFE=1 \
+            -DSQLITE_ENABLE_MATH_FUNCTIONS -DSQLITE_ENABLE_FTS5 \
+            -DHAVE_READLINE=0 -DHAVE_EDITLINE=0 \
+            -I. -I/tmp/sqlcipher-4.5.4/src \
+            -I/tmp/sqlcipher-4.5.4/ext/rtree \
+            -I/tmp/sqlcipher-4.5.4/ext/icu \
+            -I/tmp/sqlcipher-4.5.4/ext/fts3 \
+            -I/tmp/sqlcipher-4.5.4/ext/session \
+            -I/tmp/sqlcipher-4.5.4/ext/userauth \
+            -I/usr/include/tcl8.6 \
+            -o sqlcipher shell.c sqlite3.c \
+            /tmp/sqlcipher-4.5.4/src/sqlcipher.c \
+            /tmp/sqlcipher-4.5.4/src/crypto_openssl.c \
+            -lm -lz -lcrypto
           test -x ./sqlcipher
           ./sqlcipher :memory: "SELECT cipher_version;"
           printf '%s\n' \
