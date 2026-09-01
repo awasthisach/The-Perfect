@@ -17,7 +17,7 @@ jobs:
   test_and_quality:
     name: Build, Test, Lint & Quality
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 45
     steps:
       - name: Checkout Repository
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
@@ -61,37 +61,58 @@ jobs:
         run: ./gradlew --no-daemon lintDebug --stacktrace
       - name: Assemble debug APK
         run: ./gradlew --no-daemon assembleDebug --stacktrace
+      - name: Start Android emulator
+        env:
+          ANDROID_AVD_HOME: ${{ runner.temp }}/avd
+        run: |
+          set -euo pipefail
+          mkdir -p "$ANDROID_AVD_HOME"
+          export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH"
+          echo "no" | avdmanager create avd --force --name vvf-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2"
+          adb start-server
+          emulator -avd vvf-api35 \
+            -no-window \
+            -gpu swiftshader_indirect \
+            -no-snapshot \
+            -noaudio \
+            -no-boot-anim \
+            -camera-back none \
+            -accel off \
+            -no-metrics \
+            > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/emulator.pid"
+          adb wait-for-device
+          for _ in $(seq 1 240); do
+            boot_completed="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+            if [ "$boot_completed" = "1" ]; then
+              break
+            fi
+            sleep 5
+          done
+          test "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1"
+          adb shell settings put global window_animation_scale 0
+          adb shell settings put global transition_animation_scale 0
+          adb shell settings put global animator_duration_scale 0
+          adb devices
       - name: Run SQLCipher compatibility instrumentation test
-        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
-        with:
-          api-level: 35
-          target: google_apis
-          arch: x86_64
-          profile: pixel_2
-          force-avd-creation: true
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          disable-animations: true
-          disable-spellchecker: true
-          cores: 2
-          ram-size: 4096M
-          heap-size: 512M
-          disk-size: 4096M
-          boot-timeout: 600
-          script: |
-            set -euo pipefail
-            adb wait-for-device
-            for _ in $(seq 1 120); do
-              if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then
-                break
-              fi
-              sleep 5
-            done
-            test "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1"
-            adb shell settings put global window_animation_scale 0
-            adb shell settings put global transition_animation_scale 0
-            adb shell settings put global animator_duration_scale 0
-            adb devices
-            ./gradlew --no-daemon :core:database:connectedDebugAndroidTest --stacktrace
+        run: ./gradlew --no-daemon :core:database:connectedDebugAndroidTest --stacktrace
+      - name: Collect Android emulator diagnostics
+        if: failure()
+        run: |
+          set +e
+          adb devices -l
+          adb shell getprop
+          adb logcat -d -t 2000 > "$RUNNER_TEMP/emulator-logcat.txt"
+          cat "$RUNNER_TEMP/emulator.log" || true
+      - name: Stop Android emulator
+        if: always()
+        run: |
+          set +e
+          adb emu kill
+          if [ -f "$RUNNER_TEMP/emulator.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/emulator.pid")" 2>/dev/null || true
+          fi
+          adb kill-server || true
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -106,6 +127,16 @@ jobs:
         with:
           name: android-test-reports
           path: "**/build/reports/androidTests/**"
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload emulator diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-emulator-diagnostics
+          path: |
+            ${{ runner.temp }}/emulator.log
+            ${{ runner.temp }}/emulator-logcat.txt
           if-no-files-found: ignore
           retention-days: 7
       - name: Upload lint reports
