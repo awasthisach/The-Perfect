@@ -2,7 +2,6 @@ package com.vvf.smartmanager
 
 import android.app.Application
 import android.util.Log
-import com.google.dagger.hilt.android.HiltAndroidApp
 import com.vvf.smartmanager.core.background.BackgroundSyncManager
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveServiceImpl
@@ -55,36 +54,28 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * Root Application entry point with an incremental Hilt migration.
+ * Root Application entry point.
  *
- * Hilt 2.60.1 is enabled at the application boundary. The existing manual
- * graph remains active until individual providers are migrated and verified,
+ * The application currently uses its explicit/manual dependency graph. Hilt
+ * migration is deferred until individual providers are migrated and verified,
  * preventing a half-migrated graph from changing runtime behavior.
  */
-@HiltAndroidApp
 class VVFApplication : Application() {
 
     lateinit var cryptoSecurityManager: CryptoSecurityManager
         private set
-
     lateinit var database: VVFDatabase
         private set
-
     lateinit var storageManager: StorageManager
         private set
-
     lateinit var fileManagerRepository: OfflineFileManagerRepository
         private set
-
     lateinit var vaultRepository: SecureVaultRepository
         private set
-
     lateinit var searchRepository: OfflineSearchRepository
         private set
-
     lateinit var backgroundSyncManager: BackgroundSyncManager
         private set
-
     lateinit var getStorageOverviewUseCase: GetStorageOverviewUseCase
         private set
     lateinit var getDirectoryFilesUseCase: GetDirectoryFilesUseCase
@@ -147,7 +138,6 @@ class VVFApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-
         cryptoSecurityManager = CryptoSecurityManager(this)
 
         val passphrase = try {
@@ -191,7 +181,6 @@ class VVFApplication : Application() {
             fileDao = database.fileDao(),
             searchFtsDao = database.searchFtsDao()
         )
-
         val vaultDir = File(filesDir, "vvf_vault_encrypted")
         vaultRepository = SecureVaultRepository(
             vaultDao = database.vaultDao(),
@@ -199,16 +188,13 @@ class VVFApplication : Application() {
             vaultDirectory = vaultDir,
             vaultJournalDao = database.vaultJournalDao()
         )
-
         searchRepository = OfflineSearchRepository(
             context = this,
             searchFtsDao = database.searchFtsDao(),
             fileDao = database.fileDao(),
             storageManager = storageManager
         )
-
         ocrPlugin = OcrPluginImpl(this)
-
         getStorageOverviewUseCase = GetStorageOverviewUseCase(fileManagerRepository)
         getDirectoryFilesUseCase = GetDirectoryFilesUseCase(fileManagerRepository)
         getCategorizedFilesUseCase = GetCategorizedFilesUseCase(fileManagerRepository)
@@ -232,22 +218,18 @@ class VVFApplication : Application() {
             searchRepository = searchRepository,
             indexOcrTextUseCase = indexOcrTextUseCase
         )
-
         semanticSearchPlugin = SemanticSearchPluginImpl()
         semanticSearchUseCase = SemanticSearchUseCase(
             semanticPlugin = semanticSearchPlugin,
             searchRepository = searchRepository,
             fileManagerRepository = fileManagerRepository
         )
-
         aiIntelligenceUseCase = AiIntelligenceUseCase(
             semanticPlugin = semanticSearchPlugin,
             fileManagerRepository = fileManagerRepository,
             searchRepository = searchRepository
         )
-
         googleDriveService = GoogleDriveServiceImpl(this)
-
         val cloudDrivers = mapOf(
             CloudProviderType.ONE_DRIVE to OneDriveDriverImpl(),
             CloudProviderType.DROPBOX to DropboxDriverImpl(),
@@ -255,7 +237,6 @@ class VVFApplication : Application() {
             CloudProviderType.AWS_S3 to S3StorageDriverImpl(),
             CloudProviderType.LOCAL_NAS to LocalNasDriverImpl()
         )
-
         val archiveService = ArchiveService(
             cacheDir = cacheDir,
             snapshotSources = listOf(
@@ -269,7 +250,6 @@ class VVFApplication : Application() {
             pluginDrivers = cloudDrivers,
             archiveService = archiveService
         )
-
         backgroundSyncManager = BackgroundSyncManager(this)
         val bgExceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
             Log.e(TAG, "Background sync scheduling failed safely", throwable)
