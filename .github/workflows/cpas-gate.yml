@@ -1,0 +1,42 @@
+name: CPAS Production Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cpas-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cpas-verify:
+    name: CPAS Verify (fail-closed)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify CPAS
+        id: verify
+        shell: bash
+        run: |
+          set +e
+          python3 tools/audit/cpas_verify.py
+          rc=$?
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          exit $rc
+
+      - name: Upload computed CPAS status
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpas-status
+          path: cpas-status.json
+          if-no-files-found: error
+          retention-days: 14
