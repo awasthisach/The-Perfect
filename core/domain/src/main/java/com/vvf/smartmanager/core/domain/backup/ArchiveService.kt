@@ -78,18 +78,20 @@ class ArchiveService(
                 return@withContext Result.failure(ArchiveException("Encryption produced no artifact"))
             }
             val checksum = calculateSha256(encryptedFile)
+            val backupInfo = CloudBackupInfo(
+                backupId = "backup-$timestamp",
+                timestamp = timestamp,
+                backupName = "VVF Backup ${formatTimestamp(timestamp)}",
+                backupSizeBytes = encryptedFile.length(),
+                includesVault = snapshots.containsKey("vault"),
+                includesDatabase = snapshots.containsKey("database"),
+                includesPreferences = false,
+                checksumSha256 = checksum
+            )
             Result.success(
                 ArchiveArtifact(
                     file = encryptedFile,
-                    backupInfo = CloudBackupInfo(
-                        backupId = "backup-$timestamp",
-                        timestamp = timestamp,
-                        backupName = "VVF Backup ${formatTimestamp(timestamp)}",
-                        backupSizeBytes = encryptedFile.length(),
-                        includesVault = snapshots.containsKey("vault"),
-                        includesDatabase = snapshots.containsKey("database"),
-                        includesPreferences = false
-                    ),
+                    backupInfo = backupInfo,
                     checksumSha256 = checksum
                 )
             )
