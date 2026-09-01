@@ -56,7 +56,7 @@ jobs:
           ./configure --with-tempstore=yes --enable-fts5 \
             CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown" \
             LDFLAGS="-lcrypto"
-          make -j2
+          make -j2 sqlcipher
           test -x ./sqlcipher
           ./sqlcipher :memory: "SELECT cipher_version;"
           printf '%s\n' \
