@@ -7,7 +7,7 @@ on:
     branches: ["main", "develop"]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -21,71 +21,6 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
-      - name: Apply one-shot PROD-001 repair
-        if: github.ref == 'refs/heads/main'
-        shell: bash
-        run: |
-          if [[ "${{ github.event.head_commit.message }}" == *"fix(security): fail closed on storage root discovery"* ]]; then
-            exit 0
-          fi
-          python3 <<'PY'
-          from pathlib import Path
-          import re
-          path = Path('core/data/src/main/java/com/vvf/smartmanager/core/data/storage/StorageManager.kt')
-          text = path.read_text()
-          old = '''val isAllowed = allowedRoots.isEmpty() || allowedRoots.any { root ->
-            candidate.absolutePath == root.absolutePath || candidate.absolutePath.startsWith(root.absolutePath + File.separator)
-        }'''
-          new = '''val isAllowed = allowedRoots.isNotEmpty() && allowedRoots.any { root ->
-            candidate.absolutePath == root.absolutePath || candidate.absolutePath.startsWith(root.absolutePath + File.separator)
-        }'''
-          if old not in text: raise SystemExit('PROD-001 guard pattern not found')
-          text = text.replace(old, new, 1)
-          old = '''        if (!targetDir.exists() || !targetDir.isDirectory) {
-            // If primary storage doesn't exist or isn't accessible yet, ensure dummy/demo files for exploration
-            ensureSampleFilesIfEmpty(targetDir)
-        }
-
-        val rawFiles = targetDir.listFiles() ?: emptyArray()'''
-          new = '''        if (!targetDir.exists() || !targetDir.isDirectory) {
-            return emptyList()
-        }
-
-        val rawFiles = targetDir.listFiles() ?: emptyArray()'''
-          if old not in text: raise SystemExit('PROD-001 directory sample fallback not found')
-          text = text.replace(old, new, 1)
-          old = '''        if (results.isEmpty()) {
-            ensureSampleCategoryFiles(category, results)
-        }
-
-        return sortFiles(results, sortOption)'''
-          new = '''        return sortFiles(results, sortOption)'''
-          if old not in text: raise SystemExit('PROD-001 category sample fallback not found')
-          text = text.replace(old, new, 1)
-          text = re.sub(r'\n    private fun ensureSampleFilesIfEmpty\(dir: File\) \{.*?\n    \}\n\n    private fun ensureSampleCategoryFiles\(category: FileCategory, list: MutableList<FileItem>\) \{.*?\n    \}\n\}', '\n}', text, flags=re.S)
-          path.write_text(text)
-          PY
-          mkdir -p core/data/src/test/java/com/vvf/smartmanager/core/data/storage
-          cat > core/data/src/test/java/com/vvf/smartmanager/core/data/storage/StorageBoundarySecurityTest.kt <<'EOF'
-          package com.vvf.smartmanager.core.data.storage
-          import java.io.File
-          import org.junit.Assert.assertFalse
-          import org.junit.Assert.assertTrue
-          import org.junit.Test
-          class StorageBoundarySecurityTest {
-              private fun isAllowed(candidate: File, roots: List<File>): Boolean = roots.isNotEmpty() && roots.any { root ->
-                  candidate.absolutePath == root.absolutePath || candidate.absolutePath.startsWith(root.absolutePath + File.separator)
-              }
-              @Test fun emptyRootsFailClosed() { assertFalse(isAllowed(File("/outside/file.txt"), emptyList())) }
-              @Test fun childOfApprovedRootIsAllowed() { val root = File("/approved").canonicalFile; assertTrue(isAllowed(File(root, "child/file.txt").canonicalFile, listOf(root))) }
-              @Test fun siblingPrefixIsRejected() { val root = File("/approved").canonicalFile; assertFalse(isAllowed(File("/approved-evil/file.txt").canonicalFile, listOf(root))) }
-          }
-          EOF
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add core/data/src/main/java/com/vvf/smartmanager/core/data/storage/StorageManager.kt core/data/src/test/java/com/vvf/smartmanager/core/data/storage/StorageBoundarySecurityTest.kt
-          git diff --cached --check
-          git diff --cached --quiet || (git commit -m "fix(security): fail closed on storage root discovery" && git push)
       - name: Set up JDK 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
