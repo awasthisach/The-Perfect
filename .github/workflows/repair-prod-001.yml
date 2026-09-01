@@ -9,13 +9,15 @@ permissions:
 
 jobs:
   repair:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Apply fail-closed storage repair
         shell: bash
         run: |
+          if [[ "${{ github.event.head_commit.message }}" == *"fix(security): fail closed on storage root discovery"* ]]; then
+            exit 0
+          fi
           python3 <<'PY'
           from pathlib import Path
           import re
