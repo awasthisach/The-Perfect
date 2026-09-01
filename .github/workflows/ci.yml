@@ -48,7 +48,7 @@ jobs:
           tar -xzf /tmp/sqlcipher-4.5.4.tar.gz -C /tmp
           cd /tmp/sqlcipher-4.5.4
           ./configure --enable-tempstore=yes --enable-fts5 CFLAGS="-DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL" LDFLAGS="-lcrypto"
-          make EXTRA_SRC="src/sqlcipher.c src/crypto_openssl.c" sqlcipher
+          make -j2
           test -x ./sqlcipher
           ./sqlcipher :memory: "PRAGMA cipher_version;"
           printf '%s\n' "PRAGMA key = 'vvf-sqlcipher-compatibility-test';" "CREATE TABLE compatibility_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL);" "INSERT INTO compatibility_test (id, value) VALUES (1, 'legacy-4.5.4');" ".quit" | ./sqlcipher "$GITHUB_WORKSPACE/core/database/src/androidTest/assets/legacy-4.5.4.db"
