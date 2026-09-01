@@ -1,0 +1,29 @@
+schema_version: 1
+closure_rule: A finding or invariant is verified only with reproducible evidence and relevant regression coverage.
+
+invariants:
+  - id: STORAGE-INV-001
+    domain: authorization
+    statement: Failure to discover approved roots must fail closed and never broaden filesystem access.
+    required_tests: [traversal, symlink, root_discovery_failure]
+
+  - id: STORAGE-INV-002
+    domain: data_integrity
+    statement: Production file listing must not create sample or demo files as a side effect.
+    required_tests: [empty_directory, unreadable_directory, production_read_path]
+
+  - id: DB-INV-001
+    domain: confidentiality
+    statement: Encrypted persistence must never silently fall back to plaintext.
+    required_tests: [real_open, wrong_key_rejection, restart]
+
+  - id: RESTORE-INV-001
+    domain: recovery
+    statement: Corrupt or incomplete cloud data must not overwrite valid local state.
+    required_sequence: [download, integrity_verify, stage, validate, atomic_replace, rollback]
+    required_tests: [corrupt_payload, interrupted_restore, clean_device, rollback]
+
+  - id: WORK-INV-001
+    domain: reliability
+    statement: Retried background work must preserve durable state and avoid duplicate terminal effects.
+    required_tests: [retry, process_restart, duplicate_request]
