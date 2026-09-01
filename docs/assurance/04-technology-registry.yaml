@@ -1,0 +1,48 @@
+schema_version: 1
+purpose: Record critical technology choices, their intended use, authoritative contracts, and required verification.
+
+technologies:
+  - id: kotlin_android
+    purpose: application implementation
+    criticality: high
+    required_evidence: [compile, unit_tests, lint]
+
+  - id: room_sqlcipher
+    purpose: encrypted local persistence
+    criticality: critical
+    invariants:
+      - encrypted_persistence_must_not_silently_downgrade
+      - wrong_key_must_not_open_database
+    required_evidence: [compile, unit_tests, instrumentation_tests]
+
+  - id: android_keystore_aes_gcm
+    purpose: key and vault cryptography
+    criticality: critical
+    invariants:
+      - cryptographic_failure_must_fail_closed
+      - plaintext_must_not_persist_after_successful_vault_write
+    required_evidence: [unit_tests, instrumentation_tests]
+
+  - id: workmanager
+    purpose: durable background execution
+    criticality: high
+    invariants:
+      - retries_must_be_idempotent
+      - terminal_failure_must_be_observable
+    required_evidence: [unit_tests, integration_tests]
+
+  - id: google_drive_cloud
+    purpose: cloud backup transport
+    criticality: critical
+    invariants:
+      - restore_must_remain_fail_closed_until_verified
+      - corrupt_download_must_not_replace_valid_local_state
+    required_evidence: [integration_tests, clean_device_tests]
+
+  - id: android_storage
+    purpose: user file access
+    criticality: critical
+    invariants:
+      - approved_root_discovery_failure_must_not_expand_access
+      - read_paths_must_not_create_demo_files
+    required_evidence: [unit_tests, instrumentation_tests, policy_review]
