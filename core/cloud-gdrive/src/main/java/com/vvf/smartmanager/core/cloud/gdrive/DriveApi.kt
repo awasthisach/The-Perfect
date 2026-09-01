@@ -4,6 +4,7 @@ import com.squareup.moshi.Json
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
+import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.Multipart
@@ -16,9 +17,6 @@ import retrofit2.http.Streaming
 /**
  * Google Drive REST API v3 (https://www.googleapis.com/drive/v3/).
  * Authenticated via Bearer access token from Credential Manager / OAuth.
- *
- * DTOs use Moshi reflection ([com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory])
- * so :core:cloud-gdrive does not require KSP codegen.
  */
 interface DriveApi {
 
@@ -46,6 +44,13 @@ interface DriveApi {
         @Part("metadata") metadata: RequestBody,
         @Part file: MultipartBody.Part,
         @Query("fields") fields: String = "id,name,mimeType,size,md5Checksum,parents,modifiedTime"
+    ): DriveFileDto
+
+    @POST("files")
+    suspend fun createFolder(
+        @Header("Authorization") bearer: String,
+        @Body metadata: RequestBody,
+        @Query("fields") fields: String = "id,name,mimeType,parents,modifiedTime"
     ): DriveFileDto
 
     @GET("about")
