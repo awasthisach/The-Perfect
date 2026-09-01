@@ -60,6 +60,9 @@ data class CloudSyncItem(
 
 /**
  * Cloud Backup snapshot metadata.
+ *
+ * checksumSha256 is the digest of the exact encrypted artifact uploaded to the provider.
+ * It is intentionally stored outside the encrypted archive so the digest is not self-referential.
  */
 data class CloudBackupInfo(
     val backupId: String,
@@ -68,5 +71,6 @@ data class CloudBackupInfo(
     val backupSizeBytes: Long,
     val includesVault: Boolean = false,
     val includesDatabase: Boolean = true,
-    val includesPreferences: Boolean = true
+    val includesPreferences: Boolean = true,
+    val checksumSha256: String? = null
 )
