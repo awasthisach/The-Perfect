@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "entries": [],
+  "policy": {
+    "status_values": ["pending", "verified", "failed"],
+    "production_rule": "Evidence must be independently reproducible and linked to a requirement, control/invariant, verification, and CI run before it can support production PASS."
+  }
+}
