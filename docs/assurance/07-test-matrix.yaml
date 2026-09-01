@@ -1,0 +1,17 @@
+schema_version: 1
+policy: Critical requirements require more than line coverage; they require behavior and failure-mode evidence.
+
+test_levels:
+  static: [format, lint, dependency_analysis]
+  unit: [business_logic, boundaries, state_transitions]
+  integration: [repository, database, background_work]
+  instrumentation: [keystore, database, storage, lifecycle]
+  security: [authorization, crypto_failure, misuse]
+  recovery: [corruption, rollback, interruption]
+  regression: [historical_defect_reproduction]
+
+minimum_traceability:
+  requirement: at_least_one_test
+  critical_invariant: positive_and_negative_tests
+  critical_fix: regression_test
+  release_claim: CI_evidence
