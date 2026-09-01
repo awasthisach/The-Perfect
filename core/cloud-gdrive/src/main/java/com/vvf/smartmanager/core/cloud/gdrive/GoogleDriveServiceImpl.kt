@@ -11,6 +11,7 @@ import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
+import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
@@ -38,10 +39,6 @@ class GoogleDriveServiceImpl(
         totalBytes = 0L
     )
 
-    /**
-     * Stores the OAuth access token used for Drive REST calls.
-     * Prefer short-lived tokens; clear with null on sign-out.
-     */
     fun setAccessToken(token: String?) {
         accessToken = token
         DriveNetwork.setDefaultAccessToken(token)
@@ -122,7 +119,8 @@ class GoogleDriveServiceImpl(
                 if (!file.exists() || !file.isFile) {
                     return@withContext Result.failure(IllegalArgumentException("Local file not found: $path"))
                 }
-                val parent = remoteFolderId.ifBlank { "root" }
+
+                val parent = resolveFolderId(remoteFolderId)
                 val safeName = file.name.replace("\\", "\\\\").replace("\"", "\\\"")
                 val metadataJson = """{"name":"$safeName","parents":["$parent"]}"""
                 val metadataBody = metadataJson.toRequestBody("application/json; charset=UTF-8".toMediaType())
@@ -133,6 +131,25 @@ class GoogleDriveServiceImpl(
                 val uploaded = driveApi.uploadFile(bearer(), metadataBody, part)
                 val id = uploaded.id
                     ?: return@withContext Result.failure(IllegalStateException("Upload succeeded but no file id returned"))
+
+                val localMd5 = calculateMd5(file)
+                val remoteMd5 = uploaded.md5Checksum
+                if (remoteMd5.isNullOrBlank()) {
+                    return@withContext Result.failure(
+                        IllegalStateException("Drive upload returned no integrity checksum for binary artifact $id")
+                    )
+                }
+                if (!remoteMd5.equals(localMd5, ignoreCase = true)) {
+                    return@withContext Result.failure(
+                        IllegalStateException("Drive upload integrity mismatch for $id")
+                    )
+                }
+                if (uploaded.size?.toLongOrNull() != file.length()) {
+                    return@withContext Result.failure(
+                        IllegalStateException("Drive upload size mismatch for $id")
+                    )
+                }
+
                 currentAccount = currentAccount.copy(
                     usedBytes = currentAccount.usedBytes + file.length(),
                     lastSyncTimestamp = System.currentTimeMillis()
@@ -186,6 +203,37 @@ class GoogleDriveServiceImpl(
             usedBytes = 0L,
             totalBytes = 0L
         )
+    }
+
+    private suspend fun resolveFolderId(folderReference: String): String {
+        if (folderReference.isBlank() || folderReference == "root") return "root"
+        if (looksLikeDriveId(folderReference)) return folderReference
+
+        val escapedName = folderReference.replace("\\", "\\\\").replace("'", "\\'")
+        val query = "name = '$escapedName' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        val existing = driveApi.listFiles(bearer(), query = query, pageSize = 10).files.firstOrNull()
+        if (existing?.id != null) return existing.id
+
+        val metadata = """{"name":"$folderReference","mimeType":"application/vnd.google-apps.folder","parents":["root"]}"""
+            .toRequestBody("application/json; charset=UTF-8".toMediaType())
+        return driveApi.createFolder(bearer(), metadata).id
+            ?: throw IllegalStateException("Drive folder creation returned no id for '$folderReference'")
+    }
+
+    private fun looksLikeDriveId(value: String): Boolean =
+        value.length >= 10 && !value.contains(' ') && !value.contains('/')
+
+    private fun calculateMd5(file: File): String {
+        val digest = MessageDigest.getInstance("MD5")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(8192)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     private fun parseDriveTime(iso: String?): Long {
