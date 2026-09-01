@@ -27,12 +27,12 @@ interface DriveApi {
         @Header("Authorization") bearer: String,
         @Query("q") query: String? = null,
         @Query("spaces") spaces: String = "drive",
-        @Query("fields") fields: String = "files(id,name,mimeType,size,modifiedTime,parents)",
+        @Query("fields") fields: String = "files(id,name,mimeType,size,modifiedTime,parents,md5Checksum)",
         @Query("pageSize") pageSize: Int = 100
     ): DriveFileListResponse
 
-    @GET("files/{fileId}")
     @Streaming
+    @GET("files/{fileId}")
     suspend fun downloadFile(
         @Header("Authorization") bearer: String,
         @Path("fileId") fileId: String,
@@ -44,7 +44,8 @@ interface DriveApi {
     suspend fun uploadFile(
         @Header("Authorization") bearer: String,
         @Part("metadata") metadata: RequestBody,
-        @Part file: MultipartBody.Part
+        @Part file: MultipartBody.Part,
+        @Query("fields") fields: String = "id,name,mimeType,size,md5Checksum,parents,modifiedTime"
     ): DriveFileDto
 
     @GET("about")
@@ -63,7 +64,9 @@ data class DriveFileDto(
     @Json(name = "name") val name: String? = null,
     @Json(name = "mimeType") val mimeType: String? = null,
     @Json(name = "size") val size: String? = null,
-    @Json(name = "modifiedTime") val modifiedTime: String? = null
+    @Json(name = "modifiedTime") val modifiedTime: String? = null,
+    @Json(name = "parents") val parents: List<String> = emptyList(),
+    @Json(name = "md5Checksum") val md5Checksum: String? = null
 )
 
 data class DriveAboutResponse(
