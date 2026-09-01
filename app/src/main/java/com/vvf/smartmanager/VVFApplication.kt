@@ -138,7 +138,16 @@ class VVFApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        cryptoSecurityManager = CryptoSecurityManager(this)
+        val isRobolectric = try {
+            Class.forName("org.robolectric.Robolectric") != null
+        } catch (_: ClassNotFoundException) {
+            false
+        }
+        cryptoSecurityManager = if (isRobolectric) {
+            CryptoSecurityManager(this, "Robolectric")
+        } else {
+            CryptoSecurityManager(this)
+        }
 
         val passphrase = try {
             cryptoSecurityManager.getOrCreateDatabasePassphrase()
@@ -152,12 +161,7 @@ class VVFApplication : Application() {
         database = try {
             VVFDatabase.buildEncryptedDatabase(this, passphrase)
         } catch (e: UnsatisfiedLinkError) {
-            val isTestEnv = try {
-                Class.forName("org.robolectric.Robolectric") != null
-            } catch (_: ClassNotFoundException) {
-                false
-            }
-            if (isTestEnv) {
+            if (isRobolectric) {
                 Log.w(TAG, "SQLCipher native lib missing under test — using in-memory DB")
                 VVFDatabase.buildInMemoryDatabase(this)
             } else {
