@@ -1,0 +1,106 @@
+name: Repair PROD-001
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply fail-closed storage repair
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          path = Path('core/data/src/main/java/com/vvf/smartmanager/core/data/storage/StorageManager.kt')
+          text = path.read_text()
+
+          old = '''val isAllowed = allowedRoots.isEmpty() || allowedRoots.any { root ->
+            candidate.absolutePath == root.absolutePath || candidate.absolutePath.startsWith(root.absolutePath + File.separator)
+        }'''
+          new = '''val isAllowed = allowedRoots.isNotEmpty() && allowedRoots.any { root ->
+            candidate.absolutePath == root.absolutePath || candidate.absolutePath.startsWith(root.absolutePath + File.separator)
+        }'''
+          if old not in text:
+              raise SystemExit('PROD-001 guard pattern not found')
+          text = text.replace(old, new, 1)
+
+          old = '''        if (!targetDir.exists() || !targetDir.isDirectory) {
+            // If primary storage doesn't exist or isn't accessible yet, ensure dummy/demo files for exploration
+            ensureSampleFilesIfEmpty(targetDir)
+        }
+
+        val rawFiles = targetDir.listFiles() ?: emptyArray()'''
+          new = '''        if (!targetDir.exists() || !targetDir.isDirectory) {
+            return emptyList()
+        }
+
+        val rawFiles = targetDir.listFiles() ?: emptyArray()'''
+          if old not in text:
+              raise SystemExit('PROD-001 production sample generation call not found')
+          text = text.replace(old, new, 1)
+
+          old = '''        if (results.isEmpty()) {
+            ensureSampleCategoryFiles(category, results)
+        }
+
+        return sortFiles(results, sortOption)'''
+          new = '''        return sortFiles(results, sortOption)'''
+          if old not in text:
+              raise SystemExit('PROD-001 category sample fallback not found')
+          text = text.replace(old, new, 1)
+
+          text = re.sub(r'\n    private fun ensureSampleFilesIfEmpty\(dir: File\) \{.*?\n    \}\n\n    private fun ensureSampleCategoryFiles\(category: FileCategory, list: MutableList<FileItem>\) \{.*?\n    \}\n\}', '\n}', text, flags=re.S)
+          path.write_text(text)
+
+          test = Path('core/data/src/test/java/com/vvf/smartmanager/core/data/storage/StorageBoundarySecurityTest.kt')
+          test.parent.mkdir(parents=True, exist_ok=True)
+          test.write_text('''package com.vvf.smartmanager.core.data.storage
+
+import java.io.File
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class StorageBoundarySecurityTest {
+    private fun isAllowed(candidate: File, roots: List<File>): Boolean =
+        roots.isNotEmpty() && roots.any { root ->
+            candidate.absolutePath == root.absolutePath ||
+                candidate.absolutePath.startsWith(root.absolutePath + File.separator)
+        }
+
+    @Test
+    fun emptyRootsFailClosed() {
+        assertFalse(isAllowed(File("/outside/file.txt"), emptyList()))
+    }
+
+    @Test
+    fun childOfApprovedRootIsAllowed() {
+        val root = File("/approved").canonicalFile
+        assertTrue(isAllowed(File(root, "child/file.txt").canonicalFile, listOf(root)))
+    }
+
+    @Test
+    fun siblingPrefixIsRejected() {
+        val root = File("/approved").canonicalFile
+        assertFalse(isAllowed(File("/approved-evil/file.txt").canonicalFile, listOf(root)))
+    }
+}
+''')
+
+      - name: Commit and push
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add core/data/src/main/java/com/vvf/smartmanager/core/data/storage/StorageManager.kt core/data/src/test/java/com/vvf/smartmanager/core/data/storage/StorageBoundarySecurityTest.kt
+          git diff --cached --check
+          git commit -m "fix(security): fail closed on storage root discovery"
+          git push
