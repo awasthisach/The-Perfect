@@ -26,3 +26,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.log
+node_modules/
+dist/
+.dev.env.json
+.dev.pid
