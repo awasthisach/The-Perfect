@@ -47,8 +47,9 @@ jobs:
           curl -fsSL https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz -o /tmp/sqlcipher-4.5.4.tar.gz
           tar -xzf /tmp/sqlcipher-4.5.4.tar.gz -C /tmp
           cd /tmp/sqlcipher-4.5.4
-          ./configure --with-tempstore=yes --enable-fts5 CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown" LDFLAGS="-lcrypto"
-          make USE_AMALGAMATION=0 -j2
+          ./configure --enable-tempstore=yes --enable-fts5 CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown" LDFLAGS="-lcrypto"
+          make sqlite3.c EXTRA_SRC="src/sqlcipher.c src/crypto_openssl.c" -j2
+          gcc -DSQLITE_HAS_CODEC -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown -DSQLCIPHER_CRYPTO_OPENSSL -DSQLITE_OS_UNIX=1 -D_HAVE_SQLITE_CONFIG_H -DBUILD_sqlite -DNDEBUG -I. -Isrc -I/usr/include/tcl8.6 -DSQLITE_THREADSAFE=1 -DSQLITE_ENABLE_MATH_FUNCTIONS -DSQLITE_ENABLE_FTS5 -DSQLITE_HAVE_ZLIB=1 -DHAVE_READLINE=0 -DHAVE_EDITLINE=0 -DSQLITE_DQS=0 -DSQLITE_ENABLE_FTS4 -DSQLITE_ENABLE_RTREE -DSQLITE_ENABLE_EXPLAIN_COMMENTS -DSQLITE_ENABLE_UNKNOWN_SQL_FUNCTION -DSQLITE_ENABLE_STMTVTAB -DSQLITE_ENABLE_DBPAGE_VTAB -DSQLITE_ENABLE_DBSTAT_VTAB -DSQLITE_ENABLE_BYTECODE_VTAB -DSQLITE_ENABLE_OFFSET_SQL_FUNC -o sqlcipher shell.c sqlite3.c src/sqlcipher.c src/crypto_openssl.c -lm -lz -lcrypto
           test -x ./sqlcipher
           ./sqlcipher :memory: "SELECT cipher_version;"
           printf '%s\n' "PRAGMA key = 'vvf-sqlcipher-compatibility-test';" "CREATE TABLE compatibility_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL);" "INSERT INTO compatibility_test (id, value) VALUES (1, 'legacy-4.5.4');" ".quit" | ./sqlcipher "$GITHUB_WORKSPACE/core/database/src/androidTest/assets/legacy-4.5.4.db"
