@@ -10,38 +10,22 @@
 
 # 1. Executive Objective
 
-The-Perfect को केवल ऐसा Android application नहीं बनाना है जिसका build सफल हो जाए।
-
-लक्ष्य है:
-
-> **Evidence-driven, security-conscious, reproducible और production-assurable application.**
-
-CPAS को केवल audit checklist नहीं, बल्कि repository के अंदर executable assurance system के रूप में लागू किया जाएगा।
-
-Production readiness का निर्णय documentation या manual declaration से नहीं, बल्कि:
-
-**Code + Tests + CI + Evidence + Computed Gates**
-
-से निकलेगा।
-
----
+The-Perfect को केवल ऐसा Android application नहीं बनाना है जिसका build सफल हो जाए। लक्ष्य है evidence-driven, security-conscious, reproducible और production-assurable application। CPAS केवल audit checklist नहीं बल्कि repository के अंदर executable assurance system होगा। Production readiness documentation से नहीं बल्कि Code + Tests + CI + Evidence + Computed Gates से निकलेगा।
 
 # 2. Operating Constitution
 
 1. सबसे पहले live repository और live CI की जाँच होगी।
 2. बिना evidence के कोई technical claim नहीं किया जाएगा।
 3. अनुमान को evidence नहीं माना जाएगा।
-4. Runtime behavior के बारे में static inference हो तो उसे `STATIC-INFERENCE` के रूप में चिन्हित किया जाएगा।
-5. हर वास्तविक failure का workflow: Observe → Research → Root Cause → Minimal Fix → Regression Test → Local Validation → GitHub Push → Live CI → Evidence Capture → CPAS Verification.
+4. Static inference को `STATIC-INFERENCE` के रूप में चिन्हित किया जाएगा।
+5. हर failure का loop: Observe → Research → Root Cause → Minimal Fix → Regression Test → Local Validation → GitHub Push → Live CI → Evidence Capture → CPAS Verification।
 6. Security, cryptography, storage, database और data-loss boundaries में fail-open behavior स्वीकार नहीं होगा।
-7. Requested blocker वास्तव में समाप्त और CI से verified होने तक उसे resolved नहीं माना जाएगा।
-8. Obsolete/unresolved artifact केवल evidence के आधार पर हटाया या बंद किया जाएगा।
-9. हर 3 या 5 वास्तविक और verified fixes के बाद consolidated report दी जाएगी।
+7. Requested blocker समाप्त और CI से verified होने तक resolved नहीं माना जाएगा।
+8. Obsolete artifact केवल evidence के आधार पर हटेगा या बंद होगा।
+9. हर 3 या 5 वास्तविक verified fixes के बाद consolidated report दी जाएगी।
 10. हर तीसरे/पाँचवें work cycle में operating rules का self-check होगा।
-11. Green build को अकेले production readiness का प्रमाण नहीं माना जाएगा।
-12. Cached, skipped या ignored tests को executed evidence नहीं माना जाएगा।
-
----
+11. Green build अकेले production readiness का प्रमाण नहीं है।
+12. Cached, skipped या ignored tests executed evidence नहीं हैं।
 
 # 3. Technical Architecture
 
@@ -59,23 +43,19 @@ Production readiness का निर्णय documentation या manual decla
 - OCR / Semantic / Cloud plugin contracts
 - Gradle Kotlin DSL और Version Catalog
 
-Exact toolchain versions हमेशा live repository से verify की जाएँगी।
-
----
+Exact toolchain versions live repository से verify होंगी।
 
 # 4. Known Blocker Landscape
 
 | क्षेत्र | Observed समस्या | Required action |
 |---|---|---|
-| SQLCipher CI | SQLCipher 4.5.4 पर newer 4.7+ build contract/paths लागू करने से mismatch; `src/sqlcipher.c` उपलब्ध नहीं था। | 4.5.4 के वास्तविक configure/make contract के अनुसार build। |
-| AndroidKeyStore tests | Robolectric/JVM environment में AndroidKeyStore उपलब्ध न होने से CryptoSecurityManager initialization fail। | Injectable provider; JVM fake; instrumented real Keystore tests। |
-| Storage boundary | Empty `allowedRoots` access को allow कर सकता है। | Root discovery failure पर deny; traversal/symlink tests। |
-| Sample/demo data | Production listing empty directory पर sample files बना सकती है। | Production side-effect हटाएँ; test/debug fixtures अलग करें। |
-| Coverage | Historic aggregate/security/repository/vault/cloud floors बहुत नीचे रहे। | Invariant-centric executed test mesh। |
-| Hilt/generated sources | कुछ CI runs में generated Dagger/Hilt compilation failures। | Live dependency/plugin/KSP graph verify करके minimal root-cause fix। |
-| Cloud/restore | Restore transport/integrity/recovery evidence gaps। | Complete restore chain verified होने तक gate बंद। |
-
----
+| SQLCipher CI | SQLCipher 4.5.4 पर newer 4.7+ build contract/paths का mismatch | उसी version के वास्तविक configure/make contract के अनुसार build |
+| AndroidKeyStore tests | Robolectric/JVM में AndroidKeyStore उपलब्ध नहीं | Injectable provider; JVM fake; instrumented real Keystore tests |
+| Storage boundary | Empty `allowedRoots` access को allow कर सकता है | Root discovery failure पर deny; traversal/symlink tests |
+| Sample/demo data | Production listing empty directory पर sample files बना सकती है | Production side-effect हटाएँ; fixtures अलग करें |
+| Coverage | Historic aggregate/security/repository/vault/cloud floors बहुत नीचे रहे | Invariant-centric executed test mesh |
+| Hilt/generated sources | कुछ CI runs में generated Dagger/Hilt failures | Live dependency/plugin/KSP graph verify करके minimal root fix |
+| Cloud/restore | Restore transport/integrity/recovery evidence gaps | Complete restore chain verified होने तक gate बंद |
 
 # 5. CPAS Repository Structure
 
@@ -95,7 +75,6 @@ docs/assurance/
   FINAL_CPAS_SHEET.md
 
 tools/audit/
-
 .github/workflows/
   cpas-gate.yml
 
@@ -103,38 +82,13 @@ evidence/
   evidence-ledger.yaml
 ```
 
----
-
 # 6. Technology Registry
 
-Critical technologies के version, build और runtime invariants machine-readable contract में रखे जाएँ।
-
-```yaml
-technologies:
-  sqlcipher:
-    version: "4.5.4"
-    category: database
-    criticality: critical
-    invariants:
-      - correct_encryption_key_required
-      - wrong_key_must_fail
-      - no_plaintext_fallback
-    build:
-      version_specific: true
-      contract_verified: false
-
-  android_keystore:
-    category: cryptography
-    criticality: critical
-    invariants:
-      - production_uses_android_keystore
-      - no_insecure_fallback
-      - key_lifecycle_verified
-```
-
----
+Critical technologies के version, build और runtime invariants machine-readable contract में रखे जाएँ। SQLCipher, Android Keystore, Gradle/JDK/Kotlin/KSP/Hilt और अन्य security-critical components के pinned versions तथा compatibility assumptions दर्ज हों।
 
 # 7. Security Invariants
+
+Critical invariants executable tests से verified होने चाहिए। उदाहरण:
 
 ```yaml
 invariants:
@@ -142,48 +96,23 @@ invariants:
     name: storage_fail_closed
     severity: critical
     rule: empty_allowed_roots_must_deny
-    required_tests:
-      - StorageRootBoundaryTest
-      - StorageTraversalTest
-
   - id: INV-CRYPTO-001
     name: production_keystore
     severity: critical
     rule: production_must_use_android_keystore
-    required_tests:
-      - CryptoProviderInstrumentedTest
-
   - id: INV-DB-001
     name: sqlcipher_wrong_key_rejection
     severity: critical
     rule: wrong_passphrase_must_fail
-    required_tests:
-      - SQLCipherWrongKeyTest
 ```
-
----
 
 # 8. SQLCipher Assurance
 
-SQLCipher 4.5.4 को current/master 4.7+ documentation से blindly नहीं मिलाया जाएगा। उसी version के वास्तविक source tree और configure/make interface को authoritative माना जाएगा।
-
-Required:
-
-1. Version registry में pinned हो।
-2. Source layout inspect हो।
-3. Supported configure/make contract verify हो।
-4. Non-existent source paths हटें।
-5. Unsupported flags हटें।
-6. Native fixture build CI में reproduce हो।
-7. Successful CI run evidence ledger में दर्ज हो।
-
-> SQLCipher version बदलने पर build contract फिर से validate होगा।
-
----
+SQLCipher 4.5.4 को current/master 4.7+ documentation से blindly नहीं मिलाया जाएगा। उसी version के वास्तविक source tree और configure/make interface को authoritative माना जाएगा। Version pin, source layout, supported flags, native fixture build और successful CI evidence अनिवार्य हैं। Version बदलने पर build contract फिर validate होगा।
 
 # 9. Android Keystore Assurance
 
-Production में insecure fallback नहीं बनाया जाएगा।
+Production में insecure fallback नहीं बनाया जाएगा। Architecture:
 
 ```text
 CryptoSecurityManager
@@ -196,35 +125,11 @@ KeyStore / Crypto Provider abstraction
         +-- Instrumented → real AndroidKeyStore
 ```
 
-Tests:
-
-- key creation/retrieval
-- missing/wrong key
-- encryption/decryption
-- restart/reopen
-- key invalidation
-- authentication boundary
-- provider selection
-
----
+Key creation/retrieval, missing/wrong key, encryption/decryption, restart/reopen, invalidation, authentication boundary और provider selection test होंगे।
 
 # 10. Storage Security — Fail Closed
 
-यदि approved roots discover नहीं होते, तो empty `allowedRoots` universal permission नहीं बन सकता।
-
-Required tests:
-
-- approved path
-- outside-root path
-- `../` traversal
-- encoded traversal
-- absolute-path abuse
-- symlink escape
-- canonicalization mismatch
-- missing/empty roots
-- inaccessible root
-
-Invariant:
+यदि approved roots discover नहीं होते, तो empty `allowedRoots` universal permission नहीं बन सकता। Approved path, outside-root path, traversal, encoded traversal, absolute-path abuse, symlink escape, canonicalization mismatch, missing/empty roots और inaccessible roots test होंगे।
 
 ```yaml
 storage:
@@ -234,15 +139,9 @@ storage:
   traversal_escape: deny
 ```
 
----
-
 # 11. Production Sample/Demo Data
 
-Production file-listing APIs demo/sample files नहीं बनाएँगी। Listing का काम listing है।
-
-Demo data केवल test fixtures अथवा explicitly gated debug/demo provider में रहेगा।
-
----
+Production file-listing APIs demo/sample files नहीं बनाएँगी। Listing का काम listing है। Demo data केवल test fixtures अथवा explicitly gated debug/demo provider में रहेगा।
 
 # 12. Coverage Assurance
 
@@ -258,417 +157,100 @@ Historic observed failures:
 
 Coverage के साथ invariant coverage भी मापी जाएगी। Critical invariant बिना executable verification के PASS नहीं होगा।
 
----
-
 # 13. Hilt / Generated Code Assurance
 
-Hilt/Dagger compilation failure पर पहले dependency जोड़ना समाधान नहीं माना जाएगा। Verify:
-
-- Kotlin version
-- KSP version
-- Hilt version
-- Hilt plugin
-- compiler configuration
-- generated sources
-- dependency graph
-- duplicate/mismatched versions
-- JDK compatibility
-
-> Direct dependency केवल evidence-backed root cause के बाद।
-
----
+Hilt/Dagger compilation failure पर पहले dependency जोड़ना समाधान नहीं माना जाएगा। Kotlin, KSP, Hilt, plugin, compiler configuration, generated sources, dependency graph, duplicate/mismatched versions और JDK compatibility verify होंगे। Direct dependency केवल evidence-backed root cause के बाद जोड़ी जाएगी।
 
 # 14. Cloud / Restore Assurance
 
 Restore chain:
 
 ```text
-Download
-  ↓
-Transport Integrity
-  ↓
-Authentication
-  ↓
-Decrypt
-  ↓
-Schema Validation
-  ↓
-Data Validation
-  ↓
-Stage
-  ↓
-Consistency Check
-  ↓
-Atomic Swap
-  ↓
-Post-Restore Verification
-  ↓
-Cleanup
+Download → Transport Integrity → Authentication → Decrypt → Schema Validation
+→ Data Validation → Stage → Consistency Check → Atomic Swap
+→ Post-Restore Verification → Cleanup
 ```
 
-हर stage पर process termination test आवश्यक है।
-
----
+हर stage पर process termination, corruption और recovery tests आवश्यक हैं।
 
 # 15. Test Mesh
 
-## Security
-
-- vault plaintext lifecycle
-- key storage/lifecycle
-- encryption/decryption
-- wrong key/PIN
-- Real/Decoy separation
-
-## Storage
-
-- root boundary
-- traversal
-- symlink
-- canonicalization
-- permissions
-
-## Database
-
-- all historical migrations
-- interrupted migration
-- corrupt DB
-- wrong key
-- schema mismatch
-- reopen/restart
-
-## Cloud
-
-- authentication
-- duplicate
-- retry
-- cancellation
-- claim/heartbeat
-- lease expiry
-- owner guard
-- terminal failure
-- cleanup
-
-## Concurrency
-
-- duplicate execution
-- simultaneous claim
-- cancel/complete race
-- lease race
-- process death
-- retry race
-
-## Recovery
-
-- process kill at every restore stage
-- partial restore
-- corrupted restore
-- atomicity
-- rollback
-
----
+Security, storage, database, cloud, concurrency और recovery के tests एक connected mesh होंगे। Security में vault/key/Real-Decoy; storage में boundary/traversal/symlink; database में migrations/corruption/wrong key; cloud में auth/duplicate/retry/cancel/lease/owner guard; concurrency में race conditions; recovery में process-kill और atomicity शामिल होंगे।
 
 # 16. Adversarial / Fuzz Testing
 
-Critical inputs:
-
-- file paths
-- Unicode filenames
-- very long filenames
-- malformed cloud payloads
-- malformed plugin responses
-- malformed database input
-- unexpected JSON
-- null/empty payloads
-- encoded traversal
-- huge inputs
-- repeated retry signals
-
----
+File paths, Unicode filenames, very long filenames, malformed cloud/plugin/database payloads, unexpected JSON, null/empty payloads, encoded traversal, huge inputs और repeated retry signals fuzz/adversarial matrix में होंगे।
 
 # 17. Lifecycle Assurance
 
-Verify:
-
-- cold start
-- warm start
-- background/foreground
-- process death
-- configuration change
-- activity recreation
-- WorkManager resumption
-- interrupted operations
-
----
+Cold start, warm start, background/foreground, process death, configuration change, activity recreation, WorkManager resumption और interrupted operations verify होंगे।
 
 # 18. Offline / Network Matrix
 
-Required scenarios:
-
-```text
-No network
-Slow network
-Timeout
-Connection reset
-Partial response
-HTTP error
-Auth expired
-Token invalid
-Server unavailable
-Duplicate response
-Malformed response
-Retry storm
-```
-
-System must not lose data, corrupt state, bypass authorization या retry indefinitely।
-
----
+No network, slow network, timeout, connection reset, partial response, HTTP error, auth expiry, invalid token, server unavailable, duplicate response, malformed response और retry storm test होंगे। Data loss, state corruption, authorization bypass और infinite retry स्वीकार्य नहीं हैं।
 
 # 19. Supply-Chain Assurance
 
-Required:
-
-- dependency inventory
-- transitive dependency inventory
-- lock verification
-- vulnerability/CVE scan
-- license policy
-- SBOM
-- build provenance
-- artifact identity
-- toolchain versions
-- reproducible-build checks where practical
-
-Dependency update flow:
-
-```text
-Research → Compatibility → Build → Tests → Security → CI
-```
-
----
+Dependency inventory, transitive inventory, lock verification, vulnerability/CVE scan, license policy, SBOM, build provenance, artifact identity, toolchain versions और reproducible-build checks जहाँ practical हों अनिवार्य होंगे। Dependency update flow: Research → Compatibility → Build → Tests → Security → CI।
 
 # 20. Standards Alignment
 
-Relevant basis:
-
-- OWASP MASVS
-- OWASP MASTG
-- OWASP SAMM
-- NIST SSDF 1.1
-- NIST SP 800-204D
-- SLSA
-- Official SQLCipher documentation/changelog
-- Official Android Developers documentation
-- Official Robolectric documentation
-- Official Dagger/Hilt documentation
-
-इनका उपयोग project-specific executable controls बनाने के लिए होगा।
-
----
+Relevant basis: OWASP MASVS, OWASP MASTG, OWASP SAMM, NIST SSDF 1.1, NIST SP 800-204D, SLSA, official SQLCipher documentation/changelog, official Android Developers documentation, official Robolectric documentation और official Dagger/Hilt documentation। Standards को project-specific executable controls में बदला जाएगा।
 
 # 21. Accessibility Gate
 
-Verify:
-
-- semantics
-- content descriptions
-- touch targets
-- keyboard/focus behavior
-- screen reader behavior
-- contrast
-- error messaging
-- dynamic text
-
----
+Semantics, content descriptions, touch targets, keyboard/focus behavior, screen reader behavior, contrast, error messaging और dynamic text verify होंगे।
 
 # 22. Localization Gate
 
-Verify:
-
-- missing translations
-- hardcoded strings
-- plural rules
-- date/time formatting
-- number formatting
-- text expansion
-- RTL जहाँ applicable हो
-
----
+Missing translations, hardcoded strings, plural rules, date/time formatting, number formatting, text expansion और applicable RTL behavior verify होंगे।
 
 # 23. Permission / Privacy Matrix
 
-API behavior explicitly test किया जाए:
-
-```text
-API 24
-API 28
-API 29+
-API 33+
-API 35+
-API 36
-```
-
-विशेष रूप से storage, notification/media permissions, background behavior और MANAGE_EXTERNAL_STORAGE।
-
----
+API 24, API 28, API 29+, API 33+, API 35+ और API 36 पर storage, notification/media permissions, background behavior और MANAGE_EXTERNAL_STORAGE सहित permission behavior explicitly test होगा।
 
 # 24. Performance / Battery Gates
 
-Budgets define/verify करें:
-
-- startup
-- database
-- encryption/decryption
-- sync
-- memory
-- UI responsiveness
-- WorkManager background behavior
-- retry/backoff
-- battery impact
-
----
+Startup, database, encryption/decryption, sync, memory, UI responsiveness, WorkManager background behavior, retry/backoff और battery impact के measurable budgets define और verify होंगे।
 
 # 25. Observability / Privacy
 
-Logs में कभी भी निम्न नहीं होने चाहिए:
+Logs में passwords, PINs, encryption keys, tokens, plaintext secrets, sensitive file contents या sensitive cloud payloads नहीं होंगे। Events actionable होंगे लेकिन privacy-preserving होंगे।
 
-- passwords
-- PINs
-- encryption keys
-- tokens
-- plaintext secrets
-- sensitive file contents
-- sensitive cloud payloads
+# 26. Privacy Data Map
 
-Privacy data map:
+हर sensitive data item के लिए collected, stored, encrypted, synced, shared, retained और deleted state documented और testable होगी। Data minimization और retention policy implementation से traceable होनी चाहिए।
 
-```text
-Data → Collected? → Stored? → Encrypted? → Synced? → Shared? → Deleted? → Retention
-```
+# 27. Threat Model
 
----
+Assets, trust boundaries, attackers, attack paths, mitigations और residual risk documented होंगे। विशेष focus storage traversal, key theft, PIN/decoy separation, cloud compromise, malicious files/plugins, replay, unauthorized restore और local privilege boundaries पर होगा।
 
-# 26. Threat Model
+# 28. Mutation Testing
 
-Minimum:
+Critical business/security tests की strength जाँचने के लिए selected mutation testing किया जाएगा। यदि intentional security-relevant mutation tests के बावजूद green रहती है, gate failure माना जाएगा।
 
-```text
-Assets
-Trust Boundaries
-Actors
-Attack Surfaces
-Abuse Cases
-Threats
-Controls
-Residual Risk
-```
+# 29. False-Green Detector
 
-Key threats:
+CPAS skipped, cached, disabled, flaky या non-executed evidence को PASS नहीं मानेगा। Test count, execution status, generated reports, coverage provenance और CI job outcome cross-check किए जाएँगे।
 
-- unauthorized local access
-- PIN brute force
-- traversal/symlink escape
-- database theft
-- cloud compromise
-- restore poisoning
-- malicious plugin
-- malformed cloud data
-- race conditions
-- process interruption
+# 30. CPAS Verifier
 
----
+`cpasVerify` वास्तविक executable verifier होना चाहिए; केवल file-existence check नहीं। यह registry, invariants, required tests, evidence ledger और gate outputs को parse करके deterministic result देगा और missing/stale/inconsistent evidence पर failure करेगा।
 
-# 27. Mutation Testing
+# 31. Computed Production Status
 
-Critical invariant की implementation को intentionally mutate करके tests के fail होने की पुष्टि की जाए।
-
-उदाहरण:
-
-```text
-allowedRoots.isEmpty() → ALLOW
-```
-
-Security tests को इस mutation पर fail होना चाहिए।
-
----
-
-# 28. False-Green Detector
-
-CPAS verify करेगा:
-
-- test skipped?
-- ignored?
-- filtered?
-- cached only?
-- emulator actually started?
-- instrumentation actually executed?
-- expected test count मिला?
-- expected artifacts generated?
-- coverage relevant source पर है?
-- report empty/stale तो नहीं?
-- CI target commit सही है?
-
-Expected test execute नहीं हुआ तो result:
-
-```text
-UNVERIFIED / BLOCKED
-```
-
----
-
-# 29. CPAS Verifier
-
-`cpasVerify` को केवल file existence check नहीं होना चाहिए।
-
-Pipeline:
-
-```text
-Schema validation
-↓
-ID validation
-↓
-Traceability validation
-↓
-Technology contract validation
-↓
-Invariant validation
-↓
-Test mapping validation
-↓
-Execution evidence validation
-↓
-False-green validation
-↓
-Coverage validation
-↓
-Supply-chain validation
-↓
-Evidence freshness
-↓
-Gate aggregation
-↓
-Production status computation
-```
-
----
-
-# 30. Computed Production Status
-
-Manual `READY` flag authoritative नहीं है।
+Production status manually declared नहीं होगा। उदाहरण:
 
 ```yaml
 production_status:
   value: BLOCKED
   computed: true
-
 blocking_findings:
   - PROD-001
-
 critical_invariants:
   total: 37
   verified: 29
   unverified: 8
-
 required_gates:
   total: 18
   passed: 13
@@ -676,243 +258,126 @@ required_gates:
   pending: 2
 ```
 
----
+Counts live evidence से computed होंगे।
 
-# 31. CI Assurance Pipeline
+# 32. Requirements ↔ Code ↔ Test Traceability
 
-```text
-1. Constitution / Schema
-2. Technology Contracts
-3. Security Invariants
-4. Static Analysis
-5. JVM / Unit Tests
-6. Instrumented / Emulator Tests
-7. DB / Crypto / Storage Contracts
-8. Concurrency / Recovery / Adversarial Tests
-9. Coverage / Mutation Evidence
-10. Supply Chain / License / SBOM
-11. Evidence Ledger
-12. cpasVerify
-13. Production Gate
-```
+Requirements, implementation symbols, security invariants, tests, CI jobs और evidence के बीच bidirectional traceability graph रखा जाएगा। कोई production-critical requirement बिना implementation और executable verification के complete नहीं माना जाएगा।
 
-Independent stages parallelize किए जा सकते हैं। Final decision verified aggregation से होगा।
+# 33. Database Migration Assurance
 
----
+सभी historical migrations, fresh install, upgrade path, interrupted migration, corrupt database, wrong key, schema mismatch, reopen/restart, rollback/downgrade attempt और partial migration scenarios verify होंगे।
 
-# 32. Evidence Ledger
+# 34. Disaster Recovery / Atomic Restore
 
-प्रत्येक finding में:
+Restore में download से post-restore verification तक प्रत्येक boundary पर process kill और failure injection किया जाएगा। Staging, consistency validation, atomic swap, rollback और cleanup के बाद final database integrity verify होगी।
 
-- Finding ID
-- severity
-- component
-- root cause
-- fix commit SHA
-- changed files
-- regression test
-- exact test result
-- CI workflow/run ID
-- branch/PR
-- timestamp
-- artifact/report reference
-- status
-- verifier version
+# 35. Reproducible Build Assurance
 
-Statuses:
+Pinned toolchain, dependency resolution, generated-source determinism और artifact identity verify किए जाएँगे। जहाँ पूर्ण reproducibility practical नहीं हो वहाँ known nondeterminism documented और controlled होगा।
 
-```text
-OPEN
-FIXED
-VERIFIED
-BLOCKED
-ACCEPTED-RISK
-```
+# 36. Concurrency / Race Assurance
 
----
+Duplicate execution, simultaneous claim, cancel/complete race, lease expiry, heartbeat, process death, retry race और terminal cleanup के deterministic tests होंगे। Cloud queue semantics में owner guards और transfer-state preservation verify होंगे।
 
-# 33. Remediation Policy
+# 37. Android Lifecycle / Process-Death Assurance
 
-Low-risk auto-fix:
+Critical user operations और background work को activity recreation, process death, reboot-equivalent interruption और WorkManager resumption के बाद safe state में लौटना चाहिए। कोई operation silent data loss या duplicate side effect नहीं बनाएगा।
 
-- formatting
-- deterministic lint fixes
-- documentation
-- generated metadata
+# 38. Permission / Platform Compatibility Assurance
 
-Human review mandatory:
+Target और supported Android API levels पर runtime permissions, scoped storage, notification/media access, background restrictions और platform behavior को implementation तथा tests से map किया जाएगा। Deprecated APIs और policy-sensitive permissions की explicit justification होगी।
 
-- cryptography
-- key management
-- authentication
-- authorization
-- storage boundary
-- database migrations
-- restore
-- cloud synchronization
-- permissions
-- privacy
-- data deletion
-- release configuration
+# 39. Release / Rollback Engineering
 
----
+Release artifact identity, versioning, signing assumptions, migration compatibility, rollback boundary, failed-update recovery और release evidence documented होंगे। A release is not production-ready until rollback behavior is verified for applicable failure classes.
 
-# 34. Minimal Change Principle
+# 40. Performance / Reliability Budgets
 
-हर fix:
+Critical operations के measurable budgets होंगे: startup, database operations, crypto, sync latency, memory, retries, background work और battery. Budget regression CI में detectable होना चाहिए जहाँ practical हो।
+
+# 41. Accessibility / UX Quality Gate
+
+Critical flows keyboard/focus, screen reader, semantics, touch target, contrast, error recovery और dynamic text के साथ usable होने चाहिए। Accessibility regressions को quality gate में represent किया जाएगा।
+
+# 42. Evidence Ledger
+
+हर claim के साथ source, commit, workflow run, test name, artifact/report और timestamp दर्ज होगा। Evidence immutable reference के रूप में capture होगी। Stale evidence current status को override नहीं कर सकती।
+
+# 43. CI Assurance Pipeline
+
+Canonical pipeline:
 
 ```text
-Smallest safe change
-+
-Regression test
-+
-Evidence
+Checkout
+→ Toolchain Verification
+→ Static Analysis
+→ Unit Tests
+→ Instrumented Tests
+→ Security Tests
+→ Coverage
+→ Supply-Chain Checks
+→ Build
+→ Artifact Verification
+→ CPAS Verification
+→ Production Status
 ```
 
-Unrelated refactoring उसी change में नहीं किया जाएगा जब तक root cause के लिए आवश्यक न हो।
+Failure पर downstream green signal को overall PASS नहीं माना जाएगा।
 
----
+# 44. Remediation Policy
 
-# 35. PR / Branch Governance
+Fix priority: security/data-loss/authorization → build/CI blockers → correctness → reliability → coverage/invariant gaps → performance → UX/documentation. हर fix minimal root-cause change के साथ regression test जोड़ेगा।
 
-Materially conflicting PR/branch को:
+# 45. Minimal Change Principle
 
-1. inspect
-2. classify
-3. determine whether still required
-4. identify superseded work
-5. resolve/merge/close/delete only with evidence
+Working behavior को बिना आवश्यकता rewrite नहीं किया जाएगा। Refactor तभी होगा जब root cause, security boundary, testability या maintainability के लिए आवश्यक हो। हर change का blast radius review होगा।
 
-सिर्फ inconvenience के कारण deletion नहीं।
+# 46. PR / Branch Governance
 
----
+Stale, conflicting, duplicate या obsolete PR को live state के आधार पर classify किया जाएगा। Mergeability, required checks, review status और branch divergence verify किए बिना merge/delete/close claim नहीं किया जाएगा। Main branch पर केवल evidence-backed changes स्वीकार होंगे।
 
-# 36. Release Assurance
+# 47. Definition of Done
 
-Release से पहले verify:
+किसी blocker को DONE तभी कहा जाएगा जब:
 
-- source commit
-- dependency state
-- build environment
-- artifact checksum
-- signing configuration
-- provenance
-- migration compatibility
-- rollback strategy
-- backup/recovery
-- smoke tests
-- critical invariants
-- production gate
+1. root cause identified हो;
+2. minimal fix लागू हो;
+3. regression test मौजूद हो;
+4. relevant local validation सफल हो;
+5. GitHub commit मौजूद हो;
+6. live CI relevant gate पास करे;
+7. evidence ledger update हो;
+8. CPAS verifier updated status दे;
+9. कोई higher-level blocker unresolved होने पर status उसे reflect करे।
 
----
+# 48. Canonical Remediation Loop
 
-# 37. Definition of Done
-
-The-Perfect production-ready तभी माना जाएगा जब:
-
-- [ ] Live main branch verified है।
-- [ ] Requested critical blockers = 0.
-- [ ] Critical security invariants verified हैं।
-- [ ] Storage fail-closed है।
-- [ ] Production sample generation हट चुकी है।
-- [ ] SQLCipher build contract version-correct और CI-verified है।
-- [ ] Android Keystore production में secure/fail-closed है।
-- [ ] Robolectric tests उचित fake provider उपयोग करते हैं।
-- [ ] Real-device Keystore tests executed हैं।
-- [ ] Database migrations verified हैं।
-- [ ] Cloud queue concurrency verified है।
-- [ ] Restore/recovery verified है।
-- [ ] Adversarial tests verified हैं।
-- [ ] False-green detector pass है।
-- [ ] Coverage evidence वास्तविक execution से है।
-- [ ] Supply-chain gates pass हैं।
-- [ ] SBOM/provenance evidence मौजूद है।
-- [ ] Accessibility gate pass है।
-- [ ] Localization gate pass है।
-- [ ] Permission matrix verified है।
-- [ ] Performance/battery budgets acceptable हैं।
-- [ ] Privacy data map मौजूद है।
-- [ ] Threat model verified है।
-- [ ] CPAS self-tests pass हैं।
-- [ ] `cpasVerify` computed production status देता है।
-- [ ] Relevant CI runs target commit पर successful हैं।
-- [ ] Evidence Ledger complete है।
-- [ ] कोई unresolved critical finding नहीं है।
-
----
-
-# 38. Canonical Remediation Loop
+हर वास्तविक समस्या के लिए canonical loop अनिवार्य है:
 
 ```text
-FINDING
-   ↓
-CLASSIFY
-   ↓
-RESEARCH
-   ↓
-PROVE ROOT CAUSE
-   ↓
-MINIMAL FIX
-   ↓
-REGRESSION TEST
-   ↓
-LOCAL VALIDATION
-   ↓
-GIT COMMIT
-   ↓
-GITHUB PUSH
-   ↓
-LIVE CI
-   ↓
-VERIFY
-   ↓
-EVIDENCE LEDGER
-   ↓
-CPAS RECOMPUTE
-   ↓
-NEXT BLOCKER
+Observe
+→ Reproduce
+→ Research
+→ Root Cause
+→ Minimal Fix
+→ Regression Test
+→ Local Validation
+→ Push
+→ Live CI
+→ Evidence Capture
+→ CPAS Verify
+→ Re-audit
 ```
 
----
+एक failed verification के बाद समस्या को silently closed नहीं किया जाएगा।
 
-# 39. Final Production Rules
+# 49. Final Production Rules / Reference Basis / Execution Directive
 
-> **No evidence = No PASS.**
+CPAS का अंतिम निर्णय evidence-driven और computed होगा। Green build को production readiness के बराबर नहीं माना जाएगा। Security invariant, data integrity, restore/recovery, dependency/supply-chain, lifecycle, permissions, accessibility, privacy, performance और release gates में कोई critical unverified condition हो तो production status `BLOCKED` रहेगा।
 
-> **No executed test = No verification.**
+Final execution rule:
 
-> **No verified critical invariant = BLOCKED.**
+> **Live evidence पहले, root cause उसके बाद, minimal repair उसके बाद, regression test उसके बाद, GitHub push उसके बाद, CI verification उसके बाद, और तभी production status update।**
 
-> **No successful relevant CI = Not fixed.**
-
-> **No computed gate = No production readiness.**
-
-> **A green build alone is not production assurance.**
-
----
-
-# 40. Final Execution Directive
-
-The-Perfect को इस CPAS के आधार पर bottom-up तरीके से सुधारना है।
-
-Priority:
-
-```text
-1. Live Repository / CI Truth
-2. CPAS Foundation
-3. Technology Contracts
-4. Security Invariants
-5. Storage / Crypto / Database
-6. Cloud / Restore
-7. Concurrency / Lifecycle
-8. Test Mesh
-9. Supply Chain
-10. False-Green Detection
-11. Evidence Ledger
-12. Computed Production Gate
-13. Release Assurance
-```
-
-हर blocker पर evidence-first approach लागू होगी।
-
-**Final production verdict केवल CPAS-computed evidence का परिणाम होगा।**
+CPAS स्वयं भी audit योग्य है: verifier deterministic होना चाहिए, evidence stale होने पर fail करना चाहिए, false-green conditions पकड़नी चाहिए और अपने critical controls के लिए self-tests रखने चाहिए। यही document The-Perfect के production remediation और assurance workflow का canonical reference है।
