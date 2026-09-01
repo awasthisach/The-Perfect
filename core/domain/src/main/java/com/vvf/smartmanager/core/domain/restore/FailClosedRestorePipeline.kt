@@ -1,8 +1,8 @@
 package com.vvf.smartmanager.core.domain.restore
 
-import com.vvf.smartmanager.core.model.CloudBackupInfo
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Orchestrates restore as a fail-closed transaction:
@@ -18,6 +18,8 @@ class FailClosedRestorePipeline(
     private val decryptor: BackupDecryptor,
     private val applier: RestoreApplier
 ) : RestorePipeline {
+
+    private val preparedSnapshots = ConcurrentHashMap<String, RestoreSnapshot>()
 
     override suspend fun restore(
         remoteBackupId: String,
@@ -38,8 +40,11 @@ class FailClosedRestorePipeline(
             val decrypted = decryptor.decrypt(verified, stagingDir).getOrElse { return Result.failure(it) }
 
             snapshot = applier.prepare().getOrElse { return Result.failure(it) }
+            preparedSnapshots[snapshot!!.token] = snapshot!!
+
             val applied = applier.apply(decrypted).getOrElse { error ->
                 val rollbackResult = applier.rollback(snapshot!!)
+                preparedSnapshots.remove(snapshot!!.token)
                 if (rollbackResult.isFailure) {
                     return Result.failure(
                         RestoreException(
@@ -53,6 +58,7 @@ class FailClosedRestorePipeline(
 
             if (!applied.success) {
                 val rollbackResult = applier.rollback(snapshot!!)
+                preparedSnapshots.remove(snapshot!!.token)
                 if (rollbackResult.isFailure) {
                     return Result.failure(
                         RestoreException(
@@ -64,13 +70,14 @@ class FailClosedRestorePipeline(
                 return Result.failure(RestoreException(applied.message))
             }
 
+            preparedSnapshots.remove(snapshot!!.token)
             Result.success(
                 RestoreResult(
                     success = true,
                     restoredFileCount = applied.restoredFileCount,
                     restoredVaultItemCount = applied.restoredVaultItemCount,
                     backupInfo = verified.backupInfo,
-                    snapshotToken = snapshot?.token,
+                    snapshotToken = snapshot!!.token,
                     message = applied.message,
                     timestamp = System.currentTimeMillis()
                 )
@@ -78,6 +85,7 @@ class FailClosedRestorePipeline(
         } catch (error: Throwable) {
             if (snapshot != null) {
                 runCatching { applier.rollback(snapshot!!) }
+                preparedSnapshots.remove(snapshot!!.token)
             }
             Result.failure(RestoreException("Fail-closed restore aborted", error))
         } finally {
@@ -122,14 +130,11 @@ class FailClosedRestorePipeline(
         if (snapshotToken.isBlank()) {
             return Result.failure(VerificationFailedException("Snapshot token is blank"))
         }
-        return applier.rollback(
-            RestoreSnapshot(
-                token = snapshotToken,
-                timestamp = 0L,
-                databaseSnapshotPath = File(workingDir, "snapshots/$snapshotToken/database"),
-                vaultSnapshotPath = File(workingDir, "snapshots/$snapshotToken/vault")
-            )
-        )
+        val snapshot = preparedSnapshots[snapshotToken]
+            ?: return Result.failure(VerificationFailedException("Snapshot token is not active in this process"))
+        return applier.rollback(snapshot).also {
+            if (it.isSuccess) preparedSnapshots.remove(snapshotToken)
+        }
     }
 
     private fun requireWorkingDirectory(stagingDir: File) {
