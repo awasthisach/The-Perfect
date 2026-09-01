@@ -18,32 +18,26 @@ jobs:
     name: Build, Test, Lint & Quality
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
-
       - name: Set up JDK 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           java-version: "17"
           distribution: "temurin"
           cache: gradle
-
       - name: Setup Android SDK
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
         with:
           packages: ""
           accept-android-sdk-licenses: true
-
       - name: Install required Android SDK components
         run: |
           set -euo pipefail
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
-
       - name: Create local.properties
         run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
-
       - name: Generate SQLCipher 4.5.4 compatibility fixture
         run: |
           set -euo pipefail
@@ -53,51 +47,20 @@ jobs:
           curl -fsSL https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz -o /tmp/sqlcipher-4.5.4.tar.gz
           tar -xzf /tmp/sqlcipher-4.5.4.tar.gz -C /tmp
           cd /tmp/sqlcipher-4.5.4
-          ./configure --with-tempstore=yes --enable-fts5 \
-            CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown" \
-            LDFLAGS="-lcrypto"
-          make -j2 sqlite3.c
-          gcc -DSQLITE_HAS_CODEC \
-            -DSQLITE_EXTRA_INIT=sqlcipher_extra_init \
-            -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown \
-            -DSQLCIPHER_CRYPTO_OPENSSL \
-            -DSQLITE_OS_UNIX=1 \
-            -D_HAVE_SQLITE_CONFIG_H -DBUILD_sqlite -DNDEBUG \
-            -DSQLITE_THREADSAFE=1 \
-            -DSQLITE_ENABLE_MATH_FUNCTIONS -DSQLITE_ENABLE_FTS5 \
-            -DHAVE_READLINE=0 -DHAVE_EDITLINE=0 \
-            -I. -I/tmp/sqlcipher-4.5.4/src \
-            -I/tmp/sqlcipher-4.5.4/ext/rtree \
-            -I/tmp/sqlcipher-4.5.4/ext/icu \
-            -I/tmp/sqlcipher-4.5.4/ext/fts3 \
-            -I/tmp/sqlcipher-4.5.4/ext/session \
-            -I/tmp/sqlcipher-4.5.4/ext/userauth \
-            -I/usr/include/tcl8.6 \
-            -o sqlcipher shell.c sqlite3.c \
-            /tmp/sqlcipher-4.5.4/src/sqlcipher.c \
-            /tmp/sqlcipher-4.5.4/src/crypto_openssl.c \
-            -lm -lz -lcrypto
+          ./configure --with-tempstore=yes --enable-fts5 CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown" LDFLAGS="-lcrypto"
+          make -j2
           test -x ./sqlcipher
           ./sqlcipher :memory: "SELECT cipher_version;"
-          printf '%s\n' \
-            "PRAGMA key = 'vvf-sqlcipher-compatibility-test';" \
-            "CREATE TABLE compatibility_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL);" \
-            "INSERT INTO compatibility_test (id, value) VALUES (1, 'legacy-4.5.4');" \
-            ".quit" | ./sqlcipher "$GITHUB_WORKSPACE/core/database/src/androidTest/assets/legacy-4.5.4.db"
+          printf '%s\n' "PRAGMA key = 'vvf-sqlcipher-compatibility-test';" "CREATE TABLE compatibility_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL);" "INSERT INTO compatibility_test (id, value) VALUES (1, 'legacy-4.5.4');" ".quit" | ./sqlcipher "$GITHUB_WORKSPACE/core/database/src/androidTest/assets/legacy-4.5.4.db"
           test -s "$GITHUB_WORKSPACE/core/database/src/androidTest/assets/legacy-4.5.4.db"
-
       - name: Verify Gradle wrapper
         run: ./gradlew --no-daemon --version
-
       - name: Run unit tests
         run: ./gradlew --no-daemon testDebugUnitTest --stacktrace
-
       - name: Run Android lint
         run: ./gradlew --no-daemon lintDebug --stacktrace
-
       - name: Assemble debug APK
         run: ./gradlew --no-daemon assembleDebug --stacktrace
-
       - name: Run SQLCipher compatibility instrumentation test
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
@@ -106,7 +69,6 @@ jobs:
           arch: x86_64
           profile: pixel_2
           script: ./gradlew --no-daemon :core:database:connectedDebugAndroidTest --stacktrace
-
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -115,7 +77,6 @@ jobs:
           path: "**/build/reports/tests/**"
           if-no-files-found: ignore
           retention-days: 7
-
       - name: Upload Android test reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -124,7 +85,6 @@ jobs:
           path: "**/build/reports/androidTests/**"
           if-no-files-found: ignore
           retention-days: 7
-
       - name: Upload lint reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -133,7 +93,6 @@ jobs:
           path: "**/build/reports/lint-results-*.html"
           if-no-files-found: ignore
           retention-days: 7
-
       - name: Upload debug APK
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -142,25 +101,21 @@ jobs:
           path: "**/build/outputs/apk/debug/*.apk"
           if-no-files-found: error
           retention-days: 7
-
   license_compliance:
     name: Open Source License Compliance
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       FOSSA_ENABLED: ${{ secrets.FOSSA_API_KEY != '' }}
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
-
       - name: Set up JDK 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           java-version: "17"
           distribution: "temurin"
           cache: gradle
-
       - name: Run FOSSA License Scan
         if: ${{ env.FOSSA_ENABLED == 'true' }}
         env:
