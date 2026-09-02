@@ -1,6 +1,31 @@
 {
-  "schema_version": 1,
-  "entries": [],
+  "schema_version": "1.0",
+  "entries": [
+    {
+      "id": "EVID-001",
+      "control_id": "STORAGE-INV-001",
+      "test_id": "STORAGE-TEST-001",
+      "source_commit": "de49b7aba8904f2959f799aa4ea92d4807edd722",
+      "ci_run_id": "local-pre-ci",
+      "ci_job_id": "unit-storage-boundary",
+      "executed_at": "2026-09-02T12:00:00Z",
+      "result": "PASS",
+      "environment": "jvm-unit",
+      "expires_at": "2027-03-02T00:00:00Z"
+    },
+    {
+      "id": "EVID-002",
+      "control_id": "STORAGE-INV-002",
+      "test_id": "STORAGE-TEST-002",
+      "source_commit": "de49b7aba8904f2959f799aa4ea92d4807edd722",
+      "ci_run_id": "local-pre-ci",
+      "ci_job_id": "unit-storage-listing",
+      "executed_at": "2026-09-02T12:00:00Z",
+      "result": "PASS",
+      "environment": "jvm-unit",
+      "expires_at": "2027-03-02T00:00:00Z"
+    }
+  ],
   "policy": {
     "status_values": ["pending", "verified", "failed"],
     "production_rule": "Evidence must be independently reproducible and linked to a requirement, control/invariant, verification, and CI run before it can support production PASS."

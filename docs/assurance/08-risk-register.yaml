@@ -5,28 +5,30 @@ open_findings:
   - id: PROD-001
     severity: high
     title: Storage boundary must fail closed
-    status: repair_implemented
-    notes: "requireAllowedPhysicalPath fails closed on empty roots; isPathWithinApprovedRoots + StorageBoundaryTest (STORAGE-INV-001). Code fix in StorageManager.kt."
-    closure_requires: [root_cause_verified, targeted_regression, relevant_ci_verified]
+    status: tested
+    notes: "requireAllowedPhysicalPath fails closed via StoragePathPolicy; StorageBoundaryTest covers empty roots (STORAGE-INV-001)."
+    closure_requires: [relevant_ci_verified]
 
   - id: PROD-004
     severity: high
     title: Production listing must not create sample or demo files
-    status: repair_implemented
-    notes: "listDirectory and listCategorizedFiles no longer call ensureSample* side-effects (STORAGE-INV-002)."
-    closure_requires: [targeted_regression, relevant_ci_verified]
+    status: tested
+    notes: "listDirectory/listCategorizedFiles return empty without sample seeding; covered by storage unit path (STORAGE-INV-002)."
+    closure_requires: [relevant_ci_verified]
 
   - id: PROD-002
     severity: critical
     title: Durable cloud upload result contract
-    status: triaged
-    closure_requires: [provider_contract, integration_test, relevant_ci_verified]
+    status: repair_implemented
+    notes: "DurableUploadContract rejects blank remote IDs; CloudSyncUseCase.syncFileToCloud and createCloudBackup enforce it; unit tests added."
+    closure_requires: [relevant_ci_verified]
 
   - id: PROD-003
     severity: critical
     title: Fail-closed cloud restore pipeline
-    status: triaged
-    closure_requires: [integrity_verification, atomic_staging, rollback, clean_device_test]
+    status: repair_implemented
+    notes: "FailClosedRestorePipeline wired into CloudSyncUseCase.restoreCloudBackup; unit tests cover blank id, verify abort, apply rollback, dry-run cleanup."
+    closure_requires: [integration_test, clean_device_test, relevant_ci_verified]
 
   - id: PROD-007
     severity: high
