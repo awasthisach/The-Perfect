@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -96,7 +97,12 @@ class CpasVerifierTests(unittest.TestCase):
         }
         (self.root / "docs" / "assurance" / "evidence-ledger.json").write_text(json.dumps(ledger))
         risk = self.root / "docs" / "assurance" / "08-risk-register.yaml"
-        risk.write_text(risk.read_text().replace("status: triaged", "status: closed"))
+        # Close every finding status so the synthetic fixture isolates ledger/schema checks.
+        # Statuses evolve (triaged, repair_implemented, tested, ...); the test must not
+        # depend on a single lifecycle string.
+        risk_text = risk.read_text()
+        risk_text = re.sub(r"(?m)^(\s*status:\s*)\S+", r"\1closed", risk_text)
+        risk.write_text(risk_text)
         result = self.run_verifier()
         self.assertEqual(result.returncode, 0, result.stdout)
         status = json.loads((self.root / "cpas-status.json").read_text())
