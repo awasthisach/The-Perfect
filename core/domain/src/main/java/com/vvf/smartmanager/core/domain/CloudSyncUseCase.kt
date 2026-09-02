@@ -2,6 +2,9 @@ package com.vvf.smartmanager.core.domain
 
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
 import com.vvf.smartmanager.core.domain.backup.ArchiveService
+import com.vvf.smartmanager.core.domain.cloud.DurableUploadContract
+import com.vvf.smartmanager.core.domain.restore.RestorePipeline
+import com.vvf.smartmanager.core.domain.restore.RestoreResult
 import com.vvf.smartmanager.core.model.CloudAccount
 import com.vvf.smartmanager.core.model.CloudBackupInfo
 import com.vvf.smartmanager.core.model.CloudProviderType
@@ -22,7 +25,8 @@ import java.util.UUID
 class CloudSyncUseCase(
     private val googleDriveService: GoogleDriveService,
     private val pluginDrivers: Map<CloudProviderType, CloudDriverSPI> = emptyMap(),
-    private val archiveService: ArchiveService? = null
+    private val archiveService: ArchiveService? = null,
+    private val restorePipeline: RestorePipeline? = null
 ) {
 
     private val _syncState = MutableStateFlow(CloudSyncStatus.IDLE)
@@ -54,47 +58,27 @@ class CloudSyncUseCase(
                         isConnected = true,
                         usedBytes = quota.first,
                         totalBytes = quota.second,
-                        autoSyncEnabled = true
+                        autoSyncEnabled = false
                     )
                 },
                 onFailure = {
-                    CloudAccount(
-                        providerType = CloudProviderType.GOOGLE_DRIVE,
-                        displayName = "Google Drive",
-                        isConnected = false
-                    )
+                    CloudAccount(providerType = CloudProviderType.GOOGLE_DRIVE, isConnected = false)
                 }
             )
         } else {
             val driver = pluginDrivers[providerType]
             if (driver != null) {
-                runCatching { driver.getQuotaUsage() }.fold(
-                    onSuccess = { quota ->
-                        CloudAccount(
-                            providerType = providerType,
-                            displayName = driver.displayName,
-                            isConnected = true,
-                            usedBytes = quota.first,
-                            totalBytes = quota.second,
-                            autoSyncEnabled = false
-                        )
-                    },
-                    onFailure = {
-                        CloudAccount(
-                            providerType = providerType,
-                            displayName = driver.displayName,
-                            isConnected = false
-                        )
-                    }
-                )
-            } else {
+                val quota = driver.getStorageQuota()
                 CloudAccount(
                     providerType = providerType,
-                    displayName = providerType.displayName,
-                    isConnected = false,
-                    usedBytes = 0L,
-                    totalBytes = 0L
+                    displayName = driver.displayName,
+                    isConnected = true,
+                    usedBytes = quota.first,
+                    totalBytes = quota.second,
+                    autoSyncEnabled = false
                 )
+            } else {
+                CloudAccount(providerType = providerType, isConnected = false)
             }
         }
     }
@@ -155,8 +139,14 @@ class CloudSyncUseCase(
                     }
                     uploadResult.fold(
                         onSuccess = { remoteId ->
-                            _syncState.value = CloudSyncStatus.SUCCESS
-                            Result.success(artifact.backupInfo.copy(backupId = remoteId))
+                            try {
+                                val durableId = DurableUploadContract.requireDurableRemoteId(remoteId)
+                                _syncState.value = CloudSyncStatus.SUCCESS
+                                Result.success(artifact.backupInfo.copy(backupId = durableId))
+                            } catch (error: IllegalArgumentException) {
+                                _syncState.value = CloudSyncStatus.ERROR
+                                Result.failure(error)
+                            }
                         },
                         onFailure = { error ->
                             _syncState.value = CloudSyncStatus.ERROR
@@ -179,11 +169,34 @@ class CloudSyncUseCase(
     }
 
     suspend fun restoreCloudBackup(backupInfo: CloudBackupInfo): Result<Boolean> {
-        _syncState.value = CloudSyncStatus.ERROR
-        return Result.failure(
-            UnsupportedOperationException(
-                "Cloud restore is unavailable until archive download and verified local restore are implemented for ${backupInfo.backupName}."
+        val pipeline = restorePipeline
+        if (pipeline == null) {
+            _syncState.value = CloudSyncStatus.ERROR
+            return Result.failure(
+                UnsupportedOperationException(
+                    "Cloud restore is unavailable: no FailClosedRestorePipeline is configured for ${backupInfo.backupName}."
+                )
             )
+        }
+        if (backupInfo.backupId.isBlank()) {
+            _syncState.value = CloudSyncStatus.ERROR
+            return Result.failure(IllegalArgumentException("Backup id is blank; refusing restore"))
+        }
+        _syncState.value = CloudSyncStatus.DOWNLOADING
+        return pipeline.restore(backupInfo.backupId, backupInfo.checksumSha256).fold(
+            onSuccess = { result: RestoreResult ->
+                if (result.success) {
+                    _syncState.value = CloudSyncStatus.SUCCESS
+                    Result.success(true)
+                } else {
+                    _syncState.value = CloudSyncStatus.ERROR
+                    Result.failure(IllegalStateException(result.message.ifBlank { "Restore completed without success" }))
+                }
+            },
+            onFailure = { error ->
+                _syncState.value = CloudSyncStatus.ERROR
+                Result.failure(error)
+            }
         )
     }
 
@@ -194,7 +207,7 @@ class CloudSyncUseCase(
         _syncState.value = CloudSyncStatus.UPLOADING
         val itemId = UUID.randomUUID().toString()
         return try {
-            val remoteId = if (providerType == CloudProviderType.GOOGLE_DRIVE) {
+            val rawRemoteId = if (providerType == CloudProviderType.GOOGLE_DRIVE) {
                 googleDriveService.uploadFile(fileItem).getOrElse { throw it }
             } else {
                 val driver = pluginDrivers[providerType]
@@ -204,6 +217,7 @@ class CloudSyncUseCase(
                 }
                 "${providerType.name.lowercase()}:$itemId"
             }
+            val remoteId = DurableUploadContract.requireDurableRemoteId(rawRemoteId)
             val syncItem = CloudSyncItem(
                 id = itemId,
                 fileName = fileItem.name,
@@ -211,14 +225,14 @@ class CloudSyncUseCase(
                 remotePath = remoteId,
                 fileSize = fileItem.sizeBytes,
                 status = CloudSyncStatus.SUCCESS,
-                progress = 1.0f
+                progress = 1f
             )
-            _syncQueue.value = listOf(syncItem) + _syncQueue.value
+            _syncQueue.value = _syncQueue.value + syncItem
             _syncState.value = CloudSyncStatus.SUCCESS
             Result.success(syncItem)
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
-            val failedItem = CloudSyncItem(
+            val failed = CloudSyncItem(
                 id = itemId,
                 fileName = fileItem.name,
                 localPath = fileItem.path,
@@ -227,7 +241,7 @@ class CloudSyncUseCase(
                 status = CloudSyncStatus.ERROR,
                 errorMessage = error.message ?: "Cloud upload failed"
             )
-            _syncQueue.value = listOf(failedItem) + _syncQueue.value
+            _syncQueue.value = _syncQueue.value + failed
             _syncState.value = CloudSyncStatus.ERROR
             Result.failure(error)
         }
