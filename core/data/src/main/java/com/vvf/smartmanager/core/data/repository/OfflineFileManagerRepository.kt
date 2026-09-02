@@ -1,6 +1,7 @@
 package com.vvf.smartmanager.core.data.repository
 
 import com.vvf.smartmanager.core.data.FileManagerRepository
+import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
 import com.vvf.smartmanager.core.data.storage.StorageManager
 import com.vvf.smartmanager.core.database.dao.FileDao
 import com.vvf.smartmanager.core.database.dao.SearchFtsDao
@@ -21,11 +22,13 @@ import kotlinx.coroutines.withContext
 
 /**
  * Concrete repository mediating local database indexes and physical storage access.
+ * PROD-007: optional [storagePermissionGate] refuses listing without adequate OS grants.
  */
 class OfflineFileManagerRepository(
     private val storageManager: StorageManager,
     private val fileDao: FileDao,
-    private val searchFtsDao: SearchFtsDao
+    private val searchFtsDao: SearchFtsDao,
+    private val storagePermissionGate: StoragePermissionGate? = null
 ) : FileManagerRepository {
 
     override fun getDefaultStoragePath(): String {
@@ -37,6 +40,7 @@ class OfflineFileManagerRepository(
         sortOption: FileSortOption,
         showHidden: Boolean
     ): Flow<List<FileItem>> = flow {
+        storagePermissionGate?.requireBrowsePrimaryTree()
         val files = storageManager.listDirectory(directoryPath, sortOption, showHidden)
         emit(files)
     }.flowOn(Dispatchers.IO)
@@ -63,6 +67,7 @@ class OfflineFileManagerRepository(
         } else if (category == FileCategory.TRASH) {
             emit(storageManager.getTrashFiles())
         } else {
+            storagePermissionGate?.requireListMedia()
             val list = storageManager.listCategorizedFiles(category, sortOption)
             emit(list)
         }
@@ -162,7 +167,6 @@ class OfflineFileManagerRepository(
             val allToDelete = (selectedDuplicatePaths + selectedJunkPaths).distinct()
 
             for (path in allToDelete) {
-                // Audit Fix (H-12): Route physical deletion through StorageManager
                 val size = storageManager.getFileSize(path)
                 val deleted = storageManager.deleteSafely(path)
                 if (deleted.isSuccess) {
