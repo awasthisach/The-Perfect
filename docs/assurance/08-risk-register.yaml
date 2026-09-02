@@ -5,7 +5,8 @@ open_findings:
   - id: PROD-001
     severity: high
     title: Storage boundary must fail closed
-    status: triaged
+    status: repair_implemented
+    notes: "requireAllowedPhysicalPath now fails closed on empty roots; pure helper isPathWithinApprovedRoots + StorageBoundaryTest (STORAGE-INV-001)"
     closure_requires: [root_cause_verified, targeted_regression, relevant_ci_verified]
 
   - id: PROD-002
