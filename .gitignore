@@ -24,6 +24,7 @@ local.properties
 *.bin
 __pycache__/
 *.py[cod]
+/cpas-status.json
 *$py.class
 *.log
 node_modules/

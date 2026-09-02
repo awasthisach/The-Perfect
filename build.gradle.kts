@@ -21,3 +21,9 @@ subprojects {
   }
 }
 
+tasks.register<Exec>("cpasVerify") {
+  group = "cpas"
+  description = "Validate CPAS assurance contracts and emit cpas-status.json"
+  commandLine("python3", file("tools/audit/cpas_verify.py").absolutePath, "--root", rootDir.absolutePath)
+}
+

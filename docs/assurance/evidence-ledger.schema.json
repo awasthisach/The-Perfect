@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/awasthisach/The-Perfect/blob/main/docs/assurance/evidence-ledger.schema.json",
+  "title": "CPAS Evidence Ledger",
+  "type": "object",
+  "required": ["schema_version", "entries", "policy"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+    "entries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evidenceEntry" }
+    },
+    "policy": {
+      "type": "object",
+      "required": ["status_values", "production_rule"],
+      "additionalProperties": false,
+      "properties": {
+        "status_values": {
+          "type": "array",
+          "const": ["pending", "verified", "failed"]
+        },
+        "production_rule": { "type": "string", "minLength": 1 }
+      }
+    }
+  },
+  "$defs": {
+    "evidenceEntry": {
+      "type": "object",
+      "required": [
+        "id", "control_id", "test_id", "source_commit", "ci_run_id",
+        "ci_job_id", "executed_at", "result", "environment", "expires_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^EVID-[0-9]{3,}$" },
+        "control_id": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$" },
+        "test_id": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$" },
+        "source_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "ci_run_id": { "type": "string", "minLength": 1 },
+        "ci_job_id": { "type": "string", "minLength": 1 },
+        "executed_at": { "type": "string", "format": "date-time" },
+        "result": { "type": "string", "enum": ["PASS", "FAIL"] },
+        "environment": { "type": "string", "minLength": 1 },
+        "artifact": { "type": "string", "minLength": 1 },
+        "artifact_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "reviewer": { "type": "string", "minLength": 1 },
+        "expires_at": { "type": "string", "format": "date-time" },
+        "notes": { "type": "string" }
+      }
+    }
+  }
+}

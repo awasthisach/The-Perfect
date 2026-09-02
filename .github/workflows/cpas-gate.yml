@@ -18,28 +18,25 @@ jobs:
   cpas-verify:
     name: CPAS Verify (fail-closed)
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verifier self-test
-        run: python3 tools/audit/cpas_verify.py --self-test
+      - name: Verify Python
+        run: python3 --version
 
-      - name: Verify CPAS
-        id: verify
-        shell: bash
-        run: |
-          set +e
-          python3 tools/audit/cpas_verify.py
-          rc=$?
-          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
-          exit $rc
+      - name: Run verifier self-tests
+        run: python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
+
+      - name: Run semantic CPAS verification
+        run: python3 tools/audit/cpas_verify.py --root .
 
       - name: Upload computed CPAS status
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cpas-status
+          name: cpas-status-${{ github.sha }}
           path: cpas-status.json
           if-no-files-found: error
           retention-days: 14

@@ -1,0 +1,59 @@
+schema_version: "1.0"
+status: TARGET
+gates:
+  - id: GATE-CONSTITUTION-001
+    name: constitution_and_schema
+    owner: assurance
+    command: python3 tools/audit/cpas_verify.py --root .
+    threshold: verifier exits 0 for structural and semantic checks
+    evidence: cpas-status.json
+    blocking: true
+  - id: GATE-UNIT-001
+    name: unit_tests
+    owner: engineering
+    command: ./gradlew --no-daemon testDebugUnitTest --stacktrace
+    threshold: all required unit tests pass; no skipped required tests
+    evidence: "**/build/reports/tests/**"
+    blocking: true
+  - id: GATE-LINT-001
+    name: android_lint
+    owner: engineering
+    command: ./gradlew --no-daemon lintDebug --stacktrace
+    threshold: no new blocking lint errors
+    evidence: "**/build/reports/lint-results-*.html"
+    blocking: true
+  - id: GATE-BUILD-001
+    name: debug_build
+    owner: release
+    command: ./gradlew --no-daemon assembleDebug --stacktrace
+    threshold: expected debug artifact exists and is non-empty
+    evidence: "**/build/outputs/apk/debug/*.apk"
+    blocking: true
+  - id: GATE-SQLCIPHER-001
+    name: sqlcipher_compatibility
+    owner: data-security
+    command: ./gradlew --no-daemon :core:database:connectedDebugAndroidTest --stacktrace
+    threshold: compatibility fixture and wrong-key rejection tests pass on API 35
+    evidence: "**/build/reports/androidTests/**"
+    blocking: true
+  - id: GATE-LICENSE-001
+    name: license_compliance
+    owner: supply-chain
+    command: fossa analyze
+    threshold: scan is executed and policy result is recorded; missing credentials are BLOCKED for release
+    evidence: fossa report
+    blocking: true
+  - id: GATE-RELEASE-001
+    name: signed_release_identity
+    owner: release
+    command: ./gradlew --no-daemon assembleRelease --stacktrace
+    threshold: signed artifact, certificate fingerprint, SHA-256, SBOM, and provenance are retained
+    evidence: release artifact bundle
+    blocking: true
+
+policy:
+  skipped_or_cached_required_gate: BLOCKED
+  failed_required_gate: BLOCKED
+  missing_evidence: BLOCKED
+  expired_evidence: BLOCKED
+  unknown_gate_id: BLOCKED

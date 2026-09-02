@@ -1,0 +1,40 @@
+schema_version: "1.0"
+status: TARGET
+id_grammar: "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$"
+requirements:
+  - id: REQ-STORAGE-001
+    statement: Approved-root discovery failure must not broaden filesystem access.
+    controls: [STORAGE-INV-001]
+    implementation_refs: [core/data/src/main]
+    test_refs: [core/data/src/test]
+    ci_job_refs: [unit-tests, cpas-verify]
+  - id: REQ-STORAGE-002
+    statement: Production file listing must not create sample or demo files.
+    controls: [STORAGE-INV-002]
+    implementation_refs: [core/data/src/main]
+    test_refs: [core/data/src/test]
+    ci_job_refs: [unit-tests, cpas-verify]
+  - id: REQ-DB-001
+    statement: Encrypted persistence must reject wrong keys and must not silently downgrade.
+    controls: [DB-INV-001]
+    implementation_refs: [core/database/src/main]
+    test_refs: [core/database/src/androidTest]
+    ci_job_refs: [sqlcipher-instrumentation, cpas-verify]
+  - id: REQ-RESTORE-001
+    statement: Corrupt or incomplete cloud data must not replace valid local state.
+    controls: [RESTORE-INV-001]
+    implementation_refs: [core/domain/src/main, core/cloud-gdrive/src/main]
+    test_refs: [core/domain/src/test, core/cloud-gdrive/src/test]
+    ci_job_refs: [unit-tests, cpas-verify]
+  - id: REQ-WORK-001
+    statement: Retried background work must preserve durable state and avoid duplicate terminal effects.
+    controls: [WORK-INV-001]
+    implementation_refs: [core/background/src/main]
+    test_refs: [core/background/src/test]
+    ci_job_refs: [unit-tests, cpas-verify]
+
+rules:
+  requirement_requires_control: true
+  control_requires_positive_and_negative_tests: true
+  release_claim_requires_ci_evidence: true
+  unresolved_references_are_blocking: true
