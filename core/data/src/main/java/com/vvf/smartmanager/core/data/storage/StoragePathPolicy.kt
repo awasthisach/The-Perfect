@@ -37,9 +37,9 @@ object StoragePathPolicy {
         }
     }
 
-    // Local alias to avoid importing java.io.File at call sites that only need separator
+    // Local alias — must be val (not const val): java.io.File.separator is not a compile-time constant
     private object File {
-        const val separator: String = java.io.File.separator
-        const val separatorChar: Char = java.io.File.separatorChar
+        val separator: String = java.io.File.separator
+        val separatorChar: Char = java.io.File.separatorChar
     }
 }
