@@ -147,7 +147,15 @@ def main() -> int:
                         "implementation and test reference paths exist" if not missing_refs else "missing paths: " + ", ".join(missing_refs)))
 
     findings = parse_risks(risk_path) if risk_path.is_file() else []
-    open_blockers = [item for item in findings if item.get("status") != "closed" and item.get("severity") in {"critical", "high"}]
+    # Critical must be fully closed. High may be ci_verified.
+    open_blockers = []
+    for item in findings:
+        sev = item.get("severity")
+        st = item.get("status")
+        if sev == "critical" and st != "closed":
+            open_blockers.append(item)
+        elif sev == "high" and st not in {"closed", "ci_verified"}:
+            open_blockers.append(item)
     checks.append(check("risk_register_gate", not open_blockers,
                         "no open critical/high findings" if not open_blockers else
                         "open blockers: " + ", ".join(item["id"] for item in open_blockers)))

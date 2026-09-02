@@ -106,3 +106,23 @@ class StorageBoundaryTest {
         )
     }
 }
+
+    @Test
+    fun blankAndNullBytePaths_areDenied() {
+        val roots = listOf("/data/user/0/com.vvf.smartmanager/files")
+        assertFalse(StoragePathPolicy.isPathWithinApprovedRoots("", roots))
+        assertFalse(StoragePathPolicy.isPathWithinApprovedRoots("   ", roots))
+        assertFalse(StoragePathPolicy.isPathWithinApprovedRoots("/data/user/0/com.vvf.smartmanager/files\u0000evil", roots))
+    }
+
+    @Test
+    fun rootPrefixConfusion_isDenied() {
+        // /files vs /files_extra must not match by naive prefix
+        val roots = listOf("/data/user/0/com.vvf.smartmanager/files")
+        assertFalse(
+            StoragePathPolicy.isPathWithinApprovedRoots(
+                "/data/user/0/com.vvf.smartmanager/files_extra/secret",
+                roots
+            )
+        )
+    }

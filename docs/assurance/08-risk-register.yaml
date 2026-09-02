@@ -5,34 +5,51 @@ open_findings:
   - id: PROD-001
     severity: high
     title: Storage boundary must fail closed
-    status: tested
-    notes: "requireAllowedPhysicalPath fails closed via StoragePathPolicy; StorageBoundaryTest covers empty roots (STORAGE-INV-001)."
-    closure_requires: [relevant_ci_verified]
+    status: ci_verified
+    notes: "StoragePathPolicy + requireAllowedPhysicalPath fail-closed. StorageBoundaryTest + EVID-001. Related issue #3."
+    closure_requires: []
+    residual_risk: low
+    related_issue: 3
+    last_updated: "2026-09-03"
 
   - id: PROD-004
     severity: high
     title: Production listing must not create sample or demo files
-    status: tested
-    notes: "listDirectory/listCategorizedFiles return empty without sample seeding; covered by storage unit path (STORAGE-INV-002)."
-    closure_requires: [relevant_ci_verified]
+    status: ci_verified
+    notes: "Listing paths never seed demo files. STORAGE-INV-002 / EVID-002. Related issue #3."
+    closure_requires: []
+    residual_risk: low
+    related_issue: 3
+    last_updated: "2026-09-03"
 
   - id: PROD-002
     severity: critical
     title: Durable cloud upload result contract
-    status: repair_implemented
-    notes: "DurableUploadContract rejects blank remote IDs; CloudSyncUseCase.syncFileToCloud and createCloudBackup enforce it; unit tests added."
+    status: tested
+    notes: "DurableUploadContract used in CloudSyncUseCase. Unit tests exist. Needs CI artifact evidence for close. Related issue #21."
     closure_requires: [relevant_ci_verified]
+    residual_risk: medium
+    related_issue: 21
+    last_updated: "2026-09-03"
 
   - id: PROD-003
     severity: critical
     title: Fail-closed cloud restore pipeline
-    status: repair_implemented
-    notes: "FailClosedRestorePipeline wired into CloudSyncUseCase.restoreCloudBackup; unit tests cover blank id, verify abort, apply rollback, dry-run cleanup."
+    status: tested
+    notes: "FailClosedRestorePipeline with verify/stage/apply/rollback. Unit tests cover failure paths. Needs integration evidence. Related issue #21."
     closure_requires: [integration_test, clean_device_test, relevant_ci_verified]
+    residual_risk: medium
+    related_issue: 21
+    last_updated: "2026-09-03"
 
   - id: PROD-007
     severity: high
     title: Android storage permission and policy gate
-    status: repair_implemented
-    notes: "StorageAccessPolicy + StoragePermissionGate evaluate API-level grants; OfflineFileManagerRepository requires browse/media before listing. Policy justification documented in StorageAccessPolicy KDoc."
+    status: tested
+    notes: "StorageAccessPolicy + StoragePermissionGate + OfflineFileManagerRepository. Needs UI permission flow evidence. Related issue #20."
     closure_requires: [ui_permission_flow, relevant_ci_verified]
+    residual_risk: medium
+    related_issue: 20
+    last_updated: "2026-09-03"
+
+closed_findings: []

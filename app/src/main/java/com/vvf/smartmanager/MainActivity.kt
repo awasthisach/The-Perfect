@@ -10,6 +10,10 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import com.vvf.smartmanager.R
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -102,20 +106,14 @@ fun VVFAppContent() {
                     containerColor = MaterialTheme.colorScheme.surface,
                     contentColor = MaterialTheme.colorScheme.onSurface,
                     header = {
-                        Surface(
-                            shape = CircleShape,
-                            color = BhagwaOrange.copy(alpha = 0.15f),
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_vvf_foundation_logo),
+                            contentDescription = "Vishva Vijayaa Foundation",
+                            contentScale = ContentScale.Fit,
                             modifier = Modifier
                                 .padding(vertical = 12.dp)
-                                .size(44.dp)
-                        ) {
-                            Icon(
-                                imageVector = TopLevelDestination.EXPLORER.selectedIcon,
-                                contentDescription = "VVF Smart Manager",
-                                tint = BhagwaOrange,
-                                modifier = Modifier.padding(10.dp)
-                            )
-                        }
+                                .size(52.dp)
+                        )
                     },
                     modifier = Modifier.fillMaxHeight().testTag("tablet_nav_rail")
                 ) {

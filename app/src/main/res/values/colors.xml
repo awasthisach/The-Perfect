@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="bhagwa_orange">#F47B20</color>
-    <color name="cosmic_blue">#102B52</color>
-    <color name="emerald_green">#3FA34D</color>
-    <color name="sky_cyan">#5BC0EB</color>
+    <color name="fire_accent">#E85D04</color>
+    <color name="cosmic_blue">#0B1F3A</color>
+    <color name="deep_navy">#0A1628</color>
     <color name="soft_gold">#D4A95A</color>
+    <color name="bright_gold">#F1B84A</color>
+    <color name="emerald_green">#3FA34D</color>
+    <color name="leaf_green">#2D6A4F</color>
+    <color name="sky_cyan">#5BC0EB</color>
+    <color name="cosmic_purple">#5B4B8A</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 </resources>

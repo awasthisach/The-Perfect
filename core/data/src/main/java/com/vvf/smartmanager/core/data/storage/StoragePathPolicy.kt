@@ -2,7 +2,13 @@ package com.vvf.smartmanager.core.data.storage
 
 /**
  * Pure storage-boundary policy (STORAGE-INV-001 / PROD-001).
- * Empty approved roots must fail closed and never broaden filesystem access.
+ *
+ * Fail-closed rules:
+ * - Empty approved roots → deny everything
+ * - Candidate must be exactly a root or a strict descendant (separator-aware)
+ * - Null bytes and empty paths are rejected by callers via requireAllowedPhysicalPath
+ *
+ * Callers must pass already-canonical absolute paths (File.canonicalFile.absolutePath).
  */
 object StoragePathPolicy {
 
@@ -10,10 +16,16 @@ object StoragePathPolicy {
         candidateAbsolutePath: String,
         approvedRootAbsolutePaths: List<String>
     ): Boolean {
+        if (candidateAbsolutePath.isBlank()) return false
         if (approvedRootAbsolutePaths.isEmpty()) return false
-        return approvedRootAbsolutePaths.any { root ->
-            candidateAbsolutePath == root ||
-                candidateAbsolutePath.startsWith(root + java.io.File.separator)
+        // Reject embedded nulls (defense in depth; canonical paths should not contain them)
+        if (candidateAbsolutePath.indexOf('\u0000') >= 0) return false
+
+        val candidate = candidateAbsolutePath.trimEnd(File.separatorChar)
+        return approvedRootAbsolutePaths.any { rootRaw ->
+            val root = rootRaw.trimEnd(File.separatorChar)
+            if (root.isEmpty()) return@any false
+            candidate == root || candidate.startsWith(root + File.separator)
         }
     }
 
@@ -23,5 +35,11 @@ object StoragePathPolicy {
         } else {
             "Access denied: Path '$path' is outside approved storage boundaries"
         }
+    }
+
+    // Local alias to avoid importing java.io.File at call sites that only need separator
+    private object File {
+        const val separator: String = java.io.File.separator
+        const val separatorChar: Char = java.io.File.separatorChar
     }
 }

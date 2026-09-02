@@ -16,18 +16,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-// Modern Google Pixel / Material You Dark Color Scheme
 private val DarkColorScheme = darkColorScheme(
-    primary = GoogleBlueDark,
-    onPrimary = Color(0xFF041E49),
-    primaryContainer = Color(0xFF0842A0),
-    onPrimaryContainer = Color(0xFFD3E3FD),
-    secondary = GoogleCyanDark,
+    primary = BhagwaOrange,
+    onPrimary = Color(0xFF1A0A00),
+    primaryContainer = Color(0xFF5C2E00),
+    onPrimaryContainer = Color(0xFFFFDCC2),
+    secondary = SkyCyan,
     onSecondary = Color(0xFF00363D),
     secondaryContainer = Color(0xFF004F58),
     onSecondaryContainer = Color(0xFFC2E7FF),
-    tertiary = GoogleYellowDark,
-    onTertiary = Color(0xFF3F2E00),
+    tertiary = SoftGold,
+    onTertiary = Color(0xFF2A1A00),
     tertiaryContainer = Color(0xFF5B3F00),
     onTertiaryContainer = Color(0xFFFEF7E0),
     background = DarkBackground,
@@ -46,20 +45,19 @@ private val DarkColorScheme = darkColorScheme(
     onErrorContainer = Color(0xFFF9DEDC)
 )
 
-// Modern Google Material 3 Light Color Scheme (Clean Google Whites & Blues)
 private val LightColorScheme = lightColorScheme(
-    primary = Color(0xFF0B57D0), // Google Blue 700
+    primary = BhagwaOrange,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFD3E3FD), // Google Blue 100
-    onPrimaryContainer = Color(0xFF041E49),
+    primaryContainer = Color(0xFFFFDCC2),
+    onPrimaryContainer = Color(0xFF2E1500),
     secondary = Color(0xFF00639B),
     onSecondary = Color.White,
     secondaryContainer = Color(0xFFC2E7FF),
     onSecondaryContainer = Color(0xFF001D35),
-    tertiary = Color(0xFF904D00),
-    onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFFFDCC2),
-    onTertiaryContainer = Color(0xFF2E1500),
+    tertiary = SoftGold,
+    onTertiary = Color(0xFF2A1A00),
+    tertiaryContainer = Color(0xFFFFE8B0),
+    onTertiaryContainer = Color(0xFF2A1A00),
     background = LightBackground,
     onBackground = TextPrimaryLight,
     surface = LightSurface,
@@ -79,7 +77,7 @@ private val LightColorScheme = lightColorScheme(
 @Composable
 fun VVFSmartManagerTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true, // Enable dynamic color on Android 12+ (Google Pixel Material You)
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {
@@ -90,7 +88,6 @@ fun VVFSmartManagerTheme(
         darkTheme -> DarkColorScheme
         else -> LightColorScheme
     }
-
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
@@ -99,7 +96,6 @@ fun VVFSmartManagerTheme(
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
         }
     }
-
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography,
