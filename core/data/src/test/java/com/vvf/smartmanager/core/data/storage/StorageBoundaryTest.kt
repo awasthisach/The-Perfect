@@ -86,4 +86,25 @@ class StorageBoundaryTest {
             )
         )
     }
+
+    @Test
+    fun emptyRoots_neverAllowAbsoluteRoot() {
+        assertFalse(
+            StorageManager.isPathWithinApprovedRoots("/", emptyList())
+        )
+        assertFalse(
+            StorageManager.isPathWithinApprovedRoots("/data", emptyList())
+        )
+    }
+
+    @Test
+    fun rootPrefixMustNotMatchPartialName() {
+        val roots = listOf("/data/user/0/com.vvf.smartmanager/files")
+        assertFalse(
+            StorageManager.isPathWithinApprovedRoots(
+                "/data/user/0/com.vvf.smartmanager/files_extra/secret",
+                roots
+            )
+        )
+    }
 }

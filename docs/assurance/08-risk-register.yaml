@@ -6,8 +6,15 @@ open_findings:
     severity: high
     title: Storage boundary must fail closed
     status: repair_implemented
-    notes: "requireAllowedPhysicalPath now fails closed on empty roots; pure helper isPathWithinApprovedRoots + StorageBoundaryTest (STORAGE-INV-001)"
+    notes: "requireAllowedPhysicalPath fails closed on empty roots; isPathWithinApprovedRoots + StorageBoundaryTest (STORAGE-INV-001). Code fix in StorageManager.kt."
     closure_requires: [root_cause_verified, targeted_regression, relevant_ci_verified]
+
+  - id: PROD-004
+    severity: high
+    title: Production listing must not create sample or demo files
+    status: repair_implemented
+    notes: "listDirectory and listCategorizedFiles no longer call ensureSample* side-effects (STORAGE-INV-002)."
+    closure_requires: [targeted_regression, relevant_ci_verified]
 
   - id: PROD-002
     severity: critical

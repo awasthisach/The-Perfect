@@ -10,7 +10,8 @@ invariants:
   - id: STORAGE-INV-002
     domain: data_integrity
     statement: Production file listing must not create sample or demo files as a side effect.
-    required_tests: [empty_directory, unreadable_directory, production_read_path]
+    required_tests: [empty_directory, unreadable_directory, production_read_path, StorageBoundaryTest]
+    notes: "listDirectory returns emptyList for missing dirs; listCategorizedFiles does not inject sample FileItems."
 
   - id: DB-INV-001
     domain: confidentiality
