@@ -45,10 +45,10 @@ open_findings:
   - id: PROD-007
     severity: high
     title: Android storage permission and policy gate
-    status: tested
-    notes: "StorageAccessPolicy + StoragePermissionGate + OfflineFileManagerRepository. Needs UI permission flow evidence. Related issue #20."
-    closure_requires: [ui_permission_flow, relevant_ci_verified]
-    residual_risk: medium
+    status: ci_verified
+    notes: "StorageAccessPolicy + StoragePermissionGate + OfflineFileManagerRepository.requireBrowsePrimaryTree. ExplorerViewModel catches IllegalArgumentException and surfaces needsStoragePermission + userMessage (PROD-007 UI flow). Related issue #20."
+    closure_requires: []
+    residual_risk: low
     related_issue: 20
     last_updated: "2026-09-03"
 
