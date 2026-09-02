@@ -39,5 +39,4 @@ dependencies {
   androidTestImplementation(libs.androidx.junit)
   androidTestImplementation(libs.androidx.runner)
   androidTestImplementation(libs.androidx.core)
-  androidTestImplementation(libs.sqlcipher.android.compat)
 }

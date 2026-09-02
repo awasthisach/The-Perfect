@@ -44,7 +44,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y build-essential libssl-dev tcl-dev zlib1g-dev
-          mkdir -p core/database/src/androidTest/assets
+          mkdir -p core/database-compat/src/androidTest/assets
           curl -fsSL https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz -o /tmp/sqlcipher-4.5.4.tar.gz
           tar -xzf /tmp/sqlcipher-4.5.4.tar.gz -C /tmp
           cd /tmp/sqlcipher-4.5.4
@@ -52,8 +52,8 @@ jobs:
           make -j2
           test -x ./sqlcipher
           ./sqlcipher :memory: "PRAGMA cipher_version;"
-          printf '%s\n' "PRAGMA key = 'vvf-sqlcipher-compatibility-test';" "CREATE TABLE compatibility_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL);" "INSERT INTO compatibility_test (id, value) VALUES (1, 'legacy-4.5.4');" ".quit" | ./sqlcipher "$GITHUB_WORKSPACE/core/database/src/androidTest/assets/legacy-4.5.4.db"
-          test -s "$GITHUB_WORKSPACE/core/database/src/androidTest/assets/legacy-4.5.4.db"
+          printf '%s\n' "PRAGMA key = 'vvf-sqlcipher-compatibility-test';" "CREATE TABLE compatibility_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL);" "INSERT INTO compatibility_test (id, value) VALUES (1, 'legacy-4.5.4');" ".quit" | ./sqlcipher "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
+          test -s "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
       - name: Verify Gradle wrapper
         run: ./gradlew --no-daemon --version
       - name: Run unit tests
@@ -96,7 +96,7 @@ jobs:
           adb shell settings put global animator_duration_scale 0
           adb devices
       - name: Run SQLCipher compatibility instrumentation test
-        run: ./gradlew --no-daemon :core:database:connectedDebugAndroidTest --stacktrace
+        run: ./gradlew --no-daemon :core:database-compat:connectedDebugAndroidTest --stacktrace
       - name: Collect Android emulator diagnostics
         if: failure()
         run: |
