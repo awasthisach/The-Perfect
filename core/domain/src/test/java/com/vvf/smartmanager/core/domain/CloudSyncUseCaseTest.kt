@@ -1,15 +1,33 @@
 package com.vvf.smartmanager.core.domain
 
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
+import com.vvf.smartmanager.core.domain.restore.AppliedRestore
+import com.vvf.smartmanager.core.domain.restore.BackupDecryptor
+import com.vvf.smartmanager.core.domain.restore.BackupDownloader
+import com.vvf.smartmanager.core.domain.restore.BackupVerifier
+import com.vvf.smartmanager.core.domain.restore.DecryptedBackup
+import com.vvf.smartmanager.core.domain.restore.DownloadedArtifact
+import com.vvf.smartmanager.core.domain.restore.FailClosedRestorePipeline
+import com.vvf.smartmanager.core.domain.restore.RestoreApplier
+import com.vvf.smartmanager.core.domain.restore.RestoreSnapshot
+import com.vvf.smartmanager.core.domain.restore.VerifiedArtifact
+import com.vvf.smartmanager.core.model.CloudBackupInfo
 import com.vvf.smartmanager.core.model.CloudProviderType
+import com.vvf.smartmanager.core.model.CloudSyncStatus
 import com.vvf.smartmanager.core.model.FileItem
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.File
 
 class CloudSyncUseCaseTest {
+    @get:Rule
+    val temp = TemporaryFolder()
+
     private class FakeDriveService(
         private val uploadResult: Result<String> = Result.success("drive-file-id")
     ) : GoogleDriveService {
@@ -30,17 +48,17 @@ class CloudSyncUseCaseTest {
     )
 
     @Test
-    fun backupAndRestoreFailClosedUntilArchivePipelineExists() = runBlocking {
+    fun backupAndRestoreFailClosedUntilPipelinesConfigured() = runBlocking {
         val useCase = CloudSyncUseCase(FakeDriveService())
 
         val backup = useCase.createCloudBackup(CloudProviderType.GOOGLE_DRIVE)
         val restore = useCase.restoreCloudBackup(
-            com.vvf.smartmanager.core.model.CloudBackupInfo("id", 1L, "backup.vvfbak", 1L)
+            CloudBackupInfo("id", 1L, "backup.vvfbak", 1L)
         )
 
         assertTrue(backup.isFailure)
         assertTrue(restore.isFailure)
-        assertEquals(com.vvf.smartmanager.core.model.CloudSyncStatus.ERROR, useCase.syncState.value)
+        assertEquals(CloudSyncStatus.ERROR, useCase.syncState.value)
     }
 
     @Test
@@ -51,7 +69,21 @@ class CloudSyncUseCaseTest {
 
         assertTrue(result.isSuccess)
         assertEquals("remote-123", result.getOrThrow().remotePath)
-        assertEquals(com.vvf.smartmanager.core.model.CloudSyncStatus.SUCCESS, useCase.syncState.value)
+        assertEquals(CloudSyncStatus.SUCCESS, useCase.syncState.value)
+    }
+
+    @Test
+    fun blankRemoteIdIsRejectedAsNonDurable() = runBlocking {
+        val useCase = CloudSyncUseCase(FakeDriveService(Result.success("   ")))
+
+        val result = useCase.syncFileToCloud(sampleFile)
+
+        assertFalse(result.isSuccess)
+        assertEquals(CloudSyncStatus.ERROR, useCase.syncState.value)
+        assertTrue(
+            result.exceptionOrNull()?.message?.contains("blank remote identifier") == true ||
+                result.exceptionOrNull() is IllegalArgumentException
+        )
     }
 
     @Test
@@ -61,8 +93,45 @@ class CloudSyncUseCaseTest {
         val result = useCase.syncFileToCloud(sampleFile)
 
         assertFalse(result.isSuccess)
-        assertEquals(com.vvf.smartmanager.core.model.CloudSyncStatus.ERROR, useCase.syncState.value)
-        assertEquals(com.vvf.smartmanager.core.model.CloudSyncStatus.ERROR, useCase.syncQueue.value.first().status)
+        assertEquals(CloudSyncStatus.ERROR, useCase.syncState.value)
+        assertEquals(CloudSyncStatus.ERROR, useCase.syncQueue.value.first().status)
         assertEquals("unauthorized", useCase.syncQueue.value.first().errorMessage)
+    }
+
+    @Test
+    fun restoreUsesInjectedFailClosedPipeline() = runBlocking {
+        val info = CloudBackupInfo("remote-1", 1L, "backup.vvfbak", 10L, checksumSha256 = "abc")
+        val pipeline = FailClosedRestorePipeline(
+            workingDir = temp.newFolder("restore-work"),
+            downloader = object : BackupDownloader {
+                override suspend fun download(remoteBackupId: String) = Result.success(
+                    DownloadedArtifact(temp.newFile("art"), info, "abc")
+                )
+            },
+            verifier = object : BackupVerifier {
+                override suspend fun verify(artifact: DownloadedArtifact, expectedChecksum: String?) =
+                    Result.success(VerifiedArtifact(artifact.file, info, "abc"))
+            },
+            decryptor = object : BackupDecryptor {
+                override suspend fun decrypt(verifiedArtifact: VerifiedArtifact, stagingDir: File) =
+                    Result.success(
+                        DecryptedBackup(stagingDir, temp.newFile("db"), temp.newFolder("vault"), info, 1L)
+                    )
+            },
+            applier = object : RestoreApplier {
+                override suspend fun prepare() = Result.success(
+                    RestoreSnapshot("s1", 1L, temp.newFile("sdb"), temp.newFolder("sv"))
+                )
+                override suspend fun apply(decryptedBackup: DecryptedBackup) =
+                    Result.success(AppliedRestore(true, 2, 1, "restored"))
+                override suspend fun rollback(snapshot: RestoreSnapshot) = Result.success(Unit)
+            }
+        )
+        val useCase = CloudSyncUseCase(FakeDriveService(), restorePipeline = pipeline)
+
+        val result = useCase.restoreCloudBackup(info)
+
+        assertTrue(result.isSuccess)
+        assertEquals(CloudSyncStatus.SUCCESS, useCase.syncState.value)
     }
 }
