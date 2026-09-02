@@ -44,9 +44,8 @@ import com.vvf.smartmanager.plugin.clouddrivers.LocalNasDriverImpl
 import com.vvf.smartmanager.plugin.clouddrivers.NextCloudDriverImpl
 import com.vvf.smartmanager.plugin.clouddrivers.OneDriveDriverImpl
 import com.vvf.smartmanager.plugin.clouddrivers.S3StorageDriverImpl
-import com.vvf.smartmanager.plugin.ocr.OcrEnginePlugin
 import com.vvf.smartmanager.plugin.ocr.OcrPluginImpl
-import com.vvf.smartmanager.plugin.semanticsearch.SemanticSearchPluginImpl
+import com.vvf.smartmanager.plugin.semantic.SemanticSearchPluginImpl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -54,124 +53,58 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * Root Application entry point.
- *
- * The application currently uses its explicit/manual dependency graph. Hilt
- * migration is deferred until individual providers are migrated and verified,
- * preventing a half-migrated graph from changing runtime behavior.
+ * Application-level composition for VVF Smart Manager.
+ * Storage listing is gated by [AppCompositionRoot] permission policy (PROD-007).
+ * Cloud restore uses fail-closed pipeline wiring (PROD-003).
  */
 class VVFApplication : Application() {
 
-    lateinit var cryptoSecurityManager: CryptoSecurityManager
-        private set
-    lateinit var database: VVFDatabase
-        private set
-    lateinit var storageManager: StorageManager
-        private set
-    lateinit var fileManagerRepository: OfflineFileManagerRepository
-        private set
-    lateinit var vaultRepository: SecureVaultRepository
-        private set
-    lateinit var searchRepository: OfflineSearchRepository
-        private set
-    lateinit var backgroundSyncManager: BackgroundSyncManager
-        private set
-    lateinit var getStorageOverviewUseCase: GetStorageOverviewUseCase
-        private set
-    lateinit var getDirectoryFilesUseCase: GetDirectoryFilesUseCase
-        private set
-    lateinit var getCategorizedFilesUseCase: GetCategorizedFilesUseCase
-        private set
-    lateinit var fileOperationsUseCase: FileOperationsUseCase
-        private set
-    lateinit var recycleBinUseCase: RecycleBinUseCase
-        private set
-    lateinit var duplicateCleanerUseCase: DuplicateCleanerUseCase
-        private set
-    lateinit var junkCleanerUseCase: JunkCleanerUseCase
-        private set
-    lateinit var getVaultItemsUseCase: GetVaultItemsUseCase
-        private set
-    lateinit var lockFileInVaultUseCase: LockFileInVaultUseCase
-        private set
-    lateinit var restoreVaultItemUseCase: RestoreVaultItemUseCase
-        private set
-    lateinit var exportVaultItemUseCase: ExportVaultItemUseCase
-        private set
-    lateinit var deleteVaultItemUseCase: DeleteVaultItemUseCase
-        private set
-    lateinit var vaultAuthUseCase: VaultAuthUseCase
-        private set
-    lateinit var searchFilesUseCase: SearchFilesUseCase
-        private set
-    lateinit var searchHistoryUseCase: SearchHistoryUseCase
-        private set
-    lateinit var tagManagementUseCase: TagManagementUseCase
-        private set
-    lateinit var ocrPlugin: OcrEnginePlugin
-        private set
-    lateinit var extractTextUseCase: ExtractTextUseCase
-        private set
-    lateinit var indexOcrTextUseCase: IndexOcrTextUseCase
-        private set
-    lateinit var saveOcrTextUseCase: SaveOcrTextUseCase
-        private set
-    lateinit var ocrIndexingService: OcrIndexingService
-        private set
-    lateinit var semanticSearchPlugin: ISemanticSearchEngine
-        private set
-    lateinit var semanticSearchUseCase: SemanticSearchUseCase
-        private set
-    lateinit var aiIntelligenceUseCase: AiIntelligenceUseCase
-        private set
-    lateinit var googleDriveService: GoogleDriveService
-        private set
-    lateinit var cloudSyncUseCase: CloudSyncUseCase
-        private set
-
     companion object {
         private const val TAG = "VVFApplication"
-        lateinit var instance: VVFApplication
-            private set
     }
+
+    lateinit var cryptoSecurityManager: CryptoSecurityManager
+    lateinit var database: VVFDatabase
+    lateinit var storageManager: StorageManager
+    lateinit var fileManagerRepository: OfflineFileManagerRepository
+    lateinit var vaultRepository: SecureVaultRepository
+    lateinit var searchRepository: OfflineSearchRepository
+    lateinit var getStorageOverviewUseCase: GetStorageOverviewUseCase
+    lateinit var getDirectoryFilesUseCase: GetDirectoryFilesUseCase
+    lateinit var getCategorizedFilesUseCase: GetCategorizedFilesUseCase
+    lateinit var fileOperationsUseCase: FileOperationsUseCase
+    lateinit var recycleBinUseCase: RecycleBinUseCase
+    lateinit var duplicateCleanerUseCase: DuplicateCleanerUseCase
+    lateinit var junkCleanerUseCase: JunkCleanerUseCase
+    lateinit var getVaultItemsUseCase: GetVaultItemsUseCase
+    lateinit var lockFileInVaultUseCase: LockFileInVaultUseCase
+    lateinit var restoreVaultItemUseCase: RestoreVaultItemUseCase
+    lateinit var exportVaultItemUseCase: ExportVaultItemUseCase
+    lateinit var deleteVaultItemUseCase: DeleteVaultItemUseCase
+    lateinit var vaultAuthUseCase: VaultAuthUseCase
+    lateinit var searchFilesUseCase: SearchFilesUseCase
+    lateinit var searchHistoryUseCase: SearchHistoryUseCase
+    lateinit var tagManagementUseCase: TagManagementUseCase
+    lateinit var extractTextUseCase: ExtractTextUseCase
+    lateinit var indexOcrTextUseCase: IndexOcrTextUseCase
+    lateinit var saveOcrTextUseCase: SaveOcrTextUseCase
+    lateinit var ocrIndexingService: OcrIndexingService
+    lateinit var semanticSearchUseCase: SemanticSearchUseCase
+    lateinit var aiIntelligenceUseCase: AiIntelligenceUseCase
+    lateinit var googleDriveService: GoogleDriveService
+    lateinit var cloudSyncUseCase: CloudSyncUseCase
+    lateinit var backgroundSyncManager: BackgroundSyncManager
+    lateinit var ocrPlugin: OcrPluginImpl
+    lateinit var semanticSearchPlugin: ISemanticSearchEngine
 
     override fun onCreate() {
         super.onCreate()
-        instance = this
-        val isRobolectric = try {
-            Class.forName("org.robolectric.Robolectric") != null
-        } catch (_: ClassNotFoundException) {
-            false
-        }
-        cryptoSecurityManager = if (isRobolectric) {
-            CryptoSecurityManager(this, "Robolectric")
-        } else {
-            CryptoSecurityManager(this)
-        }
-
-        val passphrase = try {
-            cryptoSecurityManager.getOrCreateDatabasePassphrase()
-        } catch (e: Throwable) {
-            throw SecurityException(
-                "Secure database initialization failed: Crypto passphrase generation or decryption error",
-                e
-            )
-        }
-
-        database = try {
-            VVFDatabase.buildEncryptedDatabase(this, passphrase)
-        } catch (e: UnsatisfiedLinkError) {
-            if (isRobolectric) {
-                Log.w(TAG, "SQLCipher native lib missing under test — using in-memory DB")
-                VVFDatabase.buildInMemoryDatabase(this)
-            } else {
-                throw SecurityException(
-                    "SQLCipher native library failed to load. Encrypted database is required in production.",
-                    e
-                )
-            }
-        } catch (e: Throwable) {
-            throw SecurityException(
+        cryptoSecurityManager = CryptoSecurityManager(this)
+        val passphrase = cryptoSecurityManager.getOrCreateDatabasePassphrase()
+        try {
+            database = VVFDatabase.build(this, passphrase)
+        } catch (e: Exception) {
+            throw IllegalStateException(
                 "Secure database initialization failed: Failed to construct encrypted SQLCipher database",
                 e
             )
@@ -180,7 +113,8 @@ class VVFApplication : Application() {
         }
 
         storageManager = StorageManager(this, database.fileDao())
-        fileManagerRepository = OfflineFileManagerRepository(
+        fileManagerRepository = AppCompositionRoot.offlineFileManagerRepository(
+            context = this,
             storageManager = storageManager,
             fileDao = database.fileDao(),
             searchFtsDao = database.searchFtsDao()
@@ -249,10 +183,14 @@ class VVFApplication : Application() {
             ),
             cryptoSecurityManager = cryptoSecurityManager
         )
-        cloudSyncUseCase = CloudSyncUseCase(
+        cloudSyncUseCase = AppCompositionRoot.cloudSyncUseCase(
+            context = this,
             googleDriveService = googleDriveService,
             pluginDrivers = cloudDrivers,
-            archiveService = archiveService
+            archiveService = archiveService,
+            cryptoSecurityManager = cryptoSecurityManager,
+            vaultDir = vaultDir,
+            databaseName = VVFDatabase.DATABASE_NAME
         )
         backgroundSyncManager = BackgroundSyncManager(this)
         val bgExceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->

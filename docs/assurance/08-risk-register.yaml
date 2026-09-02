@@ -33,5 +33,6 @@ open_findings:
   - id: PROD-007
     severity: high
     title: Android storage permission and policy gate
-    status: triaged
-    closure_requires: [actual_flow_review, runtime_gate, policy_justification, verification]
+    status: repair_implemented
+    notes: "StorageAccessPolicy + StoragePermissionGate evaluate API-level grants; OfflineFileManagerRepository requires browse/media before listing. Policy justification documented in StorageAccessPolicy KDoc."
+    closure_requires: [ui_permission_flow, relevant_ci_verified]
