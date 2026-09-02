@@ -39,5 +39,7 @@ data class ExplorerUiState(
     val trashFiles: List<FileItem> = emptyList(),
     val isLoading: Boolean = false,
     val dialogState: ExplorerDialogState = ExplorerDialogState.None,
-    val userMessage: String? = null
+    val userMessage: String? = null,
+    val needsStoragePermission: Boolean = false,
+    val permissionMessage: String? = null
 )

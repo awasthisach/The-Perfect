@@ -61,20 +61,49 @@ class ExplorerViewModel(
                     selectedPaths = emptySet(),
                     isSelectionMode = false,
                     searchQuery = "",
-                    isSearchActive = false
+                    isSearchActive = false,
+                    needsStoragePermission = false,
+                    permissionMessage = null,
+                    userMessage = null
                 )
             }
 
-            getDirectoryFilesUseCase(
-                directoryPath = path,
-                sortOption = _uiState.value.sortOption,
-                showHidden = _uiState.value.showHidden
-            ).collectLatest { fileList ->
+            try {
+                getDirectoryFilesUseCase(
+                    directoryPath = path,
+                    sortOption = _uiState.value.sortOption,
+                    showHidden = _uiState.value.showHidden
+                ).collectLatest { fileList ->
+                    _uiState.update {
+                        it.copy(
+                            files = fileList,
+                            filteredFiles = applyFilterAndSearch(fileList, it.searchQuery),
+                            isLoading = false,
+                            needsStoragePermission = false
+                        )
+                    }
+                }
+            } catch (e: IllegalArgumentException) {
+                // PROD-007: StorageAccessPolicy / StoragePermissionGate fail-closed
                 _uiState.update {
                     it.copy(
-                        files = fileList,
-                        filteredFiles = applyFilterAndSearch(fileList, it.searchQuery),
-                        isLoading = false
+                        files = emptyList(),
+                        filteredFiles = emptyList(),
+                        isLoading = false,
+                        needsStoragePermission = true,
+                        permissionMessage = e.message
+                            ?: "Storage permission required to browse files",
+                        userMessage = e.message
+                            ?: "Storage permission required to browse files"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        files = emptyList(),
+                        filteredFiles = emptyList(),
+                        isLoading = false,
+                        userMessage = "Failed to load directory: ${e.localizedMessage}"
                     )
                 }
             }
@@ -100,19 +129,46 @@ class ExplorerViewModel(
                     selectedPaths = emptySet(),
                     isSelectionMode = false,
                     searchQuery = "",
-                    isSearchActive = false
+                    isSearchActive = false,
+                    needsStoragePermission = false,
+                    permissionMessage = null
                 )
             }
 
-            getCategorizedFilesUseCase(
-                category = category,
-                sortOption = _uiState.value.sortOption
-            ).collectLatest { fileList ->
+            try {
+                getCategorizedFilesUseCase(
+                    category = category,
+                    sortOption = _uiState.value.sortOption
+                ).collectLatest { fileList ->
+                    _uiState.update {
+                        it.copy(
+                            files = fileList,
+                            filteredFiles = applyFilterAndSearch(fileList, it.searchQuery),
+                            isLoading = false,
+                            needsStoragePermission = false
+                        )
+                    }
+                }
+            } catch (e: IllegalArgumentException) {
                 _uiState.update {
                     it.copy(
-                        files = fileList,
-                        filteredFiles = applyFilterAndSearch(fileList, it.searchQuery),
-                        isLoading = false
+                        files = emptyList(),
+                        filteredFiles = emptyList(),
+                        isLoading = false,
+                        needsStoragePermission = true,
+                        permissionMessage = e.message
+                            ?: "Storage permission required",
+                        userMessage = e.message
+                            ?: "Storage permission required"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        files = emptyList(),
+                        filteredFiles = emptyList(),
+                        isLoading = false,
+                        userMessage = "Failed to load files: ${e.localizedMessage}"
                     )
                 }
             }
