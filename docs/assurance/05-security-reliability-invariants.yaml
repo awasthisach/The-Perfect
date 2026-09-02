@@ -5,7 +5,7 @@ invariants:
   - id: STORAGE-INV-001
     domain: authorization
     statement: Failure to discover approved roots must fail closed and never broaden filesystem access.
-    required_tests: [traversal, symlink, root_discovery_failure]
+    required_tests: [traversal, symlink, root_discovery_failure, StorageBoundaryTest.emptyApprovedRoots_deniesAllPaths]
 
   - id: STORAGE-INV-002
     domain: data_integrity
