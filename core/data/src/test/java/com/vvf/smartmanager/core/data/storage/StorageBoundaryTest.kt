@@ -13,13 +13,13 @@ class StorageBoundaryTest {
     @Test
     fun emptyApprovedRoots_deniesAllPaths() {
         assertFalse(
-            StorageManager.isPathWithinApprovedRoots(
+            StoragePathPolicy.isPathWithinApprovedRoots(
                 "/data/user/0/com.vvf.smartmanager/files",
                 emptyList()
             )
         )
         assertFalse(
-            StorageManager.isPathWithinApprovedRoots(
+            StoragePathPolicy.isPathWithinApprovedRoots(
                 "/storage/emulated/0",
                 emptyList()
             )
@@ -30,13 +30,13 @@ class StorageBoundaryTest {
     fun pathInsideRoot_isAllowed() {
         val roots = listOf("/data/user/0/com.vvf.smartmanager/files")
         assertTrue(
-            StorageManager.isPathWithinApprovedRoots(
+            StoragePathPolicy.isPathWithinApprovedRoots(
                 "/data/user/0/com.vvf.smartmanager/files",
                 roots
             )
         )
         assertTrue(
-            StorageManager.isPathWithinApprovedRoots(
+            StoragePathPolicy.isPathWithinApprovedRoots(
                 "/data/user/0/com.vvf.smartmanager/files/docs/note.txt",
                 roots
             )
@@ -47,13 +47,13 @@ class StorageBoundaryTest {
     fun pathOutsideRoot_isDenied() {
         val roots = listOf("/data/user/0/com.vvf.smartmanager/files")
         assertFalse(
-            StorageManager.isPathWithinApprovedRoots(
+            StoragePathPolicy.isPathWithinApprovedRoots(
                 "/storage/emulated/0/DCIM",
                 roots
             )
         )
         assertFalse(
-            StorageManager.isPathWithinApprovedRoots(
+            StoragePathPolicy.isPathWithinApprovedRoots(
                 "/data/user/0/com.vvf.smartmanager/files_extra",
                 roots
             )
@@ -63,10 +63,8 @@ class StorageBoundaryTest {
     @Test
     fun traversalAttempt_isDenied() {
         val roots = listOf("/data/user/0/com.vvf.smartmanager/files")
-        // After canonicalization the real manager uses canonicalFile; pure helper
-        // still rejects paths that do not stay under the root prefix.
         assertFalse(
-            StorageManager.isPathWithinApprovedRoots(
+            StoragePathPolicy.isPathWithinApprovedRoots(
                 "/data/user/0/com.vvf.smartmanager/files/../cache",
                 roots
             )
@@ -80,8 +78,29 @@ class StorageBoundaryTest {
             "/storage/emulated/0"
         )
         assertTrue(
-            StorageManager.isPathWithinApprovedRoots(
+            StoragePathPolicy.isPathWithinApprovedRoots(
                 "/storage/emulated/0/Download/a.pdf",
+                roots
+            )
+        )
+    }
+
+    @Test
+    fun emptyRoots_neverAllowAbsoluteRoot() {
+        assertFalse(
+            StoragePathPolicy.isPathWithinApprovedRoots("/", emptyList())
+        )
+        assertFalse(
+            StoragePathPolicy.isPathWithinApprovedRoots("/data", emptyList())
+        )
+    }
+
+    @Test
+    fun rootPrefixMustNotMatchPartialName() {
+        val roots = listOf("/data/user/0/com.vvf.smartmanager/files")
+        assertFalse(
+            StoragePathPolicy.isPathWithinApprovedRoots(
+                "/data/user/0/com.vvf.smartmanager/files_extra/secret",
                 roots
             )
         )
