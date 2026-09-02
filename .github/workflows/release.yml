@@ -108,7 +108,7 @@ jobs:
           retention-days: 14
 
       - name: Attest release artifact
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
         with:
           subject-path: "**/build/outputs/apk/release/*.apk"
 
