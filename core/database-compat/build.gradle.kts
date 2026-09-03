@@ -19,7 +19,7 @@ android {
 
 dependencies {
   // sqlcipher-android SQLiteDatabase extends SupportSQLiteDatabase (androidx.sqlite).
-  androidTestImplementation("androidx.sqlite:sqlite:2.4.0")
+  androidTestImplementation("androidx.sqlite:sqlite:2.7.0")
   androidTestImplementation(libs.androidx.junit)
   androidTestImplementation(libs.androidx.runner)
   androidTestImplementation(libs.androidx.core)
