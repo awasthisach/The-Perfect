@@ -1,5 +1,5 @@
 schema_version: "1.0"
-status: TARGET
+status: CURRENT
 gates:
   - id: GATE-CONSTITUTION-001
     name: constitution_and_schema
@@ -8,6 +8,7 @@ gates:
     threshold: verifier exits 0 for structural and semantic checks
     evidence: cpas-status.json
     blocking: true
+
   - id: GATE-UNIT-001
     name: unit_tests
     owner: engineering
@@ -15,6 +16,7 @@ gates:
     threshold: all required unit tests pass; no skipped required tests
     evidence: "**/build/reports/tests/**"
     blocking: true
+
   - id: GATE-LINT-001
     name: android_lint
     owner: engineering
@@ -22,6 +24,7 @@ gates:
     threshold: no new blocking lint errors
     evidence: "**/build/reports/lint-results-*.html"
     blocking: true
+
   - id: GATE-BUILD-001
     name: debug_build
     owner: release
@@ -29,13 +32,31 @@ gates:
     threshold: expected debug artifact exists and is non-empty
     evidence: "**/build/outputs/apk/debug/*.apk"
     blocking: true
+
   - id: GATE-SQLCIPHER-001
     name: sqlcipher_compatibility
     owner: data-security
-    command: ./gradlew --no-daemon :core:database:connectedDebugAndroidTest --stacktrace
+    command: ./gradlew --no-daemon :core:database-compat:connectedDebugAndroidTest --stacktrace
     threshold: compatibility fixture and wrong-key rejection tests pass on API 35
     evidence: "**/build/reports/androidTests/**"
     blocking: true
+
+  - id: GATE-RESTORE-001
+    name: fail_closed_restore
+    owner: data-security
+    command: ./gradlew --no-daemon :core:domain:testDebugUnitTest --tests "*FailClosedRestore*" --stacktrace
+    threshold: all restore unit + integration tests pass; no skipped required cases
+    evidence: "**/build/reports/tests/**"
+    blocking: true
+
+  - id: GATE-CPAS-001
+    name: cpas_verifier
+    owner: assurance
+    command: python3 tools/audit/cpas_verify.py --root .
+    threshold: production_status == PASS
+    evidence: cpas-status.json
+    blocking: true
+
   - id: GATE-LICENSE-001
     name: license_compliance
     owner: supply-chain
@@ -43,6 +64,7 @@ gates:
     threshold: scan is executed and policy result is recorded; missing credentials are BLOCKED for release
     evidence: fossa report
     blocking: true
+
   - id: GATE-RELEASE-001
     name: signed_release_identity
     owner: release

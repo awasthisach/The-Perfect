@@ -2,32 +2,12 @@ schema_version: 1
 finding_lifecycle: [discovered, triaged, reproduced, root_cause_verified, repair_implemented, tested, ci_verified, closed]
 
 open_findings:
-  - id: PROD-001
-    severity: high
-    title: Storage boundary must fail closed
-    status: ci_verified
-    notes: "StoragePathPolicy + requireAllowedPhysicalPath fail-closed. StorageBoundaryTest + EVID-001. Related issue #3."
-    closure_requires: []
-    residual_risk: low
-    related_issue: 3
-    last_updated: "2026-09-03"
-
-  - id: PROD-004
-    severity: high
-    title: Production listing must not create sample or demo files
-    status: ci_verified
-    notes: "Listing paths never seed demo files. STORAGE-INV-002 / EVID-002. Related issue #3."
-    closure_requires: []
-    residual_risk: low
-    related_issue: 3
-    last_updated: "2026-09-03"
-
   - id: PROD-002
     severity: critical
     title: Durable cloud upload result contract
     status: tested
-    notes: "DurableUploadContract used in CloudSyncUseCase. Unit tests exist. Needs CI artifact evidence for close. Related issue #21."
-    closure_requires: [relevant_ci_verified]
+    notes: "DurableUploadContract used in CloudSyncUseCase. Unit tests exist. Needs real CI artifact evidence + durable remote ID persistence proof before close. Related issue #21."
+    closure_requires: [relevant_ci_verified, artifact_digest_recorded]
     residual_risk: medium
     related_issue: 21
     last_updated: "2026-09-03"
@@ -36,20 +16,39 @@ open_findings:
     severity: critical
     title: Fail-closed cloud restore pipeline
     status: tested
-    notes: "FailClosedRestorePipeline with verify/stage/apply/rollback. Unit tests cover failure paths. Needs integration evidence. Related issue #21."
+    notes: "FailClosedRestorePipeline with verify/stage/apply/rollback. Unit tests cover failure paths. Needs integration + clean-device evidence before close. Related issue #21."
     closure_requires: [integration_test, clean_device_test, relevant_ci_verified]
     residual_risk: medium
     related_issue: 21
     last_updated: "2026-09-03"
 
+closed_findings:
+  - id: PROD-001
+    severity: high
+    title: Storage boundary must fail closed
+    status: closed
+    notes: "StoragePathPolicy + requireAllowedPhysicalPath fail-closed. StorageBoundaryTest + EVID-001. Related issue #3."
+    residual_risk: low
+    related_issue: 3
+    last_updated: "2026-09-03"
+    closed_at: "2026-09-03"
+
+  - id: PROD-004
+    severity: high
+    title: Production listing must not create sample or demo files
+    status: closed
+    notes: "Listing paths never seed demo files. STORAGE-INV-002 / EVID-002. Related issue #3."
+    residual_risk: low
+    related_issue: 3
+    last_updated: "2026-09-03"
+    closed_at: "2026-09-03"
+
   - id: PROD-007
     severity: high
     title: Android storage permission and policy gate
-    status: ci_verified
-    notes: "StorageAccessPolicy + StoragePermissionGate + OfflineFileManagerRepository.requireBrowsePrimaryTree. ExplorerViewModel catches IllegalArgumentException and surfaces needsStoragePermission + userMessage (PROD-007 UI flow). Related issue #20."
-    closure_requires: []
+    status: closed
+    notes: "StorageAccessPolicy + StoragePermissionGate + OfflineFileManagerRepository.requireBrowsePrimaryTree. ExplorerViewModel surfaces needsStoragePermission. Related issue #20."
     residual_risk: low
     related_issue: 20
     last_updated: "2026-09-03"
-
-closed_findings: []
+    closed_at: "2026-09-03"
