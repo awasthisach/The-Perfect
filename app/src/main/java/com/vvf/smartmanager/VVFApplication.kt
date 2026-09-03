@@ -56,6 +56,9 @@ import java.io.File
  * Application-level composition for VVF Smart Manager.
  * Storage listing is gated by [AppCompositionRoot] permission policy (PROD-007).
  * Cloud restore uses fail-closed pipeline wiring (PROD-003).
+ *
+ * Under Robolectric JVM unit tests, the database is in-memory (no SQLCipher native
+ * library). Production and device instrumentation always use encrypted SQLCipher.
  */
 class VVFApplication : Application() {
 
@@ -100,16 +103,24 @@ class VVFApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         cryptoSecurityManager = CryptoSecurityManager(this)
-        val passphrase = cryptoSecurityManager.getOrCreateDatabasePassphrase()
-        try {
-            database = VVFDatabase.buildEncryptedDatabase(this, passphrase)
-        } catch (e: Exception) {
-            throw IllegalStateException(
-                "Secure database initialization failed: Failed to construct encrypted SQLCipher database",
-                e
-            )
-        } finally {
-            cryptoSecurityManager.wipeBuffer(passphrase)
+
+        val jvmUnitTest = CryptoSecurityManager.isJvmUnitTestEnvironment(this)
+        if (jvmUnitTest) {
+            // Robolectric cannot load SQLCipher native libs; composition still wires fully.
+            database = VVFDatabase.buildInMemoryDatabase(this)
+            Log.i(TAG, "JVM unit-test environment: using in-memory Room database")
+        } else {
+            val passphrase = cryptoSecurityManager.getOrCreateDatabasePassphrase()
+            try {
+                database = VVFDatabase.buildEncryptedDatabase(this, passphrase)
+            } catch (e: Exception) {
+                throw IllegalStateException(
+                    "Secure database initialization failed: Failed to construct encrypted SQLCipher database",
+                    e
+                )
+            } finally {
+                cryptoSecurityManager.wipeBuffer(passphrase)
+            }
         }
 
         storageManager = StorageManager(this, database.fileDao())
