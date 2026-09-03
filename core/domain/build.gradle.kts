@@ -29,7 +29,7 @@ dependencies {
   implementation(libs.kotlinx.serialization.json)
   testImplementation(libs.junit)
   testImplementation(libs.kotlinx.coroutines.test)
-  testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
-  testImplementation("com.squareup.okhttp3:okhttp:4.12.0")
+  testImplementation("com.squareup.okhttp3:mockwebserver:5.5.0")
+  testImplementation("com.squareup.okhttp3:okhttp:5.5.0")
   testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
 }
