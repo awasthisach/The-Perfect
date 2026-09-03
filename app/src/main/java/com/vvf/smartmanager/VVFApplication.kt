@@ -45,7 +45,7 @@ import com.vvf.smartmanager.plugin.clouddrivers.NextCloudDriverImpl
 import com.vvf.smartmanager.plugin.clouddrivers.OneDriveDriverImpl
 import com.vvf.smartmanager.plugin.clouddrivers.S3StorageDriverImpl
 import com.vvf.smartmanager.plugin.ocr.OcrPluginImpl
-import com.vvf.smartmanager.plugin.semantic.SemanticSearchPluginImpl
+import com.vvf.smartmanager.plugin.semanticsearch.SemanticSearchPluginImpl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -102,7 +102,7 @@ class VVFApplication : Application() {
         cryptoSecurityManager = CryptoSecurityManager(this)
         val passphrase = cryptoSecurityManager.getOrCreateDatabasePassphrase()
         try {
-            database = VVFDatabase.build(this, passphrase)
+            database = VVFDatabase.buildEncryptedDatabase(this, passphrase)
         } catch (e: Exception) {
             throw IllegalStateException(
                 "Secure database initialization failed: Failed to construct encrypted SQLCipher database",
