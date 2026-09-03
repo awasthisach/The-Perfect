@@ -65,11 +65,22 @@ def required_ledger_fields(entry: object) -> bool:
 
 
 def parse_risks(path: Path) -> list[dict[str, str]]:
+    """Parse both open_findings and closed_findings sections."""
     findings: list[dict[str, str]] = []
     current: dict[str, str] | None = None
+    in_findings_block = False
     for line in path.read_text(encoding="utf-8").splitlines():
+        if re.match(r"^(open_findings|closed_findings):\s*$", line):
+            in_findings_block = True
+            current = None
+            continue
+        if in_findings_block and re.match(r"^[a-z_]+:\s*$", line) and not line.startswith(" "):
+            # left the findings blocks
+            in_findings_block = False
+            current = None
+            continue
         match = re.match(r"\s*- id:\s*(\S+)", line)
-        if match:
+        if match and in_findings_block:
             current = {"id": match.group(1)}
             findings.append(current)
             continue
@@ -147,7 +158,7 @@ def main() -> int:
                         "implementation and test reference paths exist" if not missing_refs else "missing paths: " + ", ".join(missing_refs)))
 
     findings = parse_risks(risk_path) if risk_path.is_file() else []
-    # Critical must be fully closed. High may be ci_verified.
+    # Critical must be fully closed. High may be ci_verified or closed.
     open_blockers = []
     for item in findings:
         sev = item.get("severity")
@@ -163,6 +174,7 @@ def main() -> int:
     ledger_ok = False
     ledger_detail = "missing evidence-ledger.json"
     entries: object = None
+    local_only_count = 0
     if ledger_path.is_file():
         try:
             data = json.loads(ledger_path.read_text(encoding="utf-8"))
@@ -171,6 +183,10 @@ def main() -> int:
             shape_ok = isinstance(entries, list) and isinstance(policy, dict)
             entry_shape_ok = shape_ok and all(required_ledger_fields(item) for item in entries)
             duplicate_evidence = len({item.get("id") for item in entries if isinstance(item, dict)}) != len(entries) if isinstance(entries, list) else True
+            if isinstance(entries, list):
+                for item in entries:
+                    if isinstance(item, dict) and str(item.get("ci_run_id", "")).startswith("local-"):
+                        local_only_count += 1
             ledger_ok = bool(shape_ok and entry_shape_ok and not duplicate_evidence and entries)
             if not entries:
                 ledger_detail = "evidence ledger is empty; production status is BLOCKED"
@@ -180,9 +196,20 @@ def main() -> int:
                 ledger_detail = "duplicate evidence IDs"
             else:
                 ledger_detail = f"{len(entries)} schema-valid evidence entries"
+                if local_only_count:
+                    ledger_detail += f" ({local_only_count} local-pre-ci; real CI evidence still required for production PASS)"
         except (json.JSONDecodeError, OSError) as exc:
             ledger_detail = f"invalid JSON: {exc}"
     checks.append(check("evidence_ledger_integrity", ledger_ok, ledger_detail))
+
+    # Production PASS additionally requires that not all evidence is local-only when critical findings exist.
+    production_evidence_ok = True
+    if local_only_count and open_blockers:
+        production_evidence_ok = False
+    checks.append(check("production_evidence_quality",
+                        production_evidence_ok or not open_blockers,
+                        "real CI evidence present or no open critical blockers" if production_evidence_ok or not open_blockers
+                        else f"{local_only_count} local-only evidence entries while critical findings remain open"))
 
     stale_count = 0
     if isinstance(entries, list):
