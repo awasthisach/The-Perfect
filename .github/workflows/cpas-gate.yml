@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
+        # v5 runs on Node 24 (avoids Node 20 deprecation annotation)
         uses: actions/checkout@v4
 
       - name: Verify Python
@@ -30,12 +31,40 @@ jobs:
         run: python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
 
       - name: Run semantic CPAS verification
-        # Fail-closed status is still computed and uploaded. While open critical/high
-        # findings remain (cloud restore, etc.), the gate records BLOCKED without
-        # failing the workflow job — unit tests above remain mandatory.
-        # Release / production promotion must require production_status == PASS.
-        continue-on-error: true
-        run: python3 tools/audit/cpas_verify.py --root .
+        id: cpas
+        # Fail-closed: BLOCKED is an expected production state while critical
+        # findings (PROD-002/003) remain open. Emit a warning annotation, not an
+        # error, so the job stays green without hiding the BLOCKED status.
+        # Unexpected verifier crashes (no status file) still fail the job.
+        run: |
+          set +e
+          python3 tools/audit/cpas_verify.py --root .
+          code=$?
+          set -e
+
+          if [ ! -f cpas-status.json ]; then
+            echo "::error::cpas-status.json was not produced (verifier crash)"
+            exit 1
+          fi
+
+          status=$(python3 -c 'import json; print(json.load(open("cpas-status.json"))["production_status"]["value"])')
+          blockers=$(python3 -c 'import json; print(",".join(json.load(open("cpas-status.json")).get("blocking_findings") or []) or "none")')
+          echo "production_status=$status" >> "$GITHUB_OUTPUT"
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          echo "blockers=$blockers" >> "$GITHUB_OUTPUT"
+
+          if [ "$status" = "PASS" ]; then
+            echo "CPAS production_status=PASS"
+            exit 0
+          fi
+
+          if [ "$status" = "BLOCKED" ]; then
+            echo "::warning::CPAS production_status=BLOCKED (fail-closed). blockers=${blockers}. See cpas-status artifact. Release promotion still requires PASS."
+            exit 0
+          fi
+
+          echo "::error::Unexpected CPAS status=${status} exit_code=${code}"
+          exit 1
 
       - name: Upload computed CPAS status
         if: always()
