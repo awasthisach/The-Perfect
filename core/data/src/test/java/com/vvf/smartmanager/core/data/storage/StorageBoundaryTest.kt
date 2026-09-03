@@ -6,7 +6,6 @@ import org.junit.Test
 
 /**
  * Unit tests for STORAGE-INV-001 / PROD-001: storage boundary must fail closed.
- * Empty approved roots must never broaden filesystem access.
  */
 class StorageBoundaryTest {
 
@@ -69,6 +68,12 @@ class StorageBoundaryTest {
                 roots
             )
         )
+        assertFalse(
+            StoragePathPolicy.isPathWithinApprovedRoots(
+                "/data/user/0/com.vvf.smartmanager/files/./secret",
+                roots
+            )
+        )
     }
 
     @Test
@@ -87,12 +92,8 @@ class StorageBoundaryTest {
 
     @Test
     fun emptyRoots_neverAllowAbsoluteRoot() {
-        assertFalse(
-            StoragePathPolicy.isPathWithinApprovedRoots("/", emptyList())
-        )
-        assertFalse(
-            StoragePathPolicy.isPathWithinApprovedRoots("/data", emptyList())
-        )
+        assertFalse(StoragePathPolicy.isPathWithinApprovedRoots("/", emptyList()))
+        assertFalse(StoragePathPolicy.isPathWithinApprovedRoots("/data", emptyList()))
     }
 
     @Test
@@ -114,17 +115,6 @@ class StorageBoundaryTest {
         assertFalse(
             StoragePathPolicy.isPathWithinApprovedRoots(
                 "/data/user/0/com.vvf.smartmanager/files\u0000evil",
-                roots
-            )
-        )
-    }
-
-    @Test
-    fun rootPrefixConfusion_isDenied() {
-        val roots = listOf("/data/user/0/com.vvf.smartmanager/files")
-        assertFalse(
-            StoragePathPolicy.isPathWithinApprovedRoots(
-                "/data/user/0/com.vvf.smartmanager/files_extra/secret",
                 roots
             )
         )

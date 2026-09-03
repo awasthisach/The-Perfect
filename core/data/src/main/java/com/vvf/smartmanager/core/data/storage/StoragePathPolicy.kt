@@ -5,10 +5,11 @@ package com.vvf.smartmanager.core.data.storage
  *
  * Fail-closed rules:
  * - Empty approved roots → deny everything
- * - Candidate must be exactly a root or a strict descendant (separator-aware)
- * - Null bytes and empty paths are rejected by callers via requireAllowedPhysicalPath
+ * - Blank / null-byte paths → deny
+ * - Path segments "." or ".." → deny (callers should canonicalize; this is defense-in-depth)
+ * - Candidate must be exactly a root or a strict descendant (separator-aware, no prefix confusion)
  *
- * Callers must pass already-canonical absolute paths (File.canonicalFile.absolutePath).
+ * Callers should pass already-canonical absolute paths (File.canonicalFile.absolutePath).
  */
 object StoragePathPolicy {
 
@@ -18,14 +19,16 @@ object StoragePathPolicy {
     ): Boolean {
         if (candidateAbsolutePath.isBlank()) return false
         if (approvedRootAbsolutePaths.isEmpty()) return false
-        // Reject embedded nulls (defense in depth; canonical paths should not contain them)
         if (candidateAbsolutePath.indexOf('\u0000') >= 0) return false
+        // Defense-in-depth: reject non-canonical relative segments even if caller forgot to canonicalize
+        if (containsDotSegment(candidateAbsolutePath)) return false
 
-        val candidate = candidateAbsolutePath.trimEnd(File.separatorChar)
+        val sep = java.io.File.separatorChar
+        val candidate = candidateAbsolutePath.trimEnd(sep)
         return approvedRootAbsolutePaths.any { rootRaw ->
-            val root = rootRaw.trimEnd(File.separatorChar)
+            val root = rootRaw.trimEnd(sep)
             if (root.isEmpty()) return@any false
-            candidate == root || candidate.startsWith(root + File.separator)
+            candidate == root || candidate.startsWith(root + sep)
         }
     }
 
@@ -37,9 +40,11 @@ object StoragePathPolicy {
         }
     }
 
-    // Local alias — must be val (not const val): java.io.File.separator is not a compile-time constant
-    private object File {
-        val separator: String = java.io.File.separator
-        val separatorChar: Char = java.io.File.separatorChar
+    private fun containsDotSegment(path: String): Boolean {
+        val sep = java.io.File.separatorChar
+        // Normalize to check segments; also catch Unix-style even on mixed inputs
+        val normalized = path.replace('/', sep).replace('\\', sep)
+        val parts = normalized.split(sep)
+        return parts.any { it == ".." || it == "." }
     }
 }
