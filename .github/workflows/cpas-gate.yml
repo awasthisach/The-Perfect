@@ -23,7 +23,7 @@ jobs:
     steps:
       - name: Checkout
         # v5 runs on Node 24 (avoids Node 20 deprecation annotation)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Verify Python
         run: python3 --version
