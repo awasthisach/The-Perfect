@@ -1,6 +1,7 @@
 package com.vvf.smartmanager.core.data.permission
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -18,11 +19,7 @@ class StoragePermissionGate(
     fun snapshot(): StoragePermissionSnapshot {
         return StoragePermissionSnapshot(
             sdkInt = sdkInt,
-            hasManageExternalStorage = if (sdkInt >= Build.VERSION_CODES.R) {
-                Environment.isExternalStorageManager()
-            } else {
-                false
-            },
+            hasManageExternalStorage = queryManageExternalStorage(),
             hasReadExternalStorage = granted(Manifest.permission.READ_EXTERNAL_STORAGE),
             hasWriteExternalStorage = granted(Manifest.permission.WRITE_EXTERNAL_STORAGE),
             hasReadMediaImages = if (sdkInt >= 33) granted(Manifest.permission.READ_MEDIA_IMAGES) else false,
@@ -43,6 +40,16 @@ class StoragePermissionGate(
         val decision = evaluate()
         StorageAccessPolicy.assertCanListMedia(decision)
         return decision
+    }
+
+    /**
+     * [Environment.isExternalStorageManager] is API 30+. [sdkInt] is injectable for unit tests,
+     * so the guard uses that field; lint cannot prove it tracks the OS API level, hence SuppressLint.
+     */
+    @SuppressLint("NewApi")
+    private fun queryManageExternalStorage(): Boolean {
+        if (sdkInt < Build.VERSION_CODES.R) return false
+        return Environment.isExternalStorageManager()
     }
 
     private fun granted(permission: String): Boolean =
