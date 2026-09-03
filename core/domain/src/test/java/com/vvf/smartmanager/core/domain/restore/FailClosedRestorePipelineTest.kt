@@ -23,13 +23,13 @@ class FailClosedRestorePipelineTest {
     )
 
     private fun pipeline(
-        download: Result<DownloadedArtifact> = Result.success(
+        downloadResult: Result<DownloadedArtifact> = Result.success(
             DownloadedArtifact(File(temp.root, "dl.bin").also { it.writeText("x") }, sampleInfo, "abc")
         ),
-        verify: Result<VerifiedArtifact> = Result.success(
+        verifyResult: Result<VerifiedArtifact> = Result.success(
             VerifiedArtifact(File(temp.root, "dl.bin"), sampleInfo, "abc")
         ),
-        decrypt: Result<DecryptedBackup> = Result.success(
+        decryptResult: Result<DecryptedBackup> = Result.success(
             DecryptedBackup(
                 stagingDir = temp.newFolder("stage"),
                 databaseFile = temp.newFile("db"),
@@ -38,10 +38,10 @@ class FailClosedRestorePipelineTest {
                 timestamp = 1L
             )
         ),
-        prepare: Result<RestoreSnapshot> = Result.success(
+        prepareResult: Result<RestoreSnapshot> = Result.success(
             RestoreSnapshot("snap-1", 1L, temp.newFile("db-snap"), temp.newFolder("vault-snap"))
         ),
-        apply: Result<AppliedRestore> = Result.success(
+        applyResult: Result<AppliedRestore> = Result.success(
             AppliedRestore(true, 1, 0, "ok")
         ),
         rollbackOk: Boolean = true
@@ -49,18 +49,24 @@ class FailClosedRestorePipelineTest {
         return FailClosedRestorePipeline(
             workingDir = temp.newFolder("work"),
             downloader = object : BackupDownloader {
-                override suspend fun download(remoteBackupId: String) = download
+                override suspend fun download(remoteBackupId: String): Result<DownloadedArtifact> = downloadResult
             },
             verifier = object : BackupVerifier {
-                override suspend fun verify(artifact: DownloadedArtifact, expectedChecksum: String?) = verify
+                override suspend fun verify(
+                    artifact: DownloadedArtifact,
+                    expectedChecksum: String?
+                ): Result<VerifiedArtifact> = verifyResult
             },
             decryptor = object : BackupDecryptor {
-                override suspend fun decrypt(verifiedArtifact: VerifiedArtifact, stagingDir: File) = decrypt
+                override suspend fun decrypt(
+                    verifiedArtifact: VerifiedArtifact,
+                    stagingDir: File
+                ): Result<DecryptedBackup> = decryptResult
             },
             applier = object : RestoreApplier {
-                override suspend fun prepare() = prepare
-                override suspend fun apply(decryptedBackup: DecryptedBackup) = apply
-                override suspend fun rollback(snapshot: RestoreSnapshot) =
+                override suspend fun prepare(): Result<RestoreSnapshot> = prepareResult
+                override suspend fun apply(decryptedBackup: DecryptedBackup): Result<AppliedRestore> = applyResult
+                override suspend fun rollback(snapshot: RestoreSnapshot): Result<Unit> =
                     if (rollbackOk) Result.success(Unit) else Result.failure(RestoreException("rollback failed"))
             }
         )
@@ -86,25 +92,31 @@ class FailClosedRestorePipelineTest {
         val result = FailClosedRestorePipeline(
             workingDir = temp.newFolder("work2"),
             downloader = object : BackupDownloader {
-                override suspend fun download(remoteBackupId: String) = Result.success(
+                override suspend fun download(remoteBackupId: String): Result<DownloadedArtifact> = Result.success(
                     DownloadedArtifact(temp.newFile("d"), sampleInfo, "abc")
                 )
             },
             verifier = object : BackupVerifier {
-                override suspend fun verify(artifact: DownloadedArtifact, expectedChecksum: String?) =
+                override suspend fun verify(
+                    artifact: DownloadedArtifact,
+                    expectedChecksum: String?
+                ): Result<VerifiedArtifact> =
                     Result.failure(ChecksumMismatchException("abc", "zzz"))
             },
             decryptor = object : BackupDecryptor {
-                override suspend fun decrypt(verifiedArtifact: VerifiedArtifact, stagingDir: File) =
+                override suspend fun decrypt(
+                    verifiedArtifact: VerifiedArtifact,
+                    stagingDir: File
+                ): Result<DecryptedBackup> =
                     error("should not decrypt")
             },
             applier = object : RestoreApplier {
-                override suspend fun prepare() = error("should not prepare")
+                override suspend fun prepare(): Result<RestoreSnapshot> = error("should not prepare")
                 override suspend fun apply(decryptedBackup: DecryptedBackup): Result<AppliedRestore> {
                     applied = true
                     return Result.success(AppliedRestore(true, 1, 0, "ok"))
                 }
-                override suspend fun rollback(snapshot: RestoreSnapshot) = Result.success(Unit)
+                override suspend fun rollback(snapshot: RestoreSnapshot): Result<Unit> = Result.success(Unit)
             }
         ).restore("remote-1", "abc")
         assertTrue(result.isFailure)
@@ -117,25 +129,31 @@ class FailClosedRestorePipelineTest {
         val result = FailClosedRestorePipeline(
             workingDir = temp.newFolder("work3"),
             downloader = object : BackupDownloader {
-                override suspend fun download(remoteBackupId: String) = Result.success(
+                override suspend fun download(remoteBackupId: String): Result<DownloadedArtifact> = Result.success(
                     DownloadedArtifact(temp.newFile("d2"), sampleInfo, "abc")
                 )
             },
             verifier = object : BackupVerifier {
-                override suspend fun verify(artifact: DownloadedArtifact, expectedChecksum: String?) =
+                override suspend fun verify(
+                    artifact: DownloadedArtifact,
+                    expectedChecksum: String?
+                ): Result<VerifiedArtifact> =
                     Result.success(VerifiedArtifact(artifact.file, sampleInfo, "abc"))
             },
             decryptor = object : BackupDecryptor {
-                override suspend fun decrypt(verifiedArtifact: VerifiedArtifact, stagingDir: File) =
+                override suspend fun decrypt(
+                    verifiedArtifact: VerifiedArtifact,
+                    stagingDir: File
+                ): Result<DecryptedBackup> =
                     Result.success(
                         DecryptedBackup(stagingDir, temp.newFile("db2"), temp.newFolder("v2"), sampleInfo, 1L)
                     )
             },
             applier = object : RestoreApplier {
-                override suspend fun prepare() = Result.success(
+                override suspend fun prepare(): Result<RestoreSnapshot> = Result.success(
                     RestoreSnapshot("t1", 1L, temp.newFile("sdb"), temp.newFolder("sv"))
                 )
-                override suspend fun apply(decryptedBackup: DecryptedBackup) =
+                override suspend fun apply(decryptedBackup: DecryptedBackup): Result<AppliedRestore> =
                     Result.failure(RestoreException("apply boom"))
                 override suspend fun rollback(snapshot: RestoreSnapshot): Result<Unit> {
                     rolledBack = true
@@ -153,24 +171,37 @@ class FailClosedRestorePipelineTest {
         val p = FailClosedRestorePipeline(
             workingDir = work,
             downloader = object : BackupDownloader {
-                override suspend fun download(remoteBackupId: String) = Result.success(
+                override suspend fun download(remoteBackupId: String): Result<DownloadedArtifact> = Result.success(
                     DownloadedArtifact(temp.newFile("d3"), sampleInfo, "abc")
                 )
             },
             verifier = object : BackupVerifier {
-                override suspend fun verify(artifact: DownloadedArtifact, expectedChecksum: String?) =
+                override suspend fun verify(
+                    artifact: DownloadedArtifact,
+                    expectedChecksum: String?
+                ): Result<VerifiedArtifact> =
                     Result.success(VerifiedArtifact(artifact.file, sampleInfo, "abc"))
             },
             decryptor = object : BackupDecryptor {
-                override suspend fun decrypt(verifiedArtifact: VerifiedArtifact, stagingDir: File) =
+                override suspend fun decrypt(
+                    verifiedArtifact: VerifiedArtifact,
+                    stagingDir: File
+                ): Result<DecryptedBackup> =
                     Result.success(
-                        DecryptedBackup(stagingDir, File(stagingDir, "db"), File(stagingDir, "vault").also { it.mkdirs() }, sampleInfo, 1L)
+                        DecryptedBackup(
+                            stagingDir,
+                            File(stagingDir, "db"),
+                            File(stagingDir, "vault").also { it.mkdirs() },
+                            sampleInfo,
+                            1L
+                        )
                     )
             },
             applier = object : RestoreApplier {
-                override suspend fun prepare() = error("dry-run must not prepare")
-                override suspend fun apply(decryptedBackup: DecryptedBackup) = error("dry-run must not apply")
-                override suspend fun rollback(snapshot: RestoreSnapshot) = Result.success(Unit)
+                override suspend fun prepare(): Result<RestoreSnapshot> = error("dry-run must not prepare")
+                override suspend fun apply(decryptedBackup: DecryptedBackup): Result<AppliedRestore> =
+                    error("dry-run must not apply")
+                override suspend fun rollback(snapshot: RestoreSnapshot): Result<Unit> = Result.success(Unit)
             }
         )
         val result = p.dryRun("remote-1", "abc")
