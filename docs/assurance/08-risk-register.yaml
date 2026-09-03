@@ -6,8 +6,8 @@ open_findings:
     severity: critical
     title: Durable cloud upload result contract
     status: tested
-    notes: "DurableUploadContract used in CloudSyncUseCase. Unit tests exist. Needs real CI artifact evidence + durable remote ID persistence proof before close. Related issue #21."
-    closure_requires: [relevant_ci_verified, artifact_digest_recorded]
+    notes: "DurableUploadContract + unit tests green on CI run 33714903184. Still requires durable remote ID persistence proof + artifact digest on integration path before close. Related issue #21."
+    closure_requires: [relevant_ci_verified, artifact_digest_recorded, integration_test]
     residual_risk: medium
     related_issue: 21
     last_updated: "2026-09-03"
@@ -16,7 +16,7 @@ open_findings:
     severity: critical
     title: Fail-closed cloud restore pipeline
     status: tested
-    notes: "FailClosedRestorePipeline with verify/stage/apply/rollback. Unit tests cover failure paths. Needs integration + clean-device evidence before close. Related issue #21."
+    notes: "FailClosedRestorePipeline unit tests green on CI run 33714903184 (EVID-004). Still requires clean-device + interrupted-restore integration evidence before close. Related issue #21."
     closure_requires: [integration_test, clean_device_test, relevant_ci_verified]
     residual_risk: medium
     related_issue: 21
@@ -27,7 +27,7 @@ closed_findings:
     severity: high
     title: Storage boundary must fail closed
     status: closed
-    notes: "StoragePathPolicy + requireAllowedPhysicalPath fail-closed. StorageBoundaryTest + EVID-001. Related issue #3."
+    notes: "StoragePathPolicy + requireAllowedPhysicalPath fail-closed. StorageBoundaryTest + EVID-001 (CI 33714903184). Related issue #3."
     residual_risk: low
     related_issue: 3
     last_updated: "2026-09-03"
@@ -37,7 +37,7 @@ closed_findings:
     severity: high
     title: Production listing must not create sample or demo files
     status: closed
-    notes: "Listing paths never seed demo files. STORAGE-INV-002 / EVID-002. Related issue #3."
+    notes: "Listing paths never seed demo files. STORAGE-INV-002 / EVID-002 (CI 33714903184). Related issue #3."
     residual_risk: low
     related_issue: 3
     last_updated: "2026-09-03"

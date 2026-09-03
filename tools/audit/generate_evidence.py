@@ -43,7 +43,7 @@ def parse_args() -> argparse.Namespace:
         "--output",
         type=Path,
         default=None,
-        help="Output path (default: docs/assurance/cpas-evidence-run.json)",
+        help="Output path (default: docs/assurance/cpas-evidence-run.json under --root)",
     )
     parser.add_argument(
         "--merge-ledger",
@@ -53,7 +53,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-# Controls that unit-test success can support with CI-linked evidence.
 UNIT_TEST_CONTROLS = [
     ("STORAGE-INV-001", "STORAGE-TEST-001"),
     ("STORAGE-INV-002", "STORAGE-TEST-002"),
@@ -65,9 +64,8 @@ UNIT_TEST_CONTROLS = [
 def main() -> int:
     args = parse_args()
     root = args.root.resolve()
-    commit = (args.commit_sha or "").strip()
-    if len(commit) != 40 or any(c not in "0123456789abcdef" for c in commit.lower()):
-        # Allow short SHAs only for local dry-runs by padding is wrong; require full SHA.
+    commit = (args.commit_sha or "").strip().lower()
+    if len(commit) != 40 or any(c not in "0123456789abcdef" for c in commit):
         raise SystemExit(f"commit SHA must be 40 hex chars, got: {commit!r}")
 
     now = utc_now()
@@ -82,7 +80,7 @@ def main() -> int:
                 "id": f"EVID-{index:03d}",
                 "control_id": control_id,
                 "test_id": test_id,
-                "source_commit": commit.lower(),
+                "source_commit": commit,
                 "ci_run_id": run_id,
                 "ci_job_id": job_id,
                 "executed_at": iso_z(now),
@@ -98,7 +96,7 @@ def main() -> int:
         "generated_at": iso_z(now),
         "generator": "tools/audit/generate_evidence.py",
         "source": {
-            "commit": commit.lower(),
+            "commit": commit,
             "run_id": run_id,
             "job_id": job_id,
             "result": args.result,
@@ -113,11 +111,22 @@ def main() -> int:
         },
     }
 
-    out = args.output or (root / "docs" / "assurance" / "cpas-evidence-run.json")
+    out = args.output
+    if out is None:
+        out = root / "docs" / "assurance" / "cpas-evidence-run.json"
+    elif not out.is_absolute():
+        out = (root / out).resolve()
+    else:
+        out = out.resolve()
+
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(bundle, indent=2) + "\n", encoding="utf-8")
     digest = hashlib.sha256(out.read_bytes()).hexdigest()
-    print(f"Wrote {out.relative_to(root)} sha256={digest} entries={len(entries)}")
+    try:
+        display = out.relative_to(root)
+    except ValueError:
+        display = out
+    print(f"Wrote {display} sha256={digest} entries={len(entries)}")
 
     if args.merge_ledger:
         ledger_path = root / "docs" / "assurance" / "evidence-ledger.json"
@@ -129,7 +138,6 @@ def main() -> int:
                 "entries": [],
                 "policy": bundle["policy"],
             }
-        # Prefer CI-linked entries over local-pre-ci for the same control_id.
         by_control = {
             e["control_id"]: e
             for e in existing.get("entries", [])
@@ -137,7 +145,6 @@ def main() -> int:
         }
         for entry in entries:
             by_control[entry["control_id"]] = entry
-        # Re-number EVID ids stably by control sort order.
         merged = []
         for i, control in enumerate(sorted(by_control.keys()), start=1):
             item = dict(by_control[control])
