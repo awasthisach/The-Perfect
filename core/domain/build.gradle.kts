@@ -31,5 +31,5 @@ dependencies {
   testImplementation(libs.kotlinx.coroutines.test)
   testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
   testImplementation("com.squareup.okhttp3:okhttp:4.12.0")
-  testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
+  testImplementation("org.mockito.kotlin:mockito-kotlin:6.3.0")
 }
