@@ -116,6 +116,26 @@ jobs:
           adb devices
       - name: Run SQLCipher compatibility instrumentation test
         run: ./gradlew --no-daemon :core:database-compat:connectedDebugAndroidTest --stacktrace
+      - name: Generate CPAS evidence including DB instrumented gate
+        if: success()
+        run: |
+          set -euo pipefail
+          python3 tools/audit/generate_evidence.py \
+            --commit-sha "${{ github.sha }}" \
+            --run-id "${{ github.run_id }}" \
+            --job-id "${{ github.job }}" \
+            --result PASS \
+            --include-db \
+            --environment "github-actions-API35-emulator" \
+            --output docs/assurance/cpas-evidence-full.json
+      - name: Upload full CPAS evidence bundle
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cpas-evidence-full
+          path: docs/assurance/cpas-evidence-full.json
+          if-no-files-found: error
+          retention-days: 30
       - name: Collect Android emulator diagnostics
         if: failure()
         timeout-minutes: 2
