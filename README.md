@@ -1,4 +1,6 @@
 # VVF Smart Manager (Production Hardening)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fawasthisach%2FThe-Perfect.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fawasthisach%2FThe-Perfect?ref=badge_shield)
+
 
 > **VVF Smart Manager** is an offline-first Android file manager, encrypted vault, and privacy-focused productivity suite.
 
@@ -72,3 +74,7 @@ This repository is under active production hardening and is **not yet independen
 - [Security Whitepaper](docs/SECURITY_WHITEPAPER.md)
 
 Cloud restore remains intentionally fail-closed until download, integrity verification, atomic staging, rollback, and recovery tests are complete.
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fawasthisach%2FThe-Perfect.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fawasthisach%2FThe-Perfect?ref=badge_large)
