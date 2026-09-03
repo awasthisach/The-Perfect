@@ -78,8 +78,12 @@ class CryptoSecurityManager(
         private const val PBKDF2_ITERATIONS = 600_000
         private val memoryKeyMap = mutableMapOf<String, SecretKey>()
 
-        /** True only under Robolectric (or explicit non-AndroidKeyStore provider). */
-        internal fun isJvmUnitTestEnvironment(context: Context): Boolean {
+        /**
+         * Public so composition roots in other modules (e.g. :app) can select
+         * in-memory Room under Robolectric without loading SQLCipher natives.
+         * Must never return true on a real device runtime classloader.
+         */
+        fun isJvmUnitTestEnvironment(context: Context): Boolean {
             val loaderName = context.classLoader?.javaClass?.name.orEmpty()
             if (loaderName.contains("robolectric", ignoreCase = true)) return true
             return try {
