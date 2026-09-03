@@ -1,5 +1,4 @@
-# Dependabot — PR-only dependency updates (never direct-to-main).
-# Sensitive pins (SQLCipher, Hilt) are grouped for manual review.
+# Dependabot — PR-only. Majors for sensitive stacks ignored.
 version: 2
 updates:
   - package-ecosystem: "gradle"
@@ -7,37 +6,30 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     ignore:
-      # Major SQLCipher bumps need fixture regeneration + instrumented gate
-      - dependency-name: "net.zetetic:sqlcipher-android"
-        update-types: ["version-update:semver-major"]
       - dependency-name: "net.zetetic:*"
         update-types: ["version-update:semver-major"]
-      # Hilt major/compiler skew is high-risk
       - dependency-name: "com.google.dagger:*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "com.squareup.okhttp3:*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "org.jetbrains.kotlin*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "com.android.tools.build:gradle"
         update-types: ["version-update:semver-major"]
     labels:
       - "dependencies"
       - "gradle"
     groups:
       androidx:
-        patterns:
-          - "androidx.*"
+        patterns: ["androidx.*"]
       google-play:
-        patterns:
-          - "com.google.android.*"
-          - "com.google.firebase*"
+        patterns: ["com.google.android.*", "com.google.firebase*"]
       security-sensitive:
-        patterns:
-          - "net.zetetic:*"
-          - "com.google.dagger:*"
-          - "androidx.hilt*"
+        patterns: ["net.zetetic:*", "com.google.dagger:*", "androidx.hilt*"]
       test:
-        patterns:
-          - "org.mockito*"
-          - "org.robolectric*"
-          - "junit*"
+        patterns: ["org.mockito*", "org.robolectric*", "junit*"]
     commit-message:
       prefix: "deps"
       include: "scope"
@@ -47,7 +39,10 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 2
+    ignore:
+      - dependency-name: "actions/*"
+        update-types: ["version-update:semver-major"]
     labels:
       - "dependencies"
       - "ci"
