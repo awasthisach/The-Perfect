@@ -1,4 +1,6 @@
 schema_version: 1
+status: CURRENT
+id_grammar: "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$"
 policy: Critical requirements require more than line coverage; they require behavior and failure-mode evidence.
 
 test_levels:
@@ -9,6 +11,23 @@ test_levels:
   security: [authorization, crypto_failure, misuse]
   recovery: [corruption, rollback, interruption]
   regression: [historical_defect_reproduction]
+
+control_test_map:
+  - control_id: STORAGE-INV-001
+    test_ids: [STORAGE-TEST-001]
+    levels: [unit, security]
+  - control_id: STORAGE-INV-002
+    test_ids: [STORAGE-TEST-002]
+    levels: [unit]
+  - control_id: DB-INV-001
+    test_ids: [DB-TEST-001]
+    levels: [instrumentation, security]
+  - control_id: RESTORE-INV-001
+    test_ids: [RESTORE-TEST-001]
+    levels: [unit, recovery]
+  - control_id: WORK-INV-001
+    test_ids: [WORK-TEST-001]
+    levels: [unit, integration]
 
 minimum_traceability:
   requirement: at_least_one_test

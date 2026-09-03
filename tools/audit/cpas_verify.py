@@ -18,6 +18,8 @@ ID_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$")
 EVIDENCE_ID_RE = re.compile(r"^EVID-[0-9]{3,}$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$")
+RISK_ID_RE = re.compile(r"^PROD-[0-9]{3,}$")
+GATE_ID_RE = re.compile(r"^GATE-[A-Z0-9]+-[0-9]{3,}$")
 
 
 def check(name: str, passed: bool, detail: str) -> dict[str, str]:
@@ -75,7 +77,6 @@ def parse_risks(path: Path) -> list[dict[str, str]]:
             current = None
             continue
         if in_findings_block and re.match(r"^[a-z_]+:\s*$", line) and not line.startswith(" "):
-            # left the findings blocks
             in_findings_block = False
             current = None
             continue
@@ -105,18 +106,20 @@ def main() -> int:
     risk_path = assurance / "08-risk-register.yaml"
     invariant_path = assurance / "05-security-reliability-invariants.yaml"
     traceability_path = assurance / "06-requirements-traceability.yaml"
+    gate_path = assurance / "09-gate-catalog.yaml"
+    tech_path = assurance / "04-technology-registry.yaml"
     ledger_path = assurance / "evidence-ledger.json"
     output_path = root / "cpas-status.json"
 
     required = [
         assurance / "00-cpas-constitution.md",
         assurance / "03-evidence-policy.md",
-        assurance / "04-technology-registry.yaml",
+        tech_path,
         invariant_path,
         traceability_path,
         assurance / "07-test-matrix.yaml",
         risk_path,
-        assurance / "09-gate-catalog.yaml",
+        gate_path,
         assurance / "10-remediation-policy.md",
         assurance / "evidence-ledger.schema.json",
         ledger_path,
@@ -158,7 +161,10 @@ def main() -> int:
                         "implementation and test reference paths exist" if not missing_refs else "missing paths: " + ", ".join(missing_refs)))
 
     findings = parse_risks(risk_path) if risk_path.is_file() else []
-    # Critical must be fully closed. High may be ci_verified or closed.
+    invalid_risk_ids = sorted(item["id"] for item in findings if not RISK_ID_RE.fullmatch(item.get("id", "")))
+    checks.append(check("risk_id_grammar", not invalid_risk_ids,
+                        "all risk IDs match PROD-NNN" if not invalid_risk_ids else f"invalid risk IDs: {invalid_risk_ids}"))
+
     open_blockers = []
     for item in findings:
         sev = item.get("severity")
@@ -170,6 +176,22 @@ def main() -> int:
     checks.append(check("risk_register_gate", not open_blockers,
                         "no open critical/high findings" if not open_blockers else
                         "open blockers: " + ", ".join(item["id"] for item in open_blockers)))
+
+    gate_ids = ids_from_yaml(gate_path) if gate_path.is_file() else []
+    invalid_gates = sorted(g for g in gate_ids if not GATE_ID_RE.fullmatch(g))
+    checks.append(check("gate_id_grammar", bool(gate_ids) and not invalid_gates,
+                        "all gate IDs match GATE-*-NNN" if gate_ids and not invalid_gates else
+                        (f"invalid gate IDs: {invalid_gates}" if invalid_gates else "no gate IDs found")))
+
+    tech_ok = False
+    tech_detail = "technology registry missing"
+    if tech_path.is_file():
+        tech_text = tech_path.read_text(encoding="utf-8")
+        has_fts5 = "FTS5" in tech_text or "fts_module: FTS5" in tech_text
+        has_sdk = "min_sdk" in tech_text or "min:" in tech_text
+        tech_ok = has_fts5 and has_sdk
+        tech_detail = "FTS5 and SDK pins present" if tech_ok else "missing FTS5 and/or SDK pins in technology registry"
+    checks.append(check("technology_registry_pins", tech_ok, tech_detail))
 
     ledger_ok = False
     ledger_detail = "missing evidence-ledger.json"
@@ -202,7 +224,6 @@ def main() -> int:
             ledger_detail = f"invalid JSON: {exc}"
     checks.append(check("evidence_ledger_integrity", ledger_ok, ledger_detail))
 
-    # Production PASS additionally requires that not all evidence is local-only when critical findings exist.
     production_evidence_ok = True
     if local_only_count and open_blockers:
         production_evidence_ok = False

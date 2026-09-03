@@ -1,5 +1,6 @@
 schema_version: "1.0"
 status: CURRENT
+id_grammar: "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$"
 gates:
   - id: GATE-CONSTITUTION-001
     name: constitution_and_schema
@@ -61,9 +62,13 @@ gates:
     name: license_compliance
     owner: supply-chain
     command: fossa analyze
-    threshold: scan is executed and policy result is recorded; missing credentials are BLOCKED for release
-    evidence: fossa report
+    threshold: scan executed and policy result recorded
+    evidence: foss-status.json
     blocking: true
+    notes: |
+      CI records BLOCKED in foss-status.json when FOSSA_API_KEY is absent so
+      unit/build gates remain observable. Release/promotion MUST require
+      foss-status.status == PASS (fail-closed for production ship).
 
   - id: GATE-RELEASE-001
     name: signed_release_identity
@@ -79,3 +84,4 @@ policy:
   missing_evidence: BLOCKED
   expired_evidence: BLOCKED
   unknown_gate_id: BLOCKED
+  release_requires_fossa_pass: true
