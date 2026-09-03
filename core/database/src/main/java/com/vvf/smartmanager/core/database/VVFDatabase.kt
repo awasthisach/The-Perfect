@@ -23,7 +23,7 @@ import net.sqlcipher.database.SupportFactory
  *
  * Stores:
  * 1. File Metadata & Duplicate Hashes
- * 2. Full-Text Search (FTS4) Index
+ * 2. Full-Text Search (FTS5) Index
  * 3. Secure Vault Records & Operation Journal
  * 4. Multi-Cloud Sync Tracker
  */

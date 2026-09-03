@@ -76,7 +76,20 @@ class CryptoSecurityManager(
         private const val DB_PASSPHRASE_FORMAT_VERSION: Byte = 2
 
         private const val PBKDF2_ITERATIONS = 600_000
+        /**
+         * JVM/Robolectric-only fallback keys. Production refuses this path
+         * ([allowInMemoryFallback] is false when AndroidKeyStore is required).
+         * Cleared via [clearInMemoryKeysForTests] between unit tests.
+         */
         private val memoryKeyMap = mutableMapOf<String, SecretKey>()
+
+        /** Test isolation: drop in-memory fallback keys (no-op impact on device Keystore). */
+        @JvmStatic
+        fun clearInMemoryKeysForTests() {
+            synchronized(memoryKeyMap) {
+                memoryKeyMap.clear()
+            }
+        }
 
         /**
          * Public so composition roots in other modules (e.g. :app) can select
