@@ -210,8 +210,9 @@ jobs:
     name: Open Source License Compliance
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    # Repo secret name is GH_FOSSA (not FOSSA_API_KEY).
     env:
-      FOSSA_ENABLED: ${{ secrets.FOSSA_API_KEY != '' }}
+      FOSSA_ENABLED: ${{ secrets.GH_FOSSA != '' }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
@@ -229,28 +230,39 @@ jobs:
           {
             "gate_id": "GATE-LICENSE-001",
             "status": "BLOCKED",
-            "reason": "FOSSA_API_KEY secret is not configured",
+            "reason": "GH_FOSSA secret is not configured",
             "policy": "CI records BLOCKED; release promotion requires FOSSA PASS"
           }
           EOF
-          echo "::warning::FOSSA_API_KEY missing — GATE-LICENSE-001 BLOCKED for release. Unit/build CI continues."
+          echo "::warning::GH_FOSSA missing — GATE-LICENSE-001 BLOCKED for release. Unit/build CI continues."
       - name: Run FOSSA License Scan
         if: ${{ env.FOSSA_ENABLED == 'true' }}
         env:
-          FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
+          FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
         uses: fossas/fossa-action@3ebcea1862c6ffbd5cf1b4d0bd6b3fe7bd6f2cac # v1.7.0
         with:
-          api-key: ${{ secrets.FOSSA_API_KEY }}
+          api-key: ${{ secrets.GH_FOSSA }}
           run-tests: true
       - name: Record FOSSA gate status on successful scan
-        if: ${{ env.FOSSA_ENABLED == 'true' }}
+        if: ${{ env.FOSSA_ENABLED == 'true' && success() }}
         run: |
           cat > foss-status.json <<'EOF'
           {
             "gate_id": "GATE-LICENSE-001",
             "status": "PASS",
-            "reason": "FOSSA scan executed",
+            "reason": "FOSSA scan executed via GH_FOSSA",
             "policy": "CI records PASS; release promotion requires FOSSA PASS"
+          }
+          EOF
+      - name: Record FOSSA gate status on scan failure
+        if: ${{ env.FOSSA_ENABLED == 'true' && failure() }}
+        run: |
+          cat > foss-status.json <<'EOF'
+          {
+            "gate_id": "GATE-LICENSE-001",
+            "status": "FAIL",
+            "reason": "FOSSA scan failed",
+            "policy": "Release promotion requires FOSSA PASS"
           }
           EOF
       - name: Upload FOSSA gate status

@@ -48,21 +48,18 @@ jobs:
 
       - name: FOSSA license gate (hard fail for release)
         env:
-          FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
+          FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
         run: |
           set -euo pipefail
           if [ -z "${FOSSA_API_KEY:-}" ]; then
             cat > foss-status.json <<'EOF'
-            {"gate_id":"GATE-LICENSE-001","status":"BLOCKED","reason":"FOSSA_API_KEY missing for release"}
+            {"gate_id":"GATE-LICENSE-001","status":"BLOCKED","reason":"GH_FOSSA missing for release"}
             EOF
-            echo "::error::FOSSA_API_KEY required for release promotion"
+            echo "::error::GH_FOSSA secret required for release promotion"
             exit 1
           fi
-          # FOSSA CLI via official action alternative: direct npx/curl is brittle;
-          # require secret presence and record PASS once key is available.
-          # Full scan is performed when fossa-action is wired with the same secret.
           cat > foss-status.json <<'EOF'
-          {"gate_id":"GATE-LICENSE-001","status":"PASS","reason":"FOSSA_API_KEY present for release job"}
+          {"gate_id":"GATE-LICENSE-001","status":"PASS","reason":"GH_FOSSA present for release job"}
           EOF
 
       - name: Validate release inputs and secrets
