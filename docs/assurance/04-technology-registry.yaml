@@ -1,6 +1,22 @@
 schema_version: 1
 purpose: Record critical technology choices, their intended use, authoritative contracts, and required verification.
 
+platforms:
+  android:
+    min_sdk: 24
+    target_sdk: 36
+    compile_sdk: 36
+    jdk: 17
+
+database:
+  engine: room
+  encryption: sqlcipher
+  # CI fixture builds legacy 4.5.4 DBs for upgrade-path tests; runtime ships current SQLCipher via gradle deps.
+  sqlcipher_compat_fixture_version: "4.5.4"
+  fts_module: FTS5
+  ci_fixture_configure_flags: "--enable-tempstore=yes --enable-fts5"
+  notes: "FTS5 is authoritative. Older docs mentioning FTS4 are obsolete."
+
 technologies:
   - id: kotlin_android
     purpose: application implementation
@@ -10,6 +26,9 @@ technologies:
   - id: room_sqlcipher
     purpose: encrypted local persistence
     criticality: critical
+    versions:
+      fts: FTS5
+      compat_fixture: "4.5.4"
     invariants:
       - encrypted_persistence_must_not_silently_downgrade
       - wrong_key_must_not_open_database
@@ -21,7 +40,9 @@ technologies:
     invariants:
       - cryptographic_failure_must_fail_closed
       - plaintext_must_not_persist_after_successful_vault_write
+      - production_must_not_fallback_to_in_memory_keys
     required_evidence: [unit_tests, instrumentation_tests]
+    notes: "In-memory AES keys allowed only under Robolectric JVM unit tests."
 
   - id: workmanager
     purpose: durable background execution

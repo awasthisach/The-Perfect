@@ -31,6 +31,11 @@ import javax.inject.Singleton
  * 2. Protected Random 256-bit DB Passphrase generation and storage for SQLCipher.
  * 3. Low-Memory Streaming File Encryption/Decryption (64 KB buffers) for Secure Vault.
  * 4. In-Memory byte payload encryption for sensitive metadata/tokens.
+ *
+ * Fail-closed: production builds never fall back to in-memory keys when
+ * AndroidKeyStore is unavailable. Robolectric JVM unit tests are the sole
+ * exception (detected via classloader name), so Application wiring can be
+ * exercised without hardware-backed keystore.
  */
 @Singleton
 class CryptoSecurityManager(
@@ -72,10 +77,25 @@ class CryptoSecurityManager(
 
         private const val PBKDF2_ITERATIONS = 600_000
         private val memoryKeyMap = mutableMapOf<String, SecretKey>()
+
+        /** True only under Robolectric (or explicit non-AndroidKeyStore provider). */
+        internal fun isJvmUnitTestEnvironment(context: Context): Boolean {
+            val loaderName = context.classLoader?.javaClass?.name.orEmpty()
+            if (loaderName.contains("robolectric", ignoreCase = true)) return true
+            return try {
+                Class.forName("org.robolectric.RuntimeEnvironment")
+                true
+            } catch (_: ClassNotFoundException) {
+                false
+            }
+        }
     }
 
+    private val allowInMemoryFallback: Boolean =
+        keyStoreProvider != ANDROID_KEYSTORE || isJvmUnitTestEnvironment(context)
+
     private val isAndroidKeyStoreAvailable: Boolean = try {
-        Security.getProvider(ANDROID_KEYSTORE) != null || keyStoreProvider != ANDROID_KEYSTORE
+        Security.getProvider(ANDROID_KEYSTORE) != null
     } catch (_: Exception) {
         false
     }
@@ -129,7 +149,7 @@ class CryptoSecurityManager(
                 keyGenerator.generateKey()
             }
         } else {
-            if (keyStoreProvider == ANDROID_KEYSTORE) {
+            if (!allowInMemoryFallback) {
                 throw IllegalStateException(
                     "AndroidKeyStore is unavailable in a production environment; refusing to use in-memory keys"
                 )
@@ -147,7 +167,7 @@ class CryptoSecurityManager(
         return if (ks != null && ks.containsAlias(alias)) {
             (ks.getEntry(alias, null) as KeyStore.SecretKeyEntry).secretKey
         } else {
-            if (keyStoreProvider == ANDROID_KEYSTORE) {
+            if (!allowInMemoryFallback) {
                 throw IllegalStateException("KeyStore unavailable for alias: $alias")
             }
             memoryKeyMap.getOrPut(alias) {
