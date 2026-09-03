@@ -69,7 +69,7 @@ jobs:
 
       - name: Upload computed CPAS status
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cpas-status-${{ github.sha }}
           path: cpas-status.json
