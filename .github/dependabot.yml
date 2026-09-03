@@ -8,6 +8,15 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
+    ignore:
+      # Major SQLCipher bumps need fixture regeneration + instrumented gate
+      - dependency-name: "net.zetetic:sqlcipher-android"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "net.zetetic:*"
+        update-types: ["version-update:semver-major"]
+      # Hilt major/compiler skew is high-risk
+      - dependency-name: "com.google.dagger:*"
+        update-types: ["version-update:semver-major"]
     labels:
       - "dependencies"
       - "gradle"
