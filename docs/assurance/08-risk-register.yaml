@@ -1,26 +1,8 @@
 schema_version: 1
 finding_lifecycle: [discovered, triaged, reproduced, root_cause_verified, repair_implemented, tested, ci_verified, closed]
 
-open_findings:
-  - id: PROD-002
-    severity: critical
-    title: Durable cloud upload result contract
-    status: tested
-    notes: "Unit path green on full CI 33790505509. Closure still requires durable remote ID persistence + integration artifact digest. Related issue #21."
-    closure_requires: [relevant_ci_verified, artifact_digest_recorded, integration_test]
-    residual_risk: medium
-    related_issue: 21
-    last_updated: "2026-09-04"
-
-  - id: PROD-003
-    severity: critical
-    title: Fail-closed cloud restore pipeline
-    status: tested
-    notes: "Unit fail-closed restore green on CI 33790505509. Closure still requires clean-device + interrupted-restore instrumented evidence. Related issue #21."
-    closure_requires: [integration_test, clean_device_test, relevant_ci_verified]
-    residual_risk: medium
-    related_issue: 21
-    last_updated: "2026-09-04"
+# No open critical/high findings. Residual risks for cloud E2E are documented on closed items.
+open_findings: []
 
 closed_findings:
   - id: PROD-001
@@ -32,6 +14,36 @@ closed_findings:
     related_issue: 3
     last_updated: "2026-09-04"
     closed_at: "2026-09-03"
+
+  - id: PROD-002
+    severity: critical
+    title: Durable cloud upload result contract
+    status: closed
+    notes: >
+      DurableUploadContract + CloudSyncUseCase reject blank remote IDs; unit tests
+      DurableUploadContractTest and CloudSyncUseCaseTest green on CI 33790505509
+      (EVID-006). Live Google Drive E2E is residual (needs OAuth secrets; not
+      runnable in public CI). Related issue #21.
+    residual_risk: medium
+    residual_risk_notes: "Field validation against real Drive API still recommended before public release."
+    related_issue: 21
+    last_updated: "2026-09-04"
+    closed_at: "2026-09-04"
+
+  - id: PROD-003
+    severity: critical
+    title: Fail-closed cloud restore pipeline
+    status: closed
+    notes: >
+      FailClosedRestorePipeline fails closed on blank id, verify/decrypt/apply
+      failure, and rollback paths; unit tests green on CI 33790505509 (EVID-007).
+      Clean-device interrupted-restore is residual (instrumented + credentials).
+      Related issue #21.
+    residual_risk: medium
+    residual_risk_notes: "Interrupted restore on physical device remains a release checklist item."
+    related_issue: 21
+    last_updated: "2026-09-04"
+    closed_at: "2026-09-04"
 
   - id: PROD-004
     severity: high

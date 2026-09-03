@@ -65,6 +65,32 @@
       "environment": "github-actions-Linux-unit",
       "expires_at": "2027-03-02T19:02:57Z",
       "notes": "Full CI green run 33790505509"
+    },
+    {
+      "id": "EVID-006",
+      "control_id": "CLOUD-INV-001",
+      "test_id": "CLOUD-TEST-001",
+      "source_commit": "a5c7cbe457b79aff38802e02af108a38c99d20d2",
+      "ci_run_id": "33790505509",
+      "ci_job_id": "test_and_quality",
+      "executed_at": "2026-09-03T19:02:57Z",
+      "result": "PASS",
+      "environment": "github-actions-Linux-unit",
+      "expires_at": "2027-03-02T19:02:57Z",
+      "notes": "DurableUploadContractTest + CloudSyncUseCaseTest blank-id rejection PASS (PROD-002 unit path)"
+    },
+    {
+      "id": "EVID-007",
+      "control_id": "RESTORE-INV-001",
+      "test_id": "RESTORE-TEST-002",
+      "source_commit": "a5c7cbe457b79aff38802e02af108a38c99d20d2",
+      "ci_run_id": "33790505509",
+      "ci_job_id": "test_and_quality",
+      "executed_at": "2026-09-03T19:02:57Z",
+      "result": "PASS",
+      "environment": "github-actions-Linux-unit",
+      "expires_at": "2027-03-02T19:02:57Z",
+      "notes": "FailClosedRestorePipelineTest + CloudSyncUseCaseTest restore path PASS (PROD-003 unit path)"
     }
   ],
   "policy": {
