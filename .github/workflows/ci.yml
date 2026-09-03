@@ -58,6 +58,25 @@ jobs:
         run: ./gradlew --no-daemon --version
       - name: Run unit tests
         run: ./gradlew --no-daemon testDebugUnitTest --stacktrace
+      - name: Generate CPAS evidence from unit-test gate
+        if: success()
+        run: |
+          set -euo pipefail
+          python3 tools/audit/generate_evidence.py \
+            --commit-sha "${{ github.sha }}" \
+            --run-id "${{ github.run_id }}" \
+            --job-id "${{ github.job }}" \
+            --result PASS \
+            --environment "github-actions-${{ runner.os }}-unit" \
+            --output docs/assurance/cpas-evidence-run.json
+      - name: Upload CPAS evidence bundle
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cpas-evidence-run
+          path: docs/assurance/cpas-evidence-run.json
+          if-no-files-found: error
+          retention-days: 30
       - name: Run Android lint
         run: ./gradlew --no-daemon lintDebug --stacktrace
       - name: Assemble debug APK
@@ -183,6 +202,11 @@ jobs:
           java-version: "17"
           distribution: "temurin"
           cache: gradle
+      - name: Fail closed when FOSSA credentials missing
+        if: ${{ env.FOSSA_ENABLED != 'true' }}
+        run: |
+          echo "::error::FOSSA_API_KEY is not configured. License compliance is a blocking production gate (GATE-LICENSE-001). Configure the secret or document an approved waiver."
+          exit 1
       - name: Run FOSSA License Scan
         if: ${{ env.FOSSA_ENABLED == 'true' }}
         env:

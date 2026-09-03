@@ -1,5 +1,5 @@
 schema_version: "1.0"
-status: TARGET
+status: CURRENT
 id_grammar: "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$"
 requirements:
   - id: REQ-STORAGE-001
