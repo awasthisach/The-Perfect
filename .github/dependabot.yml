@@ -1,0 +1,47 @@
+# Dependabot — PR-only dependency updates (never direct-to-main).
+# Sensitive pins (SQLCipher, Hilt) are grouped for manual review.
+version: 2
+updates:
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "gradle"
+    groups:
+      androidx:
+        patterns:
+          - "androidx.*"
+      google-play:
+        patterns:
+          - "com.google.android.*"
+          - "com.google.firebase*"
+      security-sensitive:
+        patterns:
+          - "net.zetetic:*"
+          - "com.google.dagger:*"
+          - "androidx.hilt*"
+      test:
+        patterns:
+          - "org.mockito*"
+          - "org.robolectric*"
+          - "junit*"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "ci"
+      include: "scope"

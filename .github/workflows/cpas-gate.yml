@@ -12,7 +12,8 @@ permissions:
 
 concurrency:
   group: cpas-gate-${{ github.ref }}
-  cancel-in-progress: true
+  # Main: serialize (preserve full-green evidence). PR: cancel stale runs.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   cpas-verify:

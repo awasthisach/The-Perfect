@@ -1,0 +1,29 @@
+schema_version: 1
+# Formal residual-risk waivers (KB §5.7 / CPAS exception process).
+# Expired waivers must block production PASS until renewed or closed with evidence.
+
+waivers:
+  - id: WAIVER-021-CLOUD-E2E
+    related_findings: [PROD-002, PROD-003]
+    related_issue: 21
+    severity: critical
+    residual_risk: medium
+    status: active
+    owner: "awasthisach"
+    approved_by: "awasthisach"
+    opened_at: "2026-09-04"
+    expires_at: "2026-12-04"
+    rationale: >
+      Durable upload identity and fail-closed restore contracts are implemented
+      and unit-tested green on CI run 33790505509 (EVID-006, EVID-007). Live
+      Google Drive E2E and clean-device interrupted-restore require OAuth secrets
+      and cannot run in public CI. Field validation remains a release checklist
+      item; this waiver does not claim live-cloud proof.
+    compensating_controls:
+      - "DurableUploadContract.requireDurableRemoteId fail-closed on blank IDs"
+      - "FailClosedRestorePipeline unit paths for blank id, verify/decrypt/apply failure, rollback"
+      - "Monthly private-runner E2E scheduled when GH_DRIVE_* secrets available"
+    closure_criteria:
+      - "Private CI/runner E2E upload+restore PASS with artifact digest in evidence-ledger"
+      - "Interrupted-restore instrumented test PASS on API 35 emulator or device"
+    last_updated: "2026-09-04"

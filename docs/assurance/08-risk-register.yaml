@@ -23,7 +23,7 @@ closed_findings:
       DurableUploadContract + CloudSyncUseCase reject blank remote IDs; unit tests
       DurableUploadContractTest and CloudSyncUseCaseTest green on CI 33790505509
       (EVID-006). Live Google Drive E2E is residual (needs OAuth secrets; not
-      runnable in public CI). Related issue #21.
+      runnable in public CI). Formal residual waiver: WAIVER-021-CLOUD-E2E (docs/assurance/11-waivers.yaml). Related issue #21.
     residual_risk: medium
     residual_risk_notes: "Field validation against real Drive API still recommended before public release."
     related_issue: 21
@@ -38,7 +38,7 @@ closed_findings:
       FailClosedRestorePipeline fails closed on blank id, verify/decrypt/apply
       failure, and rollback paths; unit tests green on CI 33790505509 (EVID-007).
       Clean-device interrupted-restore is residual (instrumented + credentials).
-      Related issue #21.
+      Formal residual waiver: WAIVER-021-CLOUD-E2E (docs/assurance/11-waivers.yaml). Related issue #21.
     residual_risk: medium
     residual_risk_notes: "Interrupted restore on physical device remains a release checklist item."
     related_issue: 21
