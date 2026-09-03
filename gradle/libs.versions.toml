@@ -52,7 +52,7 @@ securityCrypto = "1.1.0-alpha06"
 biometric = "1.2.0-alpha05"
 sqlcipher = "4.5.4"
 sqlcipherAndroid = "4.5.6"
-kotlinxSerializationJson = "1.7.3"
+kotlinxSerializationJson = "1.11.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
