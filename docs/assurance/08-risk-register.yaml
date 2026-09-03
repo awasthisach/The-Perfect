@@ -6,49 +6,49 @@ open_findings:
     severity: critical
     title: Durable cloud upload result contract
     status: tested
-    notes: "DurableUploadContract + unit tests green on CI run 33714903184. Still requires durable remote ID persistence proof + artifact digest on integration path before close. Related issue #21."
+    notes: "Unit path green on full CI 33790505509. Closure still requires durable remote ID persistence + integration artifact digest. Related issue #21."
     closure_requires: [relevant_ci_verified, artifact_digest_recorded, integration_test]
     residual_risk: medium
     related_issue: 21
-    last_updated: "2026-09-03"
+    last_updated: "2026-09-04"
 
   - id: PROD-003
     severity: critical
     title: Fail-closed cloud restore pipeline
     status: tested
-    notes: "FailClosedRestorePipeline unit tests green on CI run 33714903184 (EVID-004). Still requires clean-device + interrupted-restore integration evidence before close. Related issue #21."
+    notes: "Unit fail-closed restore green on CI 33790505509. Closure still requires clean-device + interrupted-restore instrumented evidence. Related issue #21."
     closure_requires: [integration_test, clean_device_test, relevant_ci_verified]
     residual_risk: medium
     related_issue: 21
-    last_updated: "2026-09-03"
+    last_updated: "2026-09-04"
 
 closed_findings:
   - id: PROD-001
     severity: high
     title: Storage boundary must fail closed
     status: closed
-    notes: "StoragePathPolicy + requireAllowedPhysicalPath fail-closed. StorageBoundaryTest + EVID-001 (CI 33714903184). Related issue #3."
+    notes: "StoragePathPolicy fail-closed. EVID-001 on CI 33790505509. Related issue #3."
     residual_risk: low
     related_issue: 3
-    last_updated: "2026-09-03"
+    last_updated: "2026-09-04"
     closed_at: "2026-09-03"
 
   - id: PROD-004
     severity: high
     title: Production listing must not create sample or demo files
     status: closed
-    notes: "Listing paths never seed demo files. STORAGE-INV-002 / EVID-002 (CI 33714903184). Related issue #3."
+    notes: "STORAGE-INV-002 / EVID-002 on CI 33790505509. Related issue #3."
     residual_risk: low
     related_issue: 3
-    last_updated: "2026-09-03"
+    last_updated: "2026-09-04"
     closed_at: "2026-09-03"
 
   - id: PROD-007
     severity: high
     title: Android storage permission and policy gate
     status: closed
-    notes: "StorageAccessPolicy + StoragePermissionGate + OfflineFileManagerRepository.requireBrowsePrimaryTree. ExplorerViewModel surfaces needsStoragePermission. Related issue #20."
+    notes: "StorageAccessPolicy + StoragePermissionGate + lint NewApi guard. Related issue #20."
     residual_risk: low
     related_issue: 20
-    last_updated: "2026-09-03"
+    last_updated: "2026-09-04"
     closed_at: "2026-09-03"

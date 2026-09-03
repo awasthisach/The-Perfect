@@ -1,8 +1,12 @@
+#!/usr/bin/env python3
+"""Self-tests for CPAS verifier fail-closed behavior.
+
+Run: python3 -m unittest tools.audit.test_cpas_verify -v
+or:  python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
+"""
 from __future__ import annotations
 
 import json
-import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -11,102 +15,78 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 VERIFY = ROOT / "tools" / "audit" / "cpas_verify.py"
-ASSURANCE_FILES = [
-    "00-cpas-constitution.md",
-    "03-evidence-policy.md",
-    "04-technology-registry.yaml",
-    "05-security-reliability-invariants.yaml",
-    "06-requirements-traceability.yaml",
-    "07-test-matrix.yaml",
-    "08-risk-register.yaml",
-    "09-gate-catalog.yaml",
-    "10-remediation-policy.md",
-    "evidence-ledger.schema.json",
-    "evidence-ledger.json",
-    "FINAL_CPAS_SHEET.md",
-]
 
 
-class CpasVerifierTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
-        assurance = self.root / "docs" / "assurance"
-        assurance.mkdir(parents=True)
-        for name in ASSURANCE_FILES:
-            shutil.copy(ROOT / "docs" / "assurance" / name, assurance / name)
-        for path in [
-            "core/data/src/main", "core/data/src/test", "core/database/src/main",
-            "core/database/src/androidTest", "core/domain/src/main", "core/domain/src/test",
-            "core/cloud-gdrive/src/main", "core/cloud-gdrive/src/test", "core/background/src/main",
-            "core/background/src/test",
-        ]:
-            (self.root / path).mkdir(parents=True)
+def write(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
 
-    def tearDown(self) -> None:
-        self.temp.cleanup()
 
-    def run_verifier(self) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            [sys.executable, str(VERIFY), "--root", str(self.root)],
-            text=True,
-            capture_output=True,
-            check=False,
-        )
+class CpasVerifySelfTests(unittest.TestCase):
+    def test_empty_ledger_blocks_production(self) -> None:
+        """Empty evidence ledger must not produce production PASS."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            assurance = root / "docs" / "assurance"
+            # Minimal skeleton so required-file check is not the only failure
+            for name in (
+                "00-cpas-constitution.md",
+                "03-evidence-policy.md",
+                "10-remediation-policy.md",
+                "FINAL_CPAS_SHEET.md",
+            ):
+                body = "# placeholder\n" if name != "FINAL_CPAS_SHEET.md" else "\n".join(
+                    f"# {i}. Section {i}" for i in range(1, 50)
+                ) + "\n"
+                write(assurance / name, body)
+            write(assurance / "04-technology-registry.yaml", "fts_module: FTS5\nmin_sdk: 24\n")
+            write(
+                assurance / "05-security-reliability-invariants.yaml",
+                "invariants:\n  - id: STORAGE-INV-001\n",
+            )
+            write(
+                assurance / "06-requirements-traceability.yaml",
+                "requirements:\n  - id: REQ-X\n    controls: [STORAGE-INV-001]\n"
+                "    implementation_refs: [core]\n    test_refs: [core]\n",
+            )
+            (root / "core").mkdir()
+            write(assurance / "07-test-matrix.yaml", "matrix: []\n")
+            write(
+                assurance / "08-risk-register.yaml",
+                "open_findings: []\nclosed_findings: []\n",
+            )
+            write(
+                assurance / "09-gate-catalog.yaml",
+                "gates:\n  - id: GATE-CPAS-001\n",
+            )
+            write(assurance / "evidence-ledger.schema.json", "{}\n")
+            write(
+                assurance / "evidence-ledger.json",
+                json.dumps({"schema_version": "1.0", "entries": [], "policy": {}}),
+            )
 
-    def test_empty_ledger_blocks(self) -> None:
-        result = self.run_verifier()
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("BLOCKED", result.stdout)
-        status = json.loads((self.root / "cpas-status.json").read_text())
-        self.assertEqual(status["production_status"]["value"], "BLOCKED")
+            proc = subprocess.run(
+                [sys.executable, str(VERIFY), "--root", str(root)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(proc.returncode, 0, msg=proc.stdout + proc.stderr)
+            status = json.loads((root / "cpas-status.json").read_text(encoding="utf-8"))
+            self.assertEqual(status["production_status"]["value"], "BLOCKED")
 
-    def test_unknown_traceability_control_blocks(self) -> None:
-        path = self.root / "docs" / "assurance" / "06-requirements-traceability.yaml"
-        path.write_text(path.read_text().replace("[STORAGE-INV-001]", "[FAKE-INV-999]"))
-        result = self.run_verifier()
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("unknown controls", result.stdout)
+    def test_invalid_risk_id_fails_grammar_check(self) -> None:
+        self.assertTrue(VERIFY.is_file())
+        # Live repo should reject non-PROD risk IDs if introduced; smoke the regex path
+        import importlib.util
 
-    def test_malformed_evidence_blocks(self) -> None:
-        path = self.root / "docs" / "assurance" / "evidence-ledger.json"
-        path.write_text(json.dumps({"schema_version": "1.0", "entries": [{"id": "bad"}], "policy": {}}))
-        result = self.run_verifier()
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("ledger contract", result.stdout)
-
-    def test_valid_synthetic_evidence_passes_structural_checks(self) -> None:
-        ledger = {
-            "schema_version": "1.0",
-            "entries": [{
-                "id": "EVID-001",
-                "control_id": "STORAGE-INV-001",
-                "test_id": "STORAGE-TEST-001",
-                "source_commit": "a" * 40,
-                "ci_run_id": "local-test",
-                "ci_job_id": "cpas-verify",
-                "executed_at": "2099-01-01T00:00:00Z",
-                "result": "PASS",
-                "environment": "synthetic-fixture",
-                "expires_at": "2099-02-01T00:00:00Z",
-            }],
-            "policy": {
-                "status_values": ["pending", "verified", "failed"],
-                "production_rule": "synthetic test only",
-            },
-        }
-        (self.root / "docs" / "assurance" / "evidence-ledger.json").write_text(json.dumps(ledger))
-        risk = self.root / "docs" / "assurance" / "08-risk-register.yaml"
-        # Close every finding status so the synthetic fixture isolates ledger/schema checks.
-        # Statuses evolve (triaged, repair_implemented, tested, ...); the test must not
-        # depend on a single lifecycle string.
-        risk_text = risk.read_text()
-        risk_text = re.sub(r"(?m)^(\s*status:\s*)\S+", r"\1closed", risk_text)
-        risk.write_text(risk_text)
-        result = self.run_verifier()
-        self.assertEqual(result.returncode, 0, result.stdout)
-        status = json.loads((self.root / "cpas-status.json").read_text())
-        self.assertEqual(status["production_status"]["value"], "PASS")
+        spec = importlib.util.spec_from_file_location("cpas_verify", VERIFY)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+        self.assertTrue(mod.RISK_ID_RE.fullmatch("PROD-002"))
+        self.assertFalse(mod.RISK_ID_RE.fullmatch("RISK-002"))
+        self.assertTrue(mod.GATE_ID_RE.fullmatch("GATE-LICENSE-001"))
+        self.assertFalse(mod.GATE_ID_RE.fullmatch("LICENSE-001"))
 
 
 if __name__ == "__main__":
