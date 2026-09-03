@@ -68,7 +68,7 @@ class CloudSyncUseCase(
         } else {
             val driver = pluginDrivers[providerType]
             if (driver != null) {
-                val quota = driver.getStorageQuota()
+                val quota = driver.getQuotaUsage()
                 CloudAccount(
                     providerType = providerType,
                     displayName = driver.displayName,
