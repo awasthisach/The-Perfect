@@ -206,22 +206,19 @@ jobs:
           path: "**/build/outputs/apk/debug/*.apk"
           if-no-files-found: error
           retention-days: 7
+
   license_compliance:
     name: Open Source License Compliance
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    # Repo secret name is GH_FOSSA (not FOSSA_API_KEY).
+    timeout-minutes: 20
+    # Secret name in this repo is GH_FOSSA.
     env:
       FOSSA_ENABLED: ${{ secrets.GH_FOSSA != '' }}
+      FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
-      - name: Set up JDK 17
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
-        with:
-          java-version: "17"
-          distribution: "temurin"
-          cache: gradle
+
       - name: Record FOSSA gate status when credentials missing
         if: ${{ env.FOSSA_ENABLED != 'true' }}
         run: |
@@ -234,15 +231,50 @@ jobs:
             "policy": "CI records BLOCKED; release promotion requires FOSSA PASS"
           }
           EOF
-          echo "::warning::GH_FOSSA missing — GATE-LICENSE-001 BLOCKED for release. Unit/build CI continues."
-      - name: Run FOSSA License Scan
+          echo "::warning::GH_FOSSA missing — GATE-LICENSE-001 BLOCKED for release."
+
+      - name: Diagnose FOSSA credentials (non-secret)
+        if: ${{ env.FOSSA_ENABLED == 'true' }}
+        run: |
+          set -euo pipefail
+          # Never print the key — only length and charset sanity.
+          LEN="${#FOSSA_API_KEY}"
+          echo "GH_FOSSA length=$LEN"
+          if [ "$LEN" -lt 16 ]; then
+            echo "::error::GH_FOSSA looks too short (len=$LEN). Create a Push-Only API token in FOSSA dashboard."
+            exit 1
+          fi
+          # Reject common copy/paste accidents (whitespace/newlines)
+          if printf '%s' "$FOSSA_API_KEY" | grep -q '[[:space:]]'; then
+            echo "::error::GH_FOSSA contains whitespace — re-paste token without spaces/newlines."
+            exit 1
+          fi
+
+      - name: Install FOSSA CLI
+        if: ${{ env.FOSSA_ENABLED == 'true' }}
+        run: |
+          set -euo pipefail
+          curl -fsSL https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
+          fossa --version
+
+      - name: FOSSA analyze (upload inventory)
         if: ${{ env.FOSSA_ENABLED == 'true' }}
         env:
           FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
-        uses: fossas/fossa-action@3ebcea1862c6ffbd5cf1b4d0bd6b3fe7bd6f2cac # v1.7.0
-        with:
-          api-key: ${{ secrets.GH_FOSSA }}
-          run-tests: true
+        run: |
+          set -euo pipefail
+          # Android/Gradle monorepo: analyze from repo root.
+          fossa analyze --project "The-Perfect" --revision "${{ github.sha }}"
+
+      - name: FOSSA test (license policy gate)
+        if: ${{ env.FOSSA_ENABLED == 'true' }}
+        env:
+          FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
+        run: |
+          set -euo pipefail
+          # Fails if FOSSA project policy finds issues, or if auth/project is wrong.
+          fossa test --timeout 600
+
       - name: Record FOSSA gate status on successful scan
         if: ${{ env.FOSSA_ENABLED == 'true' && success() }}
         run: |
@@ -250,10 +282,11 @@ jobs:
           {
             "gate_id": "GATE-LICENSE-001",
             "status": "PASS",
-            "reason": "FOSSA scan executed via GH_FOSSA",
+            "reason": "fossa analyze + fossa test succeeded via GH_FOSSA",
             "policy": "CI records PASS; release promotion requires FOSSA PASS"
           }
           EOF
+
       - name: Record FOSSA gate status on scan failure
         if: ${{ env.FOSSA_ENABLED == 'true' && failure() }}
         run: |
@@ -261,10 +294,11 @@ jobs:
           {
             "gate_id": "GATE-LICENSE-001",
             "status": "FAIL",
-            "reason": "FOSSA scan failed",
+            "reason": "fossa analyze or fossa test failed — check API token type (Push-Only), project link, or license policy",
             "policy": "Release promotion requires FOSSA PASS"
           }
           EOF
+
       - name: Upload FOSSA gate status
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
