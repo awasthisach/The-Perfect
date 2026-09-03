@@ -99,21 +99,33 @@ jobs:
         run: ./gradlew --no-daemon :core:database-compat:connectedDebugAndroidTest --stacktrace
       - name: Collect Android emulator diagnostics
         if: failure()
+        timeout-minutes: 2
         run: |
           set +e
-          adb devices -l
-          adb shell getprop
-          adb logcat -d -t 2000 > "$RUNNER_TEMP/emulator-logcat.txt"
-          cat "$RUNNER_TEMP/emulator.log" || true
+          export PATH="$ANDROID_HOME/platform-tools:$PATH"
+          # No device → skip; do not hang the job.
+          if ! timeout 10 adb devices 2>/dev/null | grep -qE 'device$'; then
+            echo "No adb device present (emulator never started or already gone). Skipping diagnostics."
+            echo "unit-test or earlier step failed before emulator boot." > "$RUNNER_TEMP/emulator-logcat.txt" || true
+            exit 0
+          fi
+          timeout 15 adb devices -l || true
+          timeout 20 adb shell getprop || true
+          timeout 30 adb logcat -d -t 2000 > "$RUNNER_TEMP/emulator-logcat.txt" || true
+          cat "$RUNNER_TEMP/emulator.log" 2>/dev/null || true
       - name: Stop Android emulator
         if: always()
+        timeout-minutes: 1
         run: |
           set +e
-          adb emu kill
+          export PATH="$ANDROID_HOME/platform-tools:$PATH"
+          timeout 10 adb emu kill 2>/dev/null || true
           if [ -f "$RUNNER_TEMP/emulator.pid" ]; then
             kill "$(cat "$RUNNER_TEMP/emulator.pid")" 2>/dev/null || true
+            sleep 1
+            kill -9 "$(cat "$RUNNER_TEMP/emulator.pid")" 2>/dev/null || true
           fi
-          adb kill-server || true
+          timeout 10 adb kill-server 2>/dev/null || true
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
