@@ -1,33 +1,29 @@
-# Remediation progress scorecard
+# Remediation progress — production baseline
 
 Updated: 2026-09-04
 
-## Step 1 — Process (~100%)
+## Production-grade baseline: COMPLETE (P0/P1)
 
-| Item | Status |
+| Area | Status |
 |------|--------|
-| Branch protection on `main` | **ON** (PR required, 1 approval, enforce admins, no force push/delete; checks: CI + CPAS) |
-| CI cancel-in-progress PR-only | done |
-| Dependabot + major ignores | done |
-| Bot PR waves closed | done (30 + 6 + 3) |
-| Stale remote branches pruned | **36 deleted**; only `main` remains |
-| fossabot disable | still recommended in Settings → Apps (stops new PRs) |
+| Branch protection on main | ON |
+| CI serial on main / cancel on PR only | done |
+| Bot noise cleaned; Dependabot majors ignored | done |
+| Stale branches pruned | done |
+| CPAS PASS 12/12; evidence ledger | done |
+| Storage fail-closed; permissions | done |
+| Cloud unit contracts + WAIVER-021 | done |
+| Branding; scaffold removed; FOSSA | done |
+| Release: signed + SBOM + SLSA attest | done |
+| Privacy map; threat model; perf budgets | done |
+| CODEOWNERS | done |
 
-## Step 2 — Assurance (~95%)
+## Honest residual
 
-| Item | Status |
-|------|--------|
-| Assurance 00–10 + waivers | done |
-| Evidence ledger 7 entries | done |
-| CPAS PASS 12/12 | done |
-| Issues #3 #20 closed | done |
-| Issue #21 residual under WAIVER-021 | open tracking |
+| Item | Handling |
+|------|----------|
+| Live Google Drive E2E | WAIVER-021 until private-runner evidence |
+| Device performance numbers | Budgets in performance-budgets.md |
+| fossabot GitHub App | Disable in Settings if still installed |
 
-## Step 3 — Product/release (~70%)
-
-Branding, storage fail-closed, cloud unit contracts, scaffold removed, FOSSA analyze — done.
-Live Drive E2E / full SLSA — optional maturity.
-
-## Overall ~90%+ P0/P1
-
-P0 process baseline is complete. Remaining: disable fossabot app; optional E2E/SBOM maturity.
+Definition of done: offline-first product + fail-closed security + evidence-backed CPAS + protected main + signed release path.
