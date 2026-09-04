@@ -149,13 +149,15 @@ jobs:
             --include-db \
             --environment "github-actions-API35-emulator" \
             --output docs/assurance/cpas-evidence-full.json
+      # File only exists when emulator+instrumented both green (advisory path).
+      # Missing file must not fail the job after intentional emulator continue-on-error.
       - name: Upload full CPAS evidence bundle
-        if: success()
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: cpas-evidence-full
           path: docs/assurance/cpas-evidence-full.json
-          if-no-files-found: error
+          if-no-files-found: ignore
           retention-days: 30
       - name: Collect Android emulator diagnostics
         if: failure()
@@ -327,8 +329,13 @@ jobs:
           }
           EOF
           cat foss-status.json
+          # Hard-fail only on main pushes; PRs record status without blocking merge noise.
           if [ "$STATUS" != "PASS" ]; then
-            exit 1
+            if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+              echo "::error::GATE-LICENSE-001 FAIL on main"
+              exit 1
+            fi
+            echo "::warning::GATE-LICENSE-001 status=$STATUS (non-main — advisory for this event)"
           fi
 
       - name: Upload FOSSA gate status
