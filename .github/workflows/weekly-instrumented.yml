@@ -1,0 +1,118 @@
+name: Weekly Instrumented Hard Gate
+
+# Hard (non-advisory) SQLCipher instrumented run — compensates for PR/main
+# emulator continue-on-error skips on the primary CI job.
+on:
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weekly-instrumented
+  cancel-in-progress: false
+
+jobs:
+  instrumented-hard:
+    name: SQLCipher Instrumented (hard)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: gradle
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+
+      - name: Install SDK components
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+
+      - name: Create local.properties
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+      - name: Generate SQLCipher 4.5.4 compatibility fixture
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/sqlcipher.tgz https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz
+          tar -xzf /tmp/sqlcipher.tgz -C /tmp
+          cd /tmp/sqlcipher-4.5.4
+          ./configure --enable-tempstore=yes CFLAGS="-DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL" LDFLAGS="-lcrypto" --enable-fts5
+          make -j"$(nproc)"
+          mkdir -p "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets"
+          printf '%s\n' "PRAGMA key = 'vvf-sqlcipher-compatibility-test';" "CREATE TABLE compatibility_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL);" "INSERT INTO compatibility_test (id, value) VALUES (1, 'legacy-4.5.4');" ".quit" | ./sqlcipher "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
+          test -s "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
+
+      - name: Start Android emulator (HARD — no continue-on-error)
+        timeout-minutes: 15
+        env:
+          ANDROID_AVD_HOME: ${{ runner.temp }}/avd
+        run: |
+          set -euo pipefail
+          mkdir -p "$ANDROID_AVD_HOME"
+          export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH"
+          echo "no" | avdmanager create avd --force --name vvf-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2"
+          adb start-server
+          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel off -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/emulator.pid"
+          timeout 180 adb wait-for-device
+          for _ in $(seq 1 60); do
+            boot_completed="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+            if [ "$boot_completed" = "1" ]; then
+              break
+            fi
+            sleep 5
+          done
+          test "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1"
+          adb devices
+
+      - name: SQLCipher instrumentation (HARD)
+        run: ./gradlew --no-daemon :core:database-compat:connectedDebugAndroidTest --stacktrace
+
+      # Keep ledger freshness aligned with weekly hard gate (environment must contain "emulator")
+      - name: Generate CPAS instrumented evidence
+        if: success()
+        run: |
+          set -euo pipefail
+          python3 tools/audit/generate_evidence.py \
+            --commit-sha "${{ github.sha }}" \
+            --run-id "${{ github.run_id }}" \
+            --job-id "${{ github.job }}" \
+            --result PASS \
+            --include-db \
+            --environment "github-actions-API35-emulator-weekly" \
+            --output docs/assurance/cpas-evidence-weekly.json \
+            --merge-ledger
+
+      - name: Upload weekly CPAS evidence artifacts
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: weekly-cpas-evidence
+          path: |
+            docs/assurance/cpas-evidence-weekly.json
+            docs/assurance/evidence-ledger.json
+          if-no-files-found: error
+          retention-days: 30
+
+      # main is protected — do not git push from this job. Artifact carries refreshed ledger;
+      # open a PR or use a privileged bot later to land evidence on main.
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: weekly-instrumented-diagnostics
+          path: |
+            ${{ runner.temp }}/emulator.log
+            **/build/reports/androidTests/**
+          if-no-files-found: ignore
+          retention-days: 14
