@@ -49,6 +49,7 @@ import com.vvf.smartmanager.plugin.semanticsearch.SemanticSearchPluginImpl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -99,6 +100,8 @@ class VVFApplication : Application() {
     lateinit var backgroundSyncManager: BackgroundSyncManager
     lateinit var ocrPlugin: OcrPluginImpl
     lateinit var semanticSearchPlugin: ISemanticSearchEngine
+
+    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()
@@ -207,7 +210,7 @@ class VVFApplication : Application() {
         val bgExceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
             Log.e(TAG, "Background sync scheduling failed safely", throwable)
         }
-        CoroutineScope(SupervisorJob() + Dispatchers.IO + bgExceptionHandler).launch {
+        applicationScope.launch(bgExceptionHandler) {
             try {
                 backgroundSyncManager.schedulePeriodicIndexing(intervalHours = 6L)
                 backgroundSyncManager.schedulePeriodicJunkScan(intervalHours = 12L)
@@ -215,6 +218,11 @@ class VVFApplication : Application() {
                 Log.e(TAG, "Background sync scheduling failed", e)
             }
         }
+    }
+
+    override fun onTerminate() {
+        applicationScope.cancel()
+        super.onTerminate()
     }
 
     override fun onTrimMemory(level: Int) {
