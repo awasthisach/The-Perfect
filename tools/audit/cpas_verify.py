@@ -99,6 +99,25 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def parse_waivers(path: Path) -> list[dict[str, str]]:
+    """Minimal YAML list parser for waiver entries (id + key fields)."""
+    waivers: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        m = re.match(r"\s*-\s*id:\s*(\S+)", line)
+        if m:
+            current = {"id": m.group(1)}
+            waivers.append(current)
+            continue
+        if current is None:
+            continue
+        for field in ("expires_at", "status", "residual_risk", "owner"):
+            m2 = re.match(rf"\s*{field}:\s*[\"']?(.+?)[\"']?\s*$", line)
+            if m2:
+                current[field] = m2.group(1).strip().strip('"').strip("'")
+    return waivers
+
+
 def main() -> int:
     root = parse_args().root.resolve()
     assurance = root / "docs" / "assurance"
@@ -245,6 +264,54 @@ def main() -> int:
                     stale_count += 1
     checks.append(check("evidence_freshness", stale_count == 0,
                         "all evidence is within expiry" if stale_count == 0 else f"expired or malformed evidence entries: {stale_count}"))
+
+    # Active waiver expiry (fail-closed on missing/malformed expires_at)
+    now = datetime.now(timezone.utc)
+    waiver_path = assurance / "11-waivers.yaml"
+    expired_waivers: list[str] = []
+    if waiver_path.is_file():
+        for w in parse_waivers(waiver_path):
+            if str(w.get("status", "")).lower() != "active":
+                continue
+            try:
+                exp = datetime.fromisoformat(str(w["expires_at"]).replace("Z", "+00:00"))
+                if exp.tzinfo is None:
+                    exp = exp.replace(tzinfo=timezone.utc)
+                if exp <= now:
+                    expired_waivers.append(w.get("id", "unknown"))
+            except (KeyError, ValueError):
+                expired_waivers.append(w.get("id", "unknown"))
+    checks.append(check(
+        "waiver_expiry",
+        not expired_waivers,
+        "no active expired waivers" if not expired_waivers else f"EXPIRED: {', '.join(expired_waivers)}",
+    ))
+
+    # Instrumented SQLCipher evidence must not go silently stale (>14 days)
+    instr_stale = True
+    if isinstance(entries, list) and entries:
+        instr = [
+            e for e in entries
+            if isinstance(e, dict) and "emulator" in str(e.get("environment", "")).lower()
+        ]
+        if instr:
+            ages = []
+            for e in instr:
+                try:
+                    executed = datetime.fromisoformat(str(e["executed_at"]).replace("Z", "+00:00"))
+                    if executed.tzinfo is None:
+                        executed = executed.replace(tzinfo=timezone.utc)
+                    ages.append((now - executed).total_seconds() / 86400.0)
+                except (KeyError, ValueError):
+                    ages.append(999.0)
+            instr_stale = all(a > 14.0 for a in ages)
+    checks.append(check(
+        "instrumented_evidence_freshness",
+        not instr_stale,
+        "instrumented DB evidence within 14 days"
+        if not instr_stale
+        else "no instrumented evidence in 14 days — run weekly hard gate",
+    ))
 
     passed = sum(item["status"] == "PASS" for item in checks)
     blocked = len(checks) - passed

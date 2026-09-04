@@ -133,6 +133,10 @@ jobs:
           adb devices
           echo "booted=true" >> "$GITHUB_OUTPUT"
           echo "emulator_outcome=success" > "$GITHUB_WORKSPACE/.emulator-booted"
+      - name: Annotate SQLCipher instrumented skip (no false silence)
+        if: ${{ steps.emulator.outcome != 'success' }}
+        run: |
+          echo "::warning::GATE-DB-001 emulator did not boot — SQLCipher instrumented tests SKIPPED (job stays green by design). Compensate with weekly-instrumented hard gate."
       - name: Run SQLCipher compatibility instrumentation test
         id: sqlcipher_instrumented
         if: ${{ steps.emulator.outcome == 'success' }}
