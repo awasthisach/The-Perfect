@@ -59,7 +59,8 @@ object AppCompositionRoot {
             applier = LocalRestoreApplier(
                 liveDatabaseFile = File(context.filesDir, databaseName),
                 liveVaultDir = vaultDir,
-                snapshotRoot = File(restoreWorkingDir, "snapshots")
+                snapshotRoot = File(restoreWorkingDir, "snapshots"),
+                vaultAuthImporter = { meta -> cryptoSecurityManager.importVaultAuthMetadata(meta) }
             )
         )
         return CloudSyncUseCase(

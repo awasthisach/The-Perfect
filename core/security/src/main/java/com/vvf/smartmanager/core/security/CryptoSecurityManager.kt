@@ -76,7 +76,20 @@ class CryptoSecurityManager(
         private const val DB_PASSPHRASE_FORMAT_VERSION: Byte = 2
 
         private const val PBKDF2_ITERATIONS = 600_000
+        /**
+         * JVM/Robolectric-only fallback keys. Production refuses this path
+         * ([allowInMemoryFallback] is false when AndroidKeyStore is required).
+         * Cleared via [clearInMemoryKeysForTests] between unit tests.
+         */
         private val memoryKeyMap = mutableMapOf<String, SecretKey>()
+
+        /** Test isolation: drop in-memory fallback keys (no-op impact on device Keystore). */
+        @JvmStatic
+        fun clearInMemoryKeysForTests() {
+            synchronized(memoryKeyMap) {
+                memoryKeyMap.clear()
+            }
+        }
 
         /**
          * Public so composition roots in other modules (e.g. :app) can select
@@ -400,6 +413,48 @@ class CryptoSecurityManager(
 
     fun isVaultConfigured(): Boolean = prefs.contains("vault_pin_hash") && prefs.contains("vault_pin_salt")
     fun isDecoyVaultConfigured(): Boolean = prefs.contains("vault_decoy_pin_hash") && prefs.contains("vault_decoy_pin_salt")
+
+    /**
+     * Export vault auth material already stored as Keystore-wrapped ciphertext in prefs.
+     * Safe to include inside an encrypted backup archive (not plaintext PINs).
+     */
+    fun exportVaultAuthMetadata(): Map<String, String> {
+        val keys = listOf(
+            "vault_pin_hash", "vault_pin_hash_iv", "vault_pin_salt", "vault_pin_salt_iv",
+            "vault_decoy_pin_hash", "vault_decoy_pin_hash_iv", "vault_decoy_pin_salt", "vault_decoy_pin_salt_iv",
+            "vault_biometric_enabled"
+        )
+        val out = linkedMapOf<String, String>()
+        for (key in keys) {
+            when (val value = prefs.all[key]) {
+                is String -> out[key] = value
+                is Boolean -> out[key] = value.toString()
+            }
+        }
+        return out
+    }
+
+    /** Restore vault auth metadata from backup. Does not accept raw PIN values. */
+    fun importVaultAuthMetadata(metadata: Map<String, String>): Boolean {
+        if (metadata.isEmpty()) return false
+        val editor = prefs.edit()
+        var wrote = false
+        metadata.forEach { (key, value) ->
+            when (key) {
+                "vault_biometric_enabled" -> {
+                    editor.putBoolean(key, value.equals("true", ignoreCase = true))
+                    wrote = true
+                }
+                "vault_pin_hash", "vault_pin_hash_iv", "vault_pin_salt", "vault_pin_salt_iv",
+                "vault_decoy_pin_hash", "vault_decoy_pin_hash_iv", "vault_decoy_pin_salt", "vault_decoy_pin_salt_iv" -> {
+                    editor.putString(key, value)
+                    wrote = true
+                }
+            }
+        }
+        return if (wrote) editor.commit() else false
+    }
+
 
     fun setupVaultPin(pin: String): Boolean {
         if (!isValidPinFormat(pin)) return false

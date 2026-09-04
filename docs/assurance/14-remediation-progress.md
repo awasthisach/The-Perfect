@@ -1,36 +1,29 @@
-# Remediation progress (three-step scorecard)
+# Remediation progress — production baseline
 
 Updated: 2026-09-04
 
-## Step 1 — Process stabilization (~85%)
+## Production-grade baseline: COMPLETE (P0/P1)
 
-| Item | Status |
+| Area | Status |
 |------|--------|
-| CI cancel-in-progress PR-only | done |
-| Dependabot PR-only + major ignores | done |
-| Bot PR flood closed (batch 1: 30, batch 2: 6) | done |
-| fossabot disable | manual Settings |
-| Branch protection on main | manual Settings |
+| Branch protection on main | ON |
+| CI serial on main / cancel on PR only | done |
+| Bot noise cleaned; Dependabot majors ignored | done |
+| Stale branches pruned | done |
+| CPAS PASS 12/12; evidence ledger | done |
+| Storage fail-closed; permissions | done |
+| Cloud unit contracts + WAIVER-021 | done |
+| Branding; scaffold removed; FOSSA | done |
+| Release: signed + SBOM + SLSA attest | done |
+| Privacy map; threat model; perf budgets | done |
+| CODEOWNERS | done |
 
-## Step 2 — Assurance foundation (~95%)
+## Honest residual
 
-| Item | Status |
-|------|--------|
-| Assurance files 00-10 + waivers | done |
-| Evidence ledger 7 entries | done |
-| CPAS PASS 12/12 | done |
-| Issues #3 #20 closed | done |
-| Issue #21 residual under waiver | open tracking |
+| Item | Handling |
+|------|----------|
+| Live Google Drive E2E | WAIVER-021 until private-runner evidence |
+| Device performance numbers | Budgets in performance-budgets.md |
+| fossabot GitHub App | Disable in Settings if still installed |
 
-## Step 3 — Product/release (~70%)
-
-| Item | Status |
-|------|--------|
-| Branding, storage fail-closed, cloud unit contracts | done |
-| Scaffold removed, FOSSA analyze | done |
-| Live Drive E2E | needs secrets |
-| Full SBOM/SLSA release gate | partial |
-
-## Overall ~85% P0/P1
-
-Remaining: branch protection + disable fossabot (Settings only).
+Definition of done: offline-first product + fail-closed security + evidence-backed CPAS + protected main + signed release path.

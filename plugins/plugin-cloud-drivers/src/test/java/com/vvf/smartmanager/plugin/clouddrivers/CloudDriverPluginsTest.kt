@@ -3,59 +3,38 @@ package com.vvf.smartmanager.plugin.clouddrivers
 import com.vvf.smartmanager.core.model.FileItem
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CloudDriverPluginsTest {
-
     @Test
-    fun testOneDriveDriverLifecycle() = runBlocking {
+    fun oneDriveIsFailClosedStub() = runBlocking {
         val driver = OneDriveDriverImpl()
-        assertEquals("plugin.cloud.onedrive", driver.driverId)
-        
-        val auth = driver.authenticate()
-        assertTrue(auth)
-
-        val files = driver.listRemoteFiles("/")
-        assertTrue(files.isNotEmpty())
-
-        val (used, total) = driver.getQuotaUsage()
-        assertTrue(total == 5_000_000_000L)
-        assertTrue(used > 0L)
-    }
-
-    @Test
-    fun testDropboxDriverLifecycle() = runBlocking {
-        val driver = DropboxDriverImpl()
-        assertEquals("plugin.cloud.dropbox", driver.driverId)
-
-        val auth = driver.authenticate()
-        assertTrue(auth)
-
-        val files = driver.listRemoteFiles("/")
-        assertTrue(files.isNotEmpty())
-
-        val testFile = FileItem(
-            path = "/storage/emulated/0/DCIM/photo.jpg",
-            name = "photo.jpg",
-            sizeBytes = 1000L,
-            lastModified = 0L,
-            isDirectory = false,
-            mimeType = "image/jpeg"
+        assertFalse(driver.authenticate())
+        assertTrue(driver.listRemoteFiles("/").isEmpty())
+        assertFalse(
+            driver.uploadFile(
+                FileItem("/tmp/a", "a", 1L, 0L, false, null),
+                "/"
+            )
         )
-        val uploaded = driver.uploadFile(testFile, "/Photos")
-        assertTrue(uploaded)
+        assertEquals(0L to 0L, driver.getQuotaUsage())
     }
 
     @Test
-    fun testNextCloudDriverLifecycle() = runBlocking {
-        val driver = NextCloudDriverImpl()
-        assertEquals("plugin.cloud.nextcloud", driver.driverId)
+    fun dropboxIsFailClosedStub() = runBlocking {
+        val driver = DropboxDriverImpl()
+        assertFalse(driver.authenticate())
+        assertTrue(driver.listRemoteFiles("/").isEmpty())
+    }
 
-        val auth = driver.authenticate()
-        assertTrue(auth)
-
-        val files = driver.listRemoteFiles("/")
-        assertTrue(files.isNotEmpty())
+    @Test
+    fun nextCloudS3NasAreFailClosedStubs() = runBlocking {
+        listOf(NextCloudDriverImpl(), S3StorageDriverImpl(), LocalNasDriverImpl()).forEach { driver ->
+            assertFalse(driver.authenticate())
+            assertTrue(driver.listRemoteFiles("/").isEmpty())
+            assertFalse(driver.downloadFile(FileItem("r", "r", 1L, 0L, false, null), "/tmp/x"))
+        }
     }
 }
