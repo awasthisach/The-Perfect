@@ -4,12 +4,16 @@ import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /**
- * Background worker that triggers automated encrypted backups when connected to Wi-Fi and charging.
+ * Scheduled encrypted cloud backup worker.
+ *
+ * Production policy: fail closed until a real backup orchestrator is injected via
+ * [BackgroundSyncManager] / application composition. Simulated delays must never
+ * be reported as successful backups.
  */
 class CloudBackupWorker(
     appContext: Context,
@@ -17,19 +21,34 @@ class CloudBackupWorker(
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        Log.i("CloudBackupWorker", "Starting scheduled background cloud backup...")
+        Log.i(TAG, "Cloud backup worker invoked")
         try {
             if (isStopped) return@withContext Result.retry()
 
             val includeVault = inputData.getBoolean("include_vault", true)
-            // Simulated backup synchronization
-            delay(1000)
-
-            Log.i("CloudBackupWorker", "Scheduled cloud backup completed (Vault Included: $includeVault).")
-            Result.success()
+            // Real pipeline (upload + integrity + durable state) is not yet wired
+            // into this worker. Report honest failure so operators and UI do not
+            // assume a backup completed.
+            Log.w(
+                TAG,
+                "Cloud backup pipeline not configured — fail closed " +
+                    "(includeVault=$includeVault). Wire real orchestrator before enabling."
+            )
+            Result.failure(
+                workDataOf(
+                    "reason" to "cloud_backup_pipeline_not_configured",
+                    "include_vault" to includeVault
+                )
+            )
         } catch (e: Exception) {
-            Log.e("CloudBackupWorker", "Scheduled cloud backup failed", e)
-            if (runAttemptCount < 2) Result.retry() else Result.failure()
+            Log.e(TAG, "Cloud backup worker error", e)
+            if (runAttemptCount < 2) Result.retry() else Result.failure(
+                workDataOf("reason" to (e.message ?: "unknown"))
+            )
         }
+    }
+
+    companion object {
+        private const val TAG = "CloudBackupWorker"
     }
 }
