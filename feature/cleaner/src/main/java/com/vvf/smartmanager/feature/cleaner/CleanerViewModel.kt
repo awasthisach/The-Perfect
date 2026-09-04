@@ -22,7 +22,8 @@ import kotlinx.coroutines.withContext
 class CleanerViewModel(
     private val duplicateCleanerUseCase: DuplicateCleanerUseCase,
     private val junkCleanerUseCase: JunkCleanerUseCase,
-    private val aiIntelligenceUseCase: AiIntelligenceUseCase? = null
+    private val aiIntelligenceUseCase: AiIntelligenceUseCase? = null,
+    private val canScanPrimaryStorage: () -> Boolean = { true }
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CleanerUiState())
@@ -52,6 +53,19 @@ class CleanerViewModel(
     }
 
     fun startScan(level: DuplicateLevel = _uiState.value.duplicateLevel) {
+        if (!canScanPrimaryStorage()) {
+            _uiState.update {
+                it.copy(
+                    isScanning = false,
+                    duplicateGroups = emptyList(),
+                    scanResult = com.vvf.smartmanager.core.model.CleanerScanResult(),
+                    scanProgressPct = 0f,
+                    scanProgressText = "Storage access required",
+                    userMessage = "Grant All Files Access in Explorer before running a Cleaner scan."
+                )
+            }
+            return
+        }
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
@@ -242,14 +256,16 @@ class CleanerViewModel(
         fun provideFactory(
             duplicateCleanerUseCase: DuplicateCleanerUseCase,
             junkCleanerUseCase: JunkCleanerUseCase,
-            aiIntelligenceUseCase: AiIntelligenceUseCase? = null
+            aiIntelligenceUseCase: AiIntelligenceUseCase? = null,
+            canScanPrimaryStorage: () -> Boolean = { true }
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 return CleanerViewModel(
                     duplicateCleanerUseCase,
                     junkCleanerUseCase,
-                    aiIntelligenceUseCase
+                    aiIntelligenceUseCase,
+                    canScanPrimaryStorage
                 ) as T
             }
         }

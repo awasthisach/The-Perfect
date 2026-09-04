@@ -474,7 +474,8 @@ class CryptoSecurityManager(
 
     fun setupDecoyPin(decoyPin: String): Boolean {
         if (!isValidPinFormat(decoyPin)) return false
-        if (verifyVaultPin(decoyPin)) return false
+        // Decoy setup must not consume the lockout budget when the candidate is not the real PIN.
+        if (matchesRealPin(decoyPin)) return false
         val salt = ByteArray(16)
         SecureRandom().nextBytes(salt)
         val hash = hashPin(decoyPin, salt)
@@ -498,41 +499,70 @@ class CryptoSecurityManager(
     fun verifyVaultPin(pin: String): Boolean = verifyVaultPinWithResult(pin) == VaultAuthResult.SUCCESS_REAL
     fun verifyDecoyPin(pin: String): Boolean = verifyVaultPinWithResult(pin) == VaultAuthResult.SUCCESS_DECOY
 
+    /**
+     * Compares a candidate with the real PIN without recording a failed unlock attempt.
+     * This is exclusively for validating a new decoy PIN before it is stored.
+     */
+    fun isSameAsVaultPin(pin: String): Boolean = isValidPinFormat(pin) && matchesRealPin(pin)
+
     fun verifyVaultPinWithResult(pin: String): VaultAuthResult {
         if (!isValidPinFormat(pin)) return VaultAuthResult.INVALID_FORMAT
         val remainingLockout = getRemainingLockoutSeconds()
         if (remainingLockout > 0) return VaultAuthResult.LOCKED_OUT(remainingLockout)
 
-        val realHashStr = prefs.getString("vault_pin_hash", null)
-        val realHashIvStr = prefs.getString("vault_pin_hash_iv", null)
-        val realSaltStr = prefs.getString("vault_pin_salt", null)
-        val realSaltIvStr = prefs.getString("vault_pin_salt_iv", null)
-        if (realHashStr != null && realHashIvStr != null && realSaltStr != null && realSaltIvStr != null) {
-            try {
-                val expectedHash = decryptBytes(Base64.decode(realHashStr, Base64.NO_WRAP), Base64.decode(realHashIvStr, Base64.NO_WRAP), VAULT_META_KEY_ALIAS)
-                val salt = decryptBytes(Base64.decode(realSaltStr, Base64.NO_WRAP), Base64.decode(realSaltIvStr, Base64.NO_WRAP), VAULT_META_KEY_ALIAS)
-                if (MessageDigest.isEqual(expectedHash, hashPin(pin, salt))) {
-                    resetFailedAttempts()
-                    return VaultAuthResult.SUCCESS_REAL
-                }
-            } catch (_: Exception) { }
+        if (matchesRealPin(pin)) {
+            resetFailedAttempts()
+            return VaultAuthResult.SUCCESS_REAL
         }
-
-        val decoyHashStr = prefs.getString("vault_decoy_pin_hash", null)
-        val decoyHashIvStr = prefs.getString("vault_decoy_pin_hash_iv", null)
-        val decoySaltStr = prefs.getString("vault_decoy_pin_salt", null)
-        val decoySaltIvStr = prefs.getString("vault_decoy_pin_salt_iv", null)
-        if (decoyHashStr != null && decoyHashIvStr != null && decoySaltStr != null && decoySaltIvStr != null) {
-            try {
-                val expectedHash = decryptBytes(Base64.decode(decoyHashStr, Base64.NO_WRAP), Base64.decode(decoyHashIvStr, Base64.NO_WRAP), VAULT_META_KEY_ALIAS)
-                val salt = decryptBytes(Base64.decode(decoySaltStr, Base64.NO_WRAP), Base64.decode(decoySaltIvStr, Base64.NO_WRAP), VAULT_META_KEY_ALIAS)
-                if (MessageDigest.isEqual(expectedHash, hashPin(pin, salt))) {
-                    resetFailedAttempts()
-                    return VaultAuthResult.SUCCESS_DECOY
-                }
-            } catch (_: Exception) { }
+        if (matchesDecoyPin(pin)) {
+            resetFailedAttempts()
+            return VaultAuthResult.SUCCESS_DECOY
         }
         return recordFailedAttempt()
+    }
+
+    private fun matchesRealPin(pin: String): Boolean = matchesStoredPin(
+        pin = pin,
+        hashKey = "vault_pin_hash",
+        hashIvKey = "vault_pin_hash_iv",
+        saltKey = "vault_pin_salt",
+        saltIvKey = "vault_pin_salt_iv"
+    )
+
+    private fun matchesDecoyPin(pin: String): Boolean = matchesStoredPin(
+        pin = pin,
+        hashKey = "vault_decoy_pin_hash",
+        hashIvKey = "vault_decoy_pin_hash_iv",
+        saltKey = "vault_decoy_pin_salt",
+        saltIvKey = "vault_decoy_pin_salt_iv"
+    )
+
+    private fun matchesStoredPin(
+        pin: String,
+        hashKey: String,
+        hashIvKey: String,
+        saltKey: String,
+        saltIvKey: String
+    ): Boolean {
+        val hash = prefs.getString(hashKey, null) ?: return false
+        val hashIv = prefs.getString(hashIvKey, null) ?: return false
+        val salt = prefs.getString(saltKey, null) ?: return false
+        val saltIv = prefs.getString(saltIvKey, null) ?: return false
+        return try {
+            val expectedHash = decryptBytes(
+                Base64.decode(hash, Base64.NO_WRAP),
+                Base64.decode(hashIv, Base64.NO_WRAP),
+                VAULT_META_KEY_ALIAS
+            )
+            val decodedSalt = decryptBytes(
+                Base64.decode(salt, Base64.NO_WRAP),
+                Base64.decode(saltIv, Base64.NO_WRAP),
+                VAULT_META_KEY_ALIAS
+            )
+            MessageDigest.isEqual(expectedHash, hashPin(pin, decodedSalt))
+        } catch (_: Exception) {
+            false
+        }
     }
 
     fun changeVaultPin(oldPin: String, newPin: String): Boolean {

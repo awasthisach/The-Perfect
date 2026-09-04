@@ -96,6 +96,7 @@ private val SoftGold = Color(0xFFD4A95A)
 @Composable
 fun CloudScreen(
     viewModel: CloudViewModel,
+    onGoogleDriveSignInRequested: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -230,7 +231,14 @@ fun CloudScreen(
                 ProviderQuotaCard(
                     account = currentAccount,
                     isBackingUp = uiState.isBackingUp,
-                    onConnectClick = { viewModel.connectProvider(currentProvider) },
+                    onConnectClick = {
+                        if (currentProvider == CloudProviderType.GOOGLE_DRIVE) {
+                            viewModel.beginGoogleDriveSignIn()
+                            onGoogleDriveSignInRequested()
+                        } else {
+                            viewModel.connectProvider(currentProvider)
+                        }
+                    },
                     onBackupClick = { viewModel.triggerCloudBackup() }
                 )
             }

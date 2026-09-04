@@ -68,6 +68,7 @@ import com.vvf.smartmanager.feature.vault.components.SoftGold
 import com.vvf.smartmanager.feature.vault.components.VaultAddFileDialog
 import com.vvf.smartmanager.feature.vault.components.VaultAuthScreen
 import com.vvf.smartmanager.feature.vault.components.VaultCategoryFilterChips
+import com.vvf.smartmanager.feature.vault.components.VaultChangePinDialog
 import com.vvf.smartmanager.feature.vault.components.VaultConfirmDeleteDialog
 import com.vvf.smartmanager.feature.vault.components.VaultEmptyState
 import com.vvf.smartmanager.feature.vault.components.EmeraldGreen
@@ -182,6 +183,7 @@ fun VaultScreen(
             onDigitClick = { viewModel.onPinDigit(it) },
             onBackspaceClick = { viewModel.onPinBackspace() },
             onClearClick = { viewModel.onPinClear() },
+            onSubmitClick = { viewModel.submitPin() },
             onBiometricClick = { triggerBiometricPrompt() },
             modifier = modifier
         )
@@ -446,6 +448,19 @@ fun VaultUnlockedContent(
             )
         }
 
+        if (uiState.showChangePinDialog) {
+            VaultChangePinDialog(
+                step = uiState.pinSetupStep,
+                enteredPin = uiState.enteredPin,
+                errorMessage = uiState.errorMessage,
+                isPinVerifying = uiState.isPinVerifying,
+                onDigitClick = { viewModel.onPinDigit(it) },
+                onBackspaceClick = { viewModel.onPinBackspace() },
+                onSubmitClick = { viewModel.submitPin() },
+                onDismiss = { viewModel.dismissChangePinDialog() }
+            )
+        }
+
         if (uiState.showSetupDecoyDialog) {
             VaultSetupDecoyDialog(
                 decoyStep = uiState.decoyPinStep,
@@ -454,6 +469,8 @@ fun VaultUnlockedContent(
                 userMessage = uiState.userMessage,
                 onDigitClick = { viewModel.onDecoyPinDigit(it) },
                 onBackspaceClick = { viewModel.onDecoyPinBackspace() },
+                onSubmitClick = { viewModel.submitDecoyPin() },
+                isPinVerifying = uiState.isPinVerifying,
                 onDismiss = { viewModel.dismissSetupDecoyDialog() }
             )
         }

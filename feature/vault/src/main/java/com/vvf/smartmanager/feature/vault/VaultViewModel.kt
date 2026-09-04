@@ -102,32 +102,29 @@ class VaultViewModel(
     // ========================================================================
 
     fun onPinDigit(digit: Char) {
-        if (!digit.isDigit()) return
+        if (!digit.isDigit() || _uiState.value.isPinVerifying) return
         val current = _uiState.value.enteredPin
         if (current.length >= 6) return
-        val newPin = current + digit
-        _uiState.update { it.copy(enteredPin = newPin, errorMessage = null) }
+        _uiState.update { it.copy(enteredPin = current + digit, errorMessage = null) }
+    }
 
+    /**
+     * Performs one PIN operation only after the user chooses Continue/Unlock. This avoids
+     * blocking the main thread and prevents prefix values from consuming lockout attempts.
+     */
+    fun submitPin() {
         val state = _uiState.value
-        if (state.isConfigured && !state.isSettingUpPin && !state.isChangingPin) {
-            // Unlocking mode: check if PIN verifies (works for 4 or 6 digit saved PIN)
-            if (vaultAuthUseCase.verifyPin(newPin)) {
-                evaluatePinSubmission(newPin)
-            } else if (newPin.length == 6) {
-                // Fail only after 6 digits if it didn't match
-                evaluatePinSubmission(newPin)
-            }
-        } else if (state.pinSetupStep == PinSetupStep.CONFIRM_NEW) {
-            // Confirm step: evaluate when length matches firstEnteredPin
-            if (newPin.length == state.firstEnteredPin.length) {
-                evaluatePinSubmission(newPin)
-            }
-        } else {
-            // Setup/Change PIN mode: evaluate at 4 or 6 digits
-            if (newPin.length == 4 || newPin.length == 6) {
-                evaluatePinSubmission(newPin)
-            }
+        val pin = state.enteredPin
+        if (state.isPinVerifying || state.isLockedOut) return
+        if (pin.length !in 4..6 || !pin.all { it.isDigit() }) {
+            _uiState.update { it.copy(errorMessage = "PIN must be 4 to 6 numeric digits") }
+            return
         }
+        if (state.pinSetupStep == PinSetupStep.CONFIRM_NEW && pin.length != state.firstEnteredPin.length) {
+            _uiState.update { it.copy(errorMessage = "PIN length must match the first entry") }
+            return
+        }
+        evaluatePinSubmission(pin)
     }
 
     fun onPinBackspace() {
@@ -156,15 +153,6 @@ class VaultViewModel(
         val state = _uiState.value
         when (state.pinSetupStep) {
             PinSetupStep.ENTER_NEW -> {
-                if (pin.length !in 4..6 || !pin.all { it.isDigit() }) {
-                    _uiState.update {
-                        it.copy(
-                            enteredPin = "",
-                            errorMessage = "PIN must be 4 to 6 numeric digits"
-                        )
-                    }
-                    return
-                }
                 _uiState.update {
                     it.copy(
                         firstEnteredPin = pin,
@@ -175,29 +163,7 @@ class VaultViewModel(
                 }
             }
             PinSetupStep.CONFIRM_NEW -> {
-                if (pin == state.firstEnteredPin) {
-                    val success = vaultAuthUseCase.setupPin(pin)
-                    if (success) {
-                        _uiState.update {
-                            it.copy(
-                                isConfigured = true,
-                                isUnlocked = true,
-                                isSettingUpPin = false,
-                                enteredPin = "",
-                                firstEnteredPin = "",
-                                userMessage = "Vault initialized and secured!"
-                            )
-                        }
-                        scheduleAutoLock()
-                    } else {
-                        _uiState.update {
-                            it.copy(
-                                enteredPin = "",
-                                errorMessage = "Failed to store secure PIN"
-                            )
-                        }
-                    }
-                } else {
+                if (pin != state.firstEnteredPin) {
                     _uiState.update {
                         it.copy(
                             enteredPin = "",
@@ -206,6 +172,31 @@ class VaultViewModel(
                             errorMessage = "PINs do not match. Try again."
                         )
                     }
+                    return
+                }
+                _uiState.update { it.copy(isPinVerifying = true) }
+                viewModelScope.launch {
+                    val success = withContext(Dispatchers.Default) { vaultAuthUseCase.setupPin(pin) }
+                    _uiState.update {
+                        if (success) {
+                            it.copy(
+                                isConfigured = true,
+                                isUnlocked = true,
+                                isSettingUpPin = false,
+                                enteredPin = "",
+                                firstEnteredPin = "",
+                                isPinVerifying = false,
+                                userMessage = "Vault initialized and secured!"
+                            )
+                        } else {
+                            it.copy(
+                                enteredPin = "",
+                                isPinVerifying = false,
+                                errorMessage = "Failed to store secure PIN"
+                            )
+                        }
+                    }
+                    if (success) scheduleAutoLock()
                 }
             }
             else -> {}
@@ -213,57 +204,65 @@ class VaultViewModel(
     }
 
     private fun handleUnlockAttempt(pin: String) {
-        val state = _uiState.value
-        if (state.isLockedOut) return
-
-        when (val result = vaultAuthUseCase.verifyPinWithResult(pin)) {
-            is com.vvf.smartmanager.core.security.CryptoSecurityManager.VaultAuthResult.SUCCESS_REAL -> {
-                _uiState.update {
-                    it.copy(
-                        isUnlocked = true,
-                        sessionMode = VaultSessionMode.REAL,
-                        enteredPin = "",
-                        failedAttempts = 0,
-                        errorMessage = null
-                    )
+        if (_uiState.value.isLockedOut) return
+        _uiState.update { it.copy(isPinVerifying = true) }
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.Default) { vaultAuthUseCase.verifyPinWithResult(pin) }
+            when (result) {
+                is com.vvf.smartmanager.core.security.CryptoSecurityManager.VaultAuthResult.SUCCESS_REAL -> {
+                    _uiState.update {
+                        it.copy(
+                            isUnlocked = true,
+                            sessionMode = VaultSessionMode.REAL,
+                            enteredPin = "",
+                            failedAttempts = 0,
+                            isPinVerifying = false,
+                            errorMessage = null
+                        )
+                    }
+                    observeVaultMetrics(isDecoy = false)
+                    scheduleAutoLock()
                 }
-                observeVaultMetrics(isDecoy = false)
-                scheduleAutoLock()
-            }
-            is com.vvf.smartmanager.core.security.CryptoSecurityManager.VaultAuthResult.SUCCESS_DECOY -> {
-                _uiState.update {
-                    it.copy(
-                        isUnlocked = true,
-                        sessionMode = VaultSessionMode.DECOY,
-                        enteredPin = "",
-                        failedAttempts = 0,
-                        errorMessage = null
-                    )
+                is com.vvf.smartmanager.core.security.CryptoSecurityManager.VaultAuthResult.SUCCESS_DECOY -> {
+                    _uiState.update {
+                        it.copy(
+                            isUnlocked = true,
+                            sessionMode = VaultSessionMode.DECOY,
+                            enteredPin = "",
+                            failedAttempts = 0,
+                            isPinVerifying = false,
+                            errorMessage = null
+                        )
+                    }
+                    observeVaultMetrics(isDecoy = true)
+                    scheduleAutoLock()
                 }
-                observeVaultMetrics(isDecoy = true)
-                scheduleAutoLock()
-            }
-            is com.vvf.smartmanager.core.security.CryptoSecurityManager.VaultAuthResult.LOCKED_OUT -> {
-                startLockoutTimer(result.remainingSeconds)
-            }
-            is com.vvf.smartmanager.core.security.CryptoSecurityManager.VaultAuthResult.INVALID_FORMAT -> {
-                _uiState.update {
-                    it.copy(
-                        enteredPin = "",
-                        errorMessage = "PIN must be 4 to 6 numeric digits"
-                    )
+                is com.vvf.smartmanager.core.security.CryptoSecurityManager.VaultAuthResult.LOCKED_OUT -> {
+                    _uiState.update { it.copy(isPinVerifying = false) }
+                    startLockoutTimer(result.remainingSeconds)
                 }
-            }
-            is com.vvf.smartmanager.core.security.CryptoSecurityManager.VaultAuthResult.INVALID_PIN -> {
-                if (result.lockoutSeconds > 0) {
-                    startLockoutTimer(result.lockoutSeconds)
-                } else {
+                is com.vvf.smartmanager.core.security.CryptoSecurityManager.VaultAuthResult.INVALID_FORMAT -> {
                     _uiState.update {
                         it.copy(
                             enteredPin = "",
-                            failedAttempts = result.failedAttempts,
-                            errorMessage = "Incorrect PIN (${result.failedAttempts} failed attempt${if (result.failedAttempts > 1) "s" else ""})"
+                            isPinVerifying = false,
+                            errorMessage = "PIN must be 4 to 6 numeric digits"
                         )
+                    }
+                }
+                is com.vvf.smartmanager.core.security.CryptoSecurityManager.VaultAuthResult.INVALID_PIN -> {
+                    if (result.lockoutSeconds > 0) {
+                        _uiState.update { it.copy(isPinVerifying = false) }
+                        startLockoutTimer(result.lockoutSeconds)
+                    } else {
+                        _uiState.update {
+                            it.copy(
+                                enteredPin = "",
+                                failedAttempts = result.failedAttempts,
+                                isPinVerifying = false,
+                                errorMessage = "Incorrect PIN (${result.failedAttempts} failed attempt${if (result.failedAttempts > 1) "s" else ""})"
+                            )
+                        }
                     }
                 }
             }
@@ -342,22 +341,27 @@ class VaultViewModel(
         val state = _uiState.value
         when (state.pinSetupStep) {
             PinSetupStep.ENTER_OLD_FOR_CHANGE -> {
-                if (vaultAuthUseCase.verifyPin(pin)) {
+                _uiState.update { it.copy(isPinVerifying = true) }
+                viewModelScope.launch {
+                    val result = withContext(Dispatchers.Default) { vaultAuthUseCase.verifyPinWithResult(pin) }
+                    val isRealPin = result is com.vvf.smartmanager.core.security.CryptoSecurityManager.VaultAuthResult.SUCCESS_REAL
                     _uiState.update {
-                        it.copy(
-                            oldPinForChange = pin,
-                            enteredPin = "",
-                            pinSetupStep = PinSetupStep.ENTER_NEW,
-                            errorMessage = null,
-                            userMessage = "Enter new 4-6 digit PIN"
-                        )
-                    }
-                } else {
-                    _uiState.update {
-                        it.copy(
-                            enteredPin = "",
-                            errorMessage = "Current PIN is incorrect"
-                        )
+                        if (isRealPin) {
+                            it.copy(
+                                oldPinForChange = pin,
+                                enteredPin = "",
+                                pinSetupStep = PinSetupStep.ENTER_NEW,
+                                isPinVerifying = false,
+                                errorMessage = null,
+                                userMessage = "Enter new 4-6 digit PIN"
+                            )
+                        } else {
+                            it.copy(
+                                enteredPin = "",
+                                isPinVerifying = false,
+                                errorMessage = "Current PIN is incorrect"
+                            )
+                        }
                     }
                 }
             }
@@ -373,28 +377,7 @@ class VaultViewModel(
                 }
             }
             PinSetupStep.CONFIRM_NEW -> {
-                if (pin == state.firstEnteredPin) {
-                    val success = vaultAuthUseCase.changePin(state.oldPinForChange, pin)
-                    if (success) {
-                        _uiState.update {
-                            it.copy(
-                                isChangingPin = false,
-                                showChangePinDialog = false,
-                                enteredPin = "",
-                                firstEnteredPin = "",
-                                oldPinForChange = "",
-                                userMessage = "Master PIN changed successfully!"
-                            )
-                        }
-                    } else {
-                        _uiState.update {
-                            it.copy(
-                                enteredPin = "",
-                                errorMessage = "Failed to update PIN"
-                            )
-                        }
-                    }
-                } else {
+                if (pin != state.firstEnteredPin) {
                     _uiState.update {
                         it.copy(
                             enteredPin = "",
@@ -402,6 +385,30 @@ class VaultViewModel(
                             pinSetupStep = PinSetupStep.ENTER_NEW,
                             errorMessage = "PINs do not match. Try again."
                         )
+                    }
+                    return
+                }
+                _uiState.update { it.copy(isPinVerifying = true) }
+                viewModelScope.launch {
+                    val success = withContext(Dispatchers.Default) { vaultAuthUseCase.changePin(state.oldPinForChange, pin) }
+                    _uiState.update {
+                        if (success) {
+                            it.copy(
+                                isChangingPin = false,
+                                showChangePinDialog = false,
+                                enteredPin = "",
+                                firstEnteredPin = "",
+                                oldPinForChange = "",
+                                isPinVerifying = false,
+                                userMessage = "Master PIN changed successfully!"
+                            )
+                        } else {
+                            it.copy(
+                                enteredPin = "",
+                                isPinVerifying = false,
+                                errorMessage = "Failed to update PIN"
+                            )
+                        }
                     }
                 }
             }
@@ -690,21 +697,25 @@ class VaultViewModel(
     }
 
     fun onDecoyPinDigit(digit: Char) {
+        if (!digit.isDigit() || _uiState.value.isPinVerifying) return
         val current = _uiState.value.enteredDecoyPin
         if (current.length >= 6) return
-        val newPin = current + digit
-        _uiState.update { it.copy(enteredDecoyPin = newPin, errorMessage = null) }
+        _uiState.update { it.copy(enteredDecoyPin = current + digit, errorMessage = null) }
+    }
 
+    fun submitDecoyPin() {
         val state = _uiState.value
-        if (state.decoyPinStep == PinSetupStep.CONFIRM_NEW) {
-            if (newPin.length == state.firstEnteredDecoyPin.length) {
-                evaluateDecoyPinSubmission(newPin)
-            }
-        } else {
-            if (newPin.length == 4 || newPin.length == 6) {
-                evaluateDecoyPinSubmission(newPin)
-            }
+        val pin = state.enteredDecoyPin
+        if (state.isPinVerifying) return
+        if (pin.length !in 4..6 || !pin.all { it.isDigit() }) {
+            _uiState.update { it.copy(errorMessage = "PIN must be 4 to 6 numeric digits") }
+            return
         }
+        if (state.decoyPinStep == PinSetupStep.CONFIRM_NEW && pin.length != state.firstEnteredDecoyPin.length) {
+            _uiState.update { it.copy(errorMessage = "PIN length must match the first entry") }
+            return
+        }
+        evaluateDecoyPinSubmission(pin)
     }
 
     fun onDecoyPinBackspace() {
@@ -718,47 +729,30 @@ class VaultViewModel(
         val state = _uiState.value
         when (state.decoyPinStep) {
             PinSetupStep.ENTER_NEW -> {
-                if (vaultAuthUseCase.verifyPin(pin)) {
+                _uiState.update { it.copy(isPinVerifying = true) }
+                viewModelScope.launch {
+                    val equalsRealPin = withContext(Dispatchers.Default) { vaultAuthUseCase.isSameAsVaultPin(pin) }
                     _uiState.update {
-                        it.copy(
-                            enteredDecoyPin = "",
-                            errorMessage = "Decoy PIN cannot be equal to Real Master PIN"
-                        )
-                    }
-                } else {
-                    _uiState.update {
-                        it.copy(
-                            firstEnteredDecoyPin = pin,
-                            enteredDecoyPin = "",
-                            decoyPinStep = PinSetupStep.CONFIRM_NEW,
-                            userMessage = "Confirm your Fake/Decoy PIN"
-                        )
+                        if (equalsRealPin) {
+                            it.copy(
+                                enteredDecoyPin = "",
+                                isPinVerifying = false,
+                                errorMessage = "Decoy PIN cannot be equal to Real Master PIN"
+                            )
+                        } else {
+                            it.copy(
+                                firstEnteredDecoyPin = pin,
+                                enteredDecoyPin = "",
+                                decoyPinStep = PinSetupStep.CONFIRM_NEW,
+                                isPinVerifying = false,
+                                userMessage = "Confirm your Fake/Decoy PIN"
+                            )
+                        }
                     }
                 }
             }
             PinSetupStep.CONFIRM_NEW -> {
-                if (pin == state.firstEnteredDecoyPin) {
-                    val success = vaultAuthUseCase.setupDecoyPin(pin)
-                    if (success) {
-                        _uiState.update {
-                            it.copy(
-                                isDecoyConfigured = true,
-                                showSetupDecoyDialog = false,
-                                isSettingUpDecoyPin = false,
-                                enteredDecoyPin = "",
-                                firstEnteredDecoyPin = "",
-                                userMessage = "Fake/Decoy Vault PIN configured successfully!"
-                            )
-                        }
-                    } else {
-                        _uiState.update {
-                            it.copy(
-                                enteredDecoyPin = "",
-                                errorMessage = "Failed to setup Decoy PIN"
-                            )
-                        }
-                    }
-                } else {
+                if (pin != state.firstEnteredDecoyPin) {
                     _uiState.update {
                         it.copy(
                             enteredDecoyPin = "",
@@ -766,6 +760,30 @@ class VaultViewModel(
                             decoyPinStep = PinSetupStep.ENTER_NEW,
                             errorMessage = "Decoy PINs do not match. Try again."
                         )
+                    }
+                    return
+                }
+                _uiState.update { it.copy(isPinVerifying = true) }
+                viewModelScope.launch {
+                    val success = withContext(Dispatchers.Default) { vaultAuthUseCase.setupDecoyPin(pin) }
+                    _uiState.update {
+                        if (success) {
+                            it.copy(
+                                isDecoyConfigured = true,
+                                showSetupDecoyDialog = false,
+                                isSettingUpDecoyPin = false,
+                                enteredDecoyPin = "",
+                                firstEnteredDecoyPin = "",
+                                isPinVerifying = false,
+                                userMessage = "Fake/Decoy Vault PIN configured successfully!"
+                            )
+                        } else {
+                            it.copy(
+                                enteredDecoyPin = "",
+                                isPinVerifying = false,
+                                errorMessage = "Failed to setup Decoy PIN"
+                            )
+                        }
                     }
                 }
             }

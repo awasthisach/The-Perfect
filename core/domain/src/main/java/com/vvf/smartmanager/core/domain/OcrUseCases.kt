@@ -84,7 +84,11 @@ class SaveOcrTextUseCase(
         ocrResult: OcrResult,
         customFileName: String? = null
     ): Result<FileItem> {
-        val parentDir = File(originalFile.path).parent ?: fileManagerRepository.getDefaultStoragePath()
+        val parentDir = if (originalFile.canonicalUri?.startsWith("content://") == true) {
+            fileManagerRepository.getDefaultStoragePath()
+        } else {
+            File(originalFile.path).parent ?: fileManagerRepository.getDefaultStoragePath()
+        }
         val baseName = if (!customFileName.isNullOrBlank()) {
             if (customFileName.endsWith(".txt")) customFileName else "$customFileName.txt"
         } else {

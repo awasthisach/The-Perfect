@@ -1,5 +1,12 @@
 package com.vvf.smartmanager
 
+import android.app.Activity
+import android.content.Intent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.lifecycleScope
+import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
+import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
+import kotlinx.coroutines.launch
 import android.os.Bundle
 import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
@@ -68,19 +75,57 @@ import com.vvf.smartmanager.ui.theme.VVFSmartManagerTheme
  * Single-Activity Entry Point for VVF Smart Manager.
  */
 class MainActivity : FragmentActivity() {
+    private lateinit var googleDriveAuth: GoogleDriveAuth
+    private var pendingGoogleDriveResult: ((Result<String>) -> Unit)? = null
+
+    private val googleDriveSignInLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { activityResult ->
+        val callback = pendingGoogleDriveResult ?: return@registerForActivityResult
+        pendingGoogleDriveResult = null
+        if (activityResult.resultCode != Activity.RESULT_OK) {
+            callback(Result.failure(IllegalStateException("Google sign-in was cancelled or did not complete.")))
+        } else {
+            lifecycleScope.launch {
+                callback(googleDriveAuth.extractAccessTokenFromSignInResult(activityResult.data))
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        googleDriveAuth = GoogleDriveAuth(this, BuildConfig.GOOGLE_WEB_CLIENT_ID)
         enableEdgeToEdge()
         setContent {
             VVFSmartManagerTheme {
-                VVFAppContent()
+                VVFAppContent(
+                    onGoogleDriveSignInRequested = { callback ->
+                        if (
+                            BuildConfig.GOOGLE_WEB_CLIENT_ID.isBlank() ||
+                            BuildConfig.GOOGLE_WEB_CLIENT_ID == "__UNCONFIGURED__"
+                        ) {
+                            callback(
+                                Result.failure(
+                                    IllegalStateException(
+                                        "Google Drive is not configured. Add GOOGLE_WEB_CLIENT_ID through the app secret configuration."
+                                    )
+                                )
+                            )
+                        } else {
+                            pendingGoogleDriveResult = callback
+                            googleDriveSignInLauncher.launch(googleDriveAuth.buildDriveSignInIntent())
+                        }
+                    }
+                )
             }
         }
     }
 }
 
 @Composable
-fun VVFAppContent() {
+fun VVFAppContent(
+    onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit
+) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val app = context.applicationContext as VVFApplication
@@ -166,6 +211,7 @@ fun VVFAppContent() {
                 VVFNavHost(
                     navController = navController,
                     app = app,
+                    onGoogleDriveSignInRequested = onGoogleDriveSignInRequested,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -233,6 +279,7 @@ fun VVFAppContent() {
                 VVFNavHost(
                     navController = navController,
                     app = app,
+                    onGoogleDriveSignInRequested = onGoogleDriveSignInRequested,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
@@ -246,6 +293,7 @@ fun VVFAppContent() {
 private fun VVFNavHost(
     navController: androidx.navigation.NavHostController,
     app: VVFApplication,
+    onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit,
     modifier: Modifier = Modifier
 ) {
     NavHost(
@@ -271,7 +319,8 @@ private fun VVFNavHost(
             ExplorerScreen(
                 viewModel = explorerViewModel,
                 onNavigateToSettings = { navController.navigate(TopLevelDestination.SETTINGS.route) },
-                onNavigateToPlugins = { navController.navigate(TopLevelDestination.PLUGINS.route) }
+                onNavigateToPlugins = { navController.navigate(TopLevelDestination.PLUGINS.route) },
+                onStorageAccessGranted = { app.backgroundSyncManager.triggerImmediateIndexing() }
             )
         }
         composable(TopLevelDestination.VAULT.route) {
@@ -292,7 +341,8 @@ private fun VVFNavHost(
                 factory = CleanerViewModel.provideFactory(
                     duplicateCleanerUseCase = app.duplicateCleanerUseCase,
                     junkCleanerUseCase = app.junkCleanerUseCase,
-                    aiIntelligenceUseCase = app.aiIntelligenceUseCase
+                    aiIntelligenceUseCase = app.aiIntelligenceUseCase,
+                    canScanPrimaryStorage = { StoragePermissionGate(app).evaluate().canBrowsePrimaryTree }
                 )
             )
             CleanerScreen(viewModel = cleanerViewModel)
@@ -304,6 +354,7 @@ private fun VVFNavHost(
                     searchHistoryUseCase = app.searchHistoryUseCase,
                     tagManagementUseCase = app.tagManagementUseCase,
                     fileOperationsUseCase = app.fileOperationsUseCase,
+                    searchIndexManagementUseCase = app.searchIndexManagementUseCase,
                     semanticSearchUseCase = app.semanticSearchUseCase,
                     aiIntelligenceUseCase = app.aiIntelligenceUseCase
                 )
@@ -313,10 +364,18 @@ private fun VVFNavHost(
         composable(TopLevelDestination.CLOUD.route) {
             val cloudViewModel: CloudViewModel = viewModel(
                 factory = CloudViewModel.provideFactory(
-                    cloudSyncUseCase = app.cloudSyncUseCase
+                    cloudSyncUseCase = app.cloudSyncUseCase,
+                    googleDriveService = app.googleDriveService
                 )
             )
-            CloudScreen(viewModel = cloudViewModel)
+            CloudScreen(
+                viewModel = cloudViewModel,
+                onGoogleDriveSignInRequested = {
+                    onGoogleDriveSignInRequested { accessTokenResult ->
+                        cloudViewModel.completeGoogleDriveSignIn(accessTokenResult)
+                    }
+                }
+            )
         }
         composable(TopLevelDestination.PLUGINS.route) {
             val pluginsViewModel: PluginsViewModel = viewModel(
