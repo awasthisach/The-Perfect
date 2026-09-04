@@ -15,3 +15,10 @@
 ## False-green policy
 
 Primary CI may stay green when GH emulator flakes; compensation is weekly hard gate + verifier freshness, not silent rot.
+
+## Weekly evidence wiring
+
+`weekly-instrumented.yml` now runs `generate_evidence.py --include-db --merge-ledger` with
+environment `github-actions-API35-emulator-weekly` and uploads artifacts. Auto-commit to
+`main` is intentionally omitted (branch protection / enforce_admins).
+

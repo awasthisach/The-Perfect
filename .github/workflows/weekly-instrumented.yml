@@ -77,6 +77,35 @@ jobs:
       - name: SQLCipher instrumentation (HARD)
         run: ./gradlew --no-daemon :core:database-compat:connectedDebugAndroidTest --stacktrace
 
+      # Keep ledger freshness aligned with weekly hard gate (environment must contain "emulator")
+      - name: Generate CPAS instrumented evidence
+        if: success()
+        run: |
+          set -euo pipefail
+          python3 tools/audit/generate_evidence.py \
+            --commit-sha "${{ github.sha }}" \
+            --run-id "${{ github.run_id }}" \
+            --job-id "${{ github.job }}" \
+            --result PASS \
+            --include-db \
+            --environment "github-actions-API35-emulator-weekly" \
+            --output docs/assurance/cpas-evidence-weekly.json \
+            --merge-ledger
+
+      - name: Upload weekly CPAS evidence artifacts
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: weekly-cpas-evidence
+          path: |
+            docs/assurance/cpas-evidence-weekly.json
+            docs/assurance/evidence-ledger.json
+          if-no-files-found: error
+          retention-days: 30
+
+      # main is protected — do not git push from this job. Artifact carries refreshed ledger;
+      # open a PR or use a privileged bot later to land evidence on main.
+
       - name: Upload diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
