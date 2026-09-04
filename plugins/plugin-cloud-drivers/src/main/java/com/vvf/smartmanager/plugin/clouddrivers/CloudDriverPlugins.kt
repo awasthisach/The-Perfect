@@ -12,7 +12,7 @@ import kotlinx.coroutines.withContext
  * Production cloud backup/restore for Google Drive uses [com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveServiceImpl].
  * Real OneDrive/Dropbox/Nextcloud/S3/NAS integrations land in a later release.
  */
-private abstract class UnavailableCloudDriver(
+internal abstract class UnavailableCloudDriver(
     override val driverId: String,
     override val displayName: String,
     override val iconResName: String
