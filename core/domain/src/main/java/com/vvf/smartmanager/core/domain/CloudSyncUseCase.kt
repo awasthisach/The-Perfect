@@ -41,7 +41,15 @@ class CloudSyncUseCase(
         } else {
             val driver = pluginDrivers[providerType]
             if (driver != null) {
-                Result.success(driver.authenticate())
+                if (driver.authenticate()) {
+                    Result.success(true)
+                } else {
+                    Result.failure(
+                        UnsupportedOperationException(
+                            "${driver.displayName} authentication is not implemented or was not accepted."
+                        )
+                    )
+                }
             } else {
                 Result.failure(IllegalArgumentException("Plugin for ${providerType.displayName} is not installed or enabled."))
             }
@@ -68,13 +76,14 @@ class CloudSyncUseCase(
         } else {
             val driver = pluginDrivers[providerType]
             if (driver != null) {
-                val quota = driver.getQuotaUsage()
+                // CloudDriverSPI does not expose a durable authenticated-session state.
+                // Treat an installed driver as disconnected until that contract exists.
                 CloudAccount(
                     providerType = providerType,
                     displayName = driver.displayName,
-                    isConnected = true,
-                    usedBytes = quota.first,
-                    totalBytes = quota.second,
+                    isConnected = false,
+                    usedBytes = 0L,
+                    totalBytes = 0L,
                     autoSyncEnabled = false
                 )
             } else {

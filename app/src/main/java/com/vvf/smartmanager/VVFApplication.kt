@@ -2,6 +2,8 @@ package com.vvf.smartmanager
 
 import android.app.Application
 import android.util.Log
+import com.vvf.smartmanager.core.background.workers.FileIndexingOutcome
+import com.vvf.smartmanager.core.background.workers.FileIndexingRuntime
 import com.vvf.smartmanager.core.background.BackgroundSyncManager
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveServiceImpl
@@ -10,8 +12,10 @@ import com.vvf.smartmanager.core.data.backup.ReadOnlyDatabaseSnapshotSource
 import com.vvf.smartmanager.core.data.repository.OfflineFileManagerRepository
 import com.vvf.smartmanager.core.data.repository.OfflineSearchRepository
 import com.vvf.smartmanager.core.data.repository.SecureVaultRepository
+import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
 import com.vvf.smartmanager.core.data.storage.StorageManager
 import com.vvf.smartmanager.core.database.VVFDatabase
+import com.vvf.smartmanager.core.database.model.FileMetadataEntity
 import com.vvf.smartmanager.core.domain.AiIntelligenceUseCase
 import com.vvf.smartmanager.core.domain.backup.ArchiveService
 import com.vvf.smartmanager.core.domain.CloudSyncUseCase
@@ -33,6 +37,7 @@ import com.vvf.smartmanager.core.domain.RestoreVaultItemUseCase
 import com.vvf.smartmanager.core.domain.SaveOcrTextUseCase
 import com.vvf.smartmanager.core.domain.SearchFilesUseCase
 import com.vvf.smartmanager.core.domain.SearchHistoryUseCase
+import com.vvf.smartmanager.core.domain.SearchIndexManagementUseCase
 import com.vvf.smartmanager.core.domain.SemanticSearchUseCase
 import com.vvf.smartmanager.core.domain.TagManagementUseCase
 import com.vvf.smartmanager.core.domain.VaultAuthUseCase
@@ -88,6 +93,7 @@ class VVFApplication : Application() {
     lateinit var vaultAuthUseCase: VaultAuthUseCase
     lateinit var searchFilesUseCase: SearchFilesUseCase
     lateinit var searchHistoryUseCase: SearchHistoryUseCase
+    lateinit var searchIndexManagementUseCase: SearchIndexManagementUseCase
     lateinit var tagManagementUseCase: TagManagementUseCase
     lateinit var extractTextUseCase: ExtractTextUseCase
     lateinit var indexOcrTextUseCase: IndexOcrTextUseCase
@@ -162,6 +168,7 @@ class VVFApplication : Application() {
         vaultAuthUseCase = VaultAuthUseCase(vaultRepository)
         searchFilesUseCase = SearchFilesUseCase(searchRepository)
         searchHistoryUseCase = SearchHistoryUseCase(searchRepository)
+        searchIndexManagementUseCase = SearchIndexManagementUseCase(searchRepository)
         tagManagementUseCase = TagManagementUseCase(searchRepository)
         extractTextUseCase = ExtractTextUseCase(ocrPlugin)
         indexOcrTextUseCase = IndexOcrTextUseCase(searchRepository)
@@ -207,16 +214,60 @@ class VVFApplication : Application() {
             databaseName = VVFDatabase.DATABASE_NAME
         )
         backgroundSyncManager = BackgroundSyncManager(this)
+        FileIndexingRuntime.configure { indexPrimaryStorageForSearch() }
         val bgExceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
             Log.e(TAG, "Background sync scheduling failed safely", throwable)
         }
         applicationScope.launch(bgExceptionHandler) {
             try {
                 backgroundSyncManager.schedulePeriodicIndexing(intervalHours = 6L)
+                backgroundSyncManager.triggerImmediateIndexing()
                 backgroundSyncManager.schedulePeriodicJunkScan(intervalHours = 12L)
             } catch (e: Throwable) {
                 Log.e(TAG, "Background sync scheduling failed", e)
             }
+        }
+    }
+
+    private suspend fun indexPrimaryStorageForSearch(): FileIndexingOutcome {
+        val access = StoragePermissionGate(this).evaluate()
+        if (!access.canBrowsePrimaryTree) {
+            return FileIndexingOutcome.PermissionRequired(access.userMessageKey)
+        }
+        return try {
+            val fileDao = database.fileDao()
+            val metadata = storageManager.collectPrimaryStorageItems().map { item ->
+                val existing = fileDao.getByPath(item.path)
+                FileMetadataEntity(
+                    id = existing?.id ?: 0L,
+                    path = item.path,
+                    name = item.name,
+                    parentPath = java.io.File(item.path).parent.orEmpty(),
+                    sizeBytes = item.sizeBytes,
+                    mimeType = item.mimeType ?: "inode/directory",
+                    isDirectory = item.isDirectory,
+                    modifiedDate = item.lastModified,
+                    isFavorite = existing?.isFavorite ?: false,
+                    isTrash = false,
+                    originalPath = existing?.originalPath,
+                    deletedTimestamp = existing?.deletedTimestamp,
+                    tags = existing?.tags.orEmpty(),
+                    md5Hash = existing?.md5Hash,
+                    operationState = existing?.operationState ?: "IDLE"
+                )
+            }
+            if (metadata.isNotEmpty()) {
+                fileDao.insertAll(metadata)
+                database.searchFtsDao().rebuildFtsIndex()
+            }
+            FileIndexingOutcome.Completed(metadata.size)
+        } catch (securityError: SecurityException) {
+            FileIndexingOutcome.PermissionRequired(securityError.message ?: "storage access was revoked")
+        } catch (ioError: java.io.IOException) {
+            FileIndexingOutcome.RetryableFailure(ioError.message ?: "storage I/O failed")
+        } catch (error: Throwable) {
+            Log.e(TAG, "Storage indexing failed", error)
+            FileIndexingOutcome.PermanentFailure(error.message ?: "unexpected indexing failure")
         }
     }
 

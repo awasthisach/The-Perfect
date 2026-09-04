@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -60,6 +61,7 @@ fun VaultAuthScreen(
     onDigitClick: (Char) -> Unit,
     onBackspaceClick: () -> Unit,
     onClearClick: () -> Unit,
+    onSubmitClick: () -> Unit,
     onBiometricClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -175,8 +177,25 @@ fun VaultAuthScreen(
                     onBackspaceClick = onBackspaceClick,
                     onBiometricClick = onBiometricClick,
                     isBiometricEnabled = state.isBiometricEnabled && !state.isSettingUpPin,
-                    isLockedOut = state.isLockedOut
+                    isLockedOut = state.isLockedOut || state.isPinVerifying
                 )
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = onSubmitClick,
+                    enabled = state.enteredPin.length in 4..6 && !state.isLockedOut && !state.isPinVerifying,
+                    modifier = Modifier
+                        .fillMaxWidth(0.85f)
+                        .testTag("vault_submit_pin_btn")
+                ) {
+                    Text(
+                        text = when {
+                            state.isPinVerifying -> "Verifying…"
+                            state.isSettingUpPin || state.isChangingPin -> "Continue"
+                            else -> "Unlock Vault"
+                        }
+                    )
+                }
 
                 if (state.isSettingUpPin) {
                     Spacer(modifier = Modifier.height(12.dp))

@@ -1,5 +1,10 @@
 package com.vvf.smartmanager.feature.plugins
 
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -56,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -81,6 +87,22 @@ fun PluginsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
+    val openOcrDocument = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: SecurityException) {
+                // Some document providers grant transient read access only; it remains valid for this scan.
+            }
+            viewModel.startScan(fileItemFromDocumentUri(context, uri))
+        }
+    }
 
     LaunchedEffect(uiState.snackbarMessage) {
         uiState.snackbarMessage?.let { msg ->
@@ -171,16 +193,7 @@ fun PluginsScreen(
                     onToggleEnabled = { viewModel.toggleOcrPlugin(it) },
                     onDownloadModel = { viewModel.downloadOcrModel() },
                     onTestScan = {
-                        // Create a test sample image file item
-                        val sampleFile = FileItem(
-                            path = "/storage/emulated/0/Documents/sample_invoice.pdf",
-                            name = "sample_invoice.pdf",
-                            sizeBytes = 245000L,
-                            mimeType = "application/pdf",
-                            isDirectory = false,
-                            lastModified = System.currentTimeMillis()
-                        )
-                        viewModel.startScan(sampleFile)
+                        openOcrDocument.launch(arrayOf("application/pdf", "image/*"))
                     }
                 )
             }
@@ -218,6 +231,29 @@ fun PluginsScreen(
             onDismiss = { viewModel.dismissResultDialog() }
         )
     }
+}
+
+private fun fileItemFromDocumentUri(context: Context, uri: Uri): FileItem {
+    var displayName = uri.lastPathSegment?.substringAfterLast('/') ?: "selected_document"
+    var sizeBytes = 0L
+    context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)
+        ?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val nameColumn = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                val sizeColumn = cursor.getColumnIndex(OpenableColumns.SIZE)
+                if (nameColumn >= 0) displayName = cursor.getString(nameColumn) ?: displayName
+                if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) sizeBytes = cursor.getLong(sizeColumn)
+            }
+        }
+    return FileItem(
+        path = uri.toString(),
+        canonicalUri = uri.toString(),
+        name = displayName,
+        sizeBytes = sizeBytes,
+        mimeType = context.contentResolver.getType(uri),
+        isDirectory = false,
+        lastModified = System.currentTimeMillis()
+    )
 }
 
 @Composable

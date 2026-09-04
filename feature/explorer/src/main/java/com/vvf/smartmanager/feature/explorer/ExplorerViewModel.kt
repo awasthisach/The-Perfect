@@ -50,6 +50,14 @@ class ExplorerViewModel(
         }
     }
 
+    fun reloadCurrentLocation() {
+        if (_uiState.value.selectedCategory == FileCategory.ALL) {
+            loadDirectory(_uiState.value.currentPath.ifBlank { getDirectoryFilesUseCase.getDefaultStoragePath() })
+        } else {
+            selectCategory(_uiState.value.selectedCategory)
+        }
+    }
+
     fun loadDirectory(path: String) {
         viewModelScope.launch {
             _uiState.update {

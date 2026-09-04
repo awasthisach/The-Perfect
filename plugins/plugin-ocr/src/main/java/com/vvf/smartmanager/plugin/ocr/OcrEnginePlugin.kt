@@ -2,6 +2,7 @@ package com.vvf.smartmanager.plugin.ocr
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.net.Uri
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import android.util.Log
@@ -78,23 +79,24 @@ open class OcrEnginePlugin(
     ): Result<OcrResult> = withContext(Dispatchers.IO) {
         isCancelled.set(false)
         val startTime = System.currentTimeMillis()
-        val file = File(fileItem.path)
-
-        if (!file.exists() || !file.canRead()) {
-            return@withContext Result.failure(
-                IllegalArgumentException("File not found or unreadable: ${fileItem.path}")
-            )
-        }
+        var temporaryInput: File? = null
 
         try {
-            val extension = file.extension.lowercase()
+            temporaryInput = fileItem.canonicalUri
+                ?.takeIf { it.startsWith("content://") }
+                ?.let { materializeContentUri(it, fileItem.name) }
+            val file = temporaryInput ?: File(fileItem.path)
+            if (!file.exists() || !file.canRead()) {
+                return@withContext Result.failure(
+                    IllegalArgumentException("File not found or unreadable: ${fileItem.path}")
+                )
+            }
+
+            val extension = fileItem.name.substringAfterLast('.', file.extension).lowercase()
             when (extension) {
                 "pdf" -> processPdfFile(file, options, startTime, onProgress)
                 "jpg", "jpeg", "png", "webp", "bmp", "heic" -> processImageFile(file, options, startTime, onProgress)
-                else -> {
-                    // Attempt image decode for unrecognized extensions
-                    processImageFile(file, options, startTime, onProgress)
-                }
+                else -> processImageFile(file, options, startTime, onProgress)
             }
         } catch (ce: CancellationException) {
             onProgress?.invoke(
@@ -107,6 +109,26 @@ open class OcrEnginePlugin(
         } catch (e: Exception) {
             Log.e(TAG, "OCR processing failed for ${fileItem.path}", e)
             Result.failure(e)
+        } finally {
+            temporaryInput?.delete()
+        }
+    }
+
+    /** Copies a user-selected content URI to private cache storage for the file-only OCR APIs. */
+    private fun materializeContentUri(uriString: String, displayName: String): File {
+        val appContext = context
+            ?: throw IllegalStateException("OCR cannot read a document-provider URI without an Android context")
+        val extension = displayName.substringAfterLast('.', "").takeIf { it.isNotBlank() } ?: "bin"
+        val cacheDirectory = File(appContext.cacheDir, "ocr_inputs").apply { mkdirs() }
+        val target = File.createTempFile("ocr_", ".${extension}", cacheDirectory)
+        try {
+            appContext.contentResolver.openInputStream(Uri.parse(uriString))?.use { input ->
+                target.outputStream().use { output -> input.copyTo(output) }
+            } ?: throw IllegalArgumentException("Could not open selected document")
+            return target
+        } catch (error: Throwable) {
+            target.delete()
+            throw error
         }
     }
 

@@ -17,6 +17,7 @@ import android.net.Uri
 import java.io.File
 import java.io.FileInputStream
 import java.security.MessageDigest
+import java.util.ArrayDeque
 
 /**
  * Base storage implementation: fail-closed path auth, listing, and shared helpers.
@@ -97,6 +98,44 @@ open class StorageManagerImpl(
                 )
             }
         return sortFiles(items, sortOption)
+    }
+
+    /**
+     * Returns a bounded snapshot of primary shared storage for search indexing. Hidden
+     * application folders and Android-managed data are intentionally excluded.
+     */
+    fun collectPrimaryStorageItems(maxItems: Int = 10_000): List<FileItem> {
+        require(maxItems > 0) { "maxItems must be positive" }
+        val root = File(getPrimaryStoragePath())
+        if (!root.exists() || !root.isDirectory) return emptyList()
+
+        val result = ArrayList<FileItem>(minOf(maxItems, 1_024))
+        val directories = ArrayDeque<File>()
+        directories.add(root)
+        while (directories.isNotEmpty() && result.size < maxItems) {
+            val directory = directories.removeFirst()
+            val children = directory.listFiles() ?: continue
+            for (child in children) {
+                if (result.size >= maxItems) break
+                if (child.name.startsWith(".") || child.name == "Android" || child.absolutePath.contains(".vvf_trash")) {
+                    continue
+                }
+                val isDirectory = child.isDirectory
+                result.add(
+                    FileItem(
+                        path = child.absolutePath,
+                        name = child.name,
+                        sizeBytes = if (isDirectory) 0L else child.length(),
+                        lastModified = child.lastModified(),
+                        isDirectory = isDirectory,
+                        mimeType = if (isDirectory) null else getMimeType(child.name),
+                        itemCount = if (isDirectory) (child.listFiles()?.size ?: 0) else 0
+                    )
+                )
+                if (isDirectory) directories.addLast(child)
+            }
+        }
+        return result
     }
 
     fun listCategorizedFiles(category: FileCategory, sortOption: FileSortOption): List<FileItem> {

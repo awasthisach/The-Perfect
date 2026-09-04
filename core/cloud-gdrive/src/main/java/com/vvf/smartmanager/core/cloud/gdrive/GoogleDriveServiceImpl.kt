@@ -39,7 +39,7 @@ class GoogleDriveServiceImpl(
         totalBytes = 0L
     )
 
-    fun setAccessToken(token: String?) {
+    override fun setAccessToken(token: String?) {
         accessToken = token
         DriveNetwork.setDefaultAccessToken(token)
         if (token.isNullOrBlank()) {

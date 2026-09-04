@@ -92,6 +92,8 @@ class VaultAuthUseCase(
 
     fun verifyPin(pin: String): Boolean = repository.verifyPin(pin)
 
+    fun isSameAsVaultPin(pin: String): Boolean = repository.isSameAsVaultPin(pin)
+
     fun verifyPinWithResult(pin: String): CryptoSecurityManager.VaultAuthResult =
         repository.verifyPinWithResult(pin)
 

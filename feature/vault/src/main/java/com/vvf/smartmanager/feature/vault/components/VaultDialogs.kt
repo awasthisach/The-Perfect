@@ -674,6 +674,8 @@ fun VaultSetupDecoyDialog(
     userMessage: String?,
     onDigitClick: (Char) -> Unit,
     onBackspaceClick: () -> Unit,
+    onSubmitClick: () -> Unit,
+    isPinVerifying: Boolean,
     onDismiss: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
@@ -746,10 +748,18 @@ fun VaultSetupDecoyDialog(
                     onBackspaceClick = onBackspaceClick,
                     onBiometricClick = {},
                     isBiometricEnabled = false,
-                    isLockedOut = false
+                    isLockedOut = isPinVerifying
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = onSubmitClick,
+                    enabled = enteredPin.length in 4..6 && !isPinVerifying,
+                    modifier = Modifier.testTag("vault_decoy_submit_pin_btn")
+                ) {
+                    Text(if (isPinVerifying) "Verifying…" else "Continue")
+                }
 
                 TextButton(onClick = onDismiss) {
                     Text("Cancel")
@@ -773,5 +783,89 @@ private fun DetailRow(label: String, value: String) {
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface
         )
+    }
+}
+
+@Composable
+fun VaultChangePinDialog(
+    step: PinSetupStep,
+    enteredPin: String,
+    errorMessage: String?,
+    isPinVerifying: Boolean,
+    onDigitClick: (Char) -> Unit,
+    onBackspaceClick: () -> Unit,
+    onSubmitClick: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val instruction = when (step) {
+        PinSetupStep.ENTER_OLD_FOR_CHANGE -> "Enter your current Master PIN"
+        PinSetupStep.ENTER_NEW -> "Enter a new 4-6 digit Master PIN"
+        PinSetupStep.CONFIRM_NEW -> "Confirm your new Master PIN"
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.LockReset,
+                        contentDescription = null,
+                        tint = BhagwaOrange,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Change Master PIN",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = CosmicBlue
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = instruction,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (!errorMessage.isNullOrEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = errorMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                PinDotsIndicator(pinLength = enteredPin.length, maxDots = 6)
+                Spacer(modifier = Modifier.height(20.dp))
+                VaultKeypad(
+                    onDigitClick = onDigitClick,
+                    onBackspaceClick = onBackspaceClick,
+                    onBiometricClick = {},
+                    isBiometricEnabled = false,
+                    isLockedOut = isPinVerifying
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = onSubmitClick,
+                    enabled = enteredPin.length in 4..6 && !isPinVerifying,
+                    modifier = Modifier.testTag("vault_change_pin_submit_btn")
+                ) {
+                    Text(if (isPinVerifying) "Verifying…" else "Continue")
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel")
+                }
+            }
+        }
     }
 }

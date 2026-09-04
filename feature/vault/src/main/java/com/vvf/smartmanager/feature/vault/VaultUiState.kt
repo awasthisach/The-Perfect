@@ -39,6 +39,7 @@ data class VaultUiState(
     val failedAttempts: Int = 0,
     val isLockedOut: Boolean = false,
     val lockoutRemainingSeconds: Int = 0,
+    val isPinVerifying: Boolean = false,
     val rawVaultItems: List<VaultItem> = emptyList(),
     val filteredItems: List<VaultItem> = emptyList(),
     val selectedCategory: String = "ALL",

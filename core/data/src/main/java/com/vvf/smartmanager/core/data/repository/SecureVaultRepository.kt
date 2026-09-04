@@ -294,6 +294,7 @@ class SecureVaultRepository(
     fun setupDecoyPin(pin: String): Boolean = cryptoManager.setupDecoyPin(pin)
     fun removeDecoyPin(): Boolean = cryptoManager.removeDecoyPin()
     fun verifyPin(pin: String): Boolean = cryptoManager.verifyVaultPin(pin)
+    fun isSameAsVaultPin(pin: String): Boolean = cryptoManager.isSameAsVaultPin(pin)
     fun verifyPinWithResult(pin: String): CryptoSecurityManager.VaultAuthResult =
         cryptoManager.verifyVaultPinWithResult(pin)
     fun getRemainingLockoutSeconds(): Int = cryptoManager.getRemainingLockoutSeconds()

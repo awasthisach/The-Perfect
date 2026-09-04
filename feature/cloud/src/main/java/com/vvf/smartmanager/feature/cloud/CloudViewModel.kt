@@ -3,6 +3,7 @@ package com.vvf.smartmanager.feature.cloud
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
 import com.vvf.smartmanager.core.domain.CloudSyncUseCase
 import com.vvf.smartmanager.core.model.CloudAccount
 import com.vvf.smartmanager.core.model.CloudBackupInfo
@@ -15,7 +16,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class CloudViewModel(
-    private val cloudSyncUseCase: CloudSyncUseCase
+    private val cloudSyncUseCase: CloudSyncUseCase,
+    private val googleDriveService: GoogleDriveService
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CloudUiState())
@@ -65,11 +67,57 @@ class CloudViewModel(
         _uiState.update { it.copy(includeVaultInBackup = enabled) }
     }
 
+    /** Prepares visible state before the activity launches the Google sign-in intent. */
+    fun beginGoogleDriveSignIn() {
+        _uiState.update {
+            it.copy(isLoading = true, statusMessage = "Choose a Google account to connect Drive…")
+        }
+    }
+
+    /** Completes the activity-owned Google sign-in flow and validates the resulting Drive token. */
+    fun completeGoogleDriveSignIn(accessTokenResult: Result<String>) {
+        viewModelScope.launch {
+            val token = accessTokenResult.getOrElse { error ->
+                _uiState.update {
+                    it.copy(isLoading = false, statusMessage = "Google sign-in failed: ${error.message ?: "unknown error"}")
+                }
+                return@launch
+            }
+            googleDriveService.setAccessToken(token)
+            val authentication = cloudSyncUseCase.authenticateProvider(CloudProviderType.GOOGLE_DRIVE)
+            if (authentication.getOrDefault(false)) {
+                val updated = cloudSyncUseCase.getAccount(CloudProviderType.GOOGLE_DRIVE)
+                _uiState.update { state ->
+                    val updatedMap = state.accounts.toMutableMap()
+                    updatedMap[CloudProviderType.GOOGLE_DRIVE] = updated
+                    state.copy(
+                        accounts = updatedMap,
+                        isLoading = false,
+                        statusMessage = "Successfully connected to Google Drive"
+                    )
+                }
+                loadRemoteFiles(CloudProviderType.GOOGLE_DRIVE)
+            } else {
+                googleDriveService.setAccessToken(null)
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        statusMessage = "Google Drive connection failed: ${authentication.exceptionOrNull()?.message ?: "authentication was not accepted"}"
+                    )
+                }
+            }
+        }
+    }
+
     fun connectProvider(providerType: CloudProviderType) {
+        if (providerType == CloudProviderType.GOOGLE_DRIVE) {
+            _uiState.update { it.copy(statusMessage = "Use the Google Drive connect action to sign in.") }
+            return
+        }
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, statusMessage = "Authenticating with ${providerType.displayName}...") }
             val result = cloudSyncUseCase.authenticateProvider(providerType)
-            if (result.isSuccess) {
+            if (result.getOrDefault(false)) {
                 val updated = cloudSyncUseCase.getAccount(providerType)
                 _uiState.update { state ->
                     val updatedMap = state.accounts.toMutableMap()
@@ -85,7 +133,7 @@ class CloudViewModel(
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        statusMessage = "Failed to connect: ${result.exceptionOrNull()?.message}"
+                        statusMessage = "${providerType.displayName} is not available yet. No connection was created."
                     )
                 }
             }
@@ -160,11 +208,14 @@ class CloudViewModel(
     }
 
     companion object {
-        fun provideFactory(cloudSyncUseCase: CloudSyncUseCase): ViewModelProvider.Factory =
+        fun provideFactory(
+            cloudSyncUseCase: CloudSyncUseCase,
+            googleDriveService: GoogleDriveService
+        ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return CloudViewModel(cloudSyncUseCase) as T
+                    return CloudViewModel(cloudSyncUseCase, googleDriveService) as T
                 }
             }
     }

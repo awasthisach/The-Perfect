@@ -1,11 +1,21 @@
 package com.vvf.smartmanager.feature.explorer
 
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.material3.Button
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -70,6 +80,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -79,9 +90,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vvf.smartmanager.core.model.FileCategory
 import com.vvf.smartmanager.core.model.FileItem
@@ -106,10 +121,21 @@ fun ExplorerScreen(
     viewModel: ExplorerViewModel,
     onNavigateToSettings: (() -> Unit)? = null,
     onNavigateToPlugins: (() -> Unit)? = null,
+    onStorageAccessGranted: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val requestLegacyReadPermission = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            onStorageAccessGranted()
+            viewModel.reloadCurrentLocation()
+        }
+    }
 
     var showSortMenu by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
@@ -129,6 +155,32 @@ fun ExplorerScreen(
             onRestoreItem = { item -> viewModel.restoreTrashItems(listOf(item.path)) },
             onRestoreAll = { viewModel.restoreTrashItems(uiState.trashFiles.map { it.path }) },
             onEmptyTrash = { viewModel.emptyTrash() }
+        )
+        return
+    }
+
+    if (uiState.needsStoragePermission) {
+        DisposableEffect(lifecycleOwner) {
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
+                        onStorageAccessGranted()
+                    }
+                    viewModel.reloadCurrentLocation()
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        }
+        StoragePermissionRequiredScreen(
+            onGrantAccess = {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    openAllFilesAccessSettings(context)
+                } else {
+                    requestLegacyReadPermission.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
+                }
+            },
+            onRetry = { viewModel.reloadCurrentLocation() }
         )
         return
     }
@@ -632,5 +684,64 @@ fun ExplorerScreen(
         }
         is ExplorerDialogState.None -> {}
         else -> {}
+    }
+}
+
+@Composable
+private fun StoragePermissionRequiredScreen(
+    onGrantAccess: () -> Unit,
+    onRetry: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.FolderOpen,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(52.dp)
+            )
+            Text(
+                text = "Storage access required",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "To browse all files and folders, allow All Files Access in Android Settings. Your files remain on this device.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Button(
+                onClick = onGrantAccess,
+                modifier = Modifier.testTag("explorer_grant_storage_access_btn")
+            ) {
+                Text("Grant All Files Access")
+            }
+            androidx.compose.material3.TextButton(
+                onClick = onRetry,
+                modifier = Modifier.testTag("explorer_retry_storage_access_btn")
+            ) {
+                Text("Try again")
+            }
+        }
+    }
+}
+
+private fun openAllFilesAccessSettings(context: Context) {
+    val appSettingsIntent = Intent(
+        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+        Uri.parse("package:${context.packageName}")
+    )
+    try {
+        context.startActivity(appSettingsIntent)
+    } catch (_: Exception) {
+        context.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
     }
 }
