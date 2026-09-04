@@ -110,7 +110,7 @@ jobs:
             > "$RUNNER_TEMP/emulator.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/emulator.pid"
           # Fail closed within step budget rather than hanging 20 minutes
-          if ! timeout 90 adb wait-for-device; then
+          if ! timeout 180 adb wait-for-device; then
             echo "::warning::adb wait-for-device timed out"
             tail -n 80 "$RUNNER_TEMP/emulator.log" || true
             exit 1
@@ -132,13 +132,14 @@ jobs:
           adb shell settings put global animator_duration_scale 0
           adb devices
           echo "booted=true" >> "$GITHUB_OUTPUT"
+          echo "emulator_outcome=success" > "$GITHUB_WORKSPACE/.emulator-booted"
       - name: Run SQLCipher compatibility instrumentation test
         id: sqlcipher_instrumented
-        if: steps.emulator.outputs.booted == 'true'
+        if: ${{ steps.emulator.outcome == 'success' }}
         continue-on-error: true
         run: ./gradlew --no-daemon :core:database-compat:connectedDebugAndroidTest --stacktrace
       - name: Generate CPAS evidence including DB instrumented gate
-        if: steps.emulator.outputs.booted == 'true' && steps.sqlcipher_instrumented.outcome == 'success'
+        if: ${{ steps.emulator.outcome == 'success' && steps.sqlcipher_instrumented.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 tools/audit/generate_evidence.py \
