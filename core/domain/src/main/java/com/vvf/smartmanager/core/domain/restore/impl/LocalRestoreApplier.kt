@@ -5,15 +5,27 @@ import com.vvf.smartmanager.core.domain.restore.DecryptedBackup
 import com.vvf.smartmanager.core.domain.restore.RestoreApplier
 import com.vvf.smartmanager.core.domain.restore.RestoreException
 import com.vvf.smartmanager.core.domain.restore.RestoreSnapshot
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.UUID
 
-/** Snapshot + apply + rollback for live database and vault directories. */
+/**
+ * Snapshot + apply + rollback for live database and vault directories.
+ *
+ * Note: the SQLCipher database file is bound to the device Keystore passphrase.
+ * Same-device restore works when the live passphrase matches the snapshotted DB.
+ * Cross-device restore requires a future portable-key export (documented residual).
+ */
 class LocalRestoreApplier(
     private val liveDatabaseFile: File,
     private val liveVaultDir: File,
-    private val snapshotRoot: File
+    private val snapshotRoot: File,
+    private val vaultAuthImporter: ((Map<String, String>) -> Boolean)? = null
 ) : RestoreApplier {
+    private val json = Json { ignoreUnknownKeys = true }
+
     override suspend fun prepare(): Result<RestoreSnapshot> {
         return try {
             if (!snapshotRoot.exists() && !snapshotRoot.mkdirs()) {
@@ -22,6 +34,7 @@ class LocalRestoreApplier(
             val token = UUID.randomUUID().toString()
             val dbSnap = File(snapshotRoot, "$token-db")
             val vaultSnap = File(snapshotRoot, "$token-vault")
+            // Best-effort consistent copy of live DB file (caller should avoid concurrent writers).
             if (liveDatabaseFile.exists()) liveDatabaseFile.copyTo(dbSnap, overwrite = true)
             if (liveVaultDir.exists()) liveVaultDir.copyRecursively(vaultSnap, overwrite = true)
             else vaultSnap.mkdirs()
@@ -41,6 +54,12 @@ class LocalRestoreApplier(
             liveVaultDir.mkdirs()
             if (decryptedBackup.vaultDir.exists()) {
                 decryptedBackup.vaultDir.copyRecursively(liveVaultDir, overwrite = true)
+            }
+            // Restore Keystore-wrapped vault PIN metadata when present in archive.
+            val authFile = File(decryptedBackup.stagingDir, "vault_auth.json")
+            if (authFile.isFile && vaultAuthImporter != null) {
+                val metadata = json.decodeFromString(MapSerializer(String.serializer(), String.serializer()), authFile.readText())
+                vaultAuthImporter.invoke(metadata)
             }
             val fileCount = decryptedBackup.stagingDir.walkTopDown().count { it.isFile }
             val vaultCount = decryptedBackup.vaultDir.walkTopDown().count { it.isFile }
