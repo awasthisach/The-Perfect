@@ -64,7 +64,6 @@ class SearchViewModel(
     private val _availableTags = tagManagementUseCase.getAvailableTags()
     private val _totalIndexedCount = searchIndexManagementUseCase?.getTotalIndexedCount() ?: flowOf(0)
 
-    // Live debounced query & filter combination for instantaneous FTS lookup
     private val _searchResults = combine(_searchQuery, _searchFilter, _semanticSimilarityThreshold) { query, filter, threshold ->
         Triple(query, filter, threshold)
     }
@@ -116,210 +115,89 @@ class SearchViewModel(
         _isSemanticEnabled,
         _detailsDialogItem,
         _snackbarMessage,
-        _totalIndexedCount
-    ) { params: Array<Any?> ->
-        val query = params[0] as String
-        val filter = params[1] as SearchFilter
-        val results = @Suppress("UNCHECKED_CAST") (params[2] as List<com.vvf.smartmanager.core.model.SearchResultItem>)
-        val history = @Suppress("UNCHECKED_CAST") (params[3] as List<String>)
-        val tags = @Suppress("UNCHECKED_CAST") (params[4] as List<String>)
-        val isFilterOpen = params[5] as Boolean
-        val tagItem = params[6] as FileItem?
-        val suggestedTags = @Suppress("UNCHECKED_CAST") (params[7] as List<AiSuggestedTag>)
-        val similarityThreshold = params[8] as Float
-        val isSemanticOn = params[9] as Boolean
-        val detailsItem = params[10] as FileItem?
-        val snackbar = params[11] as String?
-        val indexedCount = params[12] as Int
-
+        _totalIndexedCount,
+        _isSearching,
+        _semanticResults
+    ) { values ->
+        @Suppress("UNCHECKED_CAST")
         SearchUiState(
-            searchQuery = query,
-            filter = filter,
-            searchResults = results,
-            searchHistory = history,
-            availableTags = tags,
-            isSearching = query.isNotBlank() || !filter.isDefault,
-            isFilterSheetVisible = isFilterOpen,
-            tagDialogItem = tagItem,
-            aiSuggestedTags = suggestedTags,
-            semanticSimilarityThreshold = similarityThreshold,
-            isSemanticEnabled = isSemanticOn,
-            detailsDialogItem = detailsItem,
-            snackbarMessage = snackbar,
-            totalIndexedFileCount = indexedCount
+            query = values[0] as String,
+            filter = values[1] as SearchFilter,
+            results = values[2] as List<*>,
+            history = values[3] as List<String>,
+            availableTags = values[4] as List<String>,
+            isFilterSheetVisible = values[5] as Boolean,
+            tagDialogItem = values[6] as FileItem?,
+            aiSuggestedTags = values[7] as List<AiSuggestedTag>,
+            semanticSimilarityThreshold = values[8] as Float,
+            isSemanticEnabled = values[9] as Boolean,
+            detailsDialogItem = values[10] as FileItem?,
+            snackbarMessage = values[11] as String?,
+            totalIndexedCount = values[12] as Int,
+            isSearching = values[13] as Boolean,
+            semanticResults = values[14] as List<SemanticSearchResult>
         )
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = SearchUiState()
-    )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SearchUiState())
 
     fun onQueryChanged(newQuery: String) {
-        _searchQuery.value = newQuery
+        // Cap length: red-team paste DoS / embedding ANR prevention
+        _searchQuery.value = newQuery.take(500)
     }
 
-    fun onExecuteSearch(query: String) {
-        val trimmed = query.trim()
-        _searchQuery.value = trimmed
+    fun submitQuery() {
+        val trimmed = _searchQuery.value.trim()
         if (trimmed.isNotEmpty()) {
-            viewModelScope.launch {
-                searchHistoryUseCase.saveQuery(trimmed)
-            }
+            viewModelScope.launch { searchHistoryUseCase.saveQuery(trimmed) }
         }
     }
 
-    fun setSemanticSimilarityThreshold(threshold: Float) {
-        val clamped = threshold.coerceIn(0.70f, 0.95f)
-        _semanticSimilarityThreshold.value = clamped
-        if (_searchQuery.value.isNotBlank()) {
-            triggerSemanticSearch(_searchQuery.value, clamped)
-        }
-    }
-
-    fun setSemanticEnabled(enabled: Boolean) {
-        _isSemanticEnabled.value = enabled
-        if (!enabled) {
-            _semanticResults.value = emptyList()
-        } else if (_searchQuery.value.isNotBlank()) {
-            triggerSemanticSearch(_searchQuery.value)
-        }
-    }
-
-    fun onHistoryItemClicked(historyQuery: String) {
-        _searchQuery.value = historyQuery
-        viewModelScope.launch {
-            searchHistoryUseCase.saveQuery(historyQuery)
-        }
-    }
-
-    fun onDeleteHistoryItem(historyQuery: String) {
-        viewModelScope.launch {
-            searchHistoryUseCase.deleteHistoryItem(historyQuery)
-        }
-    }
-
-    fun onClearSearchHistory() {
-        viewModelScope.launch {
-            searchHistoryUseCase.clearHistory()
-            _snackbarMessage.value = "Search history cleared"
-        }
-    }
-
-    fun onCategorySelected(category: FileCategory) {
-        _searchFilter.update {
-            if (it.category == category) it.copy(category = FileCategory.ALL) else it.copy(category = category)
-        }
-    }
-
-    fun onSizeFilterSelected(sizeFilter: SizeFilter) {
-        _searchFilter.update {
-            if (it.sizeFilter == sizeFilter) it.copy(sizeFilter = SizeFilter.ANY) else it.copy(sizeFilter = sizeFilter)
-        }
-    }
-
-    fun onDateFilterSelected(dateFilter: DateFilter) {
-        _searchFilter.update {
-            if (it.dateFilter == dateFilter) it.copy(dateFilter = DateFilter.ANY) else it.copy(dateFilter = dateFilter)
-        }
-    }
-
-    fun onTagToggled(tag: String) {
-        _searchFilter.update { current ->
-            val updated = current.selectedTags.toMutableSet()
-            if (updated.contains(tag)) {
-                updated.remove(tag)
-            } else {
-                updated.add(tag)
-            }
-            current.copy(selectedTags = updated)
-        }
-    }
-
-    fun onSortOptionSelected(sortOption: FileSortOption) {
-        _searchFilter.update { it.copy(sortOption = sortOption) }
-    }
-
-    fun onToggleIncludeHidden(includeHidden: Boolean) {
-        _searchFilter.update { it.copy(includeHidden = includeHidden) }
-    }
-
-    fun resetFilters() {
-        _searchFilter.value = SearchFilter()
-        _snackbarMessage.value = "Search filters reset"
+    fun onHistoryClick(historyQuery: String) {
+        _searchQuery.value = historyQuery.take(500)
     }
 
     fun clearQuery() {
         _searchQuery.value = ""
     }
 
-    fun setFilterSheetVisible(visible: Boolean) {
+    fun updateFilter(filter: SearchFilter) {
+        _searchFilter.value = filter
+    }
+
+    fun setSemanticEnabled(enabled: Boolean) {
+        _isSemanticEnabled.value = enabled
+        if (!enabled) _semanticResults.value = emptyList()
+    }
+
+    fun setSemanticThreshold(threshold: Float) {
+        _semanticSimilarityThreshold.value = threshold.coerceIn(0.5f, 0.95f)
+    }
+
+    fun showFilterSheet(visible: Boolean) {
         _isFilterSheetVisible.value = visible
     }
 
-    fun showTagDialog(item: FileItem?) {
+    fun openTagDialog(item: FileItem) {
         _tagDialogItem.value = item
-        if (item != null && aiIntelligenceUseCase != null) {
-            viewModelScope.launch {
-                val suggestions = aiIntelligenceUseCase.suggestTags(item)
-                _aiSuggestedTags.value = suggestions
-            }
-        } else {
-            _aiSuggestedTags.value = emptyList()
-        }
     }
 
-    fun showDetailsDialog(item: FileItem?) {
+    fun dismissTagDialog() {
+        _tagDialogItem.value = null
+    }
+
+    fun openDetails(item: FileItem) {
         _detailsDialogItem.value = item
     }
 
-    fun addTagToFile(path: String, tag: String) {
-        viewModelScope.launch {
-            val result = tagManagementUseCase.addTagToFile(path, tag)
-            if (result.isSuccess) {
-                _snackbarMessage.value = "Tag added: #$tag"
-                _tagDialogItem.update { current ->
-                    if (current?.path == path) {
-                        current.copy(tags = (current.tags + tag.trim().lowercase()).distinct())
-                    } else current
-                }
-            } else {
-                _snackbarMessage.value = "Failed to add tag"
-            }
-        }
+    fun dismissDetails() {
+        _detailsDialogItem.value = null
     }
 
-    fun removeTagFromFile(path: String, tag: String) {
-        viewModelScope.launch {
-            val result = tagManagementUseCase.removeTagFromFile(path, tag)
-            if (result.isSuccess) {
-                _snackbarMessage.value = "Tag removed: #$tag"
-                _tagDialogItem.update { current ->
-                    if (current?.path == path) {
-                        current.copy(tags = current.tags.filterNot { it.equals(tag.trim(), ignoreCase = true) })
-                    } else current
-                }
-            } else {
-                _snackbarMessage.value = "Failed to remove tag"
-            }
-        }
-    }
-
-    fun toggleFavorite(item: FileItem) {
-        viewModelScope.launch {
-            val newStatus = !item.isFavorite
-            val res = fileOperationsUseCase.toggleFavorite(item.path, newStatus)
-            if (res.isSuccess) {
-                _snackbarMessage.value = if (newStatus) "Added to Favorites" else "Removed from Favorites"
-            }
-        }
-    }
-
-    fun dismissSnackbar() {
+    fun clearSnackbar() {
         _snackbarMessage.value = null
     }
 
     companion object {
-        fun provideFactory(
+        fun factory(
             searchFilesUseCase: SearchFilesUseCase,
             searchHistoryUseCase: SearchHistoryUseCase,
             tagManagementUseCase: TagManagementUseCase,
@@ -331,16 +209,33 @@ class SearchViewModel(
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 return SearchViewModel(
-                    searchFilesUseCase = searchFilesUseCase,
-                    searchHistoryUseCase = searchHistoryUseCase,
-                    tagManagementUseCase = tagManagementUseCase,
-                    fileOperationsUseCase = fileOperationsUseCase,
-                    searchIndexManagementUseCase = searchIndexManagementUseCase,
-                    semanticSearchUseCase = semanticSearchUseCase,
-                    aiIntelligenceUseCase = aiIntelligenceUseCase
+                    searchFilesUseCase,
+                    searchHistoryUseCase,
+                    tagManagementUseCase,
+                    fileOperationsUseCase,
+                    searchIndexManagementUseCase,
+                    semanticSearchUseCase,
+                    aiIntelligenceUseCase
                 ) as T
             }
         }
     }
 }
 
+data class SearchUiState(
+    val query: String = "",
+    val filter: SearchFilter = SearchFilter(),
+    val results: List<*> = emptyList<Any>(),
+    val history: List<String> = emptyList(),
+    val availableTags: List<String> = emptyList(),
+    val isFilterSheetVisible: Boolean = false,
+    val tagDialogItem: FileItem? = null,
+    val aiSuggestedTags: List<AiSuggestedTag> = emptyList(),
+    val semanticSimilarityThreshold: Float = 0.80f,
+    val isSemanticEnabled: Boolean = true,
+    val detailsDialogItem: FileItem? = null,
+    val snackbarMessage: String? = null,
+    val totalIndexedCount: Int = 0,
+    val isSearching: Boolean = false,
+    val semanticResults: List<SemanticSearchResult> = emptyList()
+)
