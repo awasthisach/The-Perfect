@@ -107,10 +107,6 @@ class VaultAuthUseCase(
 
     fun setBiometricEnabled(enabled: Boolean) = repository.setBiometricEnabled(enabled)
 
-    fun createVaultBiometricCipher(): javax.crypto.Cipher? = repository.createVaultBiometricCipher()
-
-    fun isVaultKeyAuthenticationRequired(): Boolean = repository.isVaultKeyAuthenticationRequired()
-
     fun getAutoLockTimeoutSeconds(): Int = repository.getAutoLockTimeoutSeconds()
 
     fun setAutoLockTimeoutSeconds(seconds: Int) = repository.setAutoLockTimeoutSeconds(seconds)
