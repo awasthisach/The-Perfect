@@ -10,9 +10,7 @@ import kotlinx.coroutines.withContext
 
 /**
  * Background OCR batch worker for pending document queues.
- *
- * Production policy: fail closed until OCR queue + engine are injected via
- * application composition. Simulated success is not allowed.
+ * Delegates to [OcrBatchRuntime] configured by the application composition root.
  */
 class OcrBatchWorker(
     appContext: Context,
@@ -24,15 +22,25 @@ class OcrBatchWorker(
         try {
             if (isStopped) return@withContext Result.retry()
 
-            Log.w(
-                TAG,
-                "OCR batch pipeline not configured — fail closed. " +
-                    "Inject pending OCR queue + OcrEngine before enabling periodic runs."
-            )
-            Result.failure(workDataOf("reason" to "ocr_batch_pipeline_not_configured"))
+            when (val outcome = OcrBatchRuntime.runBatch()) {
+                is OcrBatchOutcome.Completed -> {
+                    Log.i(TAG, "OCR batch complete: processed=${outcome.processedCount}")
+                    Result.success(workDataOf("processed_count" to outcome.processedCount))
+                }
+                is OcrBatchOutcome.RetryableFailure -> {
+                    Log.w(TAG, "Retryable OCR batch failure: ${outcome.reason}")
+                    if (runAttemptCount < 3) Result.retry()
+                    else Result.failure(workDataOf("reason" to outcome.reason))
+                }
+                is OcrBatchOutcome.PermanentFailure -> {
+                    Log.e(TAG, "Permanent OCR batch failure: ${outcome.reason}")
+                    Result.failure(workDataOf("reason" to outcome.reason))
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "OCR batch worker error", e)
-            Result.failure(workDataOf("reason" to (e.message ?: "unknown")))
+            if (runAttemptCount < 3) Result.retry()
+            else Result.failure(workDataOf("reason" to (e.message ?: "unknown")))
         }
     }
 

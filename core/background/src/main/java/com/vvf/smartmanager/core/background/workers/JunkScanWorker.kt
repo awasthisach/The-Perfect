@@ -10,9 +10,7 @@ import kotlinx.coroutines.withContext
 
 /**
  * Background junk / residual file scan worker.
- *
- * Production policy: fail closed until the cleaner domain use-case is injected
- * and can report real findings. Simulated success is not allowed.
+ * Delegates to [JunkScanRuntime] configured by the application composition root.
  */
 class JunkScanWorker(
     appContext: Context,
@@ -24,15 +22,35 @@ class JunkScanWorker(
         try {
             if (isStopped) return@withContext Result.retry()
 
-            Log.w(
-                TAG,
-                "Junk scan pipeline not configured — fail closed. " +
-                    "Inject CleanerUseCase / storage analysis before enabling periodic runs."
-            )
-            Result.failure(workDataOf("reason" to "junk_scan_pipeline_not_configured"))
+            when (val outcome = JunkScanRuntime.scan()) {
+                is JunkScanOutcome.Completed -> {
+                    Log.i(
+                        TAG,
+                        "Junk scan complete: scanned=${outcome.totalScanned} " +
+                            "junkItems=${outcome.junkItemCount} wastedBytes=${outcome.wastedBytes}"
+                    )
+                    Result.success(
+                        workDataOf(
+                            "total_scanned" to outcome.totalScanned,
+                            "junk_item_count" to outcome.junkItemCount,
+                            "wasted_bytes" to outcome.wastedBytes
+                        )
+                    )
+                }
+                is JunkScanOutcome.RetryableFailure -> {
+                    Log.w(TAG, "Retryable junk scan failure: ${outcome.reason}")
+                    if (runAttemptCount < 3) Result.retry()
+                    else Result.failure(workDataOf("reason" to outcome.reason))
+                }
+                is JunkScanOutcome.PermanentFailure -> {
+                    Log.e(TAG, "Permanent junk scan failure: ${outcome.reason}")
+                    Result.failure(workDataOf("reason" to outcome.reason))
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Junk scan worker error", e)
-            Result.failure(workDataOf("reason" to (e.message ?: "unknown")))
+            if (runAttemptCount < 3) Result.retry()
+            else Result.failure(workDataOf("reason" to (e.message ?: "unknown")))
         }
     }
 
