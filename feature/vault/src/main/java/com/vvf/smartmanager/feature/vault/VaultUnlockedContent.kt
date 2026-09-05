@@ -59,6 +59,7 @@ import com.vvf.smartmanager.feature.vault.components.VaultItemGridCard
 import com.vvf.smartmanager.feature.vault.components.VaultProcessingDialog
 import com.vvf.smartmanager.feature.vault.components.VaultSettingsDialog
 import com.vvf.smartmanager.feature.vault.components.VaultSetupDecoyDialog
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,7 +80,9 @@ fun VaultUnlockedContent(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         androidx.compose.foundation.Image(
-                            painter = androidx.compose.ui.res.painterResource(id = com.vvf.smartmanager.core.common.R.drawable.vvf_foundation_logo),
+                            painter = androidx.compose.ui.res.painterResource(
+                                id = com.vvf.smartmanager.core.common.R.drawable.vvf_foundation_logo
+                            ),
                             contentDescription = "VVF Logo",
                             modifier = Modifier.size(32.dp)
                         )
@@ -176,7 +179,11 @@ fun VaultUnlockedContent(
                 onValueChange = { viewModel.onSearchQueryChanged(it) },
                 placeholder = { Text("Search encrypted files...") },
                 leadingIcon = {
-                    Icon(imageVector = Icons.Default.Search, contentDescription = "Search", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 },
                 trailingIcon = {
                     if (uiState.searchQuery.isNotEmpty()) {
@@ -226,6 +233,7 @@ fun VaultUnlockedContent(
                 }
             }
         }
+
         if (uiState.showAddFileDialog) {
             VaultAddFileDialog(
                 onDismiss = { viewModel.dismissAddFileDialog() },
@@ -234,45 +242,76 @@ fun VaultUnlockedContent(
                 }
             )
         }
+
         if (uiState.showItemDetailDialog && uiState.selectedItem != null) {
             VaultItemDetailDialog(
                 item = uiState.selectedItem!!,
                 onDismiss = { viewModel.dismissItemDetailDialog() },
-                onRestore = { viewModel.restoreItem(uiState.selectedItem!!) },
-                onExport = { viewModel.exportItem(uiState.selectedItem!!) },
-                onDelete = { viewModel.confirmDeleteItem(uiState.selectedItem!!) }
+                onRestore = { viewModel.restoreItem(it) },
+                onExportCopy = { item ->
+                    val exportDir = File(context.filesDir, "exported")
+                    val destFile = File(exportDir, item.originalName)
+                    viewModel.exportItem(item, destFile)
+                },
+                onDeletePermanently = { viewModel.showConfirmDeleteDialog() }
             )
         }
-        if (uiState.showConfirmDeleteDialog && uiState.itemPendingDelete != null) {
+
+        if (uiState.showConfirmDeleteDialog && uiState.selectedItem != null) {
             VaultConfirmDeleteDialog(
-                itemName = uiState.itemPendingDelete!!.originalName,
-                onDismiss = { viewModel.dismissConfirmDeleteDialog() },
-                onConfirm = { viewModel.deleteItemPermanently(uiState.itemPendingDelete!!) }
+                item = uiState.selectedItem!!,
+                onConfirm = { viewModel.deleteItemPermanently(uiState.selectedItem!!) },
+                onDismiss = { viewModel.dismissConfirmDeleteDialog() }
             )
         }
+
         if (uiState.showSettingsDialog) {
             VaultSettingsDialog(
-                state = uiState,
-                onDismiss = { viewModel.dismissSettingsDialog() },
-                onBiometricToggled = { viewModel.setBiometricEnabled(it) },
-                onAutoLockChanged = { viewModel.setAutoLockTimeoutSeconds(it) },
-                onChangePin = { viewModel.showChangePinDialog() },
-                onSetupDecoy = { viewModel.showSetupDecoyDialog() },
-                onRemoveDecoy = { viewModel.removeDecoyPin() }
+                isBiometricEnabled = uiState.isBiometricEnabled,
+                onToggleBiometric = { viewModel.setBiometricEnabled(it) },
+                autoLockSeconds = uiState.autoLockSeconds,
+                onAutoLockChange = { viewModel.setAutoLockSeconds(it) },
+                onChangePinClick = {
+                    viewModel.dismissSettingsDialog()
+                    viewModel.startChangePinFlow()
+                },
+                isDecoyConfigured = uiState.isDecoyConfigured,
+                onSetupDecoyClick = {
+                    viewModel.dismissSettingsDialog()
+                    viewModel.showSetupDecoyDialog()
+                },
+                onRemoveDecoyClick = { viewModel.removeDecoyPin() },
+                onPopulateDecoyDataClick = { viewModel.populateSampleDecoyData(context.filesDir) },
+                onDismiss = { viewModel.dismissSettingsDialog() }
             )
         }
+
         if (uiState.showChangePinDialog) {
             VaultChangePinDialog(
-                onDismiss = { viewModel.dismissChangePinDialog() },
-                onSubmit = { old, new -> viewModel.changePin(old, new) }
+                step = uiState.pinSetupStep,
+                enteredPin = uiState.enteredPin,
+                errorMessage = uiState.errorMessage,
+                isPinVerifying = uiState.isPinVerifying,
+                onDigitClick = { viewModel.onPinDigit(it) },
+                onBackspaceClick = { viewModel.onPinBackspace() },
+                onSubmitClick = { viewModel.submitPin() },
+                onDismiss = { viewModel.dismissChangePinDialog() }
             )
         }
+
         if (uiState.showSetupDecoyDialog) {
             VaultSetupDecoyDialog(
-                onDismiss = { viewModel.dismissSetupDecoyDialog() },
-                onSubmit = { pin -> viewModel.setupDecoyPin(pin) }
+                decoyStep = uiState.decoyPinStep,
+                enteredPin = uiState.enteredDecoyPin,
+                errorMessage = uiState.errorMessage,
+                userMessage = uiState.userMessage,
+                onDigitClick = { viewModel.onDecoyPinDigit(it) },
+                onBackspaceClick = { viewModel.onDecoyPinBackspace() },
+                onSubmitClick = { viewModel.submitDecoyPin() },
+                onDismiss = { viewModel.dismissSetupDecoyDialog() }
             )
         }
+
         if (uiState.isProcessing) {
             VaultProcessingDialog(message = uiState.processingMessage)
         }
