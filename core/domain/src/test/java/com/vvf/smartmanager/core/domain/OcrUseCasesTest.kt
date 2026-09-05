@@ -56,6 +56,7 @@ class OcrUseCasesTest {
         override suspend fun removeTagFromFile(path: String, tag: String): Result<Boolean> = Result.success(true)
         override fun getTotalIndexedCount(): Flow<Int> = flowOf(10)
         override suspend fun rebuildFtsIndex() {}
+        override suspend fun getRecentIndexedFiles(limit: Int) = emptyList<com.vvf.smartmanager.core.model.FileItem>()
     }
 
     @Test

@@ -128,6 +128,7 @@ class AiIntelligenceUseCaseTest {
         override suspend fun removeTagFromFile(path: String, tag: String): Result<Boolean> = Result.success(true)
         override fun getTotalIndexedCount(): Flow<Int> = flowOf(2)
         override suspend fun rebuildFtsIndex() {}
+        override suspend fun getRecentIndexedFiles(limit: Int) = emptyList<FileItem>()
     }
 
     @Test
@@ -139,13 +140,11 @@ class AiIntelligenceUseCaseTest {
 
         assertTrue(useCase.isAiModelReady())
 
-        // Test with 80% threshold
         val groups = useCase.scanNearDuplicates(0.80f).first()
         assertEquals(1, groups.size)
         val group = groups[0]
         assertEquals(DuplicateLevel.LEVEL_3_SIMILARITY, group.level)
         assertEquals(2, group.files.size)
-        // Check default selection keeps oldest (/DCIM/IMG_001.jpg) and selects /DCIM/IMG_001_edit.jpg
         assertTrue(group.selectedPaths.contains("/storage/emulated/0/DCIM/IMG_001_edit.jpg"))
     }
 

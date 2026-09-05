@@ -19,17 +19,13 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.File
 
-/**
- * Concrete implementation of SearchRepository providing high-performance,
- * offline-first search using SQLite FTS4 full-text index, metadata indexes,
- * tag engine, and multi-parameter filters.
- */
 class OfflineSearchRepository(
     private val context: Context,
     private val searchFtsDao: SearchFtsDao,
@@ -54,13 +50,12 @@ class OfflineSearchRepository(
     override fun getSearchHistory(): Flow<List<String>> = _historyFlow.asStateFlow()
 
     override suspend fun saveSearchQuery(query: String) = withContext(Dispatchers.IO) {
-        val clean = query.trim()
+        val clean = query.trim().take(500)
         if (clean.isBlank()) return@withContext
         val current = _historyFlow.value.toMutableList()
         current.remove(clean)
         current.add(0, clean)
-        val trimmed = current.take(25)
-        saveHistoryToPrefs(trimmed)
+        saveHistoryToPrefs(current.take(25))
     }
 
     override suspend fun deleteSearchHistoryItem(query: String) = withContext(Dispatchers.IO) {
@@ -89,8 +84,7 @@ class OfflineSearchRepository(
             if (entity != null) {
                 val existingTags = entity.tags.split(",").map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toMutableSet()
                 existingTags.add(cleanTag)
-                val updatedTags = existingTags.joinToString(",")
-                searchFtsDao.updateTagsByPath(path, updatedTags)
+                searchFtsDao.updateTagsByPath(path, existingTags.joinToString(","))
             }
             Result.success(true)
         } catch (e: Exception) {
@@ -105,8 +99,7 @@ class OfflineSearchRepository(
             if (entity != null) {
                 val existingTags = entity.tags.split(",").map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toMutableSet()
                 existingTags.remove(cleanTag)
-                val updatedTags = existingTags.joinToString(",")
-                searchFtsDao.updateTagsByPath(path, updatedTags)
+                searchFtsDao.updateTagsByPath(path, existingTags.joinToString(","))
             }
             Result.success(true)
         } catch (e: Exception) {
@@ -122,13 +115,31 @@ class OfflineSearchRepository(
         searchFtsDao.rebuildFtsIndex()
     }
 
-    override fun searchFiles(query: String, filter: SearchFilter): Flow<List<SearchResultItem>> = flow {
-        val trimmedQuery = query.trim()
+    override suspend fun getRecentIndexedFiles(limit: Int): List<FileItem> = withContext(Dispatchers.IO) {
+        val entities = fileDao.getRecentFiles(limit.coerceIn(1, 2_000)).first()
+        entities.map { entity ->
+            val tagList = entity.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            FileItem(
+                path = entity.path,
+                name = entity.name,
+                sizeBytes = entity.sizeBytes,
+                lastModified = entity.modifiedDate,
+                isDirectory = entity.isDirectory,
+                mimeType = entity.mimeType,
+                isFavorite = entity.isFavorite,
+                isTrash = entity.isTrash,
+                originalPath = entity.originalPath,
+                deletedTimestamp = entity.deletedTimestamp,
+                md5Hash = entity.md5Hash,
+                tags = tagList
+            )
+        }
+    }
 
-        // Source flow selection: FTS + Fallback vs All Indexed files vs Tag/Category
+    override fun searchFiles(query: String, filter: SearchFilter): Flow<List<SearchResultItem>> = flow {
+        val trimmedQuery = query.trim().take(500)
         val entitiesFlow = when {
             trimmedQuery.isNotEmpty() -> {
-                // Combine FTS4 and standard substring queries for complete recall
                 val sanitizedFtsQuery = sanitizeFtsQuery(trimmedQuery)
                 val ftsFlow = if (sanitizedFtsQuery.isNotEmpty()) {
                     searchFtsDao.searchFilesFts(sanitizedFtsQuery)
@@ -136,15 +147,11 @@ class OfflineSearchRepository(
                     searchFtsDao.searchFilesFallback(trimmedQuery)
                 }
                 val fallbackFlow = searchFtsDao.searchFilesFallback(trimmedQuery)
-
                 ftsFlow.combine(fallbackFlow) { ftsList, fallbackList ->
                     (ftsList + fallbackList).distinctBy { it.path }
                 }
             }
-            filter.selectedTags.isNotEmpty() -> {
-                val firstTag = filter.selectedTags.first()
-                searchFtsDao.searchByTag(firstTag)
-            }
+            filter.selectedTags.isNotEmpty() -> searchFtsDao.searchByTag(filter.selectedTags.first())
             filter.category != FileCategory.ALL -> {
                 val mimePrefix = when (filter.category) {
                     FileCategory.IMAGES -> "image/"
@@ -154,28 +161,19 @@ class OfflineSearchRepository(
                     FileCategory.APKS -> "application/vnd.android.package-archive"
                     else -> ""
                 }
-                if (mimePrefix.isNotEmpty()) {
-                    fileDao.getFilesByType(mimePrefix)
-                } else {
-                    fileDao.getRecentFiles(500)
-                }
+                if (mimePrefix.isNotEmpty()) fileDao.getFilesByType(mimePrefix) else fileDao.getRecentFiles(500)
             }
-            else -> {
-                fileDao.getRecentFiles(300)
-            }
+            else -> fileDao.getRecentFiles(300)
         }
 
         entitiesFlow.collect { rawEntities ->
             val now = System.currentTimeMillis()
             val dayMillis = 24 * 60 * 60 * 1000L
-
             val results = rawEntities.mapNotNull { entity ->
                 val file = File(entity.path)
                 val exists = file.exists()
                 val sizeBytes = if (exists && !entity.isDirectory) file.length() else entity.sizeBytes
                 val lastModified = if (exists) file.lastModified() else entity.modifiedDate
-
-                // Entity to FileItem conversion
                 val tagList = entity.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
                 val fileItem = FileItem(
                     path = entity.path,
@@ -191,25 +189,13 @@ class OfflineSearchRepository(
                     md5Hash = entity.md5Hash,
                     tags = tagList
                 )
-
-                // 1. Hidden file filter
-                if (!filter.includeHidden && fileItem.isHidden) {
-                    return@mapNotNull null
-                }
-
-                // 2. Category filter
-                if (!matchesCategory(fileItem, filter.category)) {
-                    return@mapNotNull null
-                }
-
-                // 3. Size bracket filter
+                if (!filter.includeHidden && fileItem.isHidden) return@mapNotNull null
+                if (!matchesCategory(fileItem, filter.category)) return@mapNotNull null
                 if (filter.sizeFilter != SizeFilter.ANY) {
                     if (fileItem.sizeBytes < filter.sizeFilter.minBytes || fileItem.sizeBytes > filter.sizeFilter.maxBytes) {
                         return@mapNotNull null
                     }
                 }
-
-                // 4. Date filter
                 if (filter.dateFilter != DateFilter.ANY) {
                     val cutoff = when (filter.dateFilter) {
                         DateFilter.TODAY -> now - dayMillis
@@ -218,39 +204,25 @@ class OfflineSearchRepository(
                         DateFilter.LAST_YEAR -> now - (365 * dayMillis)
                         DateFilter.ANY -> 0L
                     }
-                    if (fileItem.lastModified < cutoff) {
-                        return@mapNotNull null
-                    }
+                    if (fileItem.lastModified < cutoff) return@mapNotNull null
                 }
-
-                // 5. Tag filter
                 if (filter.selectedTags.isNotEmpty()) {
                     val fileTagSet = tagList.map { it.lowercase() }.toSet()
                     val requiredTagSet = filter.selectedTags.map { it.lowercase() }.toSet()
-                    if (!fileTagSet.containsAll(requiredTagSet)) {
-                        return@mapNotNull null
-                    }
+                    if (!fileTagSet.containsAll(requiredTagSet)) return@mapNotNull null
                 }
-
-                // Determine Match Origin & Snippet
                 val matchType = determineMatchType(fileItem, trimmedQuery)
-                val snippet = generateMatchSnippet(fileItem, trimmedQuery, matchType)
-
                 SearchResultItem(
                     fileItem = fileItem,
                     matchType = matchType,
-                    matchedSnippet = snippet
+                    matchedSnippet = generateMatchSnippet(fileItem, trimmedQuery, matchType)
                 )
             }
-
-            // Apply Sorting
-            val sorted = sortSearchResults(results, filter.sortOption)
-            emit(sorted)
+            emit(sortSearchResults(results, filter.sortOption))
         }
     }.flowOn(Dispatchers.IO)
 
     private fun sanitizeFtsQuery(query: String): String {
-        // Remove special SQLite FTS syntax operators that could cause SQL syntax error
         val clean = query.replace(Regex("[^a-zA-Z0-9_\\s]"), " ").trim()
         if (clean.isBlank()) return ""
         val tokens = clean.split("\\s+".toRegex()).filter { it.length >= 2 }
@@ -262,10 +234,8 @@ class OfflineSearchRepository(
         if (category == FileCategory.ALL) return true
         if (category == FileCategory.FAVORITES) return item.isFavorite
         if (category == FileCategory.TRASH) return item.isTrash
-
         val ext = item.extension.lowercase()
         val mime = item.mimeType?.lowercase() ?: ""
-
         return when (category) {
             FileCategory.IMAGES -> mime.startsWith("image/") || ext in listOf("jpg", "jpeg", "png", "webp", "gif", "bmp", "svg", "heic")
             FileCategory.VIDEOS -> mime.startsWith("video/") || ext in listOf("mp4", "mkv", "avi", "mov", "webm", "3gp", "flv")
@@ -281,16 +251,9 @@ class OfflineSearchRepository(
     private fun determineMatchType(item: FileItem, query: String): SearchMatchType {
         if (query.isEmpty()) return SearchMatchType.METADATA
         val lowerQuery = query.lowercase()
-
-        if (item.name.lowercase().contains(lowerQuery)) {
-            return SearchMatchType.FILENAME
-        }
-        if (item.tags.any { it.lowercase().contains(lowerQuery) }) {
-            return SearchMatchType.TAG
-        }
-        if (item.extension.lowercase().contains(lowerQuery) || (item.mimeType?.lowercase()?.contains(lowerQuery) == true)) {
-            return SearchMatchType.METADATA
-        }
+        if (item.name.lowercase().contains(lowerQuery)) return SearchMatchType.FILENAME
+        if (item.tags.any { it.lowercase().contains(lowerQuery) }) return SearchMatchType.TAG
+        if (item.extension.lowercase().contains(lowerQuery) || (item.mimeType?.lowercase()?.contains(lowerQuery) == true)) return SearchMatchType.METADATA
         return SearchMatchType.FTS
     }
 

@@ -2,17 +2,15 @@ package com.vvf.smartmanager.core.domain
 
 import com.vvf.smartmanager.core.data.FileManagerRepository
 import com.vvf.smartmanager.core.data.SearchRepository
-import com.vvf.smartmanager.core.model.FileCategory
 import com.vvf.smartmanager.core.model.FileItem
 import com.vvf.smartmanager.core.model.SemanticCandidate
 import com.vvf.smartmanager.core.model.SemanticSearchOptions
 import com.vvf.smartmanager.core.model.SemanticSearchResult
 import com.vvf.smartmanager.core.plugin.spi.ISemanticSearchEngine
-import kotlinx.coroutines.flow.first
 
 /**
  * UseCase to execute On-Device Semantic AI Search over indexed files and tags.
- * Preserves strict Core vs Plugin separation: supplements Core Search with conceptual relevance.
+ * Bounded candidate set prevents lag/OOM when library is large.
  */
 class SemanticSearchUseCase(
     private val semanticPlugin: ISemanticSearchEngine,
@@ -33,15 +31,16 @@ class SemanticSearchUseCase(
             return emptyList()
         }
 
-        val allFiles: List<FileItem> = try {
-            fileManagerRepository.getCategorizedFiles(FileCategory.ALL).first()
-        } catch (e: Exception) {
+        // Bounded candidates: loading ALL files every keystroke caused lag/OOM.
+        val recentFiles: List<FileItem> = try {
+            searchRepository.getRecentIndexedFiles(CANDIDATE_LIMIT)
+        } catch (_: Exception) {
             emptyList()
         }
 
-        if (allFiles.isEmpty()) return emptyList()
+        if (recentFiles.isEmpty()) return emptyList()
 
-        val candidates = allFiles.map { file ->
+        val candidates = recentFiles.map { file ->
             val textContent = buildString {
                 append(file.name)
                 if (file.tags.isNotEmpty()) {
@@ -56,9 +55,13 @@ class SemanticSearchUseCase(
         }
 
         return semanticPlugin.searchSimilar(
-            query = query,
+            query = query.take(500),
             candidates = candidates,
             options = options
         )
+    }
+
+    companion object {
+        private const val CANDIDATE_LIMIT = 400
     }
 }

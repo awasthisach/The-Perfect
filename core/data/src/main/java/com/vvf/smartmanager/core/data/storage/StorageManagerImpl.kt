@@ -1,7 +1,6 @@
 package com.vvf.smartmanager.core.data.storage
 
 import android.content.Context
-import android.os.Build
 import android.os.Environment
 import android.os.StatFs
 import android.provider.MediaStore
@@ -19,9 +18,6 @@ import java.io.FileInputStream
 import java.security.MessageDigest
 import java.util.ArrayDeque
 
-/**
- * Base storage implementation: fail-closed path auth, listing, and shared helpers.
- */
 open class StorageManagerImpl(
     protected val context: Context,
     protected val fileDao: FileDao
@@ -100,10 +96,6 @@ open class StorageManagerImpl(
         return sortFiles(items, sortOption)
     }
 
-    /**
-     * Returns a bounded snapshot of primary shared storage for search indexing. Hidden
-     * application folders and Android-managed data are intentionally excluded.
-     */
     fun collectPrimaryStorageItems(maxItems: Int = 10_000): List<FileItem> {
         require(maxItems > 0) { "maxItems must be positive" }
         val root = File(getPrimaryStoragePath())
@@ -129,7 +121,7 @@ open class StorageManagerImpl(
                         lastModified = child.lastModified(),
                         isDirectory = isDirectory,
                         mimeType = if (isDirectory) null else getMimeType(child.name),
-                        itemCount = if (isDirectory) (child.listFiles()?.size ?: 0) else 0
+                        itemCount = 0
                     )
                 )
                 if (isDirectory) directories.addLast(child)
