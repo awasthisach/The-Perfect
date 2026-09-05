@@ -1,6 +1,8 @@
 package com.vvf.smartmanager.core.domain
 
 import com.vvf.smartmanager.core.data.repository.SecureVaultRepository
+import com.vvf.smartmanager.core.data.repository.createVaultBiometricCipher
+import com.vvf.smartmanager.core.data.repository.isVaultKeyAuthenticationRequired
 import com.vvf.smartmanager.core.model.VaultItem
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import kotlinx.coroutines.flow.Flow
