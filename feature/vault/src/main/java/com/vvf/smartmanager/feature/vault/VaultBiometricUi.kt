@@ -4,12 +4,17 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
-import com.vvf.smartmanager.VVFApplication
 import javax.crypto.Cipher
 
+/**
+ * Launches BiometricPrompt with optional CryptoObject bound to the vault key.
+ * [createCipher] is supplied by the caller (typically ViewModel) so this module
+ * never depends on :app.
+ */
 fun launchVaultBiometricUnlock(
     activity: FragmentActivity?,
     isBiometricEnabled: Boolean,
+    createCipher: () -> Cipher?,
     onSuccess: () -> Unit,
     onError: (String) -> Unit
 ) {
@@ -39,13 +44,14 @@ fun launchVaultBiometricUnlock(
         onError(errorMsg)
         return
     }
-    val app = activity.application as? VVFApplication
+
     val cipher: Cipher? = try {
-        app?.vaultAuthUseCase?.createVaultBiometricCipher()
+        createCipher()
     } catch (e: Exception) {
         onError("Vault key requires authentication setup: ${e.message ?: "unavailable"}")
         return
     }
+
     val callback = object : BiometricPrompt.AuthenticationCallback() {
         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
             super.onAuthenticationSucceeded(result)
