@@ -1,1 +1,3 @@
-SEE_FILE_/tmp/crypto_for_api.kt
+package com.vvf.smartmanager.core.security
+
+// TEMPORARY - will replace with full file immediately
