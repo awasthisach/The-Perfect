@@ -12,8 +12,6 @@ import com.vvf.smartmanager.core.model.FileItem
 import com.vvf.smartmanager.core.model.FileSortOption
 import com.vvf.smartmanager.core.model.SearchFilter
 import com.vvf.smartmanager.core.model.SearchResultItem
-import com.vvf.smartmanager.core.model.SizeFilter
-import com.vvf.smartmanager.core.model.DateFilter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -157,8 +155,8 @@ class OfflineSearchRepository(
                     searchFtsDao.searchFilesFallback(trimmedQuery)
                 }
             }
-            filter.tags.isNotEmpty() -> {
-                val firstTag = filter.tags.first()
+            filter.selectedTags.isNotEmpty() -> {
+                val firstTag = filter.selectedTags.first()
                 searchFtsDao.searchByTag(firstTag)
             }
             filter.category != FileCategory.ALL -> {
@@ -201,7 +199,7 @@ class OfflineSearchRepository(
                 if (!filter.includeHidden && fileItem.name.startsWith(".")) {
                     return@mapNotNull null
                 }
-                if (filter.tags.isNotEmpty() && filter.tags.none { t -> tagList.any { it.equals(t, true) } }) {
+                if (filter.selectedTags.isNotEmpty() && filter.selectedTags.none { t -> tagList.any { it.equals(t, true) } }) {
                     return@mapNotNull null
                 }
                 SearchResultItem(fileItem = fileItem, matchedField = if (trimmedQuery.isNotBlank()) "fts" else "filter")
