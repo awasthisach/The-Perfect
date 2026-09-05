@@ -2,15 +2,32 @@ package com.vvf.smartmanager.core.domain
 
 import com.vvf.smartmanager.core.data.SearchRepository
 import com.vvf.smartmanager.core.model.FileItem
+import com.vvf.smartmanager.core.model.OcrResult
 import com.vvf.smartmanager.core.model.SearchFilter
 import com.vvf.smartmanager.core.model.SearchResultItem
+import com.vvf.smartmanager.core.plugin.spi.IOcrEngine
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OcrUseCasesTest {
+
+    private class FakeOcrEngine : IOcrEngine {
+        override val isEnabled: Boolean = true
+        override suspend fun extractText(
+            fileItem: FileItem,
+            options: com.vvf.smartmanager.core.model.OcrOptions,
+            onProgress: ((Float) -> Unit)?
+        ): Result<OcrResult> {
+            return Result.success(
+                OcrResult(fullText = "sample text", confidence = 0.9f, languageCode = "en")
+            )
+        }
+        override fun cancelOngoing() {}
+    }
 
     private class FakeSearchRepository : SearchRepository {
         override fun searchFiles(query: String, filter: SearchFilter): Flow<List<SearchResultItem>> = flowOf(emptyList())
@@ -28,7 +45,11 @@ class OcrUseCasesTest {
 
     @Test
     fun testExtractTextUseCase() = runBlocking {
-        assertTrue(true)
+        val useCase = ExtractTextUseCase(FakeOcrEngine())
+        val item = FileItem(path = "/tmp/a.pdf", name = "a.pdf", sizeBytes = 1, lastModified = 0, isDirectory = false)
+        val result = useCase(item)
+        assertTrue(result.isSuccess)
+        assertEquals("sample text", result.getOrNull()?.fullText)
     }
 
     @Test
