@@ -308,6 +308,7 @@ fun VaultUnlockedContent(
                 onDigitClick = { viewModel.onDecoyPinDigit(it) },
                 onBackspaceClick = { viewModel.onDecoyPinBackspace() },
                 onSubmitClick = { viewModel.submitDecoyPin() },
+                isPinVerifying = uiState.isPinVerifying,
                 onDismiss = { viewModel.dismissSetupDecoyDialog() }
             )
         }
