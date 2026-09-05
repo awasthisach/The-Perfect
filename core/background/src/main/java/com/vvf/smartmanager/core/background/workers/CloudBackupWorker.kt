@@ -10,10 +10,7 @@ import kotlinx.coroutines.withContext
 
 /**
  * Scheduled encrypted cloud backup worker.
- *
- * Production policy: fail closed until a real backup orchestrator is injected via
- * [BackgroundSyncManager] / application composition. Simulated delays must never
- * be reported as successful backups.
+ * Uses [CloudBackupRuntime]; never reports success for simulated work.
  */
 class CloudBackupWorker(
     appContext: Context,
@@ -26,25 +23,38 @@ class CloudBackupWorker(
             if (isStopped) return@withContext Result.retry()
 
             val includeVault = inputData.getBoolean("include_vault", true)
-            // Real pipeline (upload + integrity + durable state) is not yet wired
-            // into this worker. Report honest failure so operators and UI do not
-            // assume a backup completed.
-            Log.w(
-                TAG,
-                "Cloud backup pipeline not configured — fail closed " +
-                    "(includeVault=$includeVault). Wire real orchestrator before enabling."
-            )
-            Result.failure(
-                workDataOf(
-                    "reason" to "cloud_backup_pipeline_not_configured",
-                    "include_vault" to includeVault
-                )
-            )
+            when (val outcome = CloudBackupRuntime.run(includeVault)) {
+                is CloudBackupOutcome.Completed -> {
+                    Log.i(
+                        TAG,
+                        "Backup completed id=${outcome.backupId} size=${outcome.sizeBytes} uploaded=${outcome.uploaded}"
+                    )
+                    Result.success(
+                        workDataOf(
+                            "backup_id" to outcome.backupId,
+                            "size_bytes" to outcome.sizeBytes,
+                            "uploaded" to outcome.uploaded
+                        )
+                    )
+                }
+                is CloudBackupOutcome.RetryableFailure -> {
+                    Log.w(TAG, "Retryable backup failure: ${outcome.reason}")
+                    if (runAttemptCount < 2) Result.retry()
+                    else Result.failure(workDataOf("reason" to outcome.reason))
+                }
+                is CloudBackupOutcome.PermanentFailure -> {
+                    Log.e(TAG, "Permanent backup failure: ${outcome.reason}")
+                    Result.failure(workDataOf("reason" to outcome.reason))
+                }
+                is CloudBackupOutcome.NotConfigured -> {
+                    Log.w(TAG, "Backup not configured: ${outcome.reason}")
+                    Result.failure(workDataOf("reason" to outcome.reason))
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Cloud backup worker error", e)
-            if (runAttemptCount < 2) Result.retry() else Result.failure(
-                workDataOf("reason" to (e.message ?: "unknown"))
-            )
+            if (runAttemptCount < 2) Result.retry()
+            else Result.failure(workDataOf("reason" to (e.message ?: "unknown")))
         }
     }
 

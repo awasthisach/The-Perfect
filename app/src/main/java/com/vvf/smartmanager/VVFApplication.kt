@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import com.vvf.smartmanager.core.background.workers.FileIndexingOutcome
 import com.vvf.smartmanager.core.background.workers.FileIndexingRuntime
+import com.vvf.smartmanager.core.background.workers.CloudBackupBootstrap
 import com.vvf.smartmanager.core.background.BackgroundSyncManager
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveServiceImpl
@@ -115,7 +116,6 @@ class VVFApplication : Application() {
 
         val jvmUnitTest = CryptoSecurityManager.isJvmUnitTestEnvironment(this)
         if (jvmUnitTest) {
-            // Robolectric cannot load SQLCipher native libs; composition still wires fully.
             database = VVFDatabase.buildInMemoryDatabase(this)
             Log.i(TAG, "JVM unit-test environment: using in-memory Room database")
         } else {
@@ -215,6 +215,7 @@ class VVFApplication : Application() {
         )
         backgroundSyncManager = BackgroundSyncManager(this)
         FileIndexingRuntime.configure { indexPrimaryStorageForSearch() }
+        CloudBackupBootstrap.wire(cloudSyncUseCase)
         val bgExceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
             Log.e(TAG, "Background sync scheduling failed safely", throwable)
         }
