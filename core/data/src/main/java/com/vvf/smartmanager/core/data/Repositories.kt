@@ -108,4 +108,7 @@ interface SearchRepository {
     fun getTotalIndexedCount(): Flow<Int>
 
     suspend fun rebuildFtsIndex()
+
+    /** Bounded recent files from Room index for semantic/AI candidates (no full storage walk). */
+    suspend fun getRecentIndexedFiles(limit: Int = 400): List<FileItem>
 }
