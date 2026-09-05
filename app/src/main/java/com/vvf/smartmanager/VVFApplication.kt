@@ -240,8 +240,11 @@ class VVFApplication : Application() {
         }
         return try {
             val fileDao = database.fileDao()
-            val metadata = storageManager.collectPrimaryStorageItems().map { item ->
-                val existing = fileDao.getByPath(item.path)
+            // Single bulk read — never N+1 getByPath (was primary lag source on 10k files).
+            val existingByPath = fileDao.getIndexedPathSnapshot().associateBy { it.path }
+            val items = storageManager.collectPrimaryStorageItems(maxItems = 8_000)
+            val metadata = items.map { item ->
+                val existing = existingByPath[item.path]
                 FileMetadataEntity(
                     id = existing?.id ?: 0L,
                     path = item.path,
@@ -261,7 +264,8 @@ class VVFApplication : Application() {
                 )
             }
             if (metadata.isNotEmpty()) {
-                fileDao.insertAll(metadata)
+                // Chunk inserts to keep transactions short and avoid binder/txn pressure.
+                metadata.chunked(400).forEach { chunk -> fileDao.insertAll(chunk) }
                 database.searchFtsDao().rebuildFtsIndex()
             }
             FileIndexingOutcome.Completed(metadata.size)

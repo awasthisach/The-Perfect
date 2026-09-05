@@ -64,7 +64,6 @@ class SearchViewModel(
     private val _availableTags = tagManagementUseCase.getAvailableTags()
     private val _totalIndexedCount = searchIndexManagementUseCase?.getTotalIndexedCount() ?: flowOf(0)
 
-    // Live debounced query & filter combination for instantaneous FTS lookup
     private val _searchResults = combine(_searchQuery, _searchFilter, _semanticSimilarityThreshold) { query, filter, threshold ->
         Triple(query, filter, threshold)
     }
@@ -155,11 +154,11 @@ class SearchViewModel(
     )
 
     fun onQueryChanged(newQuery: String) {
-        _searchQuery.value = newQuery
+        _searchQuery.value = newQuery.take(500)
     }
 
     fun onExecuteSearch(query: String) {
-        val trimmed = query.trim()
+        val trimmed = query.trim().take(500)
         _searchQuery.value = trimmed
         if (trimmed.isNotEmpty()) {
             viewModelScope.launch {
@@ -186,7 +185,7 @@ class SearchViewModel(
     }
 
     fun onHistoryItemClicked(historyQuery: String) {
-        _searchQuery.value = historyQuery
+        _searchQuery.value = historyQuery.take(500)
         viewModelScope.launch {
             searchHistoryUseCase.saveQuery(historyQuery)
         }
@@ -343,4 +342,3 @@ class SearchViewModel(
         }
     }
 }
-

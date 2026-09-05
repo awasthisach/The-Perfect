@@ -101,8 +101,8 @@ open class StorageManagerImpl(
     }
 
     /**
-     * Returns a bounded snapshot of primary shared storage for search indexing. Hidden
-     * application folders and Android-managed data are intentionally excluded.
+     * Bounded snapshot of primary shared storage for search indexing.
+     * Skips per-directory listFiles() for itemCount during bulk walk (lag fix).
      */
     fun collectPrimaryStorageItems(maxItems: Int = 10_000): List<FileItem> {
         require(maxItems > 0) { "maxItems must be positive" }
@@ -129,7 +129,7 @@ open class StorageManagerImpl(
                         lastModified = child.lastModified(),
                         isDirectory = isDirectory,
                         mimeType = if (isDirectory) null else getMimeType(child.name),
-                        itemCount = if (isDirectory) (child.listFiles()?.size ?: 0) else 0
+                        itemCount = 0
                     )
                 )
                 if (isDirectory) directories.addLast(child)

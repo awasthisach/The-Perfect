@@ -39,6 +39,10 @@ interface FileDao {
     @Query("SELECT * FROM file_metadata WHERE path = :path LIMIT 1")
     suspend fun getByPath(path: String): FileMetadataEntity?
 
+    /** One-shot path→row map for indexer; avoids N+1 getByPath during bulk upsert. */
+    @Query("SELECT path, id, isFavorite, tags, md5Hash, originalPath, deletedTimestamp, operationState FROM file_metadata WHERE isTrash = 0")
+    suspend fun getIndexedPathSnapshot(): List<FilePathSnapshot>
+
     @Query("SELECT * FROM file_metadata WHERE parentPath = :parentPath AND isTrash = 0 ORDER BY isDirectory DESC, name ASC")
     fun getFilesByDirectory(parentPath: String): Flow<List<FileMetadataEntity>>
 
@@ -61,14 +65,14 @@ interface FileDao {
     @Query("SELECT * FROM file_metadata WHERE sizeBytes = :sizeBytes AND isDirectory = 0 AND isTrash = 0")
     suspend fun getFilesBySize(sizeBytes: Long): List<FileMetadataEntity>
 
-    // Level 2 Duplicate Detection: Exact MD5 Hash collision
-    @Query("SELECT md5Hash, COUNT(*) as count FROM file_metadata WHERE isDirectory = 0 AND isTrash = 0 AND md5Hash IS NOT NULL AND md5Hash != '' GROUP BY md5Hash HAVING count > 1 ORDER BY sizeBytes DESC")
+    // Level 2 Duplicate Detection: Find files with identical MD5 hashes
+    @Query("SELECT md5Hash, COUNT(*) as count FROM file_metadata WHERE md5Hash IS NOT NULL AND isDirectory = 0 AND isTrash = 0 GROUP BY md5Hash HAVING count > 1")
     fun findDuplicateHashes(): Flow<List<DuplicateHashGroup>>
 
     @Query("SELECT * FROM file_metadata WHERE md5Hash = :hash AND isDirectory = 0 AND isTrash = 0")
     suspend fun getFilesByHash(hash: String): List<FileMetadataEntity>
 
-    @Query("SELECT * FROM file_metadata WHERE isDirectory = 0 AND (md5Hash IS NULL OR md5Hash = '') AND isTrash = 0")
+    @Query("SELECT * FROM file_metadata WHERE md5Hash IS NULL AND isDirectory = 0 AND isTrash = 0 AND sizeBytes > 0")
     suspend fun getFilesNeedingHash(): List<FileMetadataEntity>
 
     @Query("UPDATE file_metadata SET md5Hash = :hash WHERE id = :id")

@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -54,7 +55,7 @@ class OfflineSearchRepository(
     override fun getSearchHistory(): Flow<List<String>> = _historyFlow.asStateFlow()
 
     override suspend fun saveSearchQuery(query: String) = withContext(Dispatchers.IO) {
-        val clean = query.trim()
+        val clean = query.trim().take(500)
         if (clean.isBlank()) return@withContext
         val current = _historyFlow.value.toMutableList()
         current.remove(clean)
@@ -122,13 +123,32 @@ class OfflineSearchRepository(
         searchFtsDao.rebuildFtsIndex()
     }
 
-    override fun searchFiles(query: String, filter: SearchFilter): Flow<List<SearchResultItem>> = flow {
-        val trimmedQuery = query.trim()
+    override suspend fun getRecentIndexedFiles(limit: Int): List<FileItem> = withContext(Dispatchers.IO) {
+        val entities = fileDao.getRecentFiles(limit.coerceIn(1, 2_000)).first()
+        entities.map { entity ->
+            val tagList = entity.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            FileItem(
+                path = entity.path,
+                name = entity.name,
+                sizeBytes = entity.sizeBytes,
+                lastModified = entity.modifiedDate,
+                isDirectory = entity.isDirectory,
+                mimeType = entity.mimeType,
+                isFavorite = entity.isFavorite,
+                isTrash = entity.isTrash,
+                originalPath = entity.originalPath,
+                deletedTimestamp = entity.deletedTimestamp,
+                md5Hash = entity.md5Hash,
+                tags = tagList
+            )
+        }
+    }
 
-        // Source flow selection: FTS + Fallback vs All Indexed files vs Tag/Category
+    override fun searchFiles(query: String, filter: SearchFilter): Flow<List<SearchResultItem>> = flow {
+        val trimmedQuery = query.trim().take(500)
+
         val entitiesFlow = when {
             trimmedQuery.isNotEmpty() -> {
-                // Combine FTS4 and standard substring queries for complete recall
                 val sanitizedFtsQuery = sanitizeFtsQuery(trimmedQuery)
                 val ftsFlow = if (sanitizedFtsQuery.isNotEmpty()) {
                     searchFtsDao.searchFilesFts(sanitizedFtsQuery)
@@ -175,7 +195,6 @@ class OfflineSearchRepository(
                 val sizeBytes = if (exists && !entity.isDirectory) file.length() else entity.sizeBytes
                 val lastModified = if (exists) file.lastModified() else entity.modifiedDate
 
-                // Entity to FileItem conversion
                 val tagList = entity.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
                 val fileItem = FileItem(
                     path = entity.path,
@@ -192,24 +211,20 @@ class OfflineSearchRepository(
                     tags = tagList
                 )
 
-                // 1. Hidden file filter
                 if (!filter.includeHidden && fileItem.isHidden) {
                     return@mapNotNull null
                 }
 
-                // 2. Category filter
                 if (!matchesCategory(fileItem, filter.category)) {
                     return@mapNotNull null
                 }
 
-                // 3. Size bracket filter
                 if (filter.sizeFilter != SizeFilter.ANY) {
                     if (fileItem.sizeBytes < filter.sizeFilter.minBytes || fileItem.sizeBytes > filter.sizeFilter.maxBytes) {
                         return@mapNotNull null
                     }
                 }
 
-                // 4. Date filter
                 if (filter.dateFilter != DateFilter.ANY) {
                     val cutoff = when (filter.dateFilter) {
                         DateFilter.TODAY -> now - dayMillis
@@ -223,7 +238,6 @@ class OfflineSearchRepository(
                     }
                 }
 
-                // 5. Tag filter
                 if (filter.selectedTags.isNotEmpty()) {
                     val fileTagSet = tagList.map { it.lowercase() }.toSet()
                     val requiredTagSet = filter.selectedTags.map { it.lowercase() }.toSet()
@@ -232,7 +246,6 @@ class OfflineSearchRepository(
                     }
                 }
 
-                // Determine Match Origin & Snippet
                 val matchType = determineMatchType(fileItem, trimmedQuery)
                 val snippet = generateMatchSnippet(fileItem, trimmedQuery, matchType)
 
@@ -243,14 +256,12 @@ class OfflineSearchRepository(
                 )
             }
 
-            // Apply Sorting
             val sorted = sortSearchResults(results, filter.sortOption)
             emit(sorted)
         }
     }.flowOn(Dispatchers.IO)
 
     private fun sanitizeFtsQuery(query: String): String {
-        // Remove special SQLite FTS syntax operators that could cause SQL syntax error
         val clean = query.replace(Regex("[^a-zA-Z0-9_\\s]"), " ").trim()
         if (clean.isBlank()) return ""
         val tokens = clean.split("\\s+".toRegex()).filter { it.length >= 2 }
