@@ -108,4 +108,7 @@ interface SearchRepository {
     fun getTotalIndexedCount(): Flow<Int>
 
     suspend fun rebuildFtsIndex()
+
+    /** Bounded recent indexed files for semantic search (avoids loading entire library). */
+    suspend fun getRecentIndexedFiles(limit: Int = 400): List<FileItem>
 }

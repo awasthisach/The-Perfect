@@ -24,6 +24,17 @@ data class StorageCategorySummary(
     val fileCount: Int
 )
 
+data class FilePathSnapshot(
+    val path: String,
+    val id: Long,
+    val isFavorite: Boolean,
+    val originalPath: String?,
+    val deletedTimestamp: Long?,
+    val tags: String,
+    val md5Hash: String?,
+    val operationState: String
+)
+
 @Dao
 interface FileDao {
 
@@ -38,6 +49,9 @@ interface FileDao {
 
     @Query("SELECT * FROM file_metadata WHERE path = :path LIMIT 1")
     suspend fun getByPath(path: String): FileMetadataEntity?
+
+    @Query("SELECT path, id, isFavorite, originalPath, deletedTimestamp, tags, md5Hash, operationState FROM file_metadata")
+    suspend fun getIndexedPathSnapshot(): List<FilePathSnapshot>
 
     @Query("SELECT * FROM file_metadata WHERE parentPath = :parentPath AND isTrash = 0 ORDER BY isDirectory DESC, name ASC")
     fun getFilesByDirectory(parentPath: String): Flow<List<FileMetadataEntity>>
@@ -54,14 +68,12 @@ interface FileDao {
     @Query("SELECT * FROM file_metadata WHERE isTrash = 0 ORDER BY modifiedDate DESC LIMIT :limit")
     fun getRecentFiles(limit: Int = 50): Flow<List<FileMetadataEntity>>
 
-    // Level 1 Duplicate Detection: Find files with identical sizeBytes (> 0)
     @Query("SELECT sizeBytes, COUNT(*) as count FROM file_metadata WHERE isDirectory = 0 AND isTrash = 0 AND sizeBytes > 0 GROUP BY sizeBytes HAVING count > 1 ORDER BY sizeBytes DESC")
     fun findPotentialDuplicateSizes(): Flow<List<DuplicateGroup>>
 
     @Query("SELECT * FROM file_metadata WHERE sizeBytes = :sizeBytes AND isDirectory = 0 AND isTrash = 0")
     suspend fun getFilesBySize(sizeBytes: Long): List<FileMetadataEntity>
 
-    // Level 2 Duplicate Detection: Exact MD5 Hash collision
     @Query("SELECT md5Hash, COUNT(*) as count FROM file_metadata WHERE isDirectory = 0 AND isTrash = 0 AND md5Hash IS NOT NULL AND md5Hash != '' GROUP BY md5Hash HAVING count > 1 ORDER BY sizeBytes DESC")
     fun findDuplicateHashes(): Flow<List<DuplicateHashGroup>>
 

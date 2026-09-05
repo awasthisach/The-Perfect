@@ -60,14 +60,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.io.File
 
-/**
- * Application-level composition for VVF Smart Manager.
- * Storage listing is gated by [AppCompositionRoot] permission policy (PROD-007).
- * Cloud restore uses fail-closed pipeline wiring (PROD-003).
- *
- * Under Robolectric JVM unit tests, the database is in-memory (no SQLCipher native
- * library). Production and device instrumentation always use encrypted SQLCipher.
- */
 class VVFApplication : Application() {
 
     companion object {
@@ -240,8 +232,10 @@ class VVFApplication : Application() {
         }
         return try {
             val fileDao = database.fileDao()
+            // One bulk snapshot instead of N+1 getByPath (major lag fix)
+            val existingByPath = fileDao.getIndexedPathSnapshot().associateBy { it.path }
             val metadata = storageManager.collectPrimaryStorageItems().map { item ->
-                val existing = fileDao.getByPath(item.path)
+                val existing = existingByPath[item.path]
                 FileMetadataEntity(
                     id = existing?.id ?: 0L,
                     path = item.path,
@@ -261,7 +255,7 @@ class VVFApplication : Application() {
                 )
             }
             if (metadata.isNotEmpty()) {
-                fileDao.insertAll(metadata)
+                metadata.chunked(400).forEach { chunk -> fileDao.insertAll(chunk) }
                 database.searchFtsDao().rebuildFtsIndex()
             }
             FileIndexingOutcome.Completed(metadata.size)
