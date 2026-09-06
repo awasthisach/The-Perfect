@@ -379,9 +379,17 @@ private fun VVFNavHost(
         }
         composable(TopLevelDestination.PLUGINS.route) {
             val pluginsViewModel: PluginsViewModel = viewModel(
-                factory = PluginsViewModel.provideFactory(pluginManager = app.pluginManager)
+                factory = PluginsViewModel.provideFactory(
+                    ocrPlugin = app.ocrPlugin,
+                    extractTextUseCase = app.extractTextUseCase,
+                    indexOcrTextUseCase = app.indexOcrTextUseCase,
+                    saveOcrTextUseCase = app.saveOcrTextUseCase
+                )
             )
-            PluginsScreen(viewModel = pluginsViewModel, onNavigateBack = { navController.popBackStack() })
+            PluginsScreen(
+                viewModel = pluginsViewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
         }
         composable(TopLevelDestination.SETTINGS.route) {
             SettingsScreen(onNavigateBack = { navController.popBackStack() })
