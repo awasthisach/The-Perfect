@@ -2,6 +2,7 @@ package com.vvf.smartmanager
 
 import android.app.Application
 import android.util.Log
+import androidx.work.Configuration
 import com.vvf.smartmanager.core.background.workers.FileIndexingOutcome
 import com.vvf.smartmanager.core.background.workers.FileIndexingRuntime
 import com.vvf.smartmanager.core.background.workers.CloudBackupBootstrap
@@ -60,11 +61,27 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.io.File
 
-class VVFApplication : Application() {
+/**
+ * Application entry + composition root.
+ *
+ * Implements [Configuration.Provider] so WorkManager is initialized in the **same process**
+ * as this Application. That keeps FileIndexingRuntime / CloudBackup / Junk / OCR bridges valid
+ * without a separate `:work` process (which would break static runtime wiring).
+ */
+class VVFApplication : Application(), Configuration.Provider {
 
     companion object {
         private const val TAG = "VVFApplication"
     }
+
+    /**
+     * WorkManager must run in the default app process so the in-process indexer/runtime
+     * bridges configured in [onCreate] remain visible to workers.
+     */
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setMinimumLoggingLevel(Log.INFO)
+            .build()
 
     lateinit var cryptoSecurityManager: CryptoSecurityManager
     lateinit var database: VVFDatabase
@@ -232,9 +249,10 @@ class VVFApplication : Application() {
         }
         return try {
             val fileDao = database.fileDao()
-            // One bulk snapshot instead of N+1 getByPath (major lag fix)
             val existingByPath = fileDao.getIndexedPathSnapshot().associateBy { it.path }
-            val metadata = storageManager.collectPrimaryStorageItems().map { item ->
+            val scannedItems = storageManager.collectPrimaryStorageItems()
+            val scannedPaths = scannedItems.map { it.path }.toHashSet()
+            val metadata = scannedItems.map { item ->
                 val existing = existingByPath[item.path]
                 FileMetadataEntity(
                     id = existing?.id ?: 0L,
@@ -246,7 +264,7 @@ class VVFApplication : Application() {
                     isDirectory = item.isDirectory,
                     modifiedDate = item.lastModified,
                     isFavorite = existing?.isFavorite ?: false,
-                    isTrash = false,
+                    isTrash = existing?.isTrash ?: false,
                     originalPath = existing?.originalPath,
                     deletedTimestamp = existing?.deletedTimestamp,
                     tags = existing?.tags.orEmpty(),
@@ -254,8 +272,17 @@ class VVFApplication : Application() {
                     operationState = existing?.operationState ?: "IDLE"
                 )
             }
+            val stalePaths = existingByPath.keys.filter { path -> path !in scannedPaths }
+            var staleRemoved = 0
+            if (stalePaths.isNotEmpty()) {
+                stalePaths.chunked(400).forEach { chunk -> fileDao.deleteStaleByPaths(chunk) }
+                staleRemoved = stalePaths.size
+                Log.i(TAG, "Removed $staleRemoved stale index row(s)")
+            }
             if (metadata.isNotEmpty()) {
                 metadata.chunked(400).forEach { chunk -> fileDao.insertAll(chunk) }
+            }
+            if (metadata.isNotEmpty() || staleRemoved > 0) {
                 database.searchFtsDao().rebuildFtsIndex()
             }
             FileIndexingOutcome.Completed(metadata.size)
