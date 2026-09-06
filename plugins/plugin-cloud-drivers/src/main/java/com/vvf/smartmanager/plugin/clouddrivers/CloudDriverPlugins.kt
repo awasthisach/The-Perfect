@@ -2,6 +2,7 @@ package com.vvf.smartmanager.plugin.clouddrivers
 
 import com.vvf.smartmanager.core.model.FileItem
 import com.vvf.smartmanager.core.plugin.spi.CloudDriverSPI
+import com.vvf.smartmanager.core.plugin.spi.CloudUploadResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -22,8 +23,8 @@ abstract class UnavailableCloudDriver(
     override suspend fun listRemoteFiles(remotePath: String): List<FileItem> =
         withContext(Dispatchers.IO) { emptyList() }
 
-    override suspend fun uploadFile(localFile: FileItem, remoteDirectory: String): Boolean =
-        withContext(Dispatchers.IO) { false }
+    override suspend fun uploadFile(localFile: FileItem, remoteDirectory: String): CloudUploadResult? =
+        withContext(Dispatchers.IO) { null }
 
     override suspend fun downloadFile(remoteFile: FileItem, localDestination: String): Boolean =
         withContext(Dispatchers.IO) { false }
