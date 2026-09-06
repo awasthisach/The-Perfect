@@ -18,49 +18,31 @@ class PluginManagerTest {
         override val displayName: String = "Fake ML Kit"
         override suspend fun isModelDownloaded(): Boolean = true
         override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean {
-            progressCallback(1.0f)
+            progressCallback(1f)
             return true
         }
         override suspend fun extractText(
-            fileItem: FileItem,
+            filePath: String,
             options: OcrOptions,
-            onProgress: ((OcrProgress) -> Unit)?
-        ): Result<OcrResult> = Result.success(
-            OcrResult(
-                fullText = "Sample OCR Text",
-                totalWords = 3,
-                totalLines = 1,
-                pageCount = 1,
-                processingDurationMs = 150L,
-                language = "en",
-                confidence = 0.98f
-            )
-        )
-        override fun cancelOngoing() = Unit
+            progressCallback: (OcrProgress) -> Unit
+        ): OcrResult = OcrResult(text = "", confidence = 1f, blocks = emptyList())
+        override fun cancelOngoing() {}
     }
 
     private class FakeSemanticPlugin : SemanticSearchSPI {
         override val isEnabled: Boolean = true
         override val displayName: String = "Fake TFLite MobileBERT"
-        override fun isModelReady(): Boolean = true
-        override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean = true
-        override suspend fun generateEmbedding(text: String): FloatArray = FloatArray(256) { 0.1f }
-        override suspend fun searchSimilar(
-            query: String,
-            candidates: List<com.vvf.smartmanager.core.model.SemanticCandidate>,
-            options: com.vvf.smartmanager.core.model.SemanticSearchOptions
-        ) = emptyList<com.vvf.smartmanager.core.model.SemanticSearchResult>()
-        override suspend fun findNearDuplicates(
-            candidates: List<com.vvf.smartmanager.core.model.SemanticCandidate>,
-            similarityThreshold: Float
-        ) = emptyList<com.vvf.smartmanager.core.model.NearDuplicateCluster>()
-        override suspend fun suggestTags(candidate: com.vvf.smartmanager.core.model.SemanticCandidate) =
-            emptyList<com.vvf.smartmanager.core.model.AiSuggestedTag>()
-        override fun computeCosineSimilarity(vectorA: FloatArray, vectorB: FloatArray): Float = 0.95f
+        override suspend fun isModelDownloaded(): Boolean = true
+        override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean {
+            progressCallback(1f)
+            return true
+        }
+        override suspend fun embed(text: String): FloatArray = floatArrayOf(0.1f, 0.2f)
+        override suspend fun search(query: String, topK: Int): List<Pair<String, Float>> = emptyList()
     }
 
     @Test
-    fun registeredPluginsAreReflectedInDescriptors() = runBlocking {
+    fun pluginDescriptorsUpdateWhenPluginsRegistered() = runBlocking {
         val manager = PluginManager()
         manager.registerOcrPlugin(FakeOcrPlugin())
         manager.registerSemanticPlugin(FakeSemanticPlugin())
@@ -92,7 +74,8 @@ class PluginManagerTest {
             override val iconResName = "test"
             override suspend fun authenticate() = true
             override suspend fun listRemoteFiles(remotePath: String) = emptyList<FileItem>()
-            override suspend fun uploadFile(localFile: FileItem, remoteDirectory: String) = true
+            override suspend fun uploadFile(localFile: FileItem, remoteDirectory: String): CloudUploadResult? =
+                CloudUploadResult(remoteId = "test-remote-id", remotePath = "$remoteDirectory/${localFile.name}", sizeBytes = localFile.sizeBytes)
             override suspend fun downloadFile(remoteFile: FileItem, localDestination: String) = true
             override suspend fun getQuotaUsage() = 0L to 1L
         }
