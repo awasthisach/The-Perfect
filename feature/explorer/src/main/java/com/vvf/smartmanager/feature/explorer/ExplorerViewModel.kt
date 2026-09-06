@@ -58,6 +58,18 @@ class ExplorerViewModel(
         }
     }
 
+    /** Call after returning from All-files Settings / runtime permission. */
+    fun onStoragePermissionPossiblyGranted() {
+        val path = _uiState.value.currentPath.ifEmpty {
+            getDirectoryFilesUseCase.getDefaultStoragePath()
+        }
+        _uiState.update {
+            it.copy(needsStoragePermission = false, permissionMessage = null, isLoading = true)
+        }
+        loadDirectory(path)
+        loadStorageOverview()
+    }
+
     fun loadDirectory(path: String) {
         viewModelScope.launch {
             _uiState.update {
@@ -92,7 +104,6 @@ class ExplorerViewModel(
                     }
                 }
             } catch (e: IllegalArgumentException) {
-                // PROD-007: StorageAccessPolicy / StoragePermissionGate fail-closed
                 _uiState.update {
                     it.copy(
                         files = emptyList(),
@@ -164,10 +175,8 @@ class ExplorerViewModel(
                         filteredFiles = emptyList(),
                         isLoading = false,
                         needsStoragePermission = true,
-                        permissionMessage = e.message
-                            ?: "Storage permission required",
-                        userMessage = e.message
-                            ?: "Storage permission required"
+                        permissionMessage = e.message ?: "Storage permission required",
+                        userMessage = e.message ?: "Storage permission required"
                     )
                 }
             } catch (e: Exception) {
@@ -196,11 +205,9 @@ class ExplorerViewModel(
             selectCategory(FileCategory.ALL)
             return true
         }
-
         val current = File(_uiState.value.currentPath)
         val parent = current.parentFile
         val rootPath = getDirectoryFilesUseCase.getDefaultStoragePath()
-
         return if (parent != null && current.absolutePath != rootPath && parent.canRead()) {
             loadDirectory(parent.absolutePath)
             true
@@ -242,55 +249,28 @@ class ExplorerViewModel(
 
     fun clearSearch() {
         _uiState.update {
-            it.copy(
-                searchQuery = "",
-                isSearchActive = false,
-                filteredFiles = it.files
-            )
+            it.copy(searchQuery = "", isSearchActive = false, filteredFiles = it.files)
         }
     }
-
-    // -------------------------------------------------------------
-    // SELECTION MANAGEMENT
-    // -------------------------------------------------------------
 
     fun toggleItemSelection(path: String) {
         _uiState.update { state ->
             val updated = state.selectedPaths.toMutableSet()
-            if (updated.contains(path)) {
-                updated.remove(path)
-            } else {
-                updated.add(path)
-            }
-            state.copy(
-                selectedPaths = updated,
-                isSelectionMode = updated.isNotEmpty()
-            )
+            if (updated.contains(path)) updated.remove(path) else updated.add(path)
+            state.copy(selectedPaths = updated, isSelectionMode = updated.isNotEmpty())
         }
     }
 
     fun selectAll() {
         _uiState.update { state ->
             val allPaths = state.filteredFiles.map { it.path }.toSet()
-            state.copy(
-                selectedPaths = allPaths,
-                isSelectionMode = allPaths.isNotEmpty()
-            )
+            state.copy(selectedPaths = allPaths, isSelectionMode = allPaths.isNotEmpty())
         }
     }
 
     fun clearSelection() {
-        _uiState.update {
-            it.copy(
-                selectedPaths = emptySet(),
-                isSelectionMode = false
-            )
-        }
+        _uiState.update { it.copy(selectedPaths = emptySet(), isSelectionMode = false) }
     }
-
-    // -------------------------------------------------------------
-    // CLIPBOARD & FILE ACTIONS
-    // -------------------------------------------------------------
 
     fun copySelectedToClipboard() {
         val selected = _uiState.value.selectedPaths.toList()
@@ -326,9 +306,7 @@ class ExplorerViewModel(
         val sources = _uiState.value.clipboardSourcePaths
         val destDir = _uiState.value.currentPath
         val isCut = _uiState.value.isClipboardCut
-
         if (sources.isEmpty() || destDir.isEmpty()) return
-
         viewModelScope.launch(Dispatchers.IO) {
             val result = if (isCut) {
                 fileOperationsUseCase.moveFiles(sources, destDir) { progress ->
@@ -339,7 +317,6 @@ class ExplorerViewModel(
                     _uiState.update { it.copy(dialogState = ExplorerDialogState.Progress(progress)) }
                 }
             }
-
             result.onSuccess { count ->
                 _uiState.update {
                     it.copy(
@@ -410,7 +387,6 @@ class ExplorerViewModel(
     fun deleteItems(items: List<FileItem>, permanent: Boolean) {
         val paths = items.map { it.path }
         if (paths.isEmpty()) return
-
         viewModelScope.launch {
             val result = fileOperationsUseCase.deleteFiles(paths, permanent)
             result.onSuccess { count ->
@@ -450,7 +426,7 @@ class ExplorerViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
             val result = cloudSyncUseCase.syncFileToCloud(item, providerType)
-            result.onSuccess { syncItem ->
+            result.onSuccess {
                 dismissDialog()
                 _uiState.update {
                     it.copy(
@@ -470,19 +446,12 @@ class ExplorerViewModel(
         }
     }
 
-    // -------------------------------------------------------------
-    // RECYCLE BIN ACTIONS
-    // -------------------------------------------------------------
-
     fun openTrashView() {
         viewModelScope.launch {
             _uiState.update { it.copy(isTrashViewOpen = true, isLoading = true) }
             recycleBinUseCase.getTrashFiles().collectLatest { trashItems ->
                 _uiState.update {
-                    it.copy(
-                        trashFiles = trashItems,
-                        isLoading = false
-                    )
+                    it.copy(trashFiles = trashItems, isLoading = false)
                 }
             }
         }
@@ -513,14 +482,10 @@ class ExplorerViewModel(
                 _uiState.update { it.copy(userMessage = "Recycle bin emptied", trashFiles = emptyList()) }
                 loadStorageOverview()
             }.onFailure { error ->
-                _uiState.update { it.copy(userMessage = "Failed to empty trash: ${error.localizedMessage}") }
+                _uiState.update { it.copy(userMessage = "Empty trash failed: ${error.localizedMessage}") }
             }
         }
     }
-
-    // -------------------------------------------------------------
-    // DIALOG CONTROLS
-    // -------------------------------------------------------------
 
     fun showDialog(dialog: ExplorerDialogState) {
         _uiState.update { it.copy(dialogState = dialog) }
@@ -540,22 +505,15 @@ class ExplorerViewModel(
     }
 
     private fun buildBreadcrumbs(fullPath: String): List<Pair<String, String>> {
-        val rootPath = getDirectoryFilesUseCase.getDefaultStoragePath()
+        val root = getDirectoryFilesUseCase.getDefaultStoragePath()
         val crumbs = mutableListOf<Pair<String, String>>()
-        crumbs.add(Pair("Internal Storage", rootPath))
-
-        if (fullPath == rootPath || !fullPath.startsWith(rootPath)) {
-            return crumbs
-        }
-
-        val relative = fullPath.removePrefix(rootPath).trim('/')
-        if (relative.isEmpty()) return crumbs
-
-        val segments = relative.split('/')
-        var cumulative = rootPath
-        for (seg in segments) {
-            cumulative = "$cumulative/$seg"
-            crumbs.add(Pair(seg, cumulative))
+        crumbs.add("Internal" to root)
+        if (fullPath == root) return crumbs
+        val rel = fullPath.removePrefix(root).trim('/')
+        var acc = root
+        for (part in rel.split('/').filter { it.isNotEmpty() }) {
+            acc = "$acc/$part"
+            crumbs.add(part to acc)
         }
         return crumbs
     }
