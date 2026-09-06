@@ -76,8 +76,6 @@ class CloudSyncUseCase(
         } else {
             val driver = pluginDrivers[providerType]
             if (driver != null) {
-                // CloudDriverSPI does not expose a durable authenticated-session state.
-                // Treat an installed driver as disconnected until that contract exists.
                 CloudAccount(
                     providerType = providerType,
                     displayName = driver.displayName,
@@ -140,10 +138,15 @@ class CloudSyncUseCase(
                     } else {
                         val driver = pluginDrivers[providerType]
                             ?: return@fold Result.failure(IllegalStateException("Provider plugin not found"))
-                        if (driver.uploadFile(fileItem, "root")) {
-                            Result.success(artifact.backupInfo.backupId)
+                        val uploaded = driver.uploadFile(fileItem, "root")
+                        if (uploaded != null) {
+                            Result.success(uploaded.remoteId)
                         } else {
-                            Result.failure(IllegalStateException("${driver.displayName} rejected the backup upload"))
+                            Result.failure(
+                                IllegalStateException(
+                                    "${driver.displayName} rejected the backup upload or is not configured"
+                                )
+                            )
                         }
                     }
                     uploadResult.fold(
@@ -221,10 +224,12 @@ class CloudSyncUseCase(
             } else {
                 val driver = pluginDrivers[providerType]
                     ?: throw IllegalStateException("Provider plugin not found")
-                if (!driver.uploadFile(fileItem, "root")) {
-                    throw IllegalStateException("${driver.displayName} rejected the upload")
-                }
-                "${providerType.name.lowercase()}:$itemId"
+                val uploaded = driver.uploadFile(fileItem, "root")
+                    ?: throw IllegalStateException(
+                        "${driver.displayName} rejected the upload or is not configured"
+                    )
+                // Prefer provider-issued durable id; never invent synthetic placeholders.
+                uploaded.remoteId
             }
             val remoteId = DurableUploadContract.requireDurableRemoteId(rawRemoteId)
             val syncItem = CloudSyncItem(
