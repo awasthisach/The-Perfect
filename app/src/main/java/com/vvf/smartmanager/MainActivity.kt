@@ -55,7 +55,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.vvf.smartmanager.feature.cleaner.CleanerScreen
 import com.vvf.smartmanager.feature.cleaner.CleanerViewModel
-import com.vvf.smartmanager.feature.cloud.CloudScreen
+import com.vvf.smartmanager.feature.cloud.CloudRoute
 import com.vvf.smartmanager.feature.cloud.CloudViewModel
 import com.vvf.smartmanager.feature.explorer.ExplorerScreen
 import com.vvf.smartmanager.feature.explorer.ExplorerViewModel
@@ -368,7 +368,7 @@ private fun VVFNavHost(
                     googleDriveService = app.googleDriveService
                 )
             )
-            CloudScreen(
+            CloudRoute(
                 viewModel = cloudViewModel,
                 onGoogleDriveSignInRequested = {
                     onGoogleDriveSignInRequested { accessTokenResult ->
@@ -392,9 +392,7 @@ private fun VVFNavHost(
             )
         }
         composable(TopLevelDestination.SETTINGS.route) {
-            SettingsScreen(
-                onNavigateBack = { navController.popBackStack() }
-            )
+            SettingsScreen(onNavigateBack = { navController.popBackStack() })
         }
     }
 }
