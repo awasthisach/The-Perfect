@@ -118,6 +118,13 @@ class VVFApplication : Application(), Configuration.Provider {
     lateinit var ocrPlugin: OcrPluginImpl
     lateinit var semanticSearchPlugin: ISemanticSearchEngine
 
+    /**
+     * Survives Activity recreation during Google sign-in.
+     * MainActivity registers the Activity Result launcher; this holds the continuation.
+     */
+    @Volatile
+    var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
+
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
