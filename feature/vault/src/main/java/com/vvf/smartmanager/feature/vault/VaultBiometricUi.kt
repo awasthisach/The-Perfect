@@ -55,8 +55,15 @@ fun launchVaultBiometricUnlock(
     val callback = object : BiometricPrompt.AuthenticationCallback() {
         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
             super.onAuthenticationSucceeded(result)
-            if (cipher == null || result.cryptoObject?.cipher != null) onSuccess()
-            else onError("Biometric succeeded but vault key was not unlocked (missing CryptoObject)")
+            // When a Cipher was supplied, require a bound CryptoObject so unlock is
+            // cryptographically gated by the Keystore user-authentication flag.
+            // Fallback path (cipher == null) allows device-credential-only unlock.
+            val cryptoBound = result.cryptoObject?.cipher != null
+            if (cipher == null || cryptoBound) {
+                onSuccess()
+            } else {
+                onError("Biometric succeeded but vault key was not unlocked (missing CryptoObject)")
+            }
         }
         override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
             super.onAuthenticationError(errorCode, errString)
