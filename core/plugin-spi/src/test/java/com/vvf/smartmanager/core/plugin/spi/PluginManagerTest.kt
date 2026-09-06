@@ -1,9 +1,14 @@
 package com.vvf.smartmanager.core.plugin.spi
 
+import com.vvf.smartmanager.core.model.AiSuggestedTag
 import com.vvf.smartmanager.core.model.FileItem
+import com.vvf.smartmanager.core.model.NearDuplicateCluster
 import com.vvf.smartmanager.core.model.OcrOptions
 import com.vvf.smartmanager.core.model.OcrProgress
 import com.vvf.smartmanager.core.model.OcrResult
+import com.vvf.smartmanager.core.model.SemanticCandidate
+import com.vvf.smartmanager.core.model.SemanticSearchOptions
+import com.vvf.smartmanager.core.model.SemanticSearchResult
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -13,32 +18,60 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PluginManagerTest {
+
     private class FakeOcrPlugin : OcrPluginSPI {
         override val isEnabled: Boolean = true
         override val displayName: String = "Fake ML Kit"
+
         override suspend fun isModelDownloaded(): Boolean = true
+
         override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean {
             progressCallback(1f)
             return true
         }
+
         override suspend fun extractText(
-            filePath: String,
+            fileItem: FileItem,
             options: OcrOptions,
-            progressCallback: (OcrProgress) -> Unit
-        ): OcrResult = OcrResult(text = "", confidence = 1f, blocks = emptyList())
+            onProgress: ((OcrProgress) -> Unit)?
+        ): Result<OcrResult> = Result.success(
+            OcrResult(
+                fullText = "",
+                confidence = 1f,
+                blocks = emptyList()
+            )
+        )
+
         override fun cancelOngoing() {}
     }
 
     private class FakeSemanticPlugin : SemanticSearchSPI {
         override val isEnabled: Boolean = true
         override val displayName: String = "Fake TFLite MobileBERT"
-        override suspend fun isModelDownloaded(): Boolean = true
+
+        override fun isModelReady(): Boolean = true
+
         override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean {
             progressCallback(1f)
             return true
         }
-        override suspend fun embed(text: String): FloatArray = floatArrayOf(0.1f, 0.2f)
-        override suspend fun search(query: String, topK: Int): List<Pair<String, Float>> = emptyList()
+
+        override suspend fun generateEmbedding(text: String): FloatArray = floatArrayOf(0.1f, 0.2f)
+
+        override suspend fun searchSimilar(
+            query: String,
+            candidates: List<SemanticCandidate>,
+            options: SemanticSearchOptions
+        ): List<SemanticSearchResult> = emptyList()
+
+        override suspend fun findNearDuplicates(
+            candidates: List<SemanticCandidate>,
+            similarityThreshold: Float
+        ): List<NearDuplicateCluster> = emptyList()
+
+        override suspend fun suggestTags(candidate: SemanticCandidate): List<AiSuggestedTag> = emptyList()
+
+        override fun computeCosineSimilarity(vectorA: FloatArray, vectorB: FloatArray): Float = 0f
     }
 
     @Test
@@ -75,7 +108,11 @@ class PluginManagerTest {
             override suspend fun authenticate() = true
             override suspend fun listRemoteFiles(remotePath: String) = emptyList<FileItem>()
             override suspend fun uploadFile(localFile: FileItem, remoteDirectory: String): CloudUploadResult? =
-                CloudUploadResult(remoteId = "test-remote-id", remotePath = "$remoteDirectory/${localFile.name}", sizeBytes = localFile.sizeBytes)
+                CloudUploadResult(
+                    remoteId = "test-remote-id",
+                    remotePath = "$remoteDirectory/${localFile.name}",
+                    sizeBytes = localFile.sizeBytes
+                )
             override suspend fun downloadFile(remoteFile: FileItem, localDestination: String) = true
             override suspend fun getQuotaUsage() = 0L to 1L
         }
