@@ -28,6 +28,7 @@ data class FilePathSnapshot(
     val path: String,
     val id: Long,
     val isFavorite: Boolean,
+    val isTrash: Boolean,
     val originalPath: String?,
     val deletedTimestamp: Long?,
     val tags: String,
@@ -50,7 +51,7 @@ interface FileDao {
     @Query("SELECT * FROM file_metadata WHERE path = :path LIMIT 1")
     suspend fun getByPath(path: String): FileMetadataEntity?
 
-    @Query("SELECT path, id, isFavorite, originalPath, deletedTimestamp, tags, md5Hash, operationState FROM file_metadata")
+    @Query("SELECT path, id, isFavorite, isTrash, originalPath, deletedTimestamp, tags, md5Hash, operationState FROM file_metadata")
     suspend fun getIndexedPathSnapshot(): List<FilePathSnapshot>
 
     @Query("SELECT * FROM file_metadata WHERE parentPath = :parentPath AND isTrash = 0 ORDER BY isDirectory DESC, name ASC")
@@ -100,6 +101,13 @@ interface FileDao {
 
     @Query("DELETE FROM file_metadata WHERE path = :path")
     suspend fun deleteByPath(path: String)
+
+    /**
+     * Removes index rows whose paths are no longer present on primary storage.
+     * Trash rows are intentionally preserved so recycle-bin metadata survives re-index.
+     */
+    @Query("DELETE FROM file_metadata WHERE isTrash = 0 AND path IN (:paths)")
+    suspend fun deleteStaleByPaths(paths: List<String>)
 
     @Query("DELETE FROM file_metadata WHERE isTrash = 1")
     suspend fun emptyTrash()
