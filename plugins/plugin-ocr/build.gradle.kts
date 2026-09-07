@@ -23,7 +23,10 @@ dependencies {
   api(project(":core:model"))
   api(project(":core:common"))
   implementation(libs.androidx.core.ktx)
+  // Latin / English OCR
   implementation(libs.play.services.mlkit.text.recognition)
+  // Hindi / Devanagari OCR (alongside Latin)
+  implementation(libs.play.services.mlkit.text.recognition.devanagari)
   implementation(libs.kotlinx.coroutines.android)
   testImplementation(libs.junit)
   testImplementation(libs.kotlinx.coroutines.test)

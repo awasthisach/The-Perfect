@@ -2,14 +2,15 @@ package com.vvf.smartmanager.plugin.ocr
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.net.Uri
 import android.graphics.pdf.PdfRenderer
+import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
+import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.vvf.smartmanager.core.common.BitmapUtils
 import com.vvf.smartmanager.core.model.FileItem
@@ -21,6 +22,8 @@ import com.vvf.smartmanager.core.plugin.spi.IOcrEngine
 import com.vvf.smartmanager.core.plugin.spi.OcrPluginSPI
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -29,19 +32,18 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 
 /**
- * Standard OCR Engine Plugin implementing [IOcrEngine] and [OcrPluginSPI].
+ * OCR Engine Plugin — dual-script (Latin/English + Devanagari/Hindi).
  *
- * Utilizes Google ML Kit's on-device TextRecognition to perform local, private,
- * and high-accuracy text extraction on image files and multi-page PDF documents.
- * Employs [BitmapUtils] for sampled decoding to guarantee zero Out-Of-Memory (OOM) crashes.
+ * Runs both ML Kit recognizers on every image/PDF page and merges text so mixed
+ * English+Hindi documents work without the user picking a language.
  */
 open class OcrEnginePlugin(
     private val context: Context? = null
 ) : IOcrEngine, OcrPluginSPI {
 
     override val pluginId: String = "plugin.ocr.mlkit"
-    override val displayName: String = "ML Kit OCR Text Scanner"
-    override val version: String = "1.0.0"
+    override val displayName: String = "ML Kit OCR (Latin + Devanagari)"
+    override val version: String = "1.1.0"
 
     private var _isEnabled: Boolean = true
     override val isEnabled: Boolean get() = _isEnabled
@@ -53,9 +55,7 @@ open class OcrEnginePlugin(
         _isEnabled = enabled
     }
 
-    override suspend fun isModelDownloaded(): Boolean {
-        return isModelReady
-    }
+    override suspend fun isModelDownloaded(): Boolean = isModelReady
 
     override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean {
         withContext(Dispatchers.IO) {
@@ -95,16 +95,12 @@ open class OcrEnginePlugin(
             val extension = fileItem.name.substringAfterLast('.', file.extension).lowercase()
             when (extension) {
                 "pdf" -> processPdfFile(file, options, startTime, onProgress)
-                "jpg", "jpeg", "png", "webp", "bmp", "heic" -> processImageFile(file, options, startTime, onProgress)
+                "jpg", "jpeg", "png", "webp", "bmp", "heic" ->
+                    processImageFile(file, options, startTime, onProgress)
                 else -> processImageFile(file, options, startTime, onProgress)
             }
         } catch (ce: CancellationException) {
-            onProgress?.invoke(
-                OcrProgress(
-                    currentStep = "Scan Cancelled",
-                    isCancelled = true
-                )
-            )
+            onProgress?.invoke(OcrProgress(currentStep = "Scan Cancelled", isCancelled = true))
             Result.failure(ce)
         } catch (e: Exception) {
             Log.e(TAG, "OCR processing failed for ${fileItem.path}", e)
@@ -114,7 +110,6 @@ open class OcrEnginePlugin(
         }
     }
 
-    /** Copies a user-selected content URI to private cache storage for the file-only OCR APIs. */
     private fun materializeContentUri(uriString: String, displayName: String): File {
         val appContext = context
             ?: throw IllegalStateException("OCR cannot read a document-provider URI without an Android context")
@@ -132,9 +127,61 @@ open class OcrEnginePlugin(
         }
     }
 
-    /**
-     * Memory-efficient image processing with [BitmapUtils] sampled decoding.
-     */
+    /** Latin + Devanagari recognizers — closed after each batch to free native resources. */
+    private fun createRecognizers(): Pair<TextRecognizer, TextRecognizer> {
+        val latin = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        val devanagari = TextRecognition.getClient(DevanagariTextRecognizerOptions.Builder().build())
+        return latin to devanagari
+    }
+
+    private suspend fun recognizeDual(
+        bitmap: Bitmap,
+        latin: TextRecognizer,
+        devanagari: TextRecognizer
+    ): Pair<String, List<OcrBlock>> = coroutineScope {
+        val inputImage = InputImage.fromBitmap(bitmap, 0)
+        val latinDeferred = async(Dispatchers.IO) {
+            try {
+                Tasks.await(latin.process(inputImage)).text.trim()
+            } catch (e: Exception) {
+                Log.w(TAG, "Latin OCR failed", e)
+                ""
+            }
+        }
+        val devDeferred = async(Dispatchers.IO) {
+            try {
+                Tasks.await(devanagari.process(inputImage)).text.trim()
+            } catch (e: Exception) {
+                Log.w(TAG, "Devanagari OCR failed", e)
+                ""
+            }
+        }
+        val latinText = latinDeferred.await()
+        val devText = devDeferred.await()
+        val merged = mergeScriptTexts(latinText, devText)
+        val blocks = buildList {
+            if (latinText.isNotBlank()) add(OcrBlock(text = latinText, confidence = 1.0f))
+            if (devText.isNotBlank() && !latinText.contains(devText)) {
+                add(OcrBlock(text = devText, confidence = 1.0f))
+            }
+        }
+        merged to blocks
+    }
+
+    /** Prefer longer combined text; avoid exact duplicates. */
+    private fun mergeScriptTexts(latin: String, devanagari: String): String {
+        val a = latin.trim()
+        val b = devanagari.trim()
+        return when {
+            a.isBlank() -> b
+            b.isBlank() -> a
+            a == b -> a
+            a.contains(b) -> a
+            b.contains(a) -> b
+            else -> "$a\n\n$b"
+        }
+    }
+
     private suspend fun processImageFile(
         file: File,
         options: OcrOptions,
@@ -146,8 +193,8 @@ open class OcrEnginePlugin(
 
         onProgress?.invoke(
             OcrProgress(
-                currentStep = "Decoding Image with Safe Sampling...",
-                progressFraction = 0.2f,
+                currentStep = "Decoding image...",
+                progressFraction = 0.15f,
                 currentPage = 1,
                 totalPages = 1
             )
@@ -158,45 +205,30 @@ open class OcrEnginePlugin(
             maxDimension = options.maxDimension,
             config = Bitmap.Config.RGB_565,
             autoRotate = options.autoRotate
-        ) ?: return Result.failure(IllegalStateException("Failed to safely decode image: ${file.name}"))
+        ) ?: return Result.failure(IllegalStateException("Failed to decode image: ${file.name}"))
 
+        val (latin, devanagari) = createRecognizers()
         try {
             currentCoroutineContext().ensureActive()
             if (isCancelled.get()) throw CancellationException("OCR scan cancelled by user")
 
             onProgress?.invoke(
                 OcrProgress(
-                    currentStep = "Extracting text with Google ML Kit...",
-                    progressFraction = 0.5f,
+                    currentStep = "Extracting text (English + Hindi)...",
+                    progressFraction = 0.45f,
                     currentPage = 1,
                     totalPages = 1
                 )
             )
 
-            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-            val inputImage = InputImage.fromBitmap(bitmap, 0)
-
-            val visionText = Tasks.await(recognizer.process(inputImage))
-
-            currentCoroutineContext().ensureActive()
-            if (isCancelled.get()) throw CancellationException("OCR scan cancelled by user")
-
-            val fullText = visionText.text.trim()
-            val blocks = visionText.textBlocks.map { block ->
-                OcrBlock(
-                    text = block.text.trim(),
-                    lineCount = block.lines.size,
-                    confidence = 1.0f
-                )
-            }
-
+            val (fullText, blocks) = recognizeDual(bitmap, latin, devanagari)
             val words = if (fullText.isNotBlank()) fullText.split("\\s+".toRegex()).size else 0
             val lines = if (fullText.isNotBlank()) fullText.lines().size else 0
             val duration = System.currentTimeMillis() - startTime
 
             onProgress?.invoke(
                 OcrProgress(
-                    currentStep = "Scan Complete",
+                    currentStep = "Scan complete",
                     progressFraction = 1.0f,
                     currentPage = 1,
                     totalPages = 1,
@@ -211,18 +243,18 @@ open class OcrEnginePlugin(
                     totalWords = words,
                     totalLines = lines,
                     pageCount = 1,
+                    language = "latin+devanagari",
                     processingDurationMs = duration,
                     sourceFilePath = file.absolutePath
                 )
             )
         } finally {
             BitmapUtils.recycleSafely(bitmap)
+            try { latin.close() } catch (_: Exception) {}
+            try { devanagari.close() } catch (_: Exception) {}
         }
     }
 
-    /**
-     * Memory-efficient PDF processing page-by-page using PdfRenderer with live cancellation checks.
-     */
     private suspend fun processPdfFile(
         file: File,
         options: OcrOptions,
@@ -234,13 +266,13 @@ open class OcrEnginePlugin(
 
         var pfd: ParcelFileDescriptor? = null
         var pdfRenderer: PdfRenderer? = null
+        val (latin, devanagari) = createRecognizers()
 
         try {
             pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
             pdfRenderer = PdfRenderer(pfd)
             val totalPages = pdfRenderer.pageCount.coerceAtMost(options.maxPagesForPdf)
 
-            val recognizer: TextRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
             val fullTextBuilder = StringBuilder()
             val allBlocks = mutableListOf<OcrBlock>()
 
@@ -248,11 +280,10 @@ open class OcrEnginePlugin(
                 currentCoroutineContext().ensureActive()
                 if (isCancelled.get()) throw CancellationException("OCR scan cancelled by user")
 
-                val progressFraction = (pageIndex.toFloat() / totalPages)
                 onProgress?.invoke(
                     OcrProgress(
-                        currentStep = "Scanning PDF Page ${pageIndex + 1} of $totalPages...",
-                        progressFraction = progressFraction,
+                        currentStep = "Scanning PDF page ${pageIndex + 1}/$totalPages (EN+HI)...",
+                        progressFraction = pageIndex.toFloat() / totalPages,
                         currentPage = pageIndex + 1,
                         totalPages = totalPages
                     )
@@ -262,31 +293,18 @@ open class OcrEnginePlugin(
                 val scale = (options.maxDimension.toFloat() / max(page.width, page.height)).coerceAtMost(2.0f)
                 val renderWidth = (page.width * scale).toInt().coerceAtLeast(100)
                 val renderHeight = (page.height * scale).toInt().coerceAtLeast(100)
-
                 val pageBitmap = Bitmap.createBitmap(renderWidth, renderHeight, Bitmap.Config.ARGB_8888)
                 page.render(pageBitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                 page.close()
 
                 try {
-                    val inputImage = InputImage.fromBitmap(pageBitmap, 0)
-                    val visionText = Tasks.await(recognizer.process(inputImage))
-
-                    val pageText = visionText.text.trim()
+                    val (pageText, pageBlocks) = recognizeDual(pageBitmap, latin, devanagari)
                     if (pageText.isNotBlank()) {
                         if (fullTextBuilder.isNotEmpty()) {
                             fullTextBuilder.append("\n\n--- [Page ${pageIndex + 1}] ---\n\n")
                         }
                         fullTextBuilder.append(pageText)
-
-                        visionText.textBlocks.forEach { block ->
-                            allBlocks.add(
-                                OcrBlock(
-                                    text = block.text.trim(),
-                                    lineCount = block.lines.size,
-                                    confidence = 1.0f
-                                )
-                            )
-                        }
+                        allBlocks.addAll(pageBlocks)
                     }
                 } finally {
                     BitmapUtils.recycleSafely(pageBitmap)
@@ -300,7 +318,7 @@ open class OcrEnginePlugin(
 
             onProgress?.invoke(
                 OcrProgress(
-                    currentStep = "PDF Scan Complete ($totalPages pages)",
+                    currentStep = "PDF scan complete ($totalPages pages)",
                     progressFraction = 1.0f,
                     currentPage = totalPages,
                     totalPages = totalPages,
@@ -315,6 +333,7 @@ open class OcrEnginePlugin(
                     totalWords = words,
                     totalLines = lines,
                     pageCount = totalPages,
+                    language = "latin+devanagari",
                     processingDurationMs = duration,
                     sourceFilePath = file.absolutePath
                 )
@@ -322,6 +341,8 @@ open class OcrEnginePlugin(
         } finally {
             pdfRenderer?.close()
             pfd?.close()
+            try { latin.close() } catch (_: Exception) {}
+            try { devanagari.close() } catch (_: Exception) {}
         }
     }
 

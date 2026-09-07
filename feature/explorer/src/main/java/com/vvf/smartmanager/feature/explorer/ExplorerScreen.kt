@@ -114,6 +114,9 @@ import com.vvf.smartmanager.feature.explorer.components.RecycleBinView
 import com.vvf.smartmanager.feature.explorer.components.RenameDialog
 import com.vvf.smartmanager.feature.explorer.components.StorageOverviewCard
 import com.vvf.smartmanager.feature.explorer.components.SyncToCloudDialog
+import com.vvf.smartmanager.feature.explorer.components.OcrResultDialog
+import android.content.ClipData
+import android.content.ClipboardManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -676,7 +679,33 @@ fun ExplorerScreen(
         is ExplorerDialogState.FileDetails -> {
             FileDetailsDialog(
                 file = dialog.file,
-                onDismiss = { viewModel.dismissDialog() }
+                onDismiss = { viewModel.dismissDialog() },
+                onOpen = {
+                    viewModel.dismissDialog()
+                    viewModel.navigateInto(dialog.file)
+                },
+                onOcr = {
+                    viewModel.requestOcr(dialog.file)
+                }
+            )
+        }
+        is ExplorerDialogState.OcrInProgress -> {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = {},
+                title = { Text("Scanning OCR…") },
+                text = { Text("Extracting English + Hindi text…") },
+                confirmButton = {}
+            )
+        }
+        is ExplorerDialogState.OcrResult -> {
+            OcrResultDialog(
+                fileName = dialog.fileName,
+                text = dialog.text,
+                onDismiss = { viewModel.dismissDialog() },
+                onCopy = {
+                    val cm = context.getSystemService(ClipboardManager::class.java)
+                    cm?.setPrimaryClip(ClipData.newPlainText("OCR", dialog.text))
+                }
             )
         }
         is ExplorerDialogState.Progress -> {

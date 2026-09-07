@@ -1,5 +1,6 @@
 package com.vvf.smartmanager.feature.explorer
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -14,6 +15,8 @@ import com.vvf.smartmanager.core.model.FileCategory
 import com.vvf.smartmanager.core.model.FileItem
 import com.vvf.smartmanager.core.model.FileSortOption
 import com.vvf.smartmanager.core.model.FileViewMode
+import com.vvf.smartmanager.core.model.OcrOptions
+import com.vvf.smartmanager.core.plugin.spi.IOcrEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,12 +27,14 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 class ExplorerViewModel(
+    private val appContext: Context,
     private val getDirectoryFilesUseCase: GetDirectoryFilesUseCase,
     private val getCategorizedFilesUseCase: GetCategorizedFilesUseCase,
     private val getStorageOverviewUseCase: GetStorageOverviewUseCase,
     private val fileOperationsUseCase: FileOperationsUseCase,
     private val recycleBinUseCase: RecycleBinUseCase,
-    private val cloudSyncUseCase: CloudSyncUseCase? = null
+    private val cloudSyncUseCase: CloudSyncUseCase? = null,
+    private val ocrEngine: IOcrEngine? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ExplorerUiState())
@@ -75,7 +80,6 @@ class ExplorerViewModel(
                     userMessage = null
                 )
             }
-
             try {
                 getDirectoryFilesUseCase(
                     directoryPath = path,
@@ -92,17 +96,14 @@ class ExplorerViewModel(
                     }
                 }
             } catch (e: IllegalArgumentException) {
-                // PROD-007: StorageAccessPolicy / StoragePermissionGate fail-closed
                 _uiState.update {
                     it.copy(
                         files = emptyList(),
                         filteredFiles = emptyList(),
                         isLoading = false,
                         needsStoragePermission = true,
-                        permissionMessage = e.message
-                            ?: "Storage permission required to browse files",
-                        userMessage = e.message
-                            ?: "Storage permission required to browse files"
+                        permissionMessage = e.message ?: "Storage permission required to browse files",
+                        userMessage = e.message ?: "Storage permission required to browse files"
                     )
                 }
             } catch (e: Exception) {
@@ -123,12 +124,10 @@ class ExplorerViewModel(
             loadDirectory(_uiState.value.currentPath.ifEmpty { getDirectoryFilesUseCase.getDefaultStoragePath() })
             return
         }
-
         if (category == FileCategory.TRASH) {
             openTrashView()
             return
         }
-
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
@@ -142,21 +141,18 @@ class ExplorerViewModel(
                     permissionMessage = null
                 )
             }
-
             try {
-                getCategorizedFilesUseCase(
-                    category = category,
-                    sortOption = _uiState.value.sortOption
-                ).collectLatest { fileList ->
-                    _uiState.update {
-                        it.copy(
-                            files = fileList,
-                            filteredFiles = applyFilterAndSearch(fileList, it.searchQuery),
-                            isLoading = false,
-                            needsStoragePermission = false
-                        )
+                getCategorizedFilesUseCase(category = category, sortOption = _uiState.value.sortOption)
+                    .collectLatest { fileList ->
+                        _uiState.update {
+                            it.copy(
+                                files = fileList,
+                                filteredFiles = applyFilterAndSearch(fileList, it.searchQuery),
+                                isLoading = false,
+                                needsStoragePermission = false
+                            )
+                        }
                     }
-                }
             } catch (e: IllegalArgumentException) {
                 _uiState.update {
                     it.copy(
@@ -164,10 +160,8 @@ class ExplorerViewModel(
                         filteredFiles = emptyList(),
                         isLoading = false,
                         needsStoragePermission = true,
-                        permissionMessage = e.message
-                            ?: "Storage permission required",
-                        userMessage = e.message
-                            ?: "Storage permission required"
+                        permissionMessage = e.message ?: "Storage permission required",
+                        userMessage = e.message ?: "Storage permission required"
                     )
                 }
             } catch (e: Exception) {
@@ -187,7 +181,52 @@ class ExplorerViewModel(
         if (item.isDirectory) {
             loadDirectory(item.path)
         } else {
-            showDialog(ExplorerDialogState.FileDetails(item))
+            val err = FileOpenHelper.open(appContext, item)
+            if (err != null) {
+                _uiState.update { it.copy(userMessage = err) }
+            }
+        }
+    }
+
+    fun clearPendingOpen() {
+        _uiState.update { it.copy(pendingOpenFile = null) }
+    }
+
+    fun requestOcr(item: FileItem) {
+        showDialog(ExplorerDialogState.OcrInProgress)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val engine = ocrEngine
+                if (engine == null || !engine.isEnabled) {
+                    _uiState.update {
+                        it.copy(
+                            dialogState = ExplorerDialogState.None,
+                            userMessage = "OCR plugin is not available or disabled"
+                        )
+                    }
+                    return@launch
+                }
+                val result = engine.extractText(item, OcrOptions(), null)
+                result.onSuccess { ocr ->
+                    _uiState.update {
+                        it.copy(dialogState = ExplorerDialogState.OcrResult(item.name, ocr.fullText))
+                    }
+                }.onFailure { e ->
+                    _uiState.update {
+                        it.copy(
+                            dialogState = ExplorerDialogState.None,
+                            userMessage = "OCR failed: ${e.localizedMessage}"
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        dialogState = ExplorerDialogState.None,
+                        userMessage = "OCR failed: ${e.localizedMessage}"
+                    )
+                }
+            }
         }
     }
 
@@ -196,26 +235,19 @@ class ExplorerViewModel(
             selectCategory(FileCategory.ALL)
             return true
         }
-
         val current = File(_uiState.value.currentPath)
         val parent = current.parentFile
         val rootPath = getDirectoryFilesUseCase.getDefaultStoragePath()
-
         return if (parent != null && current.absolutePath != rootPath && parent.canRead()) {
             loadDirectory(parent.absolutePath)
             true
-        } else {
-            false
-        }
+        } else false
     }
 
     fun setSortOption(sortOption: FileSortOption) {
         _uiState.update { it.copy(sortOption = sortOption) }
-        if (_uiState.value.selectedCategory == FileCategory.ALL) {
-            loadDirectory(_uiState.value.currentPath)
-        } else {
-            selectCategory(_uiState.value.selectedCategory)
-        }
+        if (_uiState.value.selectedCategory == FileCategory.ALL) loadDirectory(_uiState.value.currentPath)
+        else selectCategory(_uiState.value.selectedCategory)
     }
 
     fun toggleViewMode() {
@@ -241,66 +273,35 @@ class ExplorerViewModel(
     }
 
     fun clearSearch() {
-        _uiState.update {
-            it.copy(
-                searchQuery = "",
-                isSearchActive = false,
-                filteredFiles = it.files
-            )
-        }
+        _uiState.update { it.copy(searchQuery = "", isSearchActive = false, filteredFiles = it.files) }
     }
-
-    // -------------------------------------------------------------
-    // SELECTION MANAGEMENT
-    // -------------------------------------------------------------
 
     fun toggleItemSelection(path: String) {
         _uiState.update { state ->
             val updated = state.selectedPaths.toMutableSet()
-            if (updated.contains(path)) {
-                updated.remove(path)
-            } else {
-                updated.add(path)
-            }
-            state.copy(
-                selectedPaths = updated,
-                isSelectionMode = updated.isNotEmpty()
-            )
+            if (updated.contains(path)) updated.remove(path) else updated.add(path)
+            state.copy(selectedPaths = updated, isSelectionMode = updated.isNotEmpty())
         }
     }
 
     fun selectAll() {
         _uiState.update { state ->
             val allPaths = state.filteredFiles.map { it.path }.toSet()
-            state.copy(
-                selectedPaths = allPaths,
-                isSelectionMode = allPaths.isNotEmpty()
-            )
+            state.copy(selectedPaths = allPaths, isSelectionMode = allPaths.isNotEmpty())
         }
     }
 
     fun clearSelection() {
-        _uiState.update {
-            it.copy(
-                selectedPaths = emptySet(),
-                isSelectionMode = false
-            )
-        }
+        _uiState.update { it.copy(selectedPaths = emptySet(), isSelectionMode = false) }
     }
-
-    // -------------------------------------------------------------
-    // CLIPBOARD & FILE ACTIONS
-    // -------------------------------------------------------------
 
     fun copySelectedToClipboard() {
         val selected = _uiState.value.selectedPaths.toList()
         if (selected.isNotEmpty()) {
             _uiState.update {
                 it.copy(
-                    clipboardSourcePaths = selected,
-                    isClipboardCut = false,
-                    selectedPaths = emptySet(),
-                    isSelectionMode = false,
+                    clipboardSourcePaths = selected, isClipboardCut = false,
+                    selectedPaths = emptySet(), isSelectionMode = false,
                     userMessage = "${selected.size} items copied to clipboard"
                 )
             }
@@ -312,10 +313,8 @@ class ExplorerViewModel(
         if (selected.isNotEmpty()) {
             _uiState.update {
                 it.copy(
-                    clipboardSourcePaths = selected,
-                    isClipboardCut = true,
-                    selectedPaths = emptySet(),
-                    isSelectionMode = false,
+                    clipboardSourcePaths = selected, isClipboardCut = true,
+                    selectedPaths = emptySet(), isSelectionMode = false,
                     userMessage = "${selected.size} items cut to clipboard"
                 )
             }
@@ -326,9 +325,7 @@ class ExplorerViewModel(
         val sources = _uiState.value.clipboardSourcePaths
         val destDir = _uiState.value.currentPath
         val isCut = _uiState.value.isClipboardCut
-
         if (sources.isEmpty() || destDir.isEmpty()) return
-
         viewModelScope.launch(Dispatchers.IO) {
             val result = if (isCut) {
                 fileOperationsUseCase.moveFiles(sources, destDir) { progress ->
@@ -339,12 +336,10 @@ class ExplorerViewModel(
                     _uiState.update { it.copy(dialogState = ExplorerDialogState.Progress(progress)) }
                 }
             }
-
             result.onSuccess { count ->
                 _uiState.update {
                     it.copy(
-                        clipboardSourcePaths = emptyList(),
-                        isClipboardCut = false,
+                        clipboardSourcePaths = emptyList(), isClipboardCut = false,
                         dialogState = ExplorerDialogState.None,
                         userMessage = "Successfully transferred $count item(s)"
                     )
@@ -353,10 +348,7 @@ class ExplorerViewModel(
                 loadStorageOverview()
             }.onFailure { error ->
                 _uiState.update {
-                    it.copy(
-                        dialogState = ExplorerDialogState.None,
-                        userMessage = "Transfer failed: ${error.localizedMessage}"
-                    )
+                    it.copy(dialogState = ExplorerDialogState.None, userMessage = "Transfer failed: ${error.localizedMessage}")
                 }
             }
         }
@@ -365,64 +357,56 @@ class ExplorerViewModel(
     fun createFolder(name: String) {
         if (name.isBlank()) return
         viewModelScope.launch {
-            val result = fileOperationsUseCase.createDirectory(_uiState.value.currentPath, name.trim())
-            result.onSuccess {
-                dismissDialog()
-                loadDirectory(_uiState.value.currentPath)
-                _uiState.update { state -> state.copy(userMessage = "Folder '$name' created") }
-            }.onFailure { error ->
-                _uiState.update { state -> state.copy(userMessage = "Failed to create folder: ${error.localizedMessage}") }
-            }
+            fileOperationsUseCase.createDirectory(_uiState.value.currentPath, name.trim())
+                .onSuccess {
+                    dismissDialog()
+                    loadDirectory(_uiState.value.currentPath)
+                    _uiState.update { it.copy(userMessage = "Folder '$name' created") }
+                }
+                .onFailure { e -> _uiState.update { it.copy(userMessage = "Failed to create folder: ${e.localizedMessage}") } }
         }
     }
 
     fun createFile(name: String) {
         if (name.isBlank()) return
         viewModelScope.launch {
-            val result = fileOperationsUseCase.createFile(_uiState.value.currentPath, name.trim())
-            result.onSuccess {
-                dismissDialog()
-                loadDirectory(_uiState.value.currentPath)
-                _uiState.update { state -> state.copy(userMessage = "File '$name' created") }
-            }.onFailure { error ->
-                _uiState.update { state -> state.copy(userMessage = "Failed to create file: ${error.localizedMessage}") }
-            }
+            fileOperationsUseCase.createFile(_uiState.value.currentPath, name.trim())
+                .onSuccess {
+                    dismissDialog()
+                    loadDirectory(_uiState.value.currentPath)
+                    _uiState.update { it.copy(userMessage = "File '$name' created") }
+                }
+                .onFailure { e -> _uiState.update { it.copy(userMessage = "Failed to create file: ${e.localizedMessage}") } }
         }
     }
 
     fun renameFile(item: FileItem, newName: String) {
-        if (newName.isBlank() || newName == item.name) {
-            dismissDialog()
-            return
-        }
+        if (newName.isBlank() || newName == item.name) { dismissDialog(); return }
         viewModelScope.launch {
-            val result = fileOperationsUseCase.renameFile(item.path, newName.trim())
-            result.onSuccess {
-                dismissDialog()
-                loadDirectory(_uiState.value.currentPath)
-                _uiState.update { state -> state.copy(userMessage = "Renamed to '$newName'") }
-            }.onFailure { error ->
-                _uiState.update { state -> state.copy(userMessage = "Rename failed: ${error.localizedMessage}") }
-            }
+            fileOperationsUseCase.renameFile(item.path, newName.trim())
+                .onSuccess {
+                    dismissDialog()
+                    loadDirectory(_uiState.value.currentPath)
+                    _uiState.update { it.copy(userMessage = "Renamed to '$newName'") }
+                }
+                .onFailure { e -> _uiState.update { it.copy(userMessage = "Rename failed: ${e.localizedMessage}") } }
         }
     }
 
     fun deleteItems(items: List<FileItem>, permanent: Boolean) {
         val paths = items.map { it.path }
         if (paths.isEmpty()) return
-
         viewModelScope.launch {
-            val result = fileOperationsUseCase.deleteFiles(paths, permanent)
-            result.onSuccess { count ->
-                dismissDialog()
-                clearSelection()
-                loadDirectory(_uiState.value.currentPath)
-                loadStorageOverview()
-                val msg = if (permanent) "Permanently deleted $count item(s)" else "Moved $count item(s) to Recycle Bin"
-                _uiState.update { it.copy(userMessage = msg) }
-            }.onFailure { error ->
-                _uiState.update { it.copy(userMessage = "Delete failed: ${error.localizedMessage}") }
-            }
+            fileOperationsUseCase.deleteFiles(paths, permanent)
+                .onSuccess { count ->
+                    dismissDialog()
+                    clearSelection()
+                    loadDirectory(_uiState.value.currentPath)
+                    loadStorageOverview()
+                    val msg = if (permanent) "Permanently deleted $count item(s)" else "Moved $count item(s) to Recycle Bin"
+                    _uiState.update { it.copy(userMessage = msg) }
+                }
+                .onFailure { e -> _uiState.update { it.copy(userMessage = "Delete failed: ${e.localizedMessage}") } }
         }
     }
 
@@ -433,10 +417,7 @@ class ExplorerViewModel(
                 val updated = state.files.map {
                     if (it.path == item.path) it.copy(isFavorite = !item.isFavorite) else it
                 }
-                state.copy(
-                    files = updated,
-                    filteredFiles = applyFilterAndSearch(updated, state.searchQuery)
-                )
+                state.copy(files = updated, filteredFiles = applyFilterAndSearch(updated, state.searchQuery))
             }
         }
     }
@@ -449,112 +430,71 @@ class ExplorerViewModel(
         }
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
-            val result = cloudSyncUseCase.syncFileToCloud(item, providerType)
-            result.onSuccess { syncItem ->
-                dismissDialog()
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        userMessage = "File '${item.name}' successfully synced to ${providerType.displayName}!"
-                    )
+            cloudSyncUseCase.syncFileToCloud(item, providerType)
+                .onSuccess {
+                    dismissDialog()
+                    _uiState.update {
+                        it.copy(isLoading = false, userMessage = "File '${item.name}' successfully synced to ${providerType.displayName}!")
+                    }
                 }
-            }.onFailure { error ->
-                dismissDialog()
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        userMessage = "Cloud sync failed: ${error.localizedMessage}"
-                    )
+                .onFailure { e ->
+                    dismissDialog()
+                    _uiState.update { it.copy(isLoading = false, userMessage = "Cloud sync failed: ${e.localizedMessage}") }
                 }
-            }
         }
     }
-
-    // -------------------------------------------------------------
-    // RECYCLE BIN ACTIONS
-    // -------------------------------------------------------------
 
     fun openTrashView() {
         viewModelScope.launch {
             _uiState.update { it.copy(isTrashViewOpen = true, isLoading = true) }
             recycleBinUseCase.getTrashFiles().collectLatest { trashItems ->
-                _uiState.update {
-                    it.copy(
-                        trashFiles = trashItems,
-                        isLoading = false
-                    )
-                }
+                _uiState.update { it.copy(trashFiles = trashItems, isLoading = false) }
             }
         }
     }
 
-    fun closeTrashView() {
-        _uiState.update { it.copy(isTrashViewOpen = false) }
-    }
+    fun closeTrashView() { _uiState.update { it.copy(isTrashViewOpen = false) } }
 
     fun restoreTrashItems(paths: List<String>) {
         viewModelScope.launch {
-            val result = recycleBinUseCase.restoreFromTrash(paths)
-            result.onSuccess { count ->
-                _uiState.update { it.copy(userMessage = "Restored $count item(s)") }
-                openTrashView()
-                loadDirectory(_uiState.value.currentPath)
-                loadStorageOverview()
-            }.onFailure { error ->
-                _uiState.update { it.copy(userMessage = "Restore failed: ${error.localizedMessage}") }
-            }
+            recycleBinUseCase.restoreFromTrash(paths)
+                .onSuccess { count ->
+                    _uiState.update { it.copy(userMessage = "Restored $count item(s)") }
+                    openTrashView()
+                    loadDirectory(_uiState.value.currentPath)
+                    loadStorageOverview()
+                }
+                .onFailure { e -> _uiState.update { it.copy(userMessage = "Restore failed: ${e.localizedMessage}") } }
         }
     }
 
     fun emptyTrash() {
         viewModelScope.launch {
-            val result = recycleBinUseCase.emptyTrash()
-            result.onSuccess {
-                _uiState.update { it.copy(userMessage = "Recycle bin emptied", trashFiles = emptyList()) }
-                loadStorageOverview()
-            }.onFailure { error ->
-                _uiState.update { it.copy(userMessage = "Failed to empty trash: ${error.localizedMessage}") }
-            }
+            recycleBinUseCase.emptyTrash()
+                .onSuccess {
+                    _uiState.update { it.copy(userMessage = "Recycle bin emptied", trashFiles = emptyList()) }
+                    loadStorageOverview()
+                }
+                .onFailure { e -> _uiState.update { it.copy(userMessage = "Empty trash failed: ${e.localizedMessage}") } }
         }
     }
 
-    // -------------------------------------------------------------
-    // DIALOG CONTROLS
-    // -------------------------------------------------------------
-
-    fun showDialog(dialog: ExplorerDialogState) {
-        _uiState.update { it.copy(dialogState = dialog) }
-    }
-
-    fun dismissDialog() {
-        _uiState.update { it.copy(dialogState = ExplorerDialogState.None) }
-    }
-
-    fun clearUserMessage() {
-        _uiState.update { it.copy(userMessage = null) }
-    }
+    fun showDialog(dialog: ExplorerDialogState) { _uiState.update { it.copy(dialogState = dialog) } }
+    fun dismissDialog() { _uiState.update { it.copy(dialogState = ExplorerDialogState.None) } }
+    fun clearUserMessage() { _uiState.update { it.copy(userMessage = null) } }
 
     private fun applyFilterAndSearch(files: List<FileItem>, query: String): List<FileItem> {
         if (query.isBlank()) return files
-        return files.filter { it.name.contains(query, ignoreCase = true) }
+        val q = query.lowercase()
+        return files.filter { it.name.lowercase().contains(q) }
     }
 
-    private fun buildBreadcrumbs(fullPath: String): List<Pair<String, String>> {
-        val rootPath = getDirectoryFilesUseCase.getDefaultStoragePath()
+    private fun buildBreadcrumbs(path: String): List<Pair<String, String>> {
         val crumbs = mutableListOf<Pair<String, String>>()
-        crumbs.add(Pair("Internal Storage", rootPath))
-
-        if (fullPath == rootPath || !fullPath.startsWith(rootPath)) {
-            return crumbs
-        }
-
-        val relative = fullPath.removePrefix(rootPath).trim('/')
-        if (relative.isEmpty()) return crumbs
-
-        val segments = relative.split('/')
-        var cumulative = rootPath
-        for (seg in segments) {
-            cumulative = "$cumulative/$seg"
+        val parts = path.trim('/').split('/').filter { it.isNotEmpty() }
+        var cumulative = ""
+        for (seg in parts) {
+            cumulative += "/$seg"
             crumbs.add(Pair(seg, cumulative))
         }
         return crumbs
@@ -562,22 +502,26 @@ class ExplorerViewModel(
 
     companion object {
         fun provideFactory(
+            appContext: Context,
             getDirectoryFilesUseCase: GetDirectoryFilesUseCase,
             getCategorizedFilesUseCase: GetCategorizedFilesUseCase,
             getStorageOverviewUseCase: GetStorageOverviewUseCase,
             fileOperationsUseCase: FileOperationsUseCase,
             recycleBinUseCase: RecycleBinUseCase,
-            cloudSyncUseCase: CloudSyncUseCase? = null
+            cloudSyncUseCase: CloudSyncUseCase? = null,
+            ocrEngine: IOcrEngine? = null
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 return ExplorerViewModel(
+                    appContext.applicationContext,
                     getDirectoryFilesUseCase,
                     getCategorizedFilesUseCase,
                     getStorageOverviewUseCase,
                     fileOperationsUseCase,
                     recycleBinUseCase,
-                    cloudSyncUseCase
+                    cloudSyncUseCase,
+                    ocrEngine
                 ) as T
             }
         }

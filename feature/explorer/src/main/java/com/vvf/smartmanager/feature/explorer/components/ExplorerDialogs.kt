@@ -9,14 +9,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.NoteAdd
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -24,6 +28,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -35,7 +40,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -267,7 +271,8 @@ fun DeleteConfirmDialog(
         },
         text = {
             Column {
-                val previewNames = itemNames.take(3).joinToString(", ") + if (itemNames.size > 3) " and ${itemNames.size - 3} more" else ""
+                val previewNames = itemNames.take(3).joinToString(", ") +
+                    if (itemNames.size > 3) " and ${itemNames.size - 3} more" else ""
                 Text(
                     text = "Are you sure you want to delete:\n$previewNames",
                     style = MaterialTheme.typography.bodyMedium,
@@ -321,8 +326,16 @@ fun DeleteConfirmDialog(
 @Composable
 fun FileDetailsDialog(
     file: FileItem,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onOpen: (() -> Unit)? = null,
+    onOcr: (() -> Unit)? = null
 ) {
+    val canOcr = !file.isDirectory && (
+        (file.mimeType?.startsWith("image/") == true) ||
+            file.mimeType == "application/pdf" ||
+            file.extension in setOf("jpg", "jpeg", "png", "webp", "bmp", "heic", "pdf")
+    )
+
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = {
@@ -336,11 +349,22 @@ fun FileDetailsDialog(
         title = { Text(text = "File Details", fontWeight = FontWeight.Bold) },
         text = {
             Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
             ) {
                 DetailRow(label = "Name", value = file.name)
-                DetailRow(label = "Type", value = if (file.isDirectory) "Folder" else (file.mimeType ?: file.extension.uppercase()))
-                DetailRow(label = "Size", value = if (file.isDirectory) "${file.itemCount} items" else "${FormatUtils.formatBytes(file.sizeBytes)} (${file.sizeBytes} bytes)")
+                DetailRow(
+                    label = "Type",
+                    value = if (file.isDirectory) "Folder" else (file.mimeType ?: file.extension.uppercase())
+                )
+                DetailRow(
+                    label = "Size",
+                    value = if (file.isDirectory) {
+                        "${file.itemCount} items"
+                    } else {
+                        "${FormatUtils.formatBytes(file.sizeBytes)} (${file.sizeBytes} bytes)"
+                    }
+                )
                 DetailRow(label = "Location", value = file.path)
                 DetailRow(label = "Modified", value = FormatUtils.formatDate(file.lastModified))
                 val hash = file.md5Hash
@@ -350,20 +374,81 @@ fun FileDetailsDialog(
             }
         },
         confirmButton = {
-            Button(
-                onClick = onDismiss,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                ),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.testTag("file_details_close")
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.End
             ) {
-                Text("Close")
+                if (!file.isDirectory && onOpen != null) {
+                    Button(
+                        onClick = onOpen,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.testTag("file_details_open")
+                    ) {
+                        Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Open / View")
+                    }
+                }
+                if (canOcr && onOcr != null) {
+                    OutlinedButton(
+                        onClick = onOcr,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.testTag("file_details_ocr")
+                    ) {
+                        Icon(Icons.Default.DocumentScanner, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Scan OCR (EN+HI)")
+                    }
+                }
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.testTag("file_details_close")
+                ) {
+                    Text("Close")
+                }
             }
         },
         shape = RoundedCornerShape(20.dp),
         modifier = Modifier.testTag("file_details_dialog")
+    )
+}
+
+@Composable
+fun OcrResultDialog(
+    fileName: String,
+    text: String,
+    onDismiss: () -> Unit,
+    onCopy: (() -> Unit)? = null
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("OCR Result — $fileName", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                if (text.isBlank()) {
+                    Text(
+                        "No text detected. Try a clearer photo or PDF.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Text(text, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (onCopy != null && text.isNotBlank()) {
+                    TextButton(onClick = onCopy) { Text("Copy") }
+                }
+                Button(onClick = onDismiss) { Text("Close") }
+            }
+        },
+        shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.testTag("ocr_result_dialog")
     )
 }
 

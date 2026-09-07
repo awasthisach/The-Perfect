@@ -1,15 +1,11 @@
 package com.vvf.smartmanager.plugin.ocr
 
-import com.vvf.smartmanager.core.model.FileCategory
 import com.vvf.smartmanager.core.model.FileItem
-import com.vvf.smartmanager.core.model.OcrOptions
-import com.vvf.smartmanager.core.model.OcrProgress
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.File
 
 class OcrPluginTest {
 
@@ -17,8 +13,10 @@ class OcrPluginTest {
     fun testPluginMetadata() {
         val plugin = OcrEnginePlugin()
         assertEquals("plugin.ocr.mlkit", plugin.pluginId)
-        assertEquals("1.0.0", plugin.version)
+        assertEquals("1.1.0", plugin.version)
         assertTrue(plugin.isEnabled)
+        assertTrue(plugin.displayName.contains("Latin"))
+        assertTrue(plugin.displayName.contains("Devanagari"))
     }
 
     @Test
@@ -54,7 +52,6 @@ class OcrPluginTest {
     fun testCancellationSignal() {
         val plugin = OcrEnginePlugin()
         plugin.cancelOngoing()
-        // verify cancellation flag is cleanly processed
         assertNotNull(plugin)
     }
 }
