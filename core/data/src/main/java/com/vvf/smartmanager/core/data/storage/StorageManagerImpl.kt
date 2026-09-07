@@ -46,10 +46,6 @@ open class StorageManagerImpl(
         return roots.distinctBy { it.absolutePath }
     }
 
-    /**
-     * Public volume roots (internal + removable SD when mounted).
-     * Uses StorageVolume.directory on API 30+; secondary external-files walk as fallback.
-     */
     fun listStorageVolumeRoots(): List<File> {
         val volumes = mutableListOf<File>()
         try {
@@ -97,9 +93,7 @@ open class StorageManagerImpl(
         val allowed = rootPaths.any { root ->
             candidate.absolutePath == root || candidate.absolutePath.startsWith(root + File.separator)
         }
-        if (!allowed) {
-            throw SecurityException("Path is outside allowed storage roots: $path")
-        }
+        require(allowed) { "Path is outside allowed storage roots: $path" }
         return candidate
     }
 
@@ -137,27 +131,17 @@ open class StorageManagerImpl(
         val dir = File(directoryPath)
         if (!dir.exists() || !dir.isDirectory) return emptyList()
         val files = dir.listFiles() ?: return emptyList()
-        val items = files
-            .filter { showHidden || !it.name.startsWith(".") }
-            .map { file ->
-                FileItem(
-                    path = file.absolutePath,
-                    name = file.name,
-                    sizeBytes = if (file.isDirectory) 0L else file.length(),
-                    mimeType = if (file.isDirectory) "inode/directory" else getMimeType(file.name),
-                    isDirectory = file.isDirectory,
-                    lastModified = file.lastModified()
-                )
-            }
-        return when (sortOption) {
-            FileSortOption.NAME_ASC -> items.sortedBy { it.name.lowercase() }
-            FileSortOption.NAME_DESC -> items.sortedByDescending { it.name.lowercase() }
-            FileSortOption.SIZE_ASC -> items.sortedBy { it.sizeBytes }
-            FileSortOption.SIZE_DESC -> items.sortedByDescending { it.sizeBytes }
-            FileSortOption.DATE_ASC -> items.sortedBy { it.lastModified }
-            FileSortOption.DATE_DESC -> items.sortedByDescending { it.lastModified }
-            else -> items.sortedBy { it.name.lowercase() }
+        val items = files.filter { showHidden || !it.name.startsWith(".") }.map { file ->
+            FileItem(
+                path = file.absolutePath,
+                name = file.name,
+                sizeBytes = if (file.isDirectory) 0L else file.length(),
+                mimeType = if (file.isDirectory) "inode/directory" else getMimeType(file.name),
+                isDirectory = file.isDirectory,
+                lastModified = file.lastModified()
+            )
         }
+        return sortFiles(items, sortOption)
     }
 
     fun collectPrimaryStorageItems(maxItems: Int = 10_000): List<FileItem> {
@@ -176,36 +160,95 @@ open class StorageManagerImpl(
     }
 
     fun listCategorizedFiles(category: FileCategory, sortOption: FileSortOption): List<FileItem> {
-        val all = collectPrimaryStorageItems()
-        val filtered = when (category) {
-            FileCategory.ALL -> all
-            FileCategory.IMAGES -> all.filter { (it.mimeType ?: "").startsWith("image/") }
-            FileCategory.VIDEOS -> all.filter { (it.mimeType ?: "").startsWith("video/") }
-            FileCategory.AUDIO -> all.filter { (it.mimeType ?: "").startsWith("audio/") }
-            FileCategory.DOCUMENTS -> all.filter {
-                val m = it.mimeType ?: ""
-                m.contains("pdf") || m.contains("document") || m.contains("msword") ||
-                    m.contains("excel") || m.contains("powerpoint") || m.startsWith("text/")
-            }
-            FileCategory.ARCHIVES -> all.filter {
-                val m = it.mimeType ?: ""
-                m.contains("zip") || m.contains("rar")
-            }
-            FileCategory.APKS -> all.filter {
-                (it.mimeType ?: "").contains("package-archive") || it.name.endsWith(".apk")
-            }
-            else -> all
+        val results = mutableListOf<FileItem>()
+        when (category) {
+            FileCategory.ALL -> results.addAll(collectPrimaryStorageItems())
+            FileCategory.IMAGES -> results.addAll(queryMediaStoreFiles(MediaStore.Images.Media.EXTERNAL_CONTENT_URI))
+            FileCategory.VIDEOS -> results.addAll(queryMediaStoreFiles(MediaStore.Video.Media.EXTERNAL_CONTENT_URI))
+            FileCategory.AUDIO -> results.addAll(queryMediaStoreFiles(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI))
+            FileCategory.DOCUMENTS -> scanDirectoryByExtensions(File(getPrimaryStoragePath()), setOf("pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "csv", "epub"), results)
+            FileCategory.ARCHIVES -> scanDirectoryByExtensions(File(getPrimaryStoragePath()), setOf("zip", "rar", "7z", "tar", "gz", "bz2", "xz"), results)
+            FileCategory.APKS -> scanDirectoryByExtensions(File(getPrimaryStoragePath()), setOf("apk", "xapk", "apks"), results)
+            else -> results.addAll(collectPrimaryStorageItems())
         }
-        return when (sortOption) {
-            FileSortOption.NAME_ASC -> filtered.sortedBy { it.name.lowercase() }
-            FileSortOption.NAME_DESC -> filtered.sortedByDescending { it.name.lowercase() }
-            FileSortOption.SIZE_ASC -> filtered.sortedBy { it.sizeBytes }
-            FileSortOption.SIZE_DESC -> filtered.sortedByDescending { it.sizeBytes }
-            FileSortOption.DATE_ASC -> filtered.sortedBy { it.lastModified }
-            FileSortOption.DATE_DESC -> filtered.sortedByDescending { it.lastModified }
-            else -> filtered
+        return sortFiles(results, sortOption)
+    }
+
+    private fun queryMediaStoreFiles(uri: Uri): List<FileItem> {
+        val items = mutableListOf<FileItem>()
+        try {
+            val projection = arrayOf(
+                MediaStore.MediaColumns.DATA,
+                MediaStore.MediaColumns.DISPLAY_NAME,
+                MediaStore.MediaColumns.SIZE,
+                MediaStore.MediaColumns.MIME_TYPE,
+                MediaStore.MediaColumns.DATE_MODIFIED
+            )
+            context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+                val dataIdx = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA)
+                val nameIdx = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+                val sizeIdx = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
+                val mimeIdx = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
+                val dateIdx = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_MODIFIED)
+                while (cursor.moveToNext()) {
+                    val path = cursor.getString(dataIdx) ?: continue
+                    items.add(
+                        FileItem(
+                            path = path,
+                            name = cursor.getString(nameIdx) ?: File(path).name,
+                            sizeBytes = cursor.getLong(sizeIdx),
+                            mimeType = cursor.getString(mimeIdx) ?: getMimeType(path),
+                            isDirectory = false,
+                            lastModified = cursor.getLong(dateIdx) * 1000L
+                        )
+                    )
+                }
+            }
+        } catch (_: Exception) {}
+        return items
+    }
+
+    private fun scanDirectoryByExtensions(
+        dir: File,
+        extensions: Set<String>,
+        outList: MutableList<FileItem>,
+        currentDepth: Int = 0,
+        maxDepth: Int = 3
+    ) {
+        if (!dir.exists() || !dir.isDirectory || currentDepth > maxDepth) return
+        val children = dir.listFiles() ?: return
+        for (file in children) {
+            if (file.isDirectory) {
+                if (!file.name.startsWith(".") && file.name != "Android")
+                    scanDirectoryByExtensions(file, extensions, outList, currentDepth + 1, maxDepth)
+            } else {
+                val ext = file.name.substringAfterLast('.', "").lowercase()
+                if (ext in extensions) {
+                    outList.add(
+                        FileItem(
+                            path = file.absolutePath,
+                            name = file.name,
+                            sizeBytes = file.length(),
+                            mimeType = getMimeType(file.name),
+                            isDirectory = false,
+                            lastModified = file.lastModified()
+                        )
+                    )
+                }
+            }
         }
     }
+
+    private fun sortFiles(files: List<FileItem>, sortOption: FileSortOption): List<FileItem> =
+        when (sortOption) {
+            FileSortOption.NAME_ASC -> files.sortedBy { it.name.lowercase() }
+            FileSortOption.NAME_DESC -> files.sortedByDescending { it.name.lowercase() }
+            FileSortOption.SIZE_ASC -> files.sortedBy { it.sizeBytes }
+            FileSortOption.SIZE_DESC -> files.sortedByDescending { it.sizeBytes }
+            FileSortOption.DATE_ASC -> files.sortedBy { it.lastModified }
+            FileSortOption.DATE_DESC -> files.sortedByDescending { it.lastModified }
+            else -> files
+        }
 
     protected fun calculatePartialHash(file: File): String {
         return try {
