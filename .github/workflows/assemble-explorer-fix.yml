@@ -5,6 +5,7 @@ on:
       - "tools/assemble-explorer/**"
     branches:
       - "fix/file-open-ocr-sdcard"
+  workflow_dispatch:
 jobs:
   assemble:
     runs-on: ubuntu-latest
@@ -15,14 +16,18 @@ jobs:
         with:
           ref: fix/file-open-ocr-sdcard
           token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Assemble explorer sources
+      - name: Assemble explorer sources from known-good commits
         run: python3 tools/assemble-explorer/assemble.py
       - name: Commit restored sources
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add feature/explorer/src/main/java/com/vvf/smartmanager/feature/explorer/ExplorerViewModel.kt \
                   feature/explorer/src/main/java/com/vvf/smartmanager/feature/explorer/components/ExplorerDialogs.kt \
                   feature/explorer/src/main/java/com/vvf/smartmanager/feature/explorer/ExplorerScreen.kt
-          git diff --staged --quiet || git commit -m "fix(explorer): restore Screen/VM/Dialogs (Open+OCR EN+HI)"
-          git push origin HEAD:fix/file-open-ocr-sdcard
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "fix(explorer): restore Screen/VM/Dialogs + OCR Open EN+HI wiring"
+            git push origin HEAD:fix/file-open-ocr-sdcard
+          fi
