@@ -3,8 +3,8 @@ package com.vvf.smartmanager.core.data.storage
 import android.content.Context
 import android.os.Build
 import android.os.Environment
-import android.os.StatFs
 import android.os.storage.StorageManager
+import android.os.StatFs
 import android.provider.MediaStore
 import android.webkit.MimeTypeMap
 import com.vvf.smartmanager.core.database.dao.FileDao
@@ -31,31 +31,32 @@ open class StorageManagerImpl(
     }
 
     fun getAllowedStorageRoots(): List<File> {
-        val roots = linkedSetOf<File>()
+        val roots = mutableListOf<File>()
         try {
             context.filesDir?.let { roots.add(it.canonicalFile) }
             context.cacheDir?.let { roots.add(it.canonicalFile) }
             context.getExternalFilesDirs(null)?.filterNotNull()?.forEach { roots.add(it.canonicalFile) }
             context.getExternalCacheDirs()?.filterNotNull()?.forEach { roots.add(it.canonicalFile) }
-            Environment.getExternalStorageDirectory()?.let { roots.add(it.canonicalFile) }
+            val extStorage = Environment.getExternalStorageDirectory()
+            if (extStorage != null) roots.add(extStorage.canonicalFile)
             for (vol in listStorageVolumeRoots()) {
                 roots.add(vol.canonicalFile)
             }
         } catch (_: Exception) {}
-        return roots.toList()
+        return roots.distinctBy { it.absolutePath }
     }
 
+    /**
+     * Public volume roots (internal + removable SD when mounted).
+     * Uses StorageVolume.directory on API 30+; secondary external-files walk as fallback.
+     */
     fun listStorageVolumeRoots(): List<File> {
         val volumes = mutableListOf<File>()
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val sm = context.getSystemService(StorageManager::class.java)
                 sm?.storageVolumes?.forEach { volume ->
-                    val dir: File? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        volume.directory
-                    } else {
-                        null
-                    }
+                    val dir = volume.directory
                     if (dir != null && dir.exists() && dir.canRead()) {
                         volumes.add(dir)
                     }
@@ -90,14 +91,16 @@ open class StorageManagerImpl(
     }
 
     fun requireAllowedPhysicalPath(path: String): File {
-        val file = File(path).canonicalFile
-        val allowed = getAllowedStorageRoots()
-        val ok = allowed.any { root ->
-            file.absolutePath == root.absolutePath ||
-                file.absolutePath.startsWith(root.absolutePath + File.separator)
+        require(path.isNotBlank()) { "Physical path cannot be blank" }
+        val candidate = File(path).canonicalFile
+        val rootPaths = getAllowedStorageRoots().map { it.absolutePath }
+        val allowed = rootPaths.any { root ->
+            candidate.absolutePath == root || candidate.absolutePath.startsWith(root + File.separator)
         }
-        if (!ok) throw SecurityException("Path not under allowed storage roots: $path")
-        return file
+        if (!allowed) {
+            throw SecurityException("Path is outside allowed storage roots: $path")
+        }
+        return candidate
     }
 
     fun isAllowedPhysicalPath(path: String): Boolean = try {
@@ -122,15 +125,12 @@ open class StorageManagerImpl(
     fun calculateStorageBreakdown(): StorageBreakdown = try {
         val path = getPrimaryStoragePath()
         val stat = StatFs(path)
-        val total = stat.totalBytes
-        val free = stat.availableBytes
-        StorageBreakdown(
-            totalBytes = total,
-            freeBytes = free,
-            usedBytes = total - free
-        )
+        val totalBytes = stat.totalBytes
+        val freeBytes = stat.availableBytes
+        val usedBytes = totalBytes - freeBytes
+        StorageBreakdown(totalBytes = totalBytes, usedBytes = usedBytes, freeBytes = freeBytes)
     } catch (_: Exception) {
-        StorageBreakdown(totalBytes = 0L, freeBytes = 0L, usedBytes = 0L)
+        StorageBreakdown(totalBytes = 0, usedBytes = 0, freeBytes = 0)
     }
 
     fun listDirectory(directoryPath: String, sortOption: FileSortOption, showHidden: Boolean): List<FileItem> {
@@ -184,9 +184,8 @@ open class StorageManagerImpl(
             FileCategory.AUDIO -> all.filter { (it.mimeType ?: "").startsWith("audio/") }
             FileCategory.DOCUMENTS -> all.filter {
                 val m = it.mimeType ?: ""
-                m.contains("pdf") || m.contains("document") ||
-                    m.contains("msword") || m.contains("excel") ||
-                    m.contains("powerpoint") || m.startsWith("text/")
+                m.contains("pdf") || m.contains("document") || m.contains("msword") ||
+                    m.contains("excel") || m.contains("powerpoint") || m.startsWith("text/")
             }
             FileCategory.ARCHIVES -> all.filter {
                 val m = it.mimeType ?: ""
