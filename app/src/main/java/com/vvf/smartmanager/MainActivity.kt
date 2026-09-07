@@ -126,3 +126,282 @@ class MainActivity : FragmentActivity() {
         }
     }
 }
+
+@Composable
+fun VVFAppContent(
+    onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit
+) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val app = context.applicationContext as VVFApplication
+
+    val navController = rememberNavController()
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route ?: TopLevelDestination.EXPLORER.route
+
+    val destinations = listOf(
+        TopLevelDestination.EXPLORER,
+        TopLevelDestination.VAULT,
+        TopLevelDestination.CLEANER,
+        TopLevelDestination.SEARCH,
+        TopLevelDestination.CLOUD
+    )
+
+    BoxWithConstraints(modifier = Modifier.fillMaxSize().testTag("vvf_main_container")) {
+        val isWideScreen = maxWidth >= 600.dp
+
+        if (isWideScreen) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                NavigationRail(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    header = {
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_vvf_foundation_logo),
+                            contentDescription = "Vishva Vijayaa Foundation",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .padding(vertical = 12.dp)
+                                .size(52.dp)
+                        )
+                    },
+                    modifier = Modifier.fillMaxHeight().testTag("tablet_nav_rail")
+                ) {
+                    destinations.forEach { destination ->
+                        val isSelected = currentRoute == destination.route
+                        NavigationRailItem(
+                            selected = isSelected,
+                            alwaysShowLabel = true,
+                            onClick = {
+                                if (currentRoute != destination.route) {
+                                    try {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    } catch (_: Exception) {}
+                                    navController.navigate(destination.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                }
+                            },
+                            icon = {
+                                Icon(
+                                    imageVector = if (isSelected) destination.selectedIcon else destination.unselectedIcon,
+                                    contentDescription = destination.title,
+                                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                            },
+                            label = {
+                                Text(
+                                    text = destination.title,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            },
+                            colors = NavigationRailItemDefaults.colors(
+                                indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            ),
+                            modifier = Modifier.testTag(destination.testTag)
+                        )
+                    }
+                }
+
+                VVFNavHost(
+                    navController = navController,
+                    app = app,
+                    onGoogleDriveSignInRequested = onGoogleDriveSignInRequested,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        } else {
+            Scaffold(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("vvf_main_scaffold"),
+                bottomBar = {
+                    NavigationBar(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        tonalElevation = 6.dp,
+                        modifier = Modifier.testTag("bottom_nav_bar")
+                    ) {
+                        destinations.forEach { destination ->
+                            val isSelected = currentRoute == destination.route
+                            NavigationBarItem(
+                                selected = isSelected,
+                                alwaysShowLabel = true,
+                                onClick = {
+                                    if (currentRoute != destination.route) {
+                                        try {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        } catch (_: Exception) {}
+                                        navController.navigate(destination.route) {
+                                            popUpTo(navController.graph.findStartDestination().id) {
+                                                saveState = true
+                                            }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                    }
+                                },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (isSelected) destination.selectedIcon else destination.unselectedIcon,
+                                        contentDescription = destination.title,
+                                        tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                },
+                                label = {
+                                    Text(
+                                        text = destination.title,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                },
+                                colors = NavigationBarItemDefaults.colors(
+                                    indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                ),
+                                modifier = Modifier.testTag(destination.testTag)
+                            )
+                        }
+                    }
+                }
+            ) { innerPadding ->
+                VVFNavHost(
+                    navController = navController,
+                    app = app,
+                    onGoogleDriveSignInRequested = onGoogleDriveSignInRequested,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VVFNavHost(
+    navController: androidx.navigation.NavHostController,
+    app: VVFApplication,
+    onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    NavHost(
+        navController = navController,
+        startDestination = TopLevelDestination.EXPLORER.route,
+        enterTransition = { fadeIn(animationSpec = tween(250)) + slideInHorizontally(animationSpec = tween(250), initialOffsetX = { it / 4 }) },
+        exitTransition = { fadeOut(animationSpec = tween(200)) + slideOutHorizontally(animationSpec = tween(200), targetOffsetX = { -it / 4 }) },
+        popEnterTransition = { fadeIn(animationSpec = tween(250)) + slideInHorizontally(animationSpec = tween(250), initialOffsetX = { -it / 4 }) },
+        popExitTransition = { fadeOut(animationSpec = tween(200)) + slideOutHorizontally(animationSpec = tween(200), targetOffsetX = { it / 4 }) },
+        modifier = modifier
+    ) {
+        composable(TopLevelDestination.EXPLORER.route) {
+            val explorerViewModel: ExplorerViewModel = viewModel(
+                factory = ExplorerViewModel.provideFactory(
+                    getDirectoryFilesUseCase = app.getDirectoryFilesUseCase,
+                    getCategorizedFilesUseCase = app.getCategorizedFilesUseCase,
+                    getStorageOverviewUseCase = app.getStorageOverviewUseCase,
+                    fileOperationsUseCase = app.fileOperationsUseCase,
+                    recycleBinUseCase = app.recycleBinUseCase,
+                    cloudSyncUseCase = app.cloudSyncUseCase,
+                    ocrEngine = app.ocrPlugin
+                )
+            )
+            ExplorerScreen(
+                viewModel = explorerViewModel,
+                onNavigateToSettings = { navController.navigate(TopLevelDestination.SETTINGS.route) },
+                onNavigateToPlugins = { navController.navigate(TopLevelDestination.PLUGINS.route) },
+                onStorageAccessGranted = { app.backgroundSyncManager.triggerImmediateIndexing() }
+            )
+        }
+        composable(TopLevelDestination.VAULT.route) {
+            val vaultViewModel: VaultViewModel = viewModel(
+                factory = VaultViewModel.provideFactory(
+                    getVaultItemsUseCase = app.getVaultItemsUseCase,
+                    lockFileInVaultUseCase = app.lockFileInVaultUseCase,
+                    restoreVaultItemUseCase = app.restoreVaultItemUseCase,
+                    exportVaultItemUseCase = app.exportVaultItemUseCase,
+                    deleteVaultItemUseCase = app.deleteVaultItemUseCase,
+                    vaultAuthUseCase = app.vaultAuthUseCase
+                )
+            )
+            VaultScreen(viewModel = vaultViewModel)
+        }
+        composable(TopLevelDestination.CLEANER.route) {
+            val cleanerViewModel: CleanerViewModel = viewModel(
+                factory = CleanerViewModel.provideFactory(
+                    duplicateCleanerUseCase = app.duplicateCleanerUseCase,
+                    junkCleanerUseCase = app.junkCleanerUseCase,
+                    aiIntelligenceUseCase = app.aiIntelligenceUseCase,
+                    canScanPrimaryStorage = { StoragePermissionGate(app).evaluate().canBrowsePrimaryTree }
+                )
+            )
+            CleanerScreen(viewModel = cleanerViewModel)
+        }
+        composable(TopLevelDestination.SEARCH.route) {
+            val searchViewModel: SearchViewModel = viewModel(
+                factory = SearchViewModel.provideFactory(
+                    searchFilesUseCase = app.searchFilesUseCase,
+                    searchHistoryUseCase = app.searchHistoryUseCase,
+                    tagManagementUseCase = app.tagManagementUseCase,
+                    fileOperationsUseCase = app.fileOperationsUseCase,
+                    searchIndexManagementUseCase = app.searchIndexManagementUseCase,
+                    semanticSearchUseCase = app.semanticSearchUseCase,
+                    aiIntelligenceUseCase = app.aiIntelligenceUseCase
+                )
+            )
+            SearchScreen(viewModel = searchViewModel)
+        }
+        composable(TopLevelDestination.CLOUD.route) {
+            val cloudViewModel: CloudViewModel = viewModel(
+                factory = CloudViewModel.provideFactory(
+                    cloudSyncUseCase = app.cloudSyncUseCase,
+                    googleDriveService = app.googleDriveService
+                )
+            )
+            CloudRoute(
+                viewModel = cloudViewModel,
+                onGoogleDriveSignInRequested = {
+                    onGoogleDriveSignInRequested { accessTokenResult ->
+                        cloudViewModel.completeGoogleDriveSignIn(accessTokenResult)
+                    }
+                }
+            )
+        }
+        composable(TopLevelDestination.PLUGINS.route) {
+            val pluginsViewModel: PluginsViewModel = viewModel(
+                factory = PluginsViewModel.provideFactory(
+                    ocrPlugin = app.ocrPlugin,
+                    extractTextUseCase = app.extractTextUseCase,
+                    indexOcrTextUseCase = app.indexOcrTextUseCase,
+                    saveOcrTextUseCase = app.saveOcrTextUseCase
+                )
+            )
+            PluginsScreen(viewModel = pluginsViewModel, onNavigateBack = { navController.popBackStack() })
+        }
+        composable(TopLevelDestination.SETTINGS.route) {
+            SettingsScreen(
+                onNavigateBack = { navController.popBackStack() },
+                initialBiometricEnabled = app.vaultAuthUseCase.isBiometricEnabled(),
+                onBiometricEnabledChange = { enabled ->
+                    app.vaultAuthUseCase.setBiometricEnabled(enabled)
+                }
+            )
+        }
+    }
+}
