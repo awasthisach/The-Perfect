@@ -1,0 +1,78 @@
+name: apply-explorer-ocr-ui
+on:
+  workflow_dispatch:
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/file-open-ocr-sdcard
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Apply ExplorerScreen OCR/Open wiring
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("feature/explorer/src/main/java/com/vvf/smartmanager/feature/explorer/ExplorerScreen.kt")
+          s = p.read_text()
+          if "OcrResultDialog" not in s:
+              s = s.replace(
+                  "import com.vvf.smartmanager.feature.explorer.components.SyncToCloudDialog",
+                  "import com.vvf.smartmanager.feature.explorer.components.SyncToCloudDialog\n"
+                  "import com.vvf.smartmanager.feature.explorer.components.OcrResultDialog\n"
+                  "import android.content.ClipData\n"
+                  "import android.content.ClipboardManager",
+              )
+          old2 = """        is ExplorerDialogState.FileDetails -> {
+            FileDetailsDialog(
+                file = dialog.file,
+                onDismiss = { viewModel.dismissDialog() }
+            )
+        }"""
+          new2 = """        is ExplorerDialogState.FileDetails -> {
+            FileDetailsDialog(
+                file = dialog.file,
+                onDismiss = { viewModel.dismissDialog() },
+                onOpen = {
+                    viewModel.dismissDialog()
+                    viewModel.navigateInto(dialog.file)
+                },
+                onOcr = {
+                    viewModel.requestOcr(dialog.file)
+                }
+            )
+        }
+        is ExplorerDialogState.OcrInProgress -> {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = {},
+                title = { Text("Scanning OCR…") },
+                text = { Text("Extracting English + Hindi text…") },
+                confirmButton = {}
+            )
+        }
+        is ExplorerDialogState.OcrResult -> {
+            OcrResultDialog(
+                fileName = dialog.fileName,
+                text = dialog.text,
+                onDismiss = { viewModel.dismissDialog() },
+                onCopy = {
+                    val cm = context.getSystemService(ClipboardManager::class.java)
+                    cm?.setPrimaryClip(ClipData.newPlainText("OCR", dialog.text))
+                }
+            )
+        }"""
+          if old2 not in s:
+              raise SystemExit("FileDetails block not found")
+          s = s.replace(old2, new2)
+          p.write_text(s)
+          print("patched ok")
+          PY
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add feature/explorer/src/main/java/com/vvf/smartmanager/feature/explorer/ExplorerScreen.kt
+          git diff --staged --quiet || git commit -m "feat(explorer): wire FileDetails Open + OCR (EN+HI) dialogs"
+          git push origin HEAD:fix/file-open-ocr-sdcard
