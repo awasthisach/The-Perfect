@@ -69,45 +69,4 @@ fun CreateFolderDialog(
             Column {
                 Text(
                     text = "Enter a name for the new folder:",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = folderName,
-                    onValueChange = { folderName = it },
-                    label = { Text("Folder Name") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("create_folder_input")
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onConfirm(folderName) },
-                enabled = folderName.isNotBlank(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                ),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.testTag("create_folder_confirm")
-            ) {
-                Text("Create")
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onDismiss,
-                modifier = Modifier.testTag("create_folder_cancel")
-            ) {
-                Text("Cancel")
-            }
-        },
-        shape = RoundedCornerShape(20.dp),
-        modifier = Modifier.testTag("create_folder_dialog")
-    )
-}
+                    
