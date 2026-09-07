@@ -30,9 +30,6 @@ open class StorageManagerImpl(
         dir
     }
 
-    /**
-     * All browsable roots: internal + removable SD volumes (when mounted).
-     */
     fun getAllowedStorageRoots(): List<File> {
         val roots = linkedSetOf<File>()
         try {
@@ -48,9 +45,6 @@ open class StorageManagerImpl(
         return roots.toList()
     }
 
-    /**
-     * Public volume roots for UI (Internal + SD Card).
-     */
     fun listStorageVolumeRoots(): List<File> {
         val volumes = mutableListOf<File>()
         try {
@@ -96,43 +90,52 @@ open class StorageManagerImpl(
         return volumes.distinctBy { it.absolutePath }
     }
 
-    open fun getPrimaryStoragePath(): String {
-        return try {
-            Environment.getExternalStorageDirectory().absolutePath
-        } catch (_: Exception) {
-            context.getExternalFilesDir(null)?.absolutePath ?: context.filesDir.absolutePath
+    fun requireAllowedPhysicalPath(path: String): File {
+        val file = File(path).canonicalFile
+        val allowed = getAllowedStorageRoots()
+        val ok = allowed.any { root ->
+            file.absolutePath == root.absolutePath || file.absolutePath.startsWith(root.absolutePath + File.separator)
         }
+        if (!ok) throw SecurityException("Path not under allowed storage roots: $path")
+        return file
     }
 
-    open fun getStorageBreakdown(): StorageBreakdown {
+    fun isAllowedPhysicalPath(path: String): Boolean = try {
+        requireAllowedPhysicalPath(path)
+        true
+    } catch (_: Exception) {
+        false
+    }
+
+    fun getPrimaryStoragePath(): String = try {
+        Environment.getExternalStorageDirectory().absolutePath
+    } catch (_: Exception) {
+        context.getExternalFilesDir(null)?.absolutePath ?: context.filesDir.absolutePath
+    }
+
+    fun getFileSize(path: String): Long = try {
+        File(path).length()
+    } catch (_: Exception) {
+        0L
+    }
+
+    fun calculateStorageBreakdown(): StorageBreakdown = try {
         val path = getPrimaryStoragePath()
-        val stat = try {
-            StatFs(path)
-        } catch (_: Exception) {
-            return StorageBreakdown(
-                totalBytes = 0L,
-                freeBytes = 0L,
-                usedBytes = 0L,
-                categoryBytes = emptyMap()
-            )
-        }
+        val stat = StatFs(path)
         val total = stat.totalBytes
         val free = stat.availableBytes
-        val used = total - free
-        return StorageBreakdown(
+        StorageBreakdown(
             totalBytes = total,
             freeBytes = free,
-            usedBytes = used,
+            usedBytes = total - free,
             categoryBytes = emptyMap()
         )
+    } catch (_: Exception) {
+        StorageBreakdown(totalBytes = 0L, freeBytes = 0L, usedBytes = 0L, categoryBytes = emptyMap())
     }
 
-    open fun listDirectory(
-        path: String,
-        sortOption: FileSortOption = FileSortOption.NAME_ASC,
-        showHidden: Boolean = false
-    ): List<FileItem> {
-        val dir = File(path)
+    fun listDirectory(directoryPath: String, sortOption: FileSortOption, showHidden: Boolean): List<FileItem> {
+        val dir = File(directoryPath)
         if (!dir.exists() || !dir.isDirectory) return emptyList()
         val files = dir.listFiles() ?: return emptyList()
         val items = files
@@ -157,6 +160,88 @@ open class StorageManagerImpl(
             else -> items.sortedBy { it.name.lowercase() }
         }
     }
+
+    fun collectPrimaryStorageItems(maxItems: Int = 10_000): List<FileItem> {
+        val list = mutableListOf<File>()
+        collectFiles(File(getPrimaryStoragePath()), list, maxItems)
+        return list.map { file ->
+            FileItem(
+                path = file.absolutePath,
+                name = file.name,
+                sizeBytes = file.length(),
+                mimeType = getMimeType(file.name),
+                isDirectory = false,
+                lastModified = file.lastModified()
+            )
+        }
+    }
+
+    fun listCategorizedFiles(category: FileCategory, sortOption: FileSortOption): List<FileItem> {
+        val all = collectPrimaryStorageItems()
+        val filtered = when (category) {
+            FileCategory.ALL -> all
+            FileCategory.IMAGES -> all.filter { it.mimeType.startsWith("image/") }
+            FileCategory.VIDEOS -> all.filter { it.mimeType.startsWith("video/") }
+            FileCategory.AUDIO -> all.filter { it.mimeType.startsWith("audio/") }
+            FileCategory.DOCUMENTS -> all.filter {
+                it.mimeType.contains("pdf") || it.mimeType.contains("document") ||
+                    it.mimeType.contains("msword") || it.mimeType.contains("excel") ||
+                    it.mimeType.contains("powerpoint") || it.mimeType.startsWith("text/")
+            }
+            FileCategory.ARCHIVES -> all.filter { it.mimeType.contains("zip") || it.mimeType.contains("rar") }
+            FileCategory.APKS -> all.filter { it.mimeType.contains("package-archive") || it.name.endsWith(".apk") }
+            else -> all
+        }
+        fun sortList(list: List<FileItem>) = when (sortOption) {
+            FileSortOption.NAME_ASC -> list.sortedBy { it.name.lowercase() }
+            FileSortOption.NAME_DESC -> list.sortedByDescending { it.name.lowercase() }
+            FileSortOption.SIZE_ASC -> list.sortedBy { it.sizeBytes }
+            FileSortOption.SIZE_DESC -> list.sortedByDescending { it.sizeBytes }
+            FileSortOption.DATE_ASC -> list.sortedBy { it.lastModified }
+            FileSortOption.DATE_DESC -> list.sortedByDescending { it.lastModified }
+            else -> list
+        }
+        return sortList(filtered)
+    }
+
+    protected fun calculatePartialHash(file: File): String {
+        return try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            FileInputStream(file).use { input ->
+                val buffer = ByteArray(8192)
+                var remaining = 64 * 1024
+                while (remaining > 0) {
+                    val read = input.read(buffer, 0, minOf(buffer.size, remaining))
+                    if (read <= 0) break
+                    digest.update(buffer, 0, read)
+                    remaining -= read
+                }
+            }
+            bytesToHex(digest.digest())
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    protected fun calculateFullSha256(file: File): String {
+        return try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            FileInputStream(file).use { input ->
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read <= 0) break
+                    digest.update(buffer, 0, read)
+                }
+            }
+            bytesToHex(digest.digest())
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    protected fun bytesToHex(bytes: ByteArray): String =
+        bytes.joinToString("") { "%02x".format(it) }
 
     protected fun collectFiles(dir: File, list: MutableList<File>, maxFiles: Int) {
         if (!dir.exists() || !dir.isDirectory || dir.name.startsWith(".") || list.size >= maxFiles) return
