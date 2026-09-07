@@ -17,6 +17,14 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Widgets
 import androidx.compose.ui.graphics.vector.ImageVector
 
+/**
+ * Central route constants for Navigation Compose.
+ * Prefer [TopLevelDestination.route] instead of raw string literals in NavHost / navigate calls
+ * so typos become compile-time enum mistakes rather than silent runtime dead routes.
+ *
+ * Full kotlinx.serialization type-safe destinations can replace this once the Navigation
+ * Compose typed API is adopted project-wide; until then this enum is the single source of truth.
+ */
 enum class TopLevelDestination(
     val route: String,
     val selectedIcon: ImageVector,

@@ -55,6 +55,13 @@ class CryptoSecurityManager(
          * presence. Rotating this key invalidates the stored DB passphrase file.
          */
         private const val DB_KEY_ALIAS = "vvf_db_passphrase_key_v1"
+        /**
+         * Vault file encryption key. Deliberately does NOT require user authentication.
+         * Access control is the application PIN / biometric *session* gate; Android Keystore
+         * still binds ciphertext to this device. Requiring Keystore user-auth here caused
+         * correct-PIN unlock to fail with UserNotAuthenticatedException when no recent
+         * biometric/device-credential window existed (PIN is not Keystore auth).
+         */
         private const val VAULT_KEY_ALIAS = "vvf_vault_master_key_v1"
         /**
          * Vault metadata key (PIN hash/salt encryption). No user auth required:
@@ -76,14 +83,8 @@ class CryptoSecurityManager(
         private const val DB_PASSPHRASE_FORMAT_VERSION: Byte = 2
 
         private const val PBKDF2_ITERATIONS = 600_000
-        /**
-         * JVM/Robolectric-only fallback keys. Production refuses this path
-         * ([allowInMemoryFallback] is false when AndroidKeyStore is required).
-         * Cleared via [clearInMemoryKeysForTests] between unit tests.
-         */
         private val memoryKeyMap = mutableMapOf<String, SecretKey>()
 
-        /** Test isolation: drop in-memory fallback keys (no-op impact on device Keystore). */
         @JvmStatic
         fun clearInMemoryKeysForTests() {
             synchronized(memoryKeyMap) {
@@ -91,11 +92,6 @@ class CryptoSecurityManager(
             }
         }
 
-        /**
-         * Public so composition roots in other modules (e.g. :app) can select
-         * in-memory Room under Robolectric without loading SQLCipher natives.
-         * Must never return true on a real device runtime classloader.
-         */
         fun isJvmUnitTestEnvironment(context: Context): Boolean {
             val loaderName = context.classLoader?.javaClass?.name.orEmpty()
             if (loaderName.contains("robolectric", ignoreCase = true)) return true
@@ -149,18 +145,8 @@ class CryptoSecurityManager(
                     .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                     .setKeySize(256)
                     .setRandomizedEncryptionRequired(true)
-
-                if (alias == VAULT_KEY_ALIAS && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                    builder.setUserAuthenticationRequired(true)
-                    builder.setUserAuthenticationParameters(
-                        300,
-                        KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL
-                    )
-                } else if (alias == VAULT_KEY_ALIAS && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                    builder.setUserAuthenticationRequired(true)
-                    @Suppress("DEPRECATION")
-                    builder.setUserAuthenticationValidityDurationSeconds(300)
-                }
+                // No setUserAuthenticationRequired — PIN session gates vault access;
+                // Keystore still binds keys to this device.
 
                 keyGenerator.init(builder.build())
                 keyGenerator.generateKey()
@@ -289,7 +275,15 @@ class CryptoSecurityManager(
 
     fun encryptStream(sourceStream: InputStream, destinationStream: OutputStream): StreamEncryptionResult {
         val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, getSecretKey(VAULT_KEY_ALIAS))
+        try {
+            cipher.init(Cipher.ENCRYPT_MODE, getSecretKey(VAULT_KEY_ALIAS))
+        } catch (e: android.security.keystore.UserNotAuthenticatedException) {
+            throw SecurityException(
+                "Vault key requires device authentication that is incompatible with PIN unlock. " +
+                    "Clear app data or reinstall after updating to a build without Keystore user-auth on the vault key.",
+                e
+            )
+        }
         val iv = cipher.iv
         destinationStream.write(iv)
 
@@ -313,7 +307,15 @@ class CryptoSecurityManager(
         val iv = ByteArray(GCM_IV_LENGTH_BYTES)
         require(sourceStream.read(iv) == GCM_IV_LENGTH_BYTES) { "Invalid encrypted stream: Missing or corrupt IV header" }
         val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
-        cipher.init(Cipher.DECRYPT_MODE, getSecretKey(VAULT_KEY_ALIAS), GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv))
+        try {
+            cipher.init(Cipher.DECRYPT_MODE, getSecretKey(VAULT_KEY_ALIAS), GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv))
+        } catch (e: android.security.keystore.UserNotAuthenticatedException) {
+            throw SecurityException(
+                "Vault key requires device authentication that is incompatible with PIN unlock. " +
+                    "Clear app data or reinstall after updating to a build without Keystore user-auth on the vault key.",
+                e
+            )
+        }
 
         var totalBytes: Long = 0
         CipherInputStream(sourceStream, cipher).use { cis ->
@@ -414,10 +416,6 @@ class CryptoSecurityManager(
     fun isVaultConfigured(): Boolean = prefs.contains("vault_pin_hash") && prefs.contains("vault_pin_salt")
     fun isDecoyVaultConfigured(): Boolean = prefs.contains("vault_decoy_pin_hash") && prefs.contains("vault_decoy_pin_salt")
 
-    /**
-     * Export vault auth material already stored as Keystore-wrapped ciphertext in prefs.
-     * Safe to include inside an encrypted backup archive (not plaintext PINs).
-     */
     fun exportVaultAuthMetadata(): Map<String, String> {
         val keys = listOf(
             "vault_pin_hash", "vault_pin_hash_iv", "vault_pin_salt", "vault_pin_salt_iv",
@@ -434,7 +432,6 @@ class CryptoSecurityManager(
         return out
     }
 
-    /** Restore vault auth metadata from backup. Does not accept raw PIN values. */
     fun importVaultAuthMetadata(metadata: Map<String, String>): Boolean {
         if (metadata.isEmpty()) return false
         val editor = prefs.edit()
@@ -455,7 +452,6 @@ class CryptoSecurityManager(
         return if (wrote) editor.commit() else false
     }
 
-
     fun setupVaultPin(pin: String): Boolean {
         if (!isValidPinFormat(pin)) return false
         val salt = ByteArray(16)
@@ -474,7 +470,6 @@ class CryptoSecurityManager(
 
     fun setupDecoyPin(decoyPin: String): Boolean {
         if (!isValidPinFormat(decoyPin)) return false
-        // Decoy setup must not consume the lockout budget when the candidate is not the real PIN.
         if (matchesRealPin(decoyPin)) return false
         val salt = ByteArray(16)
         SecureRandom().nextBytes(salt)
@@ -499,10 +494,6 @@ class CryptoSecurityManager(
     fun verifyVaultPin(pin: String): Boolean = verifyVaultPinWithResult(pin) == VaultAuthResult.SUCCESS_REAL
     fun verifyDecoyPin(pin: String): Boolean = verifyVaultPinWithResult(pin) == VaultAuthResult.SUCCESS_DECOY
 
-    /**
-     * Compares a candidate with the real PIN without recording a failed unlock attempt.
-     * This is exclusively for validating a new decoy PIN before it is stored.
-     */
     fun isSameAsVaultPin(pin: String): Boolean = isValidPinFormat(pin) && matchesRealPin(pin)
 
     fun verifyVaultPinWithResult(pin: String): VaultAuthResult {

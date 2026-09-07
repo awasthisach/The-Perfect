@@ -76,13 +76,18 @@ import com.vvf.smartmanager.ui.theme.VVFSmartManagerTheme
  */
 class MainActivity : FragmentActivity() {
     private lateinit var googleDriveAuth: GoogleDriveAuth
-    private var pendingGoogleDriveResult: ((Result<String>) -> Unit)? = null
 
+    /**
+     * Activity Result callback survives configuration changes by storing the pending
+     * continuation on [VVFApplication] (process-scoped), not on this Activity instance.
+     * The launcher is always re-registered in the new Activity; the Application holds the callback.
+     */
     private val googleDriveSignInLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { activityResult ->
-        val callback = pendingGoogleDriveResult ?: return@registerForActivityResult
-        pendingGoogleDriveResult = null
+        val app = application as VVFApplication
+        val callback = app.pendingGoogleDriveSignInCallback ?: return@registerForActivityResult
+        app.pendingGoogleDriveSignInCallback = null
         if (activityResult.resultCode != Activity.RESULT_OK) {
             callback(Result.failure(IllegalStateException("Google sign-in was cancelled or did not complete.")))
         } else {
@@ -112,7 +117,7 @@ class MainActivity : FragmentActivity() {
                                 )
                             )
                         } else {
-                            pendingGoogleDriveResult = callback
+                            (application as VVFApplication).pendingGoogleDriveSignInCallback = callback
                             googleDriveSignInLauncher.launch(googleDriveAuth.buildDriveSignInIntent())
                         }
                     }
@@ -386,13 +391,16 @@ private fun VVFNavHost(
                     saveOcrTextUseCase = app.saveOcrTextUseCase
                 )
             )
-            PluginsScreen(
-                viewModel = pluginsViewModel,
-                onNavigateBack = { navController.popBackStack() }
-            )
+            PluginsScreen(viewModel = pluginsViewModel, onNavigateBack = { navController.popBackStack() })
         }
         composable(TopLevelDestination.SETTINGS.route) {
-            SettingsScreen(onNavigateBack = { navController.popBackStack() })
+            SettingsScreen(
+                onNavigateBack = { navController.popBackStack() },
+                initialBiometricEnabled = app.vaultAuthUseCase.isBiometricEnabled(),
+                onBiometricEnabledChange = { enabled ->
+                    app.vaultAuthUseCase.setBiometricEnabled(enabled)
+                }
+            )
         }
     }
 }

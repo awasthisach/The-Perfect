@@ -38,10 +38,11 @@ interface CloudDriverSPI {
     suspend fun listRemoteFiles(remotePath: String): List<FileItem>
 
     /**
-     * Uploads a file. Implementations must return true only after the remote
-     * provider has durably accepted the upload.
+     * Uploads a file. Returns a durable [CloudUploadResult] only after the remote
+     * provider has accepted the upload. Return null when the provider rejects or
+     * is not configured — never invent synthetic remote IDs.
      */
-    suspend fun uploadFile(localFile: FileItem, remoteDirectory: String): Boolean
+    suspend fun uploadFile(localFile: FileItem, remoteDirectory: String): CloudUploadResult?
 
     suspend fun downloadFile(remoteFile: FileItem, localDestination: String): Boolean
     suspend fun getQuotaUsage(): Pair<Long, Long>

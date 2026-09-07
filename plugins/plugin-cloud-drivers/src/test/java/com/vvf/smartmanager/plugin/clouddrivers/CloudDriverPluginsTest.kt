@@ -4,6 +4,7 @@ import com.vvf.smartmanager.core.model.FileItem
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -13,7 +14,8 @@ class CloudDriverPluginsTest {
         val driver = OneDriveDriverImpl()
         assertFalse(driver.authenticate())
         assertTrue(driver.listRemoteFiles("/").isEmpty())
-        assertFalse(
+        // SPI returns null when provider is not configured — never a synthetic success.
+        assertNull(
             driver.uploadFile(
                 FileItem("/tmp/a", "a", 1L, 0L, false, null),
                 "/"
