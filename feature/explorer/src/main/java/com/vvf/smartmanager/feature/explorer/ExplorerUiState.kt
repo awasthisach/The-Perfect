@@ -17,11 +17,13 @@ sealed interface ExplorerDialogState {
     data class SyncToCloudConfirm(val file: FileItem) : ExplorerDialogState
     data class PasteConfirm(val operation: String, val targetDir: String, val count: Int) : ExplorerDialogState
     data class Progress(val progress: FileOperationProgress) : ExplorerDialogState
+    data class OcrResult(val fileName: String, val text: String) : ExplorerDialogState
+    data object OcrInProgress : ExplorerDialogState
 }
 
 data class ExplorerUiState(
     val currentPath: String = "",
-    val breadcrumbs: List<Pair<String, String>> = emptyList(), // Pair(displayName, absolutePath)
+    val breadcrumbs: List<Pair<String, String>> = emptyList(),
     val files: List<FileItem> = emptyList(),
     val filteredFiles: List<FileItem> = emptyList(),
     val selectedCategory: FileCategory = FileCategory.ALL,
@@ -41,5 +43,8 @@ data class ExplorerUiState(
     val dialogState: ExplorerDialogState = ExplorerDialogState.None,
     val userMessage: String? = null,
     val needsStoragePermission: Boolean = false,
-    val permissionMessage: String? = null
+    val permissionMessage: String? = null,
+    /** Non-null when UI should launch system viewer for this file. */
+    val pendingOpenFile: FileItem? = null,
+    val storageVolumeRoots: List<Pair<String, String>> = emptyList() // label to path
 )
