@@ -83,12 +83,14 @@ class MainActivity : FragmentActivity() {
         val app = application as VVFApplication
         val callback = app.pendingGoogleDriveSignInCallback ?: return@registerForActivityResult
         app.pendingGoogleDriveSignInCallback = null
-        if (activityResult.resultCode != Activity.RESULT_OK) {
-            callback(Result.failure(IllegalStateException("Google sign-in was cancelled or did not complete.")))
-        } else {
-            lifecycleScope.launch {
-                callback(googleDriveAuth.extractAccessTokenFromSignInResult(activityResult.data))
-            }
+        // Always parse intent + ApiException — do not treat non-OK as generic "cancelled".
+        lifecycleScope.launch {
+            callback(
+                googleDriveAuth.handleSignInActivityResult(
+                    resultCode = activityResult.resultCode,
+                    data = activityResult.data
+                )
+            )
         }
     }
 
@@ -365,18 +367,18 @@ private fun VVFNavHost(
                     ocrPlugin = app.ocrPlugin,
                     extractTextUseCase = app.extractTextUseCase,
                     indexOcrTextUseCase = app.indexOcrTextUseCase,
-                    saveOcrTextUseCase = app.saveOcrTextUseCase
+                    pluginManager = app.pluginManager
                 )
             )
-            PluginsScreen(viewModel = pluginsViewModel, onNavigateBack = { navController.popBackStack() })
+            PluginsScreen(
+                viewModel = pluginsViewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
         }
         composable(TopLevelDestination.SETTINGS.route) {
             SettingsScreen(
                 onNavigateBack = { navController.popBackStack() },
-                initialBiometricEnabled = app.vaultAuthUseCase.isBiometricEnabled(),
-                onBiometricEnabledChange = { enabled ->
-                    app.vaultAuthUseCase.setBiometricEnabled(enabled)
-                }
+                onNavigateToPlugins = { navController.navigate(TopLevelDestination.PLUGINS.route) }
             )
         }
     }
