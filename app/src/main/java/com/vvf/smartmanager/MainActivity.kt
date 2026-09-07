@@ -77,11 +77,6 @@ import com.vvf.smartmanager.ui.theme.VVFSmartManagerTheme
 class MainActivity : FragmentActivity() {
     private lateinit var googleDriveAuth: GoogleDriveAuth
 
-    /**
-     * Activity Result callback survives configuration changes by storing the pending
-     * continuation on [VVFApplication] (process-scoped), not on this Activity instance.
-     * The launcher is always re-registered in the new Activity; the Application holds the callback.
-     */
     private val googleDriveSignInLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { activityResult ->
@@ -160,9 +155,7 @@ fun VVFAppContent(
                             painter = painterResource(id = R.drawable.ic_vvf_foundation_logo),
                             contentDescription = "Vishva Vijayaa Foundation",
                             contentScale = ContentScale.Fit,
-                            modifier = Modifier
-                                .padding(vertical = 12.dp)
-                                .size(52.dp)
+                            modifier = Modifier.padding(vertical = 12.dp).size(52.dp)
                         )
                     },
                     modifier = Modifier.fillMaxHeight().testTag("tablet_nav_rail")
@@ -174,13 +167,9 @@ fun VVFAppContent(
                             alwaysShowLabel = true,
                             onClick = {
                                 if (currentRoute != destination.route) {
-                                    try {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    } catch (_: Exception) {}
+                                    try { haptic.performHapticFeedback(HapticFeedbackType.LongPress) } catch (_: Exception) {}
                                     navController.navigate(destination.route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = true
-                                        }
+                                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                                         launchSingleTop = true
                                         restoreState = true
                                     }
@@ -212,19 +201,11 @@ fun VVFAppContent(
                         )
                     }
                 }
-
-                VVFNavHost(
-                    navController = navController,
-                    app = app,
-                    onGoogleDriveSignInRequested = onGoogleDriveSignInRequested,
-                    modifier = Modifier.fillMaxSize()
-                )
+                VVFNavHost(navController = navController, app = app, onGoogleDriveSignInRequested = onGoogleDriveSignInRequested, modifier = Modifier.fillMaxSize())
             }
         } else {
             Scaffold(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .testTag("vvf_main_scaffold"),
+                modifier = Modifier.fillMaxSize().testTag("vvf_main_scaffold"),
                 bottomBar = {
                     NavigationBar(
                         containerColor = MaterialTheme.colorScheme.surface,
@@ -239,13 +220,9 @@ fun VVFAppContent(
                                 alwaysShowLabel = true,
                                 onClick = {
                                     if (currentRoute != destination.route) {
-                                        try {
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        } catch (_: Exception) {}
+                                        try { haptic.performHapticFeedback(HapticFeedbackType.LongPress) } catch (_: Exception) {}
                                         navController.navigate(destination.route) {
-                                            popUpTo(navController.graph.findStartDestination().id) {
-                                                saveState = true
-                                            }
+                                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                                             launchSingleTop = true
                                             restoreState = true
                                         }
@@ -285,9 +262,7 @@ fun VVFAppContent(
                     navController = navController,
                     app = app,
                     onGoogleDriveSignInRequested = onGoogleDriveSignInRequested,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
+                    modifier = Modifier.fillMaxSize().padding(innerPadding)
                 )
             }
         }
@@ -313,6 +288,7 @@ private fun VVFNavHost(
         composable(TopLevelDestination.EXPLORER.route) {
             val explorerViewModel: ExplorerViewModel = viewModel(
                 factory = ExplorerViewModel.provideFactory(
+                    appContext = app,
                     getDirectoryFilesUseCase = app.getDirectoryFilesUseCase,
                     getCategorizedFilesUseCase = app.getCategorizedFilesUseCase,
                     getStorageOverviewUseCase = app.getStorageOverviewUseCase,
