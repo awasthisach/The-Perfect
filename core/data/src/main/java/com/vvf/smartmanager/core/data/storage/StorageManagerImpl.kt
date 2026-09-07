@@ -1,8 +1,10 @@
 package com.vvf.smartmanager.core.data.storage
 
 import android.content.Context
+import android.os.Build
 import android.os.Environment
 import android.os.StatFs
+import android.os.storage.StorageManager
 import android.provider.MediaStore
 import android.webkit.MimeTypeMap
 import com.vvf.smartmanager.core.database.dao.FileDao
@@ -28,17 +30,73 @@ open class StorageManagerImpl(
         dir
     }
 
+    /**
+     * All browsable roots: internal + removable SD volumes (when mounted).
+     */
     fun getAllowedStorageRoots(): List<File> {
-        val roots = mutableListOf<File>()
+        val roots = linkedSetOf<File>()
         try {
             context.filesDir?.let { roots.add(it.canonicalFile) }
             context.cacheDir?.let { roots.add(it.canonicalFile) }
             context.getExternalFilesDirs(null)?.filterNotNull()?.forEach { roots.add(it.canonicalFile) }
             context.getExternalCacheDirs()?.filterNotNull()?.forEach { roots.add(it.canonicalFile) }
-            val extStorage = Environment.getExternalStorageDirectory()
-            if (extStorage != null) roots.add(extStorage.canonicalFile)
+            Environment.getExternalStorageDirectory()?.let { roots.add(it.canonicalFile) }
+            // Removable SD / secondary volumes
+            for (vol in listStorageVolumeRoots()) {
+                roots.add(vol.canonicalFile)
+            }
         } catch (_: Exception) {}
-        return roots
+        return roots.toList()
+    }
+
+    /**
+     * Public volume roots for UI (Internal + SD Card).
+     */
+    fun listStorageVolumeRoots(): List<File> {
+        val volumes = mutableListOf<File>()
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                val sm = context.getSystemService(StorageManager::class.java)
+                sm?.storageVolumes?.forEach { volume ->
+                    val dir = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        volume.directory
+                    } else {
+                        @Suppress("DEPRECATION")
+                        volume.getPathFile()
+                    }
+                    if (dir != null && dir.exists() && dir.canRead()) {
+                        volumes.add(dir)
+                    }
+                }
+            }
+            // Fallback: secondary external dirs often map to SD app-specific paths;
+            // parent chain toward /storage/<uuid>
+            context.getExternalFilesDirs(null)?.forEachIndexed { index, dir ->
+                if (index > 0 && dir != null) {
+                    var walk: File? = dir
+                    repeat(4) {
+                        val parent = walk?.parentFile ?: return@repeat
+                        if (parent.absolutePath.startsWith("/storage/") &&
+                            parent.name != "emulated" &&
+                            parent.canRead()
+                        ) {
+                            volumes.add(parent)
+                            return@forEachIndexed
+                        }
+                        walk = parent
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        val primary = try {
+            Environment.getExternalStorageDirectory()
+        } catch (_: Exception) {
+            null
+        }
+        if (primary != null && volumes.none { it.absolutePath == primary.absolutePath }) {
+            volumes.add(0, primary)
+        }
+        return volumes.distinctBy { it.absolutePath }
     }
 
     fun requireAllowedPhysicalPath(path: String): File {
