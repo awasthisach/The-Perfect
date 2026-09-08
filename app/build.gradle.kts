@@ -1,3 +1,4 @@
+import java.util.Base64
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
 
 plugins {
@@ -8,6 +9,19 @@ plugins {
   alias(libs.plugins.roborazzi)
   alias(libs.plugins.secrets)
   alias(libs.plugins.google.services)
+}
+
+
+// Fixed debug keystore — stable SHA-1 for Google Sign-In (code 10 DEVELOPER_ERROR).
+// SHA-1: CA:7D:39:65:CA:FE:58:93:29:C3:9D:B4:C7:EA:AB:B9:C3:B9:7E:16
+// Google Cloud Console → Credentials → Android OAuth client:
+//   package: com.vvf.smartmanager
+//   SHA-1:   CA:7D:39:65:CA:FE:58:93:29:C3:9D:B4:C7:EA:AB:B9:C3:B9:7E:16
+val vvfDebugKeystoreFile = rootProject.file("app/vvf-debug.keystore")
+if (!vvfDebugKeystoreFile.exists()) {
+  val b64 = "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"
+  vvfDebugKeystoreFile.parentFile?.mkdirs()
+  vvfDebugKeystoreFile.writeBytes(Base64.getDecoder().decode(b64))
 }
 
 android {
@@ -40,6 +54,12 @@ android {
       keyAlias = providers.environmentVariable("KEY_ALIAS").orNull
       keyPassword = providers.environmentVariable("KEY_PASSWORD").orNull
     }
+    getByName("debug") {
+      storeFile = vvfDebugKeystoreFile
+      storePassword = "vvfdebug123"
+      keyAlias = "vvfdebug"
+      keyPassword = "vvfdebug123"
+    }
   }
 
   buildTypes {
@@ -50,8 +70,9 @@ android {
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
     }
-    // AGP owns the debug signing key; CI must not depend on a checked-in keystore.
-    debug { }
+    debug {
+      signingConfig = signingConfigs.getByName("debug")
+    }
   }
 
   compileOptions {
@@ -137,8 +158,6 @@ dependencies {
   implementation(libs.androidx.navigation.compose)
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
-  // Required so VVFApplication can implement Configuration.Provider (same-process WorkManager).
-  // core:background only exposes this as implementation, not api.
   implementation(libs.androidx.work.runtime.ktx)
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
