@@ -83,12 +83,14 @@ class MainActivity : FragmentActivity() {
         val app = application as VVFApplication
         val callback = app.pendingGoogleDriveSignInCallback ?: return@registerForActivityResult
         app.pendingGoogleDriveSignInCallback = null
-        if (activityResult.resultCode != Activity.RESULT_OK) {
-            callback(Result.failure(IllegalStateException("Google sign-in was cancelled or did not complete.")))
-        } else {
-            lifecycleScope.launch {
-                callback(googleDriveAuth.extractAccessTokenFromSignInResult(activityResult.data))
-            }
+        // Always parse Intent + ApiException — do not treat non-OK as generic "cancelled".
+        lifecycleScope.launch {
+            callback(
+                googleDriveAuth.handleSignInActivityResult(
+                    resultCode = activityResult.resultCode,
+                    data = activityResult.data
+                )
+            )
         }
     }
 
