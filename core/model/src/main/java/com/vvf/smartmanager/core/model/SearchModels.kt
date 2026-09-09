@@ -30,7 +30,8 @@ enum class SearchMatchType(val displayName: String) {
     FILENAME("Filename Match"),
     TAG("Tag Match"),
     METADATA("Metadata Match"),
-    FTS("FTS Full-Text Index")
+    FTS("FTS Full-Text Index"),
+    SEMANTIC("Semantic AI Match")
 }
 
 /**

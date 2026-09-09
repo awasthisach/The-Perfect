@@ -5,6 +5,7 @@ import com.vvf.smartmanager.core.model.FileCategory
 import com.vvf.smartmanager.core.model.FileItem
 import com.vvf.smartmanager.core.model.SearchFilter
 import com.vvf.smartmanager.core.model.SearchResultItem
+import com.vvf.smartmanager.core.model.SemanticSearchResult
 
 /**
  * UI State for the Core Search screen.
@@ -13,6 +14,7 @@ data class SearchUiState(
     val searchQuery: String = "",
     val filter: SearchFilter = SearchFilter(),
     val searchResults: List<SearchResultItem> = emptyList(),
+    val semanticResults: List<SemanticSearchResult> = emptyList(),
     val searchHistory: List<String> = emptyList(),
     val availableTags: List<String> = emptyList(),
     val isSearching: Boolean = false,

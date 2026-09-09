@@ -223,9 +223,13 @@ class OfflineSearchRepository(
     }.flowOn(Dispatchers.IO)
 
     private fun sanitizeFtsQuery(query: String): String {
-        val clean = query.replace(Regex("[^a-zA-Z0-9_\\s]"), " ").trim()
+        // Keep letters from ALL scripts (Devanagari, Latin, etc.), digits, underscore, spaces.
+        // Previously [^a-zA-Z0-9_] wiped Hindi queries to empty.
+        val clean = query.replace(Regex("[^\\p{L}\\p{Nd}_\\s]"), " ").trim()
         if (clean.isBlank()) return ""
-        val tokens = clean.split("\\s+".toRegex()).filter { it.length >= 2 }
+        val tokens = clean.split("\\s+".toRegex()).filter { token ->
+            token.length >= 2 || token.any { ch -> ch.code > 127 }
+        }
         if (tokens.isEmpty()) return ""
         return tokens.joinToString(" ") { "$it*" }
     }
@@ -264,6 +268,7 @@ class OfflineSearchRepository(
             SearchMatchType.TAG -> "Tagged with: ${item.tags.joinToString(", ")}"
             SearchMatchType.METADATA -> "Metadata/Type: ${item.mimeType ?: item.extension}"
             SearchMatchType.FTS -> "Matched in indexed content"
+            SearchMatchType.SEMANTIC -> "Semantic AI match"
         }
     }
 

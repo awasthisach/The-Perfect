@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -73,7 +74,9 @@ class SearchViewModel(
             } else {
                 _isSearching.value = true
                 triggerSemanticSearch(query, threshold)
-                searchFilesUseCase(query, filter)
+                searchFilesUseCase(query, filter).onEach {
+                    _isSearching.value = false
+                }
             }
         }
 
@@ -111,7 +114,9 @@ class SearchViewModel(
         _isSemanticEnabled,
         _detailsDialogItem,
         _snackbarMessage,
-        _totalIndexedCount
+        _totalIndexedCount,
+        _semanticResults,
+        _isSearching
     ) { params: Array<Any?> ->
         val query = params[0] as String
         val filter = params[1] as SearchFilter
@@ -126,14 +131,32 @@ class SearchViewModel(
         val detailsItem = params[10] as FileItem?
         val snackbar = params[11] as String?
         val indexedCount = params[12] as Int
+        val semanticHits = @Suppress("UNCHECKED_CAST") (params[13] as List<SemanticSearchResult>)
+        val searching = params[14] as Boolean
+
+        val ftsPaths = results.mapTo(mutableSetOf()) { it.fileItem.path }
+        val semanticAsResults = semanticHits.map { hit ->
+            val pct = (hit.similarityScore * 100f).toInt().coerceIn(0, 100)
+            val concept = hit.matchedConcept?.let { " · $it" } ?: ""
+            com.vvf.smartmanager.core.model.SearchResultItem(
+                fileItem = hit.fileItem,
+                matchType = com.vvf.smartmanager.core.model.SearchMatchType.SEMANTIC,
+                matchedSnippet = "Semantic match $pct%$concept"
+            )
+        }
+        val mergedResults = buildList {
+            addAll(semanticAsResults.filter { it.fileItem.path !in ftsPaths })
+            addAll(results)
+        }
 
         SearchUiState(
             searchQuery = query,
             filter = filter,
-            searchResults = results,
+            searchResults = mergedResults,
+            semanticResults = semanticHits,
             searchHistory = history,
             availableTags = tags,
-            isSearching = query.isNotBlank() || !filter.isDefault,
+            isSearching = searching,
             isFilterSheetVisible = isFilterOpen,
             tagDialogItem = tagItem,
             aiSuggestedTags = suggestedTags,
