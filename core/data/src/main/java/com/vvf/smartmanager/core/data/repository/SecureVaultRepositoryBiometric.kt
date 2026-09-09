@@ -1,20 +1,11 @@
 package com.vvf.smartmanager.core.data.repository
 
-import com.vvf.smartmanager.core.security.CryptoSecurityManager
-import com.vvf.smartmanager.core.security.createVaultBiometricCipher
-import com.vvf.smartmanager.core.security.isVaultKeyAuthenticationRequired
+import com.vvf.smartmanager.core.security.VaultBiometricCryptoHelper
 import javax.crypto.Cipher
 
-fun SecureVaultRepository.createVaultBiometricCipher(): Cipher? {
-    val field = SecureVaultRepository::class.java.getDeclaredField("cryptoManager")
-    field.isAccessible = true
-    val crypto = field.get(this) as CryptoSecurityManager
-    return crypto.createVaultBiometricCipher()
-}
+/** Vault biometric cipher API without reflecting private fields. */
+fun SecureVaultRepository.createVaultBiometricCipher(): Cipher? =
+    VaultBiometricCryptoHelper.createVaultBiometricCipher()
 
-fun SecureVaultRepository.isVaultKeyAuthenticationRequired(): Boolean {
-    val field = SecureVaultRepository::class.java.getDeclaredField("cryptoManager")
-    field.isAccessible = true
-    val crypto = field.get(this) as CryptoSecurityManager
-    return crypto.isVaultKeyAuthenticationRequired()
-}
+fun SecureVaultRepository.isVaultKeyAuthenticationRequired(): Boolean =
+    isBiometricEnabled()

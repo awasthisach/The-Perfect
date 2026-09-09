@@ -85,6 +85,26 @@ class OfflineSearchRepository(
                 val existingTags = entity.tags.split(",").map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toMutableSet()
                 existingTags.add(cleanTag)
                 searchFtsDao.updateTagsByPath(path, existingTags.joinToString(","))
+            } else {
+                // Picked documents (content://) may not be in file_metadata yet.
+                val name = path.substringAfterLast('/').ifEmpty { "document" }
+                val parent = when {
+                    path.startsWith("content://") -> "content://"
+                    path.contains('/') -> path.substringBeforeLast('/')
+                    else -> ""
+                }
+                val newEntity = FileMetadataEntity(
+                    path = path,
+                    name = name,
+                    parentPath = parent,
+                    sizeBytes = 0L,
+                    mimeType = "application/octet-stream",
+                    isDirectory = false,
+                    modifiedDate = System.currentTimeMillis(),
+                    tags = cleanTag
+                )
+                fileDao.insertOrUpdate(newEntity)
+                searchFtsDao.rebuildFtsIndex()
             }
             Result.success(true)
         } catch (e: Exception) {
@@ -223,8 +243,6 @@ class OfflineSearchRepository(
     }.flowOn(Dispatchers.IO)
 
     private fun sanitizeFtsQuery(query: String): String {
-        // Keep letters from ALL scripts (Devanagari, Latin, etc.), digits, underscore, spaces.
-        // Previously [^a-zA-Z0-9_] wiped Hindi queries to empty.
         val clean = query.replace(Regex("[^\\p{L}\\p{Nd}_\\s]"), " ").trim()
         if (clean.isBlank()) return ""
         val tokens = clean.split("\\s+".toRegex()).filter { token ->
