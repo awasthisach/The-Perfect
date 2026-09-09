@@ -224,7 +224,7 @@ class OfflineSearchRepository(
 
     private fun sanitizeFtsQuery(query: String): String {
         // Keep letters from ALL scripts (Devanagari, Latin, etc.), digits, underscore, spaces.
-        // Previously [^a-zA-Z0-9_] wiped Hindi queries ("विजया", "चालान", "रसीद") to empty.
+        // Previously [^a-zA-Z0-9_] wiped Hindi queries to empty.
         val clean = query.replace(Regex("[^\\p{L}\\p{Nd}_\\s]"), " ").trim()
         if (clean.isBlank()) return ""
         val tokens = clean.split("\\s+".toRegex()).filter { token ->
@@ -256,7 +256,7 @@ class OfflineSearchRepository(
         if (query.isEmpty()) return SearchMatchType.METADATA
         val lowerQuery = query.lowercase()
         if (item.name.lowercase().contains(lowerQuery)) return SearchMatchType.FILENAME
-        if (item.tags.any { it.lowercase().contains(lowerQuery)) return SearchMatchType.TAG
+        if (item.tags.any { it.lowercase().contains(lowerQuery) }) return SearchMatchType.TAG
         if (item.extension.lowercase().contains(lowerQuery) || (item.mimeType?.lowercase()?.contains(lowerQuery) == true)) return SearchMatchType.METADATA
         return SearchMatchType.FTS
     }
