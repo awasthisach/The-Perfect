@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
@@ -42,11 +44,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,10 +62,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vvf.smartmanager.core.common.FormatUtils
+import com.vvf.smartmanager.core.model.AiSuggestedTag
 import com.vvf.smartmanager.core.model.DateFilter
 import com.vvf.smartmanager.core.model.FileCategory
 import com.vvf.smartmanager.core.model.FileItem
@@ -74,11 +83,6 @@ private val EmeraldGreen = Color(0xFF3FA34D)
 private val SkyCyan = Color(0xFF5BC0EB)
 private val SoftGold = Color(0xFFD4A95A)
 
-/**
- * Minimal SearchResultCard with SEMANTIC match badge support (P0).
- * Full component set remains on main; this keeps the module compiling while
- * semantic results are wired through SearchViewModel.
- */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SearchResultCard(
@@ -104,10 +108,13 @@ fun SearchResultCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(Modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Box(
-                    modifier = Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)).background(iconTint.copy(alpha = 0.12f)),
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(iconTint.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(imageVector = icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(24.dp))
@@ -135,7 +142,7 @@ fun SearchResultCard(
                     )
                 }
                 IconButton(onClick = { onShowDetails(fileItem) }, modifier = Modifier.size(36.dp)) {
-                    Icon(imageVector = Icons.Default.Info, contentDescription = "File Info", tint = CosmicBlue.copy(alpha = 0.7f))
+                    Icon(Icons.Default.Info, contentDescription = "File Info", tint = CosmicBlue.copy(alpha = 0.7f))
                 }
             }
             Spacer(modifier = Modifier.height(6.dp))
@@ -181,7 +188,12 @@ fun SearchResultCard(
                             color = SoftGold.copy(alpha = 0.2f),
                             modifier = Modifier.clickable { onManageTags(fileItem) }
                         ) {
-                            Text(text = "#$tag", fontSize = 11.sp, color = CosmicBlue, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                            Text(
+                                text = "#$tag",
+                                fontSize = 11.sp,
+                                color = CosmicBlue,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
                         }
                     }
                 }
@@ -204,22 +216,29 @@ fun SearchFilterChipsRow(
 ) {
     val scrollState = rememberScrollState()
     Row(
-        modifier = modifier.fillMaxWidth().horizontalScroll(scrollState).padding(horizontal = 16.dp, vertical = 6.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(scrollState)
+            .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        BadgedBox(badge = {
-            if (filter.activeFilterCount > 0) {
-                Badge(containerColor = BhagwaOrange, contentColor = Color.White) {
-                    Text(filter.activeFilterCount.toString())
+        BadgedBox(
+            badge = {
+                if (filter.activeFilterCount > 0) {
+                    Badge(containerColor = BhagwaOrange, contentColor = Color.White) {
+                        Text(filter.activeFilterCount.toString())
+                    }
                 }
             }
-        }) {
+        ) {
             FilterChip(
                 selected = filter.activeFilterCount > 0,
                 onClick = onOpenFilterSheet,
                 label = { Text("Filters", fontWeight = FontWeight.SemiBold) },
-                leadingIcon = { Icon(Icons.Default.FilterList, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                leadingIcon = {
+                    Icon(Icons.Default.FilterList, contentDescription = null, modifier = Modifier.size(18.dp))
+                },
                 colors = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = CosmicBlue,
                     selectedLabelColor = Color.White,
@@ -229,14 +248,73 @@ fun SearchFilterChipsRow(
             )
         }
         if (!filter.isDefault) {
-            TextButton(onClick = onResetFilters, modifier = Modifier.testTag("reset_filters_chip_button")) {
+            TextButton(
+                onClick = onResetFilters,
+                modifier = Modifier.testTag("reset_filters_chip_button")
+            ) {
                 Text("Reset", color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SearchHistorySection(
+    history: List<String>,
+    onItemClick: (String) -> Unit,
+    onDeleteItem: (String) -> Unit,
+    onClearAll: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (history.isEmpty()) return
+    Column(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Recent", fontWeight = FontWeight.SemiBold, color = CosmicBlue)
+            TextButton(onClick = onClearAll) { Text("Clear") }
+        }
+        history.take(8).forEach { q ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onItemClick(q) }
+                    .padding(vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(q, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                IconButton(onClick = { onDeleteItem(q) }, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Delete", modifier = Modifier.size(16.dp))
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun SearchTagBrowseSection(
+    tags: List<String>,
+    selectedTags: Set<String>,
+    onTagClick: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (tags.isEmpty()) return
+    Column(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text("Tags", fontWeight = FontWeight.SemiBold, color = CosmicBlue)
+        Spacer(modifier = Modifier.height(6.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            tags.take(24).forEach { tag ->
+                FilterChip(
+                    selected = tag in selectedTags,
+                    onClick = { onTagClick(tag) },
+                    label = { Text("#$tag") }
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SearchFilterBottomSheet(
     filter: SearchFilter,
@@ -250,8 +328,11 @@ fun SearchFilterBottomSheet(
     onToggleIncludeHidden: (Boolean) -> Unit,
     onResetFilters: () -> Unit
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
             Text("Filters", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = CosmicBlue)
             Spacer(modifier = Modifier.height(12.dp))
             Text("Categories", fontWeight = FontWeight.SemiBold)
@@ -272,72 +353,92 @@ fun SearchFilterBottomSheet(
 }
 
 @Composable
-fun FileDetailsDialog(item: FileItem, onDismiss: () -> Unit) {
+fun TagManagementDialog(
+    fileItem: FileItem,
+    aiSuggestedTags: List<AiSuggestedTag>,
+    onDismiss: () -> Unit,
+    onAddTag: (String, String) -> Unit,
+    onRemoveTag: (String, String) -> Unit
+) {
+    var draft by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(item.name, fontWeight = FontWeight.Bold) },
+        title = { Text("Tags · ${fileItem.name}", fontWeight = FontWeight.Bold) },
         text = {
             Column {
-                Text("Path: ${item.path}", fontFamily = FontFamily.Monospace, fontSize = 12.sp)
-                Text("Size: ${FormatUtils.formatBytes(item.sizeBytes)}")
+                fileItem.tags.forEach { tag ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("#$tag")
+                        TextButton(onClick = { onRemoveTag(fileItem.path, tag) }) { Text("Remove") }
+                    }
+                }
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    label = { Text("Add tag") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(
+                        onDone = {
+                            if (draft.isNotBlank()) {
+                                onAddTag(fileItem.path, draft.trim())
+                                draft = ""
+                            }
+                        }
+                    )
+                )
+                if (aiSuggestedTags.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("AI suggestions", fontWeight = FontWeight.SemiBold)
+                    aiSuggestedTags.take(5).forEach { suggestion ->
+                        TextButton(onClick = { onAddTag(fileItem.path, suggestion.tagName) }) {
+                            Text("+ ${suggestion.tagName}")
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
-            Button(onClick = onDismiss, colors = ButtonDefaults.buttonColors(containerColor = CosmicBlue)) {
-                Text("Close", color = Color.White)
-            }
-        }
+            Button(
+                onClick = {
+                    if (draft.isNotBlank()) onAddTag(fileItem.path, draft.trim())
+                    onDismiss()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = CosmicBlue)
+            ) { Text("Done", color = Color.White) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
 
 @Composable
-fun OfflineSearchInfoCard(modifier: Modifier = Modifier) {
-    Card(modifier = modifier.fillMaxWidth().padding(16.dp), colors = CardDefaults.cardColors(containerColor = CosmicBlue.copy(alpha = 0.08f))) {
-        Text(
-            text = "Search works fully offline. Semantic matches appear with an orange badge.",
-            modifier = Modifier.padding(12.dp),
-            style = MaterialTheme.typography.bodyMedium,
-            color = CosmicBlue
-        )
-    }
-}
-
-@Composable
-fun QuickSearchCategoriesSection(onSelectCategory: (FileCategory) -> Unit, modifier: Modifier = Modifier) {
-    Row(modifier = modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf(FileCategory.DOCUMENTS, FileCategory.IMAGES, FileCategory.VIDEOS, FileCategory.AUDIO).forEach { cat ->
-            FilterChip(selected = false, onClick = { onSelectCategory(cat) }, label = { Text(cat.name.lowercase().replaceFirstChar { it.uppercase() }) })
-        }
-    }
-}
-
-@Composable
-fun SearchHistorySection(
-    history: List<String>,
-    onHistoryItemClicked: (String) -> Unit,
-    onDeleteHistoryItem: (String) -> Unit,
-    onClearSearchHistory: () -> Unit,
-    modifier: Modifier = Modifier
+fun SearchFileDetailsDialog(
+    fileItem: FileItem,
+    onDismiss: () -> Unit
 ) {
-    if (history.isEmpty()) return
-    Column(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Recent", fontWeight = FontWeight.SemiBold, color = CosmicBlue)
-            TextButton(onClick = onClearSearchHistory) { Text("Clear") }
-        }
-        history.take(8).forEach { q ->
-            Row(
-                modifier = Modifier.fillMaxWidth().clickable { onHistoryItemClicked(q) }.padding(vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(q, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                IconButton(onClick = { onDeleteHistoryItem(q) }, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Close, contentDescription = "Delete", modifier = Modifier.size(16.dp))
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(fileItem.name, fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                Text("Path: ${fileItem.path}", fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                Text("Size: ${FormatUtils.formatBytes(fileItem.sizeBytes)}")
+                if (fileItem.tags.isNotEmpty()) {
+                    Text("Tags: ${fileItem.tags.joinToString { "#$it" }}")
                 }
             }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(containerColor = CosmicBlue)
+            ) { Text("Close", color = Color.White) }
         }
-    }
+    )
 }
 
 private fun getFileCategoryIcon(item: FileItem): ImageVector {
