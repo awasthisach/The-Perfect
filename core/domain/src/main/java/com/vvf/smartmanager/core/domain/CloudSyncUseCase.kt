@@ -1,6 +1,8 @@
 package com.vvf.smartmanager.core.domain
 
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
+import com.vvf.smartmanager.core.database.dao.CloudSyncDao
+import com.vvf.smartmanager.core.database.model.CloudSyncEntity
 import com.vvf.smartmanager.core.domain.backup.ArchiveService
 import com.vvf.smartmanager.core.domain.cloud.DurableUploadContract
 import com.vvf.smartmanager.core.domain.restore.RestorePipeline
@@ -15,18 +17,24 @@ import com.vvf.smartmanager.core.plugin.spi.CloudDriverSPI
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 
 /**
  * Unified Cloud Core & Plugin Driver Domain UseCase.
  * Handles authentication, multi-provider syncing, automated database/vault snapshots,
  * and quota analytics across Google Drive (Core) and modular plugins.
+ *
+ * When [cloudSyncDao] is provided, successful uploads persist durable localPath↔remoteId
+ * mappings so process death does not lose sync identity.
  */
 class CloudSyncUseCase(
     private val googleDriveService: GoogleDriveService,
     private val pluginDrivers: Map<CloudProviderType, CloudDriverSPI> = emptyMap(),
     private val archiveService: ArchiveService? = null,
-    private val restorePipeline: RestorePipeline? = null
+    private val restorePipeline: RestorePipeline? = null,
+    private val cloudSyncDao: CloudSyncDao? = null
 ) {
 
     private val _syncState = MutableStateFlow(CloudSyncStatus.IDLE)
@@ -34,6 +42,9 @@ class CloudSyncUseCase(
 
     private val _syncQueue = MutableStateFlow<List<CloudSyncItem>>(emptyList())
     val syncQueue = _syncQueue.asStateFlow()
+
+    /** Serializes backup vs restore so both cannot mutate live storage concurrently. */
+    private val archiveMutex = Mutex()
 
     suspend fun authenticateProvider(providerType: CloudProviderType): Result<Boolean> {
         return if (providerType == CloudProviderType.GOOGLE_DRIVE) {
@@ -107,7 +118,7 @@ class CloudSyncUseCase(
         providerType: CloudProviderType,
         includeVault: Boolean = false,
         includeDatabase: Boolean = true
-    ): Result<CloudBackupInfo> {
+    ): Result<CloudBackupInfo> = archiveMutex.withLock {
         val service = archiveService
         if (service == null) {
             _syncState.value = CloudSyncStatus.ERROR
@@ -153,6 +164,12 @@ class CloudSyncUseCase(
                         onSuccess = { remoteId ->
                             try {
                                 val durableId = DurableUploadContract.requireDurableRemoteId(remoteId)
+                                persistSyncRecord(
+                                    localPath = "backup://${artifact.backupInfo.backupName}",
+                                    remoteId = durableId,
+                                    provider = providerType.name,
+                                    status = "SYNCED"
+                                )
                                 _syncState.value = CloudSyncStatus.SUCCESS
                                 Result.success(artifact.backupInfo.copy(backupId = durableId))
                             } catch (error: IllegalArgumentException) {
@@ -180,7 +197,7 @@ class CloudSyncUseCase(
         )
     }
 
-    suspend fun restoreCloudBackup(backupInfo: CloudBackupInfo): Result<Boolean> {
+    suspend fun restoreCloudBackup(backupInfo: CloudBackupInfo): Result<Boolean> = archiveMutex.withLock {
         val pipeline = restorePipeline
         if (pipeline == null) {
             _syncState.value = CloudSyncStatus.ERROR
@@ -217,7 +234,8 @@ class CloudSyncUseCase(
         providerType: CloudProviderType = CloudProviderType.GOOGLE_DRIVE
     ): Result<CloudSyncItem> {
         _syncState.value = CloudSyncStatus.UPLOADING
-        val itemId = UUID.randomUUID().toString()
+        val existing = cloudSyncDao?.getRecord(fileItem.path, providerType.name)
+        val itemId = existing?.id?.toString() ?: UUID.randomUUID().toString()
         return try {
             val rawRemoteId = if (providerType == CloudProviderType.GOOGLE_DRIVE) {
                 googleDriveService.uploadFile(fileItem).getOrElse { throw it }
@@ -228,10 +246,15 @@ class CloudSyncUseCase(
                     ?: throw IllegalStateException(
                         "${driver.displayName} rejected the upload or is not configured"
                     )
-                // Prefer provider-issued durable id; never invent synthetic placeholders.
                 uploaded.remoteId
             }
             val remoteId = DurableUploadContract.requireDurableRemoteId(rawRemoteId)
+            persistSyncRecord(
+                localPath = fileItem.path,
+                remoteId = remoteId,
+                provider = providerType.name,
+                status = "SYNCED"
+            )
             val syncItem = CloudSyncItem(
                 id = itemId,
                 fileName = fileItem.name,
@@ -241,11 +264,18 @@ class CloudSyncUseCase(
                 status = CloudSyncStatus.SUCCESS,
                 progress = 1f
             )
-            _syncQueue.value = _syncQueue.value + syncItem
+            _syncQueue.value = _syncQueue.value.filterNot { it.localPath == fileItem.path } + syncItem
             _syncState.value = CloudSyncStatus.SUCCESS
             Result.success(syncItem)
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
+            persistSyncRecord(
+                localPath = fileItem.path,
+                remoteId = existing?.remoteFileId,
+                provider = providerType.name,
+                status = "ERROR",
+                errorMessage = error.message
+            )
             val failed = CloudSyncItem(
                 id = itemId,
                 fileName = fileItem.name,
@@ -255,9 +285,33 @@ class CloudSyncUseCase(
                 status = CloudSyncStatus.ERROR,
                 errorMessage = error.message ?: "Cloud upload failed"
             )
-            _syncQueue.value = _syncQueue.value + failed
+            _syncQueue.value = _syncQueue.value.filterNot { it.localPath == fileItem.path } + failed
             _syncState.value = CloudSyncStatus.ERROR
             Result.failure(error)
+        }
+    }
+
+    private suspend fun persistSyncRecord(
+        localPath: String,
+        remoteId: String?,
+        provider: String,
+        status: String,
+        errorMessage: String? = null
+    ) {
+        val dao = cloudSyncDao ?: return
+        runCatching {
+            val prior = dao.getRecord(localPath, provider)
+            dao.insertOrUpdate(
+                CloudSyncEntity(
+                    id = prior?.id ?: 0L,
+                    localPath = localPath,
+                    remoteFileId = remoteId,
+                    provider = provider,
+                    status = status,
+                    lastSyncedAt = System.currentTimeMillis(),
+                    errorMessage = errorMessage
+                )
+            )
         }
     }
 }
