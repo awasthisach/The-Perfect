@@ -3,7 +3,6 @@ package com.vvf.smartmanager.core.domain.restore.impl
 import com.vvf.smartmanager.core.domain.backup.ArchiveMetadata
 import com.vvf.smartmanager.core.domain.restore.DecryptedBackup
 import com.vvf.smartmanager.core.model.CloudBackupInfo
-import com.vvf.smartmanager.core.model.CloudProviderType
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -26,9 +25,7 @@ class LocalRestoreApplierTest {
         backupId = "b1",
         timestamp = 1L,
         backupName = "t",
-        sizeBytes = 1L,
-        fileCount = 1,
-        providerType = CloudProviderType.GOOGLE_DRIVE,
+        backupSizeBytes = 1L,
         includesVault = true,
         includesDatabase = true,
         includesPreferences = false,
@@ -42,7 +39,6 @@ class LocalRestoreApplierTest {
         val staging = temp.newFolder("staging")
         val vault = File(staging, "vault").also { it.mkdirs(); File(it, "one.bin").writeText("1") }
         val db = File(staging, "database").also { it.mkdirs(); File(it, "db").writeText("NEW-DB") }
-        // Manifest claims 10 files but staging has far fewer (excluding metadata.json).
         val meta = ArchiveMetadata(
             version = 1,
             timestamp = 1L,
@@ -84,7 +80,6 @@ class LocalRestoreApplierTest {
         val staging = temp.newFolder("staging2")
         val vault = File(staging, "vault").also { it.mkdirs(); File(it, "new.bin").writeText("NEWV") }
         val dbFile = File(staging, "dbfile").apply { writeText("NEWDB") }
-        // fileCount: vault file + dbfile = 2 (metadata written after conceptual count)
         val meta = ArchiveMetadata(
             version = 1,
             timestamp = 1L,
