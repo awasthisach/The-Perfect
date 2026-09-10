@@ -2,6 +2,7 @@ package com.vvf.smartmanager.core.data.repository
 
 import android.content.Context
 import com.vvf.smartmanager.core.data.SearchRepository
+import com.vvf.smartmanager.core.data.search.EncryptedSearchHistoryStore
 import com.vvf.smartmanager.core.data.storage.StorageManager
 import com.vvf.smartmanager.core.database.dao.FileDao
 import com.vvf.smartmanager.core.database.dao.SearchFtsDao
@@ -14,6 +15,7 @@ import com.vvf.smartmanager.core.model.SearchFilter
 import com.vvf.smartmanager.core.model.SearchMatchType
 import com.vvf.smartmanager.core.model.SearchResultItem
 import com.vvf.smartmanager.core.model.SizeFilter
+import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,20 +32,29 @@ class OfflineSearchRepository(
     private val context: Context,
     private val searchFtsDao: SearchFtsDao,
     private val fileDao: FileDao,
-    private val storageManager: StorageManager
+    private val storageManager: StorageManager,
+    cryptoSecurityManager: CryptoSecurityManager? = null
 ) : SearchRepository {
 
-    private val prefs = context.getSharedPreferences("vvf_search_history_prefs", Context.MODE_PRIVATE)
-    private val _historyFlow = MutableStateFlow<List<String>>(loadHistoryFromPrefs())
+    private val historyStore: EncryptedSearchHistoryStore? =
+        cryptoSecurityManager?.let { EncryptedSearchHistoryStore(context, it) }
 
-    private fun loadHistoryFromPrefs(): List<String> {
-        val raw = prefs.getString("history_items", "") ?: ""
+    private val plainPrefs = context.getSharedPreferences("vvf_search_history_prefs", Context.MODE_PRIVATE)
+    private val _historyFlow = MutableStateFlow(loadHistory())
+
+    private fun loadHistory(): List<String> {
+        historyStore?.let { return it.load() }
+        val raw = plainPrefs.getString("history_items", "") ?: ""
         return if (raw.isBlank()) emptyList() else raw.split("\u001F").filter { it.isNotBlank() }
     }
 
-    private fun saveHistoryToPrefs(history: List<String>) {
-        val raw = history.joinToString("\u001F")
-        prefs.edit().putString("history_items", raw).apply()
+    private fun saveHistory(history: List<String>) {
+        val store = historyStore
+        if (store != null) {
+            store.save(history)
+        } else {
+            plainPrefs.edit().putString("history_items", history.joinToString("\u001F")).apply()
+        }
         _historyFlow.value = history
     }
 
@@ -55,17 +66,17 @@ class OfflineSearchRepository(
         val current = _historyFlow.value.toMutableList()
         current.remove(clean)
         current.add(0, clean)
-        saveHistoryToPrefs(current.take(25))
+        saveHistory(current.take(25))
     }
 
     override suspend fun deleteSearchHistoryItem(query: String) = withContext(Dispatchers.IO) {
         val current = _historyFlow.value.toMutableList()
         current.remove(query.trim())
-        saveHistoryToPrefs(current)
+        saveHistory(current)
     }
 
     override suspend fun clearSearchHistory() = withContext(Dispatchers.IO) {
-        saveHistoryToPrefs(emptyList())
+        saveHistory(emptyList())
     }
 
     override fun getAvailableTags(): Flow<List<String>> {

@@ -61,13 +61,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.io.File
 
-/**
- * Application entry + composition root.
- *
- * Implements [Configuration.Provider] so WorkManager is initialized in the **same process**
- * as this Application. That keeps FileIndexingRuntime / CloudBackup / Junk / OCR bridges valid
- * without a separate `:work` process (which would break static runtime wiring).
- */
 class VVFApplication : Application(), Configuration.Provider {
 
     companion object {
@@ -159,7 +152,8 @@ class VVFApplication : Application(), Configuration.Provider {
             context = this,
             searchFtsDao = database.searchFtsDao(),
             fileDao = database.fileDao(),
-            storageManager = storageManager
+            storageManager = storageManager,
+            cryptoSecurityManager = cryptoSecurityManager
         )
         ocrPlugin = OcrPluginImpl(this)
         getStorageOverviewUseCase = GetStorageOverviewUseCase(fileManagerRepository)
