@@ -45,7 +45,8 @@ object AppCompositionRoot {
         archiveService: ArchiveService,
         cryptoSecurityManager: CryptoSecurityManager,
         vaultDir: File,
-        databaseName: String
+        databaseName: String,
+        beforeRestoreApply: (() -> Unit)? = null
     ): CloudSyncUseCase {
         val restoreWorkingDir = File(context.cacheDir, "restore-work")
         val restorePipeline = FailClosedRestorePipeline(
@@ -60,7 +61,8 @@ object AppCompositionRoot {
                 liveDatabaseFile = File(context.filesDir, databaseName),
                 liveVaultDir = vaultDir,
                 snapshotRoot = File(restoreWorkingDir, "snapshots"),
-                vaultAuthImporter = { meta -> cryptoSecurityManager.importVaultAuthMetadata(meta) }
+                vaultAuthImporter = { meta -> cryptoSecurityManager.importVaultAuthMetadata(meta) },
+                beforeApply = beforeRestoreApply
             )
         )
         return CloudSyncUseCase(
