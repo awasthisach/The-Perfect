@@ -12,7 +12,6 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  # Main: serialize (preserve full-green evidence). PR: cancel stale runs.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -82,9 +81,7 @@ jobs:
         run: ./gradlew --no-daemon lintDebug --stacktrace
       - name: Assemble debug APK
         run: ./gradlew --no-daemon assembleDebug --stacktrace
-      # Instrumented SQLCipher gate is important but GH-hosted emulator boots are
-      # flaky (exit 224 / timeout). Unit + lint + assemble remain hard-required.
-      # Emulator failure must not block mainline merges; diagnostics still upload.
+      # Emulator boot remains soft (GH-hosted infra flake). Once booted, instrumented tests are HARD.
       - name: Start Android emulator
         id: emulator
         continue-on-error: true
@@ -109,7 +106,6 @@ jobs:
             -wipe-data \
             > "$RUNNER_TEMP/emulator.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/emulator.pid"
-          # Fail closed within step budget rather than hanging 20 minutes
           if ! timeout 180 adb wait-for-device; then
             echo "::warning::adb wait-for-device timed out"
             tail -n 80 "$RUNNER_TEMP/emulator.log" || true
@@ -133,14 +129,13 @@ jobs:
           adb devices
           echo "booted=true" >> "$GITHUB_OUTPUT"
           echo "emulator_outcome=success" > "$GITHUB_WORKSPACE/.emulator-booted"
-      - name: Annotate SQLCipher instrumented skip (no false silence)
+      - name: Annotate SQLCipher instrumented skip (emulator infra flake)
         if: ${{ steps.emulator.outcome != 'success' }}
         run: |
-          echo "::warning::GATE-DB-001 emulator did not boot — SQLCipher instrumented tests SKIPPED (job stays green by design). Compensate with weekly-instrumented hard gate."
+          echo "::warning::GATE-DB-001 emulator did not boot — SQLCipher instrumented SKIPPED (soft). Weekly instrumented workflow remains the hard DB gate when infra flakes."
       - name: Run SQLCipher compatibility instrumentation test
         id: sqlcipher_instrumented
         if: ${{ steps.emulator.outcome == 'success' }}
-        continue-on-error: true
         run: ./gradlew --no-daemon :core:database-compat:connectedDebugAndroidTest --stacktrace
       - name: Generate CPAS evidence including DB instrumented gate
         if: ${{ steps.emulator.outcome == 'success' && steps.sqlcipher_instrumented.outcome == 'success' }}
@@ -154,8 +149,6 @@ jobs:
             --include-db \
             --environment "github-actions-API35-emulator" \
             --output docs/assurance/cpas-evidence-full.json
-      # File only exists when emulator+instrumented both green (advisory path).
-      # Missing file must not fail the job after intentional emulator continue-on-error.
       - name: Upload full CPAS evidence bundle
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -164,6 +157,18 @@ jobs:
           path: docs/assurance/cpas-evidence-full.json
           if-no-files-found: ignore
           retention-days: 30
+      - name: Publish gate summary
+        if: always()
+        run: |
+          echo "## CI gate policy" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Gate | Policy |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Unit tests / lint / assemble | HARD — must pass |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Emulator boot | SOFT — infra flake tolerated |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| SQLCipher instrumented (after boot) | HARD — failure fails the job |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| FOSSA outdated-deps test | ADVISORY — analyze is hard on main |" >> "$GITHUB_STEP_SUMMARY"
+          echo "Emulator outcome: ${{ steps.emulator.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Instrumented outcome: ${{ steps.sqlcipher_instrumented.outcome }}" >> "$GITHUB_STEP_SUMMARY"
       - name: Collect Android emulator diagnostics
         if: failure()
         timeout-minutes: 2
@@ -171,7 +176,7 @@ jobs:
           set +e
           export PATH="$ANDROID_HOME/platform-tools:$PATH"
           if ! timeout 10 adb devices 2>/dev/null | grep -qE 'device$'; then
-            echo "No adb device present (emulator never started or already gone). Skipping diagnostics."
+            echo "No adb device present. Skipping diagnostics."
             echo "unit-test or earlier step failed before emulator boot." > "$RUNNER_TEMP/emulator-logcat.txt" || true
             exit 0
           fi
@@ -282,7 +287,6 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
           fossa --version
 
-      # Hard gate: inventory upload must succeed (auth + project link).
       - name: FOSSA analyze (upload inventory)
         id: fossa_analyze
         if: ${{ env.FOSSA_ENABLED == 'true' }}
@@ -292,8 +296,6 @@ jobs:
           set -euo pipefail
           fossa analyze --project "The-Perfect" --revision "${{ github.sha }}"
 
-      # Soft check: FOSSA UI shows license+security PASS; fossa test often fails
-      # only on "outdated dependency" issues (quality debt, not license violations).
       - name: FOSSA test (advisory — outdated deps do not fail license gate)
         id: fossa_test
         if: ${{ env.FOSSA_ENABLED == 'true' && success() }}
@@ -316,7 +318,7 @@ jobs:
               REASON="fossa analyze + fossa test succeeded"
             else
               STATUS="PASS"
-              REASON="fossa analyze succeeded; fossa test advisory fail (likely outdated deps — FOSSA UI license/security already passing)"
+              REASON="fossa analyze succeeded; fossa test advisory fail (likely outdated deps)"
               echo "::warning::fossa test advisory fail (outdated deps). GATE-LICENSE-001 still PASS on analyze."
             fi
           else
@@ -330,17 +332,16 @@ jobs:
             "reason": "$REASON",
             "analyze_outcome": "$ANALYZE",
             "test_outcome": "$TEST",
-            "policy": "License gate requires analyze PASS; outdated-dep issues are tracked in FOSSA UI, not hard CI fail"
+            "policy": "License gate requires analyze PASS; outdated-dep issues tracked in FOSSA UI"
           }
           EOF
           cat foss-status.json
-          # Hard-fail only on main pushes; PRs record status without blocking merge noise.
           if [ "$STATUS" != "PASS" ]; then
             if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
               echo "::error::GATE-LICENSE-001 FAIL on main"
               exit 1
             fi
-            echo "::warning::GATE-LICENSE-001 status=$STATUS (non-main — advisory for this event)"
+            echo "::warning::GATE-LICENSE-001 status=$STATUS (non-main — advisory)"
           fi
 
       - name: Upload FOSSA gate status
