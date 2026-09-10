@@ -13,13 +13,15 @@ on:
           - xhigh
           - max
   push:
+    branches: ["main", "ci/astra-benchmark"]
+  pull_request:
     branches: ["main"]
 
 permissions:
   contents: read
 
 concurrency:
-  group: astra-benchmark-${{ github.ref }}
+  group: astra-benchmark-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -147,8 +149,6 @@ The attached file is a bounded evidence bundle generated from the exact GitHub c
 
 Do not assume previous audit claims are correct. Independently verify them from evidence.
 
-Recent history includes major changes around Google Sign-In error handling/stable debug SHA-1, file opening and dual Latin+Devanagari OCR, removable SD roots, semantic search UI and Devanagari-safe FTS, no-reflection biometric changes, OCR content:// indexing, settings persistence, durable cloud IDs/cloud backup runtime, WorkManager bridges, and CI supply-chain/CPAS hardening. Audit CURRENT code, not commit messages.
-
 Required:
 1. Reverse-engineer architecture and major user journeys.
 2. Find material correctness, security, data-integrity, lifecycle/concurrency, cloud-sync, storage, OCR/search, UX, dependency, Gradle and CI/CD defects.
@@ -170,7 +170,7 @@ Do not declare production readiness merely because compilation succeeds.'''
               max_output_tokens=30000,
           )
           Path('astra-report.md').write_text(response.output_text, encoding='utf-8')
-          Path('astra-response-meta.txt').write_text(f'response_id={response.id}\nmodel={response.model}\ncommit={os.environ["GITHUB_SHA"]}\nrun_id={os.environ["GITHUB_RUN_ID"]}\nfile_id={uploaded.id}\n', encoding='utf-8')
+          Path('astra-response-meta.txt').write_text(f'response_id={response.id}\nmodel={response.model}\ncommit={os.environ["GITHUB_SHA"]}\nrun_id={os.environ["GITHUB_RUN_ID"]}\n', encoding='utf-8')
           print(response.output_text)
           try: client.files.delete(uploaded.id)
           except Exception as exc: print(f'Warning: temporary OpenAI file cleanup failed: {exc}')
