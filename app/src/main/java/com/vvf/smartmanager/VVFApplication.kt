@@ -7,6 +7,7 @@ import com.vvf.smartmanager.core.background.workers.FileIndexingOutcome
 import com.vvf.smartmanager.core.background.workers.FileIndexingRuntime
 import com.vvf.smartmanager.core.background.workers.CloudBackupBootstrap
 import com.vvf.smartmanager.core.background.workers.JunkScanBootstrap
+import com.vvf.smartmanager.core.background.workers.OcrBatchBootstrap
 import com.vvf.smartmanager.core.background.BackgroundSyncManager
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveServiceImpl
@@ -228,7 +229,18 @@ class VVFApplication : Application(), Configuration.Provider {
             archiveService = archiveService,
             cryptoSecurityManager = cryptoSecurityManager,
             vaultDir = vaultDir,
-            databaseName = VVFDatabase.DATABASE_NAME
+            databaseName = VVFDatabase.DATABASE_NAME,
+            beforeRestoreApply = {
+                // Phase-1: release SQLCipher handles before live file swap
+                runCatching {
+                    if (::database.isInitialized) {
+                        database.close()
+                        Log.i(TAG, "Closed Room database before restore apply")
+                    }
+                }.onFailure { err ->
+                    Log.w(TAG, "Room close before restore failed (continuing)", err)
+                }
+            }
         )
         backgroundSyncManager = BackgroundSyncManager(this)
         FileIndexingRuntime.configure { indexPrimaryStorageForSearch() }
