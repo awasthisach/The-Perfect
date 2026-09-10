@@ -86,7 +86,6 @@ class OfflineSearchRepository(
                 existingTags.add(cleanTag)
                 searchFtsDao.updateTagsByPath(path, existingTags.joinToString(","))
             } else {
-                // Picked documents (content://) may not be in file_metadata yet.
                 val name = path.substringAfterLast('/').ifEmpty { "document" }
                 val parent = when {
                     path.startsWith("content://") -> "content://"

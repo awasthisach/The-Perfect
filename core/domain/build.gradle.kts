@@ -21,6 +21,7 @@ android {
 
 dependencies {
   api(project(":core:data"))
+  api(project(":core:database"))
   api(project(":core:model"))
   api(project(":core:plugin-spi"))
   api(project(":core:cloud-gdrive"))

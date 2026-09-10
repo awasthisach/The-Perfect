@@ -21,6 +21,9 @@ import java.util.TimeZone
  *
  * Production path: call [setAccessToken] after OAuth / Credential Manager, then use list/upload/download.
  * Without a token, operations fail with a clear error (no simulated cloud data).
+ *
+ * Access tokens typically expire in ~1 hour. This client tracks issue time and fails closed with a
+ * re-auth message when the token is likely expired. True refresh-token rotation needs an auth code flow.
  */
 class GoogleDriveServiceImpl(
     private val context: Context,
@@ -29,6 +32,9 @@ class GoogleDriveServiceImpl(
 
     @Volatile
     private var accessToken: String? = null
+
+    @Volatile
+    private var tokenIssuedAtMs: Long = 0L
 
     private var currentAccount: CloudAccount = CloudAccount(
         providerType = CloudProviderType.GOOGLE_DRIVE,
@@ -41,6 +47,7 @@ class GoogleDriveServiceImpl(
 
     override fun setAccessToken(token: String?) {
         accessToken = token
+        tokenIssuedAtMs = if (token.isNullOrBlank()) 0L else System.currentTimeMillis()
         DriveNetwork.setDefaultAccessToken(token)
         if (token.isNullOrBlank()) {
             currentAccount = currentAccount.copy(
@@ -56,6 +63,12 @@ class GoogleDriveServiceImpl(
         if (t.isNullOrBlank()) {
             throw IllegalStateException(
                 "Google Drive not authenticated. Complete OAuth / Credential Manager and call setAccessToken()."
+            )
+        }
+        val ageMs = System.currentTimeMillis() - tokenIssuedAtMs
+        if (tokenIssuedAtMs > 0L && ageMs > 55L * 60L * 1000L) {
+            throw IllegalStateException(
+                "Google Drive access token is likely expired (age=${ageMs / 1000}s). Please sign in again."
             )
         }
         return "Bearer $t"

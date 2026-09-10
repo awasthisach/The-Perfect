@@ -14,14 +14,13 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.sqrt
 
 /**
- * Production-ready on-device TFLite-compatible Semantic Embedding and Vector Search Plugin.
- * Implements high-dimensional semantic hashing, cosine distance ranking,
- * and in-memory LRU embedding cache for sub-millisecond query responses.
+ * On-device hashed 128-d embeddings for lightweight semantic-style ranking.
+ * (Deterministic hashing — not a TFLite neural net.)
  */
 class SemanticSearchPluginImpl : SemanticSearchSPI {
 
     @Volatile
-    private var isModelDownloaded: Boolean = true // Pre-initialized in app build or dynamic plugin package
+    private var isModelDownloaded: Boolean = true
 
     private val embeddingDimension: Int = 128
     private val embeddingCache = ConcurrentHashMap<String, FloatArray>()
@@ -37,11 +36,6 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
         true
     }
 
-    /**
-     * Generates a 128-dimensional normalized semantic vector embedding from text.
-     * Uses deterministic bag-of-subwords n-gram projection with semantic hashing
-     * to capture conceptual similarities (e.g. "bill", "invoice", "receipt", "payment").
-     */
     override suspend fun generateEmbedding(text: String): FloatArray = withContext(Dispatchers.Default) {
         val cleanText = text.lowercase().trim()
         if (cleanText.isEmpty()) {
@@ -57,16 +51,14 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
             return@withContext vector
         }
 
-        // Semantic synonym projection table for common file management concepts
         for (token in tokens) {
             val tokenHash = token.hashCode()
-            val primaryBucket = kotlin.math.abs(tokenHash % embeddingDimension)
-            val secondaryBucket = kotlin.math.abs((tokenHash * 31) % embeddingDimension)
+            val primaryBucket = safeBucket(tokenHash)
+            val secondaryBucket = safeBucket(tokenHash * 31)
 
             vector[primaryBucket] += 1.0f
             vector[secondaryBucket] += 0.5f
 
-            // Conceptual associations
             when {
                 token in listOf("invoice", "bill", "receipt", "payment", "tax", "gst", "challan") -> {
                     vector[10 % embeddingDimension] += 2.0f
@@ -95,7 +87,6 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
             }
         }
 
-        // Normalize vector: L2 Norm
         var sumSquares = 0.0
         for (v in vector) {
             sumSquares += (v * v)
@@ -111,9 +102,12 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
         vector
     }
 
-    /**
-     * Searches candidates with Cosine Similarity above the given threshold (default 70%).
-     */
+    /** Fold away the sign bit so Int.MIN_VALUE / negative remainders never index the vector. */
+    private fun safeBucket(hash: Int): Int {
+        val normalized = hash and Int.MAX_VALUE
+        return normalized % embeddingDimension
+    }
+
     override suspend fun searchSimilar(
         query: String,
         candidates: List<SemanticCandidate>,
@@ -141,15 +135,9 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
             }
         }
 
-        // Sort descending by similarity score and take maxResults
         results.sortedByDescending { it.similarityScore }.take(options.maxResults)
     }
 
-    /**
-     * Standard Cosine Similarity formula:
-     * similarity = dot(A, B) / (||A|| * ||B||)
-     * (Vectors are already L2 normalized, so dot product equals cosine similarity)
-     */
     override fun computeCosineSimilarity(vectorA: FloatArray, vectorB: FloatArray): Float {
         if (vectorA.size != vectorB.size || vectorA.isEmpty()) return 0f
         var dotProduct = 0f
@@ -159,10 +147,6 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
         return dotProduct.coerceIn(0f, 1f)
     }
 
-    /**
-     * Detects near-duplicate clusters among candidate files using pairwise vector cosine similarity
-     * with the specified threshold (e.g. 0.70f to 0.95f).
-     */
     override suspend fun findNearDuplicates(
         candidates: List<SemanticCandidate>,
         similarityThreshold: Float
@@ -170,8 +154,7 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
         if (candidates.size < 2) return@withContext emptyList()
 
         val validThreshold = similarityThreshold.coerceIn(0.70f, 0.95f)
-        
-        // 1. Precompute or retrieve embeddings
+
         val candidateWithEmbeddings = candidates.map { candidate ->
             val emb = candidate.embedding ?: generateEmbedding(candidate.textContent)
             candidate.copy(embedding = emb)
@@ -205,7 +188,6 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
             if (similarFiles.isNotEmpty()) {
                 visited.add(base.fileItem.path)
                 val avgScore = similaritySum / similarFiles.size
-                // Audit Fix (H-04): Do not pre-select any files. AI similarity is only a recommendation.
                 val allSorted = (listOf(base.fileItem) + similarFiles).sortedBy { it.lastModified }
                 val defaultSelected = emptySet<String>()
 
@@ -224,9 +206,6 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
         clusters.sortedByDescending { it.averageSimilarity }
     }
 
-    /**
-     * Suggests conceptual tags and categories for a candidate based on on-device semantic projection.
-     */
     override suspend fun suggestTags(candidate: SemanticCandidate): List<AiSuggestedTag> = withContext(Dispatchers.Default) {
         val cleanText = candidate.textContent.lowercase()
         val tags = mutableListOf<AiSuggestedTag>()
@@ -275,7 +254,6 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
             }
         }
 
-        // If no direct keyword match, suggest tags based on file extension
         if (tags.isEmpty()) {
             val ext = candidate.fileItem.extension
             when (ext) {

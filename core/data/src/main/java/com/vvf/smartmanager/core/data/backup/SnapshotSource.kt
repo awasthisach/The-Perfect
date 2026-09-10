@@ -14,22 +14,31 @@ interface SnapshotSource {
 }
 
 /**
- * Creates a consistent-enough file snapshot without opening or closing Room/SQLite.
- * SQLite sidecar files are copied when present so WAL-mode changes are retained.
+ * File snapshot of a SQLCipher/SQLite database including WAL/SHM sidecars.
+ *
+ * Prefer providing [beforeSnapshot] to close Room briefly so the copy is not torn
+ * by concurrent writers. [afterSnapshot] can reopen / resume work.
  */
 class ReadOnlyDatabaseSnapshotSource(
-    private val databaseFile: File
+    private val databaseFile: File,
+    private val beforeSnapshot: (() -> Unit)? = null,
+    private val afterSnapshot: (() -> Unit)? = null
 ) : SnapshotSource {
     override val sourceName: String = "database"
 
     override fun snapshot(stagingDir: File): File? {
         if (!databaseFile.isFile) return null
         return runCatching {
-            val target = File(stagingDir, databaseFile.name)
-            databaseFile.copyTo(target, overwrite = true)
-            copyIfPresent(File(databaseFile.path + "-wal"), File(target.path + "-wal"))
-            copyIfPresent(File(databaseFile.path + "-shm"), File(target.path + "-shm"))
-            target
+            beforeSnapshot?.invoke()
+            try {
+                val target = File(stagingDir, databaseFile.name)
+                databaseFile.copyTo(target, overwrite = true)
+                copyIfPresent(File(databaseFile.path + "-wal"), File(target.path + "-wal"))
+                copyIfPresent(File(databaseFile.path + "-shm"), File(target.path + "-shm"))
+                target
+            } finally {
+                afterSnapshot?.invoke()
+            }
         }.getOrNull()
     }
 

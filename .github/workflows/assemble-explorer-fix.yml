@@ -1,33 +1,11 @@
-name: assemble-explorer-fix
+# Retired one-shot assembler for a deleted fix branch. Dispatch-only to avoid push noise.
+name: assemble-explorer-fix (retired)
+
 on:
-  push:
-    paths:
-      - "tools/assemble-explorer/**"
-    branches:
-      - "fix/file-open-ocr-sdcard"
   workflow_dispatch:
+
 jobs:
-  assemble:
+  retired:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: fix/file-open-ocr-sdcard
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Assemble explorer sources from known-good commits
-        run: python3 tools/assemble-explorer/assemble.py
-      - name: Commit restored sources
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add feature/explorer/src/main/java/com/vvf/smartmanager/feature/explorer/ExplorerViewModel.kt \
-                  feature/explorer/src/main/java/com/vvf/smartmanager/feature/explorer/components/ExplorerDialogs.kt \
-                  feature/explorer/src/main/java/com/vvf/smartmanager/feature/explorer/ExplorerScreen.kt
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "fix(explorer): restore Screen/VM/Dialogs + OCR Open EN+HI wiring"
-            git push origin HEAD:fix/file-open-ocr-sdcard
-          fi
+      - run: echo "Retired — sources already restored on main."

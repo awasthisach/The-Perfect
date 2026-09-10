@@ -10,6 +10,9 @@ import java.io.File
 
 /**
  * Opens a local file with the system viewer via FileProvider + ACTION_VIEW.
+ *
+ * Files outside the app cache/files trees are copied into cache first so FileProvider
+ * never needs a <root-path> entry (Phase-1 FILEPROVIDER-PATH-TRAVERSAL fix).
  */
 object FileOpenHelper {
 
@@ -20,11 +23,13 @@ object FileOpenHelper {
             return "File not found or unreadable"
         }
         return try {
+            val shareable = ensureShareableFile(context, file)
+                ?: return "Unable to stage file for secure sharing"
             val authority = "${context.packageName}.fileprovider"
-            val uri = FileProvider.getUriForFile(context, authority, file)
+            val uri = FileProvider.getUriForFile(context, authority, shareable)
             val mime = item.mimeType
                 ?: MimeTypeMap.getSingleton()
-                    .getMimeTypeFromExtension(file.extension.lowercase())
+                    .getMimeTypeFromExtension(shareable.extension.lowercase())
                 ?: "*/*"
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, mime)
@@ -38,5 +43,31 @@ object FileOpenHelper {
         } catch (e: Exception) {
             e.localizedMessage ?: "Failed to open file"
         }
+    }
+
+    /**
+     * Returns a file under cacheDir or filesDir suitable for FileProvider.
+     * Copies external/user storage paths into cache/shared-open/.
+     */
+    internal fun ensureShareableFile(context: Context, file: File): File? {
+        val canonical = runCatching { file.canonicalFile }.getOrElse { return null }
+        val allowedRoots = buildList {
+            add(context.cacheDir)
+            add(context.filesDir)
+            context.getExternalFilesDir(null)?.let { add(it) }
+            context.externalCacheDir?.let { add(it) }
+        }.mapNotNull { runCatching { it.canonicalFile }.getOrNull() }
+
+        val alreadyAllowed = allowedRoots.any { root ->
+            canonical.path == root.path || canonical.path.startsWith(root.path + File.separator)
+        }
+        if (alreadyAllowed) return canonical
+
+        val shareDir = File(context.cacheDir, "shared-open").apply { mkdirs() }
+        val dest = File(shareDir, canonical.name)
+        return runCatching {
+            canonical.copyTo(dest, overwrite = true)
+            dest
+        }.getOrNull()
     }
 }

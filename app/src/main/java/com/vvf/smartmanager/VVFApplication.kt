@@ -74,10 +74,6 @@ class VVFApplication : Application(), Configuration.Provider {
         private const val TAG = "VVFApplication"
     }
 
-    /**
-     * WorkManager must run in the default app process so the in-process indexer/runtime
-     * bridges configured in [onCreate] remain visible to workers.
-     */
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
             .setMinimumLoggingLevel(Log.INFO)
@@ -118,10 +114,6 @@ class VVFApplication : Application(), Configuration.Provider {
     lateinit var ocrPlugin: OcrPluginImpl
     lateinit var semanticSearchPlugin: ISemanticSearchEngine
 
-    /**
-     * Survives Activity recreation during Google sign-in.
-     * MainActivity registers the Activity Result launcher; this holds the continuation.
-     */
     @Volatile
     var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
 
@@ -216,7 +208,17 @@ class VVFApplication : Application(), Configuration.Provider {
         val archiveService = ArchiveService(
             cacheDir = cacheDir,
             snapshotSources = listOf(
-                ReadOnlyDatabaseSnapshotSource(File(filesDir, VVFDatabase.DATABASE_NAME)),
+                ReadOnlyDatabaseSnapshotSource(
+                    databaseFile = File(filesDir, VVFDatabase.DATABASE_NAME),
+                    beforeSnapshot = {
+                        runCatching {
+                            if (::database.isInitialized) {
+                                database.close()
+                                Log.i(TAG, "Closed Room before backup DB snapshot")
+                            }
+                        }
+                    }
+                ),
                 InjectedVaultSnapshotSource(vaultDir)
             ),
             cryptoSecurityManager = cryptoSecurityManager
@@ -228,7 +230,18 @@ class VVFApplication : Application(), Configuration.Provider {
             archiveService = archiveService,
             cryptoSecurityManager = cryptoSecurityManager,
             vaultDir = vaultDir,
-            databaseName = VVFDatabase.DATABASE_NAME
+            databaseName = VVFDatabase.DATABASE_NAME,
+            beforeRestoreApply = {
+                runCatching {
+                    if (::database.isInitialized) {
+                        database.close()
+                        Log.i(TAG, "Closed Room database before restore apply")
+                    }
+                }.onFailure { err ->
+                    Log.w(TAG, "Room close before restore failed (continuing)", err)
+                }
+            },
+            cloudSyncDao = database.cloudSyncDao()
         )
         backgroundSyncManager = BackgroundSyncManager(this)
         FileIndexingRuntime.configure { indexPrimaryStorageForSearch() }

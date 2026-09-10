@@ -5,6 +5,7 @@ import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
 import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
 import com.vvf.smartmanager.core.data.repository.OfflineFileManagerRepository
 import com.vvf.smartmanager.core.data.storage.StorageManager
+import com.vvf.smartmanager.core.database.dao.CloudSyncDao
 import com.vvf.smartmanager.core.database.dao.FileDao
 import com.vvf.smartmanager.core.database.dao.SearchFtsDao
 import com.vvf.smartmanager.core.domain.CloudSyncUseCase
@@ -45,7 +46,9 @@ object AppCompositionRoot {
         archiveService: ArchiveService,
         cryptoSecurityManager: CryptoSecurityManager,
         vaultDir: File,
-        databaseName: String
+        databaseName: String,
+        beforeRestoreApply: (() -> Unit)? = null,
+        cloudSyncDao: CloudSyncDao? = null
     ): CloudSyncUseCase {
         val restoreWorkingDir = File(context.cacheDir, "restore-work")
         val restorePipeline = FailClosedRestorePipeline(
@@ -60,14 +63,16 @@ object AppCompositionRoot {
                 liveDatabaseFile = File(context.filesDir, databaseName),
                 liveVaultDir = vaultDir,
                 snapshotRoot = File(restoreWorkingDir, "snapshots"),
-                vaultAuthImporter = { meta -> cryptoSecurityManager.importVaultAuthMetadata(meta) }
+                vaultAuthImporter = { meta -> cryptoSecurityManager.importVaultAuthMetadata(meta) },
+                beforeApply = beforeRestoreApply
             )
         )
         return CloudSyncUseCase(
             googleDriveService = googleDriveService,
             pluginDrivers = pluginDrivers,
             archiveService = archiveService,
-            restorePipeline = restorePipeline
+            restorePipeline = restorePipeline,
+            cloudSyncDao = cloudSyncDao
         )
     }
 }
