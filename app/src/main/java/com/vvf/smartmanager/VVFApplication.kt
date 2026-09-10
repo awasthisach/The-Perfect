@@ -240,7 +240,8 @@ class VVFApplication : Application(), Configuration.Provider {
                 }.onFailure { err ->
                     Log.w(TAG, "Room close before restore failed (continuing)", err)
                 }
-            }
+            },
+            cloudSyncDao = database.cloudSyncDao()
         )
         backgroundSyncManager = BackgroundSyncManager(this)
         FileIndexingRuntime.configure { indexPrimaryStorageForSearch() }
