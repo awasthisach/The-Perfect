@@ -7,7 +7,6 @@ import com.vvf.smartmanager.core.background.workers.FileIndexingOutcome
 import com.vvf.smartmanager.core.background.workers.FileIndexingRuntime
 import com.vvf.smartmanager.core.background.workers.CloudBackupBootstrap
 import com.vvf.smartmanager.core.background.workers.JunkScanBootstrap
-import com.vvf.smartmanager.core.background.workers.OcrBatchBootstrap
 import com.vvf.smartmanager.core.background.BackgroundSyncManager
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveServiceImpl
@@ -75,10 +74,6 @@ class VVFApplication : Application(), Configuration.Provider {
         private const val TAG = "VVFApplication"
     }
 
-    /**
-     * WorkManager must run in the default app process so the in-process indexer/runtime
-     * bridges configured in [onCreate] remain visible to workers.
-     */
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
             .setMinimumLoggingLevel(Log.INFO)
@@ -119,10 +114,6 @@ class VVFApplication : Application(), Configuration.Provider {
     lateinit var ocrPlugin: OcrPluginImpl
     lateinit var semanticSearchPlugin: ISemanticSearchEngine
 
-    /**
-     * Survives Activity recreation during Google sign-in.
-     * MainActivity registers the Activity Result launcher; this holds the continuation.
-     */
     @Volatile
     var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
 
@@ -217,7 +208,17 @@ class VVFApplication : Application(), Configuration.Provider {
         val archiveService = ArchiveService(
             cacheDir = cacheDir,
             snapshotSources = listOf(
-                ReadOnlyDatabaseSnapshotSource(File(filesDir, VVFDatabase.DATABASE_NAME)),
+                ReadOnlyDatabaseSnapshotSource(
+                    databaseFile = File(filesDir, VVFDatabase.DATABASE_NAME),
+                    beforeSnapshot = {
+                        runCatching {
+                            if (::database.isInitialized) {
+                                database.close()
+                                Log.i(TAG, "Closed Room before backup DB snapshot")
+                            }
+                        }
+                    }
+                ),
                 InjectedVaultSnapshotSource(vaultDir)
             ),
             cryptoSecurityManager = cryptoSecurityManager
@@ -231,7 +232,6 @@ class VVFApplication : Application(), Configuration.Provider {
             vaultDir = vaultDir,
             databaseName = VVFDatabase.DATABASE_NAME,
             beforeRestoreApply = {
-                // Phase-1: release SQLCipher handles before live file swap
                 runCatching {
                     if (::database.isInitialized) {
                         database.close()
