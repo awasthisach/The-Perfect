@@ -60,7 +60,7 @@ object AppCompositionRoot {
             verifier = Sha256BackupVerifier(),
             decryptor = CryptoBackupDecryptor(cryptoSecurityManager),
             applier = LocalRestoreApplier(
-                liveDatabaseFile = File(context.filesDir, databaseName),
+                liveDatabaseFile = context.getDatabasePath(databaseName),
                 liveVaultDir = vaultDir,
                 snapshotRoot = File(restoreWorkingDir, "snapshots"),
                 vaultAuthImporter = { meta -> cryptoSecurityManager.importVaultAuthMetadata(meta) },
