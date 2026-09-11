@@ -16,8 +16,8 @@ interface SnapshotSource {
 /**
  * File snapshot of a SQLCipher/SQLite database including WAL/SHM sidecars.
  *
- * Prefer providing [beforeSnapshot] to close Room briefly so the copy is not torn
- * by concurrent writers. [afterSnapshot] can reopen / resume work.
+ * Prefer providing [beforeSnapshot] to checkpoint writers so the copy is not torn.
+ * Avoid permanently closing Room unless [afterSnapshot] reopens it.
  */
 class ReadOnlyDatabaseSnapshotSource(
     private val databaseFile: File,
@@ -27,14 +27,14 @@ class ReadOnlyDatabaseSnapshotSource(
     override val sourceName: String = "database"
 
     override fun snapshot(stagingDir: File): File? {
-        if (!databaseFile.isFile) return null
+        val source = resolveExistingDatabaseFile() ?: return null
         return runCatching {
             beforeSnapshot?.invoke()
             try {
-                val target = File(stagingDir, databaseFile.name)
-                databaseFile.copyTo(target, overwrite = true)
-                copyIfPresent(File(databaseFile.path + "-wal"), File(target.path + "-wal"))
-                copyIfPresent(File(databaseFile.path + "-shm"), File(target.path + "-shm"))
+                val target = File(stagingDir, source.name)
+                source.copyTo(target, overwrite = true)
+                copyIfPresent(File(source.path + "-wal"), File(target.path + "-wal"))
+                copyIfPresent(File(source.path + "-shm"), File(target.path + "-shm"))
                 target
             } finally {
                 afterSnapshot?.invoke()
@@ -42,7 +42,23 @@ class ReadOnlyDatabaseSnapshotSource(
         }.getOrNull()
     }
 
-    override fun dataSizeBytes(): Long = totalSize(databaseFile, "-wal", "-shm")
+    /** Prefer the configured path; fall back to sibling common Room locations. */
+    private fun resolveExistingDatabaseFile(): File? {
+        if (databaseFile.isFile) return databaseFile
+        val parent = databaseFile.parentFile ?: return null
+        val candidates = listOf(
+            databaseFile,
+            File(parent, databaseFile.name),
+            File(File(parent.parentFile, "databases"), databaseFile.name),
+            File(File(parent, "databases"), databaseFile.name)
+        )
+        return candidates.firstOrNull { it.isFile }
+    }
+
+    override fun dataSizeBytes(): Long {
+        val source = resolveExistingDatabaseFile() ?: return 0L
+        return totalSize(source, "-wal", "-shm")
+    }
 
     private fun copyIfPresent(source: File, target: File) {
         if (source.isFile) source.copyTo(target, overwrite = true)
@@ -72,16 +88,19 @@ class InjectedVaultSnapshotSource(
         }.getOrNull()
     }
 
-    override fun dataSizeBytes(): Long = vaultDirectory.walkTopDown()
-        .filter { it.isFile }
-        .sumOf { it.length() }
+    override fun dataSizeBytes(): Long {
+        if (!vaultDirectory.isDirectory) return 0L
+        return vaultDirectory.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+    }
 
     private fun copyDirectory(source: File, target: File) {
-        require(source.canonicalFile != target.canonicalFile) { "Cannot copy a directory into itself" }
-        source.walkTopDown().forEach { file ->
-            val relative = file.relativeTo(source)
-            val destination = if (relative.path.isEmpty()) target else File(target, relative.path)
-            if (file.isDirectory) destination.mkdirs() else file.copyTo(destination, overwrite = true)
+        if (!target.exists() && !target.mkdirs()) {
+            error("Unable to create vault staging directory: ${target.absolutePath}")
+        }
+        source.listFiles()?.forEach { child ->
+            val out = File(target, child.name)
+            if (child.isDirectory) copyDirectory(child, out)
+            else child.copyTo(out, overwrite = true)
         }
     }
 }
