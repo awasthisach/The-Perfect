@@ -2,54 +2,32 @@ name: Cleanup Stale Branches
 
 on:
   workflow_dispatch:
+  push:
+    branches: ["main"]
 
 permissions:
   contents: write
 
 jobs:
   delete-stale:
-    runs-on: ubuntu-latest
+    name: Consolidate repository branches
+    runs-on: ubuntu-24.04
     steps:
-      - name: Delete stale branches
+      - name: Delete every non-main branch after final main consolidation
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          branches=(
-            audit-fixes
-            docs/readme-try-apk
-            docs/setup-hindi
-            docs-prod-final
-            docs-prod-status-bio
-            feat/grok-style-cloud-login
-            fix/audit-findings-2026-09-06
-            fix/explorer-oauth-wire
-            fix/explorer-permission-resume
-            fix/perf-index-semantic-lag
-            fix/perf-lag-minimal
-            prod-bio-final
-            prod-bio-v3
-            prod-biometric-crypto-workers
-            prod-biometric-cryptoobject
-            prod-biometric-safe
-            prod-cloud-backup-runtime
-            prod-final-hardening
-            prod-hardening-next
-            prod-v2-complete
-            prod-wire-junk-ocr
-            chore/delete-stale-branches-marker
+          echo "Final branch consolidation for $REPOSITORY"
+          mapfile -t branches < <(
+            gh api --paginate "repos/${REPOSITORY}/branches?per_page=100" --jq '.[].name'
           )
-          for b in "${branches[@]}"; do
-            echo "Deleting branch: $b"
-            # URL-encode path segments for branch names with /
-            encoded=$(printf '%s' "$b" | sed 's|/|%2F|g')
-            code=$(curl -s -o /tmp/del_out -w "%{http_code}" -X DELETE \
-              -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "https://api.github.com/repos/${{ github.repository }}/git/refs/heads/${encoded}")
-            echo "  HTTP $code"
-            cat /tmp/del_out || true
-            echo
+          for branch in "${branches[@]}"; do
+            if [ "$branch" = "main" ]; then
+              continue
+            fi
+            echo "Deleting stale branch: $branch"
+            gh api --method DELETE "repos/${REPOSITORY}/git/refs/heads/${branch}"
           done
-          echo "Done."
+          echo "Branch consolidation complete. main is the canonical branch."
