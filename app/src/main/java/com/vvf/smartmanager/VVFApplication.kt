@@ -65,6 +65,9 @@ class VVFApplication : Application(), Configuration.Provider {
 
     companion object {
         private const val TAG = "VVFApplication"
+        private const val SETTINGS_PREFS = "vvf_app_settings"
+        private const val KEY_AUTO_INDEX_OCR = "auto_index_ocr"
+        private const val KEY_OFFLINE_ONLY_MODE = "offline_only_mode"
     }
 
     override val workManagerConfiguration: Configuration
@@ -111,6 +114,22 @@ class VVFApplication : Application(), Configuration.Provider {
     var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val settingsPrefs by lazy {
+        getSharedPreferences(SETTINGS_PREFS, MODE_PRIVATE)
+    }
+
+    fun isAutoIndexOcrEnabled(): Boolean = settingsPrefs.getBoolean(KEY_AUTO_INDEX_OCR, true)
+
+    fun setAutoIndexOcrEnabled(enabled: Boolean) {
+        settingsPrefs.edit().putBoolean(KEY_AUTO_INDEX_OCR, enabled).apply()
+    }
+
+    fun isOfflineOnlyModeEnabled(): Boolean = settingsPrefs.getBoolean(KEY_OFFLINE_ONLY_MODE, true)
+
+    fun setOfflineOnlyModeEnabled(enabled: Boolean) {
+        settingsPrefs.edit().putBoolean(KEY_OFFLINE_ONLY_MODE, enabled).apply()
+    }
 
     override fun onCreate() {
         super.onCreate()
