@@ -133,7 +133,6 @@ class VVFApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
-        System.loadLibrary("sqlcipher")
         cryptoSecurityManager = CryptoSecurityManager(this)
 
         val jvmUnitTest = CryptoSecurityManager.isJvmUnitTestEnvironment(this)
@@ -141,6 +140,8 @@ class VVFApplication : Application(), Configuration.Provider {
             database = VVFDatabase.buildInMemoryDatabase(this)
             Log.i(TAG, "JVM unit-test environment: using in-memory Room database")
         } else {
+            // SQLCipher's native core must be loaded before encrypted Room initialization.
+            System.loadLibrary("sqlcipher")
             val passphrase = cryptoSecurityManager.getOrCreateDatabasePassphrase()
             try {
                 database = VVFDatabase.buildEncryptedDatabase(this, passphrase)
