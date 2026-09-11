@@ -4,10 +4,11 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import com.vvf.smartmanager.core.security.VaultBiometricCryptoHelper
 import javax.crypto.Cipher
 
 /**
- * Launches BiometricPrompt with optional CryptoObject bound to the vault key.
+ * Launches BiometricPrompt with an auth-per-use Keystore CryptoObject.
  * [createCipher] is supplied by the caller (typically ViewModel) so this module
  * never depends on :app.
  */
@@ -31,10 +32,8 @@ fun launchVaultBiometricUnlock(
     val canAuth = biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)
     if (canAuth != BiometricManager.BIOMETRIC_SUCCESS) {
         val errorMsg = when (canAuth) {
-            BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE ->
-                "No strong biometric hardware on device"
-            BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE ->
-                "Biometric hardware unavailable"
+            BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> "No strong biometric hardware on device"
+            BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> "Biometric hardware unavailable"
             BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED ->
                 "No strong biometric enrolled. Add fingerprint/face in device settings."
             BiometricManager.BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED ->
@@ -45,55 +44,50 @@ fun launchVaultBiometricUnlock(
         return
     }
 
-    val cipher: Cipher? = try {
+    val cipher = try {
         createCipher()
     } catch (e: Exception) {
-        onError("Vault key requires authentication setup: ${e.message ?: "unavailable"}")
+        onError("Vault biometric key unavailable: ${e.message ?: "authentication setup failed"}")
+        return
+    }
+
+    if (cipher == null) {
+        onError("Vault biometric key could not be initialized. Use PIN.")
         return
     }
 
     val callback = object : BiometricPrompt.AuthenticationCallback() {
         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
             super.onAuthenticationSucceeded(result)
-            // When a Cipher was supplied, require a bound CryptoObject so unlock is
-            // cryptographically gated by the Keystore user-authentication flag.
-            // Fallback path (cipher == null) allows device-credential-only unlock.
-            val cryptoBound = result.cryptoObject?.cipher != null
-            if (cipher == null || cryptoBound) {
-                onSuccess()
-            } else {
-                onError("Biometric succeeded but vault key was not unlocked (missing CryptoObject)")
+            val authenticatedCipher = result.cryptoObject?.cipher
+            if (authenticatedCipher == null || !VaultBiometricCryptoHelper.proveAuthenticatedCipher(authenticatedCipher)) {
+                onError("Biometric authentication succeeded but cryptographic proof failed")
+                return
             }
+            onSuccess()
         }
+
         override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
             super.onAuthenticationError(errorCode, errString)
             if (errorCode != BiometricPrompt.ERROR_USER_CANCELED &&
                 errorCode != BiometricPrompt.ERROR_NEGATIVE_BUTTON
-            ) onError("Biometric Error: $errString")
+            ) {
+                onError("Biometric Error: $errString")
+            }
         }
+
         override fun onAuthenticationFailed() {
             super.onAuthenticationFailed()
             onError("Biometric recognition failed")
         }
     }
+
     val prompt = BiometricPrompt(activity, executor, callback)
-    if (cipher != null) {
-        val promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Unlock VVF Secure Vault")
-            .setSubtitle("Authenticate to unlock the hardware-backed vault key")
-            .setNegativeButtonText("Use PIN")
-            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
-            .build()
-        prompt.authenticate(promptInfo, BiometricPrompt.CryptoObject(cipher))
-    } else {
-        val promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Unlock VVF Secure Vault")
-            .setSubtitle("Confirm your identity to unlock the vault key")
-            .setAllowedAuthenticators(
-                BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                    BiometricManager.Authenticators.DEVICE_CREDENTIAL
-            )
-            .build()
-        prompt.authenticate(promptInfo)
-    }
+    val promptInfo = BiometricPrompt.PromptInfo.Builder()
+        .setTitle("Unlock VVF Secure Vault")
+        .setSubtitle("Authenticate with a hardware-backed biometric key")
+        .setNegativeButtonText("Use PIN")
+        .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+        .build()
+    prompt.authenticate(promptInfo, BiometricPrompt.CryptoObject(cipher))
 }
