@@ -80,24 +80,19 @@ class FailClosedRestorePipeline(
                 )
             )
         } catch (error: Throwable) {
-            var finalError: Throwable = error
             if (snapshot != null) {
                 val rollbackResult = runCatching { applier.rollback(snapshot!!) }
-                val rollbackFailure = rollbackResult.getOrNull()?.exceptionOrNull()
-                if (rollbackFailure != null) {
-                    finalError = RestoreException(
-                        "Fail-closed restore aborted and rollback also failed",
-                        rollbackFailure
-                    )
-                } else if (rollbackResult.isFailure) {
-                    finalError = RestoreException(
-                        "Fail-closed restore aborted and rollback also failed",
-                        rollbackResult.exceptionOrNull()
+                preparedSnapshots.remove(snapshot!!.token)
+                if (rollbackResult.isFailure) {
+                    return Result.failure(
+                        RestoreException(
+                            "Fail-closed restore aborted: rollback also failed",
+                            rollbackResult.exceptionOrNull()
+                        )
                     )
                 }
-                preparedSnapshots.remove(snapshot!!.token)
             }
-            Result.failure(RestoreException("Fail-closed restore aborted", finalError))
+            Result.failure(RestoreException("Fail-closed restore aborted", error))
         } finally {
             stagingDir.deleteRecursively()
         }
