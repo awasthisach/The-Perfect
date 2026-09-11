@@ -4,7 +4,7 @@ plugins {
 
 android {
   namespace = "com.vvf.smartmanager.core.database.compat"
-  compileSdk = 37
+  compileSdk = 36
 
   defaultConfig {
     minSdk = 24
