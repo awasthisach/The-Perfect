@@ -51,8 +51,7 @@ hiltWork = "1.4.0"
 workManager = "2.10.0"
 securityCrypto = "1.1.0-alpha06"
 biometric = "1.2.0-alpha05"
-sqlcipher = "4.5.4"
-sqlcipherAndroid = "4.5.6"
+sqlcipherAndroid = "4.18.0"
 kotlinxSerializationJson = "1.7.3"
 
 [libraries]
@@ -122,8 +121,7 @@ androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx"
 androidx-work-testing = { group = "androidx.work", name = "work-testing", version.ref = "workManager" }
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
 androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
-sqlcipher-android = { group = "net.zetetic", name = "android-database-sqlcipher", version.ref = "sqlcipher" }
-sqlcipher-android-compat = { group = "net.zetetic", name = "sqlcipher-android", version.ref = "sqlcipherAndroid" }
+sqlcipher-android = { group = "net.zetetic", name = "sqlcipher-android", version.ref = "sqlcipherAndroid" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
 
 [plugins]
