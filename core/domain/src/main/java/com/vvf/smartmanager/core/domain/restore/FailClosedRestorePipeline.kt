@@ -7,9 +7,6 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Orchestrates restore as a fail-closed transaction:
  * download -> verify -> decrypt into isolated staging -> prepare snapshot -> apply -> rollback on failure.
- *
- * Provider-specific download, cryptographic verification/decryption, and storage mutation are injected so
- * the domain layer cannot silently substitute an unsafe implementation.
  */
 class FailClosedRestorePipeline(
     private val workingDir: File,
@@ -83,11 +80,18 @@ class FailClosedRestorePipeline(
                 )
             )
         } catch (error: Throwable) {
+            var finalError: Throwable = error
             if (snapshot != null) {
-                runCatching { applier.rollback(snapshot!!) }
+                val rollbackResult = runCatching { applier.rollback(snapshot!!) }
+                if (rollbackResult.isFailure) {
+                    finalError = RestoreException(
+                        "Fail-closed restore aborted and rollback also failed",
+                        rollbackResult.exceptionOrNull()
+                    )
+                }
                 preparedSnapshots.remove(snapshot!!.token)
             }
-            Result.failure(RestoreException("Fail-closed restore aborted", error))
+            Result.failure(RestoreException("Fail-closed restore aborted", finalError))
         } finally {
             stagingDir.deleteRecursively()
         }
