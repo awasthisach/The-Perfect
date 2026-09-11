@@ -2,6 +2,7 @@ package com.vvf.smartmanager.plugin.ocr
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
@@ -31,19 +32,13 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 
-/**
- * OCR Engine Plugin — dual-script (Latin/English + Devanagari/Hindi).
- *
- * Runs both ML Kit recognizers on every image/PDF page and merges text so mixed
- * English+Hindi documents work without the user picking a language.
- */
 open class OcrEnginePlugin(
     private val context: Context? = null
 ) : IOcrEngine, OcrPluginSPI {
 
     override val pluginId: String = "plugin.ocr.mlkit"
     override val displayName: String = "ML Kit OCR (Latin + Devanagari)"
-    override val version: String = "1.1.0"
+    override val version: String = "1.1.1"
 
     private var _isEnabled: Boolean = true
     override val isEnabled: Boolean get() = _isEnabled
@@ -127,7 +122,6 @@ open class OcrEnginePlugin(
         }
     }
 
-    /** Latin + Devanagari recognizers — closed after each batch to free native resources. */
     private fun createRecognizers(): Pair<TextRecognizer, TextRecognizer> {
         val latin = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         val devanagari = TextRecognition.getClient(DevanagariTextRecognizerOptions.Builder().build())
@@ -168,7 +162,6 @@ open class OcrEnginePlugin(
         merged to blocks
     }
 
-    /** Prefer longer combined text; avoid exact duplicates. */
     private fun mergeScriptTexts(latin: String, devanagari: String): String {
         val a = latin.trim()
         val b = devanagari.trim()
@@ -294,7 +287,8 @@ open class OcrEnginePlugin(
                 val renderWidth = (page.width * scale).toInt().coerceAtLeast(100)
                 val renderHeight = (page.height * scale).toInt().coerceAtLeast(100)
                 val pageBitmap = Bitmap.createBitmap(renderWidth, renderHeight, Bitmap.Config.ARGB_8888)
-                page.render(pageBitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                pageBitmap.eraseColor(Color.WHITE)
+                page.render(pageBitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
                 page.close()
 
                 try {
