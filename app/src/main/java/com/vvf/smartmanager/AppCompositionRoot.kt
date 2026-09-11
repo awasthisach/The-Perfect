@@ -20,9 +20,7 @@ import com.vvf.smartmanager.core.plugin.spi.CloudDriverSPI
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import java.io.File
 
-/**
- * Composition root for permission-gated storage and fail-closed cloud restore (PROD-007 / PROD-003).
- */
+/** Composition root for permission-gated storage and fail-closed cloud restore. */
 object AppCompositionRoot {
     fun storagePermissionGate(context: Context): StoragePermissionGate =
         StoragePermissionGate(context)
@@ -60,7 +58,7 @@ object AppCompositionRoot {
             verifier = Sha256BackupVerifier(),
             decryptor = CryptoBackupDecryptor(cryptoSecurityManager),
             applier = LocalRestoreApplier(
-                liveDatabaseFile = File(context.filesDir, databaseName),
+                liveDatabaseFile = context.getDatabasePath(databaseName),
                 liveVaultDir = vaultDir,
                 snapshotRoot = File(restoreWorkingDir, "snapshots"),
                 vaultAuthImporter = { meta -> cryptoSecurityManager.importVaultAuthMetadata(meta) },
