@@ -13,7 +13,7 @@ class OcrPluginTest {
     fun testPluginMetadata() {
         val plugin = OcrEnginePlugin()
         assertEquals("plugin.ocr.mlkit", plugin.pluginId)
-        assertEquals("1.1.0", plugin.version)
+        assertEquals("1.1.1", plugin.version)
         assertTrue(plugin.isEnabled)
         assertTrue(plugin.displayName.contains("Latin"))
         assertTrue(plugin.displayName.contains("Devanagari"))
