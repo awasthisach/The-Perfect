@@ -43,8 +43,18 @@ class ExplorerViewModel(
     init {
         val rootPath = getDirectoryFilesUseCase.getDefaultStoragePath()
         _uiState.update { it.copy(currentPath = rootPath) }
-        loadStorageOverview()
-        loadDirectory(rootPath)
+        if (!PermissionAccess.hasBrowseAccess(appContext)) {
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    needsStoragePermission = true,
+                    permissionMessage = "Storage permission required to browse files"
+                )
+            }
+        } else {
+            loadStorageOverview()
+            loadDirectory(rootPath)
+        }
     }
 
     fun loadStorageOverview() {
@@ -56,6 +66,17 @@ class ExplorerViewModel(
     }
 
     fun reloadCurrentLocation() {
+        if (!PermissionAccess.hasBrowseAccess(appContext)) {
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    needsStoragePermission = true,
+                    permissionMessage = it.permissionMessage
+                        ?: "Storage permission required to browse files"
+                )
+            }
+            return
+        }
         if (_uiState.value.selectedCategory == FileCategory.ALL) {
             loadDirectory(_uiState.value.currentPath.ifBlank { getDirectoryFilesUseCase.getDefaultStoragePath() })
         } else {
@@ -75,8 +96,6 @@ class ExplorerViewModel(
                     isSelectionMode = false,
                     searchQuery = "",
                     isSearchActive = false,
-                    needsStoragePermission = false,
-                    permissionMessage = null,
                     userMessage = null
                 )
             }
@@ -91,7 +110,8 @@ class ExplorerViewModel(
                             files = fileList,
                             filteredFiles = applyFilterAndSearch(fileList, it.searchQuery),
                             isLoading = false,
-                            needsStoragePermission = false
+                            needsStoragePermission = false,
+                            permissionMessage = null
                         )
                     }
                 }
@@ -136,9 +156,7 @@ class ExplorerViewModel(
                     selectedPaths = emptySet(),
                     isSelectionMode = false,
                     searchQuery = "",
-                    isSearchActive = false,
-                    needsStoragePermission = false,
-                    permissionMessage = null
+                    isSearchActive = false
                 )
             }
             try {
@@ -149,7 +167,8 @@ class ExplorerViewModel(
                                 files = fileList,
                                 filteredFiles = applyFilterAndSearch(fileList, it.searchQuery),
                                 isLoading = false,
-                                needsStoragePermission = false
+                                needsStoragePermission = false,
+                                permissionMessage = null
                             )
                         }
                     }
