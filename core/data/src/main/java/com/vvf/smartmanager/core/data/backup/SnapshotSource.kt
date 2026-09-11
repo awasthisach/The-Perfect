@@ -46,12 +46,14 @@ class ReadOnlyDatabaseSnapshotSource(
     private fun resolveExistingDatabaseFile(): File? {
         if (databaseFile.isFile) return databaseFile
         val parent = databaseFile.parentFile ?: return null
-        val candidates = listOf(
+        val candidates = mutableListOf(
             databaseFile,
             File(parent, databaseFile.name),
-            File(File(parent.parentFile, "databases"), databaseFile.name),
             File(File(parent, "databases"), databaseFile.name)
         )
+        parent.parentFile?.let { grand ->
+            candidates.add(File(File(grand, "databases"), databaseFile.name))
+        }
         return candidates.firstOrNull { it.isFile }
     }
 
