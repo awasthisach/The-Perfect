@@ -203,14 +203,14 @@ class VVFApplication : Application(), Configuration.Provider {
             cacheDir = cacheDir,
             snapshotSources = listOf(
                 ReadOnlyDatabaseSnapshotSource(
-                    databaseFile = File(filesDir, VVFDatabase.DATABASE_NAME),
+                    databaseFile = getDatabasePath(VVFDatabase.DATABASE_NAME),
                     beforeSnapshot = {
                         runCatching {
                             if (::database.isInitialized) {
-                                database.close()
-                                Log.i(TAG, "Closed Room before backup DB snapshot")
+                                database.openHelper.writableDatabase.execSQL("PRAGMA wal_checkpoint(FULL)")
+                                Log.i(TAG, "WAL checkpoint before backup DB snapshot")
                             }
-                        }
+                        }.onFailure { e -> Log.w(TAG, "WAL checkpoint before snapshot failed", e) }
                     }
                 ),
                 InjectedVaultSnapshotSource(vaultDir)
