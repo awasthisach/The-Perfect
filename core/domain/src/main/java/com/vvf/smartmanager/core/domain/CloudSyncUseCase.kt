@@ -269,13 +269,15 @@ class CloudSyncUseCase(
             Result.success(syncItem)
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
-            persistSyncRecord(
-                localPath = fileItem.path,
-                remoteId = existing?.remoteFileId,
-                provider = providerType.name,
-                status = "ERROR",
-                errorMessage = error.message
-            )
+            runCatching {
+                persistSyncRecord(
+                    localPath = fileItem.path,
+                    remoteId = existing?.remoteFileId,
+                    provider = providerType.name,
+                    status = "ERROR",
+                    errorMessage = error.message
+                )
+            }
             val failed = CloudSyncItem(
                 id = itemId,
                 fileName = fileItem.name,
@@ -299,19 +301,17 @@ class CloudSyncUseCase(
         errorMessage: String? = null
     ) {
         val dao = cloudSyncDao ?: return
-        runCatching {
-            val prior = dao.getRecord(localPath, provider)
-            dao.insertOrUpdate(
-                CloudSyncEntity(
-                    id = prior?.id ?: 0L,
-                    localPath = localPath,
-                    remoteFileId = remoteId,
-                    provider = provider,
-                    status = status,
-                    lastSyncedAt = System.currentTimeMillis(),
-                    errorMessage = errorMessage
-                )
+        val prior = dao.getRecord(localPath, provider)
+        dao.insertOrUpdate(
+            CloudSyncEntity(
+                id = prior?.id ?: 0L,
+                localPath = localPath,
+                remoteFileId = remoteId,
+                provider = provider,
+                status = status,
+                lastSyncedAt = System.currentTimeMillis(),
+                errorMessage = errorMessage
             )
-        }
+        )
     }
 }

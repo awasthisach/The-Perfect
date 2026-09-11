@@ -1,6 +1,8 @@
 package com.vvf.smartmanager.core.domain
 
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
+import com.vvf.smartmanager.core.database.dao.CloudSyncDao
+import com.vvf.smartmanager.core.database.model.CloudSyncEntity
 import com.vvf.smartmanager.core.domain.restore.AppliedRestore
 import com.vvf.smartmanager.core.domain.restore.BackupDecryptor
 import com.vvf.smartmanager.core.domain.restore.BackupDownloader
@@ -15,6 +17,8 @@ import com.vvf.smartmanager.core.model.CloudBackupInfo
 import com.vvf.smartmanager.core.model.CloudProviderType
 import com.vvf.smartmanager.core.model.CloudSyncStatus
 import com.vvf.smartmanager.core.model.FileItem
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -36,6 +40,17 @@ class CloudSyncUseCaseTest {
         override suspend fun uploadFile(localFile: FileItem, remoteFolderId: String): Result<String> = uploadResult
         override suspend fun downloadFile(fileId: String, destinationPath: String): Result<Boolean> = Result.success(true)
         override suspend fun getStorageQuota(): Result<Pair<Long, Long>> = Result.success(0L to 1L)
+    }
+
+    private class FailingCloudSyncDao : CloudSyncDao {
+        override suspend fun insertOrUpdate(record: CloudSyncEntity): Long =
+            throw IllegalStateException("sync identity persistence failed")
+
+        override suspend fun update(record: CloudSyncEntity) = Unit
+        override suspend fun getRecord(localPath: String, provider: String): CloudSyncEntity? = null
+        override fun getRecordsByProvider(provider: String): Flow<List<CloudSyncEntity>> = emptyFlow()
+        override suspend fun getRecordsByStatus(status: String): List<CloudSyncEntity> = emptyList()
+        override suspend fun deleteByLocalPath(localPath: String) = Unit
     }
 
     private val sampleFile = FileItem(
@@ -96,6 +111,21 @@ class CloudSyncUseCaseTest {
         assertEquals(CloudSyncStatus.ERROR, useCase.syncState.value)
         assertEquals(CloudSyncStatus.ERROR, useCase.syncQueue.value.first().status)
         assertEquals("unauthorized", useCase.syncQueue.value.first().errorMessage)
+    }
+
+    @Test
+    fun successfulUploadFailsClosedWhenDurableIdentityCannotBePersisted() = runBlocking {
+        val useCase = CloudSyncUseCase(
+            FakeDriveService(Result.success("remote-123")),
+            cloudSyncDao = FailingCloudSyncDao()
+        )
+
+        val result = useCase.syncFileToCloud(sampleFile)
+
+        assertFalse(result.isSuccess)
+        assertEquals(CloudSyncStatus.ERROR, useCase.syncState.value)
+        assertEquals("sync identity persistence failed", result.exceptionOrNull()?.message)
+        assertEquals(CloudSyncStatus.ERROR, useCase.syncQueue.value.first().status)
     }
 
     @Test
