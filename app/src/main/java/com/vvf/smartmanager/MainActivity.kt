@@ -71,9 +71,7 @@ import com.vvf.smartmanager.ui.theme.BhagwaOrange
 import com.vvf.smartmanager.ui.theme.CosmicBlue
 import com.vvf.smartmanager.ui.theme.VVFSmartManagerTheme
 
-/**
- * Single-Activity Entry Point for VVF Smart Manager.
- */
+/** Single-Activity Entry Point for VVF Smart Manager. */
 class MainActivity : FragmentActivity() {
     private lateinit var googleDriveAuth: GoogleDriveAuth
 
@@ -83,7 +81,6 @@ class MainActivity : FragmentActivity() {
         val app = application as VVFApplication
         val callback = app.pendingGoogleDriveSignInCallback ?: return@registerForActivityResult
         app.pendingGoogleDriveSignInCallback = null
-        // Always parse Intent + ApiException — do not treat non-OK as generic "cancelled".
         lifecycleScope.launch {
             callback(
                 googleDriveAuth.handleSignInActivityResult(
@@ -378,6 +375,14 @@ private fun VVFNavHost(
                 initialBiometricEnabled = app.vaultAuthUseCase.isBiometricEnabled(),
                 onBiometricEnabledChange = { enabled ->
                     app.vaultAuthUseCase.setBiometricEnabled(enabled)
+                },
+                initialAutoIndexOcr = app.isAutoIndexOcrEnabled(),
+                onAutoIndexOcrChange = { enabled ->
+                    app.setAutoIndexOcrEnabled(enabled)
+                },
+                initialOfflineOnlyMode = app.isOfflineOnlyModeEnabled(),
+                onOfflineOnlyModeChange = { enabled ->
+                    app.setOfflineOnlyModeEnabled(enabled)
                 }
             )
         }
