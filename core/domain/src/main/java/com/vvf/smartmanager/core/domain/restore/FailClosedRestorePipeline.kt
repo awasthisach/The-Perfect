@@ -83,7 +83,13 @@ class FailClosedRestorePipeline(
             var finalError: Throwable = error
             if (snapshot != null) {
                 val rollbackResult = runCatching { applier.rollback(snapshot!!) }
-                if (rollbackResult.isFailure) {
+                val rollbackFailure = rollbackResult.getOrNull()?.exceptionOrNull()
+                if (rollbackFailure != null) {
+                    finalError = RestoreException(
+                        "Fail-closed restore aborted and rollback also failed",
+                        rollbackFailure
+                    )
+                } else if (rollbackResult.isFailure) {
                     finalError = RestoreException(
                         "Fail-closed restore aborted and rollback also failed",
                         rollbackResult.exceptionOrNull()
