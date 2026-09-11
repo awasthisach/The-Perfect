@@ -16,7 +16,7 @@ import com.vvf.smartmanager.core.database.model.FileFtsEntity
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
 import com.vvf.smartmanager.core.database.model.VaultItemEntity
 import com.vvf.smartmanager.core.database.model.VaultJournalEntity
-import net.sqlcipher.database.SupportFactory
+import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 /**
  * High-performance, SQLCipher-encrypted Room Database for VVF Smart Manager.
@@ -74,7 +74,7 @@ abstract class VVFDatabase : RoomDatabase() {
          * Builds an encrypted SQLCipher Room database using the decrypted Keystore passphrase.
          */
         fun buildEncryptedDatabase(context: Context, passphrase: ByteArray): VVFDatabase {
-            val openHelperFactory = SupportFactory(passphrase)
+            val openHelperFactory = SupportOpenHelperFactory(passphrase)
 
             return Room.databaseBuilder(
                 context.applicationContext,
