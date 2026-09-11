@@ -121,6 +121,7 @@ class VVFApplication : Application(), Configuration.Provider {
             database = VVFDatabase.buildInMemoryDatabase(this)
             Log.i(TAG, "JVM unit-test environment: using in-memory Room database")
         } else {
+            System.loadLibrary("sqlcipher")
             val passphrase = cryptoSecurityManager.getOrCreateDatabasePassphrase()
             try {
                 database = VVFDatabase.buildEncryptedDatabase(this, passphrase)
@@ -220,118 +221,37 @@ class VVFApplication : Application(), Configuration.Provider {
         cloudSyncUseCase = AppCompositionRoot.cloudSyncUseCase(
             context = this,
             googleDriveService = googleDriveService,
-            pluginDrivers = cloudDrivers,
-            archiveService = archiveService,
-            cryptoSecurityManager = cryptoSecurityManager,
-            vaultDir = vaultDir,
-            databaseName = VVFDatabase.DATABASE_NAME,
-            beforeRestoreApply = {
-                runCatching {
-                    if (::database.isInitialized) {
-                        database.close()
-                        Log.i(TAG, "Closed Room database before restore apply")
-                    }
-                }.onFailure { err ->
-                    Log.w(TAG, "Room close before restore failed (continuing)", err)
-                }
-            },
-            cloudSyncDao = database.cloudSyncDao()
+            cloudDrivers = cloudDrivers,
+            archiveService = archiveService
         )
-        backgroundSyncManager = BackgroundSyncManager(this)
-        FileIndexingRuntime.configure { indexPrimaryStorageForSearch() }
-        CloudBackupBootstrap.wire(cloudSyncUseCase)
-        JunkScanBootstrap.wire(junkCleanerUseCase)
-        OcrBatchBootstrap.wire(database, ocrPlugin, ocrIndexingService)
-        val bgExceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
-            Log.e(TAG, "Background sync scheduling failed safely", throwable)
-        }
-        applicationScope.launch(bgExceptionHandler) {
-            try {
-                backgroundSyncManager.schedulePeriodicIndexing(intervalHours = 6L)
-                backgroundSyncManager.triggerImmediateIndexing()
-                backgroundSyncManager.schedulePeriodicJunkScan(intervalHours = 12L)
-            } catch (e: Throwable) {
-                Log.e(TAG, "Background sync scheduling failed", e)
-            }
-        }
-    }
+        backgroundSyncManager = BackgroundSyncManager(this, cloudSyncUseCase)
+        backgroundSyncManager.schedulePeriodicSync()
 
-    private suspend fun indexPrimaryStorageForSearch(): FileIndexingOutcome {
-        val access = StoragePermissionGate(this).evaluate()
-        if (!access.canBrowsePrimaryTree) {
-            return FileIndexingOutcome.PermissionRequired(access.userMessageKey)
-        }
-        return try {
-            val fileDao = database.fileDao()
-            val existingByPath = fileDao.getIndexedPathSnapshot().associateBy { it.path }
-            val scannedItems = storageManager.collectPrimaryStorageItems()
-            val scannedPaths = scannedItems.map { it.path }.toHashSet()
-            val metadata = scannedItems.map { item ->
-                val existing = existingByPath[item.path]
-                FileMetadataEntity(
-                    id = existing?.id ?: 0L,
-                    path = item.path,
-                    name = item.name,
-                    parentPath = java.io.File(item.path).parent.orEmpty(),
-                    sizeBytes = item.sizeBytes,
-                    mimeType = item.mimeType ?: "inode/directory",
-                    isDirectory = item.isDirectory,
-                    modifiedDate = item.lastModified,
-                    isFavorite = existing?.isFavorite ?: false,
-                    isTrash = existing?.isTrash ?: false,
-                    originalPath = existing?.originalPath,
-                    deletedTimestamp = existing?.deletedTimestamp,
-                    tags = existing?.tags.orEmpty(),
-                    md5Hash = existing?.md5Hash,
-                    operationState = existing?.operationState ?: "IDLE"
-                )
+        JunkScanBootstrap.install(this, junkCleanerUseCase)
+        CloudBackupBootstrap.install(this, cloudSyncUseCase)
+
+        FileIndexingRuntime.configure(
+            this,
+            FileIndexingOutcome { outcome ->
+                applicationScope.launch {
+                    when (outcome) {
+                        is FileIndexingOutcome.Success -> {
+                            Log.i(TAG, "Background file indexing succeeded: ${outcome.indexedCount} files")
+                        }
+                        is FileIndexingOutcome.Failure -> {
+                            Log.e(TAG, "Background file indexing failed", outcome.error)
+                        }
+                    }
+                }
             }
-            val stalePaths = existingByPath.keys.filter { path -> path !in scannedPaths }
-            var staleRemoved = 0
-            if (stalePaths.isNotEmpty()) {
-                stalePaths.chunked(400).forEach { chunk -> fileDao.deleteStaleByPaths(chunk) }
-                staleRemoved = stalePaths.size
-                Log.i(TAG, "Removed $staleRemoved stale index row(s)")
-            }
-            if (metadata.isNotEmpty()) {
-                metadata.chunked(400).forEach { chunk -> fileDao.insertAll(chunk) }
-            }
-            if (metadata.isNotEmpty() || staleRemoved > 0) {
-                database.searchFtsDao().rebuildFtsIndex()
-            }
-            FileIndexingOutcome.Completed(metadata.size)
-        } catch (securityError: SecurityException) {
-            FileIndexingOutcome.PermissionRequired(securityError.message ?: "storage access was revoked")
-        } catch (ioError: java.io.IOException) {
-            FileIndexingOutcome.RetryableFailure(ioError.message ?: "storage I/O failed")
-        } catch (error: Throwable) {
-            Log.e(TAG, "Storage indexing failed", error)
-            FileIndexingOutcome.PermanentFailure(error.message ?: "unexpected indexing failure")
-        }
+        )
     }
 
     override fun onTerminate() {
         applicationScope.cancel()
+        if (::database.isInitialized) {
+            database.close()
+        }
         super.onTerminate()
-    }
-
-    override fun onTrimMemory(level: Int) {
-        super.onTrimMemory(level)
-        if (level >= TRIM_MEMORY_MODERATE) {
-            try {
-                ocrPlugin.cancelOngoing()
-            } catch (e: Throwable) {
-                Log.w(TAG, "OCR cancel on trim failed", e)
-            }
-        }
-    }
-
-    override fun onLowMemory() {
-        super.onLowMemory()
-        try {
-            ocrPlugin.cancelOngoing()
-        } catch (e: Throwable) {
-            Log.w(TAG, "OCR cancel on low memory failed", e)
-        }
     }
 }
