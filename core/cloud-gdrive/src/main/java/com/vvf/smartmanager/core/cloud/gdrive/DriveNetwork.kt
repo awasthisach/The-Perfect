@@ -39,7 +39,6 @@ object DriveNetwork {
         }
 
         val logging = HttpLoggingInterceptor().apply {
-            // BASIC only in debug builds when explicitly requested; never BODY (tokens).
             level = if (debugLogging) {
                 HttpLoggingInterceptor.Level.BASIC
             } else {
@@ -65,5 +64,16 @@ object DriveNetwork {
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
             .create(DriveApi::class.java)
+    }
+
+    /** Shared OkHttp client for raw upload calls (multipart/related to upload host). */
+    fun uploadClient(): OkHttpClient = sharedClient
+
+    private val sharedClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .writeTimeout(120, TimeUnit.SECONDS)
+            .build()
     }
 }
