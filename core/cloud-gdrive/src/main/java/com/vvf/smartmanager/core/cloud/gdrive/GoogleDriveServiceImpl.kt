@@ -262,23 +262,40 @@ class GoogleDriveServiceImpl(
         )
     }
 
+    /**
+     * Resolve a remote folder reference to a Drive folder id.
+     *
+     * Human folder names (e.g. "VVF_Backups") must be looked up / created.
+     * Only strings that look like real Drive resource ids are used as-is.
+     * The previous heuristic (length >= 10) misclassified "VVF_Backups" as a fileId
+     * and produced HTTP 404: File not found: VVF_Backups.
+     */
     private suspend fun resolveFolderId(folderReference: String): String {
-        if (folderReference.isBlank() || folderReference == "root") return "root"
-        if (looksLikeDriveId(folderReference)) return folderReference
+        val ref = folderReference.trim().trimEnd('.')
+        if (ref.isBlank() || ref.equals("root", ignoreCase = true)) return "root"
+        if (looksLikeDriveId(ref)) return ref
 
-        val escapedName = folderReference.replace("\\", "\\\\").replace("'", "\\'")
+        val escapedName = ref.replace("\\", "\\\\").replace("'", "\\'")
         val query = "name = '$escapedName' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
         val existing = driveApi.listFiles(bearer(), query = query, pageSize = 10).files.firstOrNull()
         if (existing?.id != null) return existing.id
 
-        val metadata = """{"name":"$folderReference","mimeType":"application/vnd.google-apps.folder","parents":["root"]}"""
+        val safeFolderName = ref.replace("\\", "\\\\").replace("\"", "\\\"")
+        val metadata = """{"name":"$safeFolderName","mimeType":"application/vnd.google-apps.folder","parents":["root"]}"""
             .toRequestBody("application/json; charset=UTF-8".toMediaType())
         return driveApi.createFolder(bearer(), metadata).id
-            ?: throw IllegalStateException("Drive folder creation returned no id for '$folderReference'")
+            ?: throw IllegalStateException("Drive folder creation returned no id for '$ref'")
     }
 
-    private fun looksLikeDriveId(value: String): Boolean =
-        value.length >= 10 && !value.contains(' ') && !value.contains('/')
+    /**
+     * Drive resource ids are typically ~25–44 characters (often ~33).
+     * Short readable names like "VVF_Backups" must NOT be treated as ids.
+     */
+    private fun looksLikeDriveId(value: String): Boolean {
+        if (value.length < 20 || value.length > 128) return false
+        if (value.contains(' ') || value.contains('/') || value.contains('.')) return false
+        return value.all { it.isLetterOrDigit() || it == '-' || it == '_' }
+    }
 
     private fun calculateMd5(file: File): String {
         val digest = MessageDigest.getInstance("MD5")
