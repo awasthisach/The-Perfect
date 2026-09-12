@@ -65,6 +65,9 @@ class VVFApplication : Application(), Configuration.Provider {
 
     companion object {
         private const val TAG = "VVFApplication"
+        private const val SETTINGS_PREFS = "vvf_app_settings"
+        private const val KEY_AUTO_INDEX_OCR = "auto_index_ocr"
+        private const val KEY_OFFLINE_ONLY_MODE = "offline_only_mode"
     }
 
     override val workManagerConfiguration: Configuration
@@ -112,6 +115,22 @@ class VVFApplication : Application(), Configuration.Provider {
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    private val settingsPrefs by lazy {
+        getSharedPreferences(SETTINGS_PREFS, MODE_PRIVATE)
+    }
+
+    fun isAutoIndexOcrEnabled(): Boolean = settingsPrefs.getBoolean(KEY_AUTO_INDEX_OCR, true)
+
+    fun setAutoIndexOcrEnabled(enabled: Boolean) {
+        settingsPrefs.edit().putBoolean(KEY_AUTO_INDEX_OCR, enabled).apply()
+    }
+
+    fun isOfflineOnlyModeEnabled(): Boolean = settingsPrefs.getBoolean(KEY_OFFLINE_ONLY_MODE, true)
+
+    fun setOfflineOnlyModeEnabled(enabled: Boolean) {
+        settingsPrefs.edit().putBoolean(KEY_OFFLINE_ONLY_MODE, enabled).apply()
+    }
+
     override fun onCreate() {
         super.onCreate()
         cryptoSecurityManager = CryptoSecurityManager(this)
@@ -121,6 +140,8 @@ class VVFApplication : Application(), Configuration.Provider {
             database = VVFDatabase.buildInMemoryDatabase(this)
             Log.i(TAG, "JVM unit-test environment: using in-memory Room database")
         } else {
+            // SQLCipher's native core must be loaded before encrypted Room initialization.
+            System.loadLibrary("sqlcipher")
             val passphrase = cryptoSecurityManager.getOrCreateDatabasePassphrase()
             try {
                 database = VVFDatabase.buildEncryptedDatabase(this, passphrase)
@@ -203,14 +224,14 @@ class VVFApplication : Application(), Configuration.Provider {
             cacheDir = cacheDir,
             snapshotSources = listOf(
                 ReadOnlyDatabaseSnapshotSource(
-                    databaseFile = File(filesDir, VVFDatabase.DATABASE_NAME),
+                    databaseFile = getDatabasePath(VVFDatabase.DATABASE_NAME),
                     beforeSnapshot = {
                         runCatching {
                             if (::database.isInitialized) {
-                                database.close()
-                                Log.i(TAG, "Closed Room before backup DB snapshot")
+                                database.openHelper.writableDatabase.execSQL("PRAGMA wal_checkpoint(FULL)")
+                                Log.i(TAG, "WAL checkpoint before backup DB snapshot")
                             }
-                        }
+                        }.onFailure { e -> Log.w(TAG, "WAL checkpoint before snapshot failed", e) }
                     }
                 ),
                 InjectedVaultSnapshotSource(vaultDir)

@@ -16,16 +16,10 @@ import com.vvf.smartmanager.core.database.model.FileFtsEntity
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
 import com.vvf.smartmanager.core.database.model.VaultItemEntity
 import com.vvf.smartmanager.core.database.model.VaultJournalEntity
-import net.sqlcipher.database.SupportFactory
+import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 /**
  * High-performance, SQLCipher-encrypted Room Database for VVF Smart Manager.
- *
- * Stores:
- * 1. File Metadata & Duplicate Hashes
- * 2. Full-Text Search (FTS5) Index
- * 3. Secure Vault Records & Operation Journal
- * 4. Multi-Cloud Sync Tracker
  */
 @Database(
     entities = [
@@ -49,9 +43,6 @@ abstract class VVFDatabase : RoomDatabase() {
     companion object {
         const val DATABASE_NAME = "vvf_smart_manager_enc.db"
 
-        /**
-         * Migration skeleton for future database schema upgrades.
-         */
         val MIGRATION_1_2: Migration = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
@@ -70,11 +61,9 @@ abstract class VVFDatabase : RoomDatabase() {
             }
         }
 
-        /**
-         * Builds an encrypted SQLCipher Room database using the decrypted Keystore passphrase.
-         */
+        /** Builds an encrypted SQLCipher Room database using the decrypted Keystore passphrase. */
         fun buildEncryptedDatabase(context: Context, passphrase: ByteArray): VVFDatabase {
-            val openHelperFactory = SupportFactory(passphrase)
+            val openHelperFactory = SupportOpenHelperFactory(passphrase)
 
             return Room.databaseBuilder(
                 context.applicationContext,
@@ -86,9 +75,7 @@ abstract class VVFDatabase : RoomDatabase() {
                 .build()
         }
 
-        /**
-         * In-memory database builder for testing.
-         */
+        /** In-memory database builder for tests. */
         fun buildInMemoryDatabase(context: Context): VVFDatabase {
             return Room.inMemoryDatabaseBuilder(
                 context.applicationContext,

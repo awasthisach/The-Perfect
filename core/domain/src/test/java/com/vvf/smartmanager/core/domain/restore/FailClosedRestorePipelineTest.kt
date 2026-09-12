@@ -166,6 +166,48 @@ class FailClosedRestorePipelineTest {
     }
 
     @Test
+    fun unexpectedRestoreExceptionPreservesRollbackFailure() = runBlocking {
+        val result = FailClosedRestorePipeline(
+            workingDir = temp.newFolder("work-exception-rollback"),
+            downloader = object : BackupDownloader {
+                override suspend fun download(remoteBackupId: String): Result<DownloadedArtifact> = Result.success(
+                    DownloadedArtifact(temp.newFile("d4"), sampleInfo, "abc")
+                )
+            },
+            verifier = object : BackupVerifier {
+                override suspend fun verify(
+                    artifact: DownloadedArtifact,
+                    expectedChecksum: String?
+                ): Result<VerifiedArtifact> = Result.success(VerifiedArtifact(artifact.file, sampleInfo, "abc"))
+            },
+            decryptor = object : BackupDecryptor {
+                override suspend fun decrypt(
+                    verifiedArtifact: VerifiedArtifact,
+                    stagingDir: File
+                ): Result<DecryptedBackup> = Result.success(
+                    DecryptedBackup(stagingDir, temp.newFile("db4"), temp.newFolder("v4"), sampleInfo, 1L)
+                )
+            },
+            applier = object : RestoreApplier {
+                override suspend fun prepare(): Result<RestoreSnapshot> = Result.success(
+                    RestoreSnapshot("exception-snapshot", 1L, temp.newFile("sdb4"), temp.newFolder("sv4"))
+                )
+
+                override suspend fun apply(decryptedBackup: DecryptedBackup): Result<AppliedRestore> =
+                    throw IllegalStateException("unexpected apply exception")
+
+                override suspend fun rollback(snapshot: RestoreSnapshot): Result<Unit> =
+                    Result.failure(RestoreException("rollback failed after unexpected apply exception"))
+            }
+        ).restore("remote-1", "abc")
+
+        assertTrue(result.isFailure)
+        val message = result.exceptionOrNull()?.message.orEmpty()
+        assertTrue(message.contains("rollback also failed"))
+        assertTrue(result.exceptionOrNull()?.cause?.message.orEmpty().contains("rollback failed"))
+    }
+
+    @Test
     fun dryRunDoesNotLeaveStagingArtifacts() = runBlocking {
         val work = temp.newFolder("work4")
         val p = FailClosedRestorePipeline(
