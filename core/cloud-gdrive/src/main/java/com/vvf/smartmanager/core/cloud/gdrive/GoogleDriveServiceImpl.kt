@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
+import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
@@ -136,38 +137,81 @@ class GoogleDriveServiceImpl(
                 val parent = resolveFolderId(remoteFolderId)
                 val safeName = file.name.replace("\\", "\\\\").replace("\"", "\\\"")
                 val metadataJson = """{"name":"$safeName","parents":["$parent"]}"""
-                val metadataBody = metadataJson.toRequestBody("application/json; charset=UTF-8".toMediaType())
                 val mediaType = (localFile.mimeType?.takeIf { it.isNotBlank() } ?: "application/octet-stream")
                     .toMediaType()
-                val fileBody = file.asRequestBody(mediaType)
-                val part = MultipartBody.Part.createFormData("file", file.name, fileBody)
-                val uploaded = driveApi.uploadFile(bearer(), metadataBody, part)
-                val id = uploaded.id
-                    ?: return@withContext Result.failure(IllegalStateException("Upload succeeded but no file id returned"))
 
-                val localMd5 = calculateMd5(file)
-                val remoteMd5 = uploaded.md5Checksum
-                if (remoteMd5.isNullOrBlank()) {
-                    return@withContext Result.failure(
-                        IllegalStateException("Drive upload returned no integrity checksum for binary artifact $id")
+                // Google requires the upload host and multipart/related, not Retrofit form-data.
+                val related = MultipartBody.Builder()
+                    .setType("multipart/related".toMediaType())
+                    .addPart(
+                        MultipartBody.Part.create(
+                            metadataJson.toRequestBody("application/json; charset=UTF-8".toMediaType())
+                        )
                     )
-                }
-                if (!remoteMd5.equals(localMd5, ignoreCase = true)) {
-                    return@withContext Result.failure(
-                        IllegalStateException("Drive upload integrity mismatch for $id")
-                    )
-                }
-                if (uploaded.size?.toLongOrNull() != file.length()) {
-                    return@withContext Result.failure(
-                        IllegalStateException("Drive upload size mismatch for $id")
-                    )
-                }
+                    .addPart(MultipartBody.Part.create(file.asRequestBody(mediaType)))
+                    .build()
 
-                currentAccount = currentAccount.copy(
-                    usedBytes = currentAccount.usedBytes + file.length(),
-                    lastSyncTimestamp = System.currentTimeMillis()
-                )
-                Result.success(id)
+                val request = Request.Builder()
+                    .url(
+                        "https://www.googleapis.com/upload/drive/v3/files" +
+                            "?uploadType=multipart&fields=id,name,mimeType,size,md5Checksum,parents,modifiedTime"
+                    )
+                    .header("Authorization", bearer())
+                    .post(related)
+                    .build()
+
+                DriveNetwork.uploadClient().newCall(request).execute().use { response ->
+                    val bodyText = response.body?.string().orEmpty()
+                    if (!response.isSuccessful) {
+                        val detail = bodyText.take(400).ifBlank { response.message }
+                        return@withContext Result.failure(
+                            IllegalStateException("Drive upload failed: HTTP ${response.code} — $detail")
+                        )
+                    }
+
+                    val uploaded = try {
+                        DriveUploadResponseParser.parse(bodyText)
+                    } catch (e: Exception) {
+                        return@withContext Result.failure(
+                            IllegalStateException("Drive upload returned invalid JSON response", e)
+                        )
+                    }
+
+                    val id = uploaded?.id?.takeIf { it.isNotBlank() }
+                        ?: return@withContext Result.failure(
+                            IllegalStateException("Upload succeeded but no file id returned: ${bodyText.take(200)}")
+                        )
+                    val remoteMd5 = uploaded.md5Checksum
+                    val remoteSize = uploaded.size?.toLongOrNull()
+
+                    val localMd5 = calculateMd5(file)
+                    if (remoteMd5.isNullOrBlank()) {
+                        return@withContext Result.failure(
+                            IllegalStateException("Drive upload returned no integrity checksum for binary artifact $id")
+                        )
+                    }
+                    if (!remoteMd5.equals(localMd5, ignoreCase = true)) {
+                        return@withContext Result.failure(
+                            IllegalStateException("Drive upload integrity mismatch for $id")
+                        )
+                    }
+                    if (remoteSize == null) {
+                        return@withContext Result.failure(
+                            IllegalStateException("Drive upload returned no size for binary artifact $id")
+                        )
+                    }
+                    if (remoteSize != file.length()) {
+                        return@withContext Result.failure(
+                            IllegalStateException("Drive upload size mismatch for $id")
+                        )
+                    }
+
+                    currentAccount = currentAccount.copy(
+                        usedBytes = currentAccount.usedBytes + file.length(),
+                        lastSyncTimestamp = System.currentTimeMillis()
+                    )
+                    Result.success(id)
+                }
             } catch (e: Exception) {
                 Result.failure(e)
             }
