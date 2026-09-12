@@ -1,1 +1,0 @@
-CodeQL workflow is maintained in .github/workflows/codeql.yml.
