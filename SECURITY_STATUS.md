@@ -1,20 +1,24 @@
 # Security and CI Status
 
-This repository uses GitHub's CodeQL Default Setup as the authoritative CodeQL configuration. A repository-owned Advanced CodeQL workflow must not be enabled concurrently with Default Setup because GitHub rejects SARIF uploads from the advanced configuration in that state.
+**Canonical branch:** `main`
 
-## Current verified state
+This repository uses GitHub **CodeQL Default Setup** as the authoritative CodeQL configuration. Do not enable a concurrent Advanced CodeQL workflow (SARIF upload conflicts).
 
-- Canonical branch: `main`.
-- Application CI has a passing run on the current hardening line, including unit tests, lint and debug APK assembly.
-- Release workflow is fail-closed for signing, Firebase configuration, CPAS, licensing and APK verification.
-- SQLCipher production migration is in the current mainline.
-- The previously added repository-owned Advanced CodeQL workflow was removed rather than merged because it conflicted with CodeQL Default Setup.
-- Debug and release signing are intentionally separated; release tasks require explicit production signing environment variables and never fall back to the Android debug keystore.
+## Verified state (recent main)
 
-## Remaining external configuration
+- Application CI: unit tests, lint, and debug APK assembly on the hardening line.
+- **SQLCipher** encrypted Room database is the production path.
+- **Release workflow** (`.github/workflows/release.yml`): fail-closed for unit tests, lint, FOSSA analyze, signing, and APK verification — no debug-keystore fallback.
+- Cloud backup path hardened for Drive upload format, folder name vs fileId, and database snapshot staging (#115–#118).
+- FileProvider must not expose `<root-path>`; restore applies are staged/fail-closed by design in domain pipelines.
 
-Black Duck scanning and CodeQL Default Setup are GitHub-side security configuration concerns. They must be configured through the repository/organization security settings when required; they are not replaced by weakening repository workflows.
+## Remaining external / product work
+
+- Black Duck / org-level scanners: configure in GitHub security settings if required.
+- Hosted-runner Android emulator boot remains environment-sensitive (soft gate on PR CI; weekly instrumented hard path).
+- Non-Google cloud SPI drivers may still be stubs — do not advertise them as production-complete.
+- Public store release still requires signed release workflow success + broader real-device CUJs.
 
 ## Release rule
 
-A green application build alone is not a production-release approval. Release promotion requires the signed-release workflow and its fail-closed verification gates to pass.
+A green **debug** CI run is **not** production approval. Promote only after the **signed release** workflow and its fail-closed gates pass.
