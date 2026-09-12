@@ -69,6 +69,9 @@ class IndexOcrTextUseCase(
             searchRepository.addTagToFile(fileItem.path, word)
         }
 
+        // Ensure FTS reflects newly inserted content:// metadata rows from addTagToFile.
+        runCatching { searchRepository.rebuildFtsIndex() }
+
         return Result.success(true)
     }
 }
