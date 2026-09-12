@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
+import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
@@ -136,17 +137,50 @@ class GoogleDriveServiceImpl(
                 val parent = resolveFolderId(remoteFolderId)
                 val safeName = file.name.replace("\\", "\\\\").replace("\"", "\\\"")
                 val metadataJson = """{"name":"$safeName","parents":["$parent"]}"""
-                val metadataBody = metadataJson.toRequestBody("application/json; charset=UTF-8".toMediaType())
                 val mediaType = (localFile.mimeType?.takeIf { it.isNotBlank() } ?: "application/octet-stream")
                     .toMediaType()
-                val fileBody = file.asRequestBody(mediaType)
-                val part = MultipartBody.Part.createFormData("file", file.name, fileBody)
-                val uploaded = driveApi.uploadFile(bearer(), metadataBody, part)
-                val id = uploaded.id
-                    ?: return@withContext Result.failure(IllegalStateException("Upload succeeded but no file id returned"))
+
+                // Google requires upload host + multipart/related (not Retrofit form-data).
+                val related = MultipartBody.Builder()
+                    .setType("multipart/related".toMediaType())
+                    .addPart(
+                        MultipartBody.Part.create(
+                            metadataJson.toRequestBody("application/json; charset=UTF-8".toMediaType())
+                        )
+                    )
+                    .addPart(
+                        MultipartBody.Part.create(file.asRequestBody(mediaType))
+                    )
+                    .build()
+
+                val request = Request.Builder()
+                    .url(
+                        "https://www.googleapis.com/upload/drive/v3/files" +
+                            "?uploadType=multipart&fields=id,name,mimeType,size,md5Checksum,parents,modifiedTime"
+                    )
+                    .header("Authorization", bearer())
+                    .post(related)
+                    .build()
+
+                val response = DriveNetwork.uploadClient().newCall(request).execute()
+                val bodyText = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    val detail = bodyText.take(400).ifBlank { response.message }
+                    return@withContext Result.failure(
+                        IllegalStateException("Drive upload failed: HTTP ${response.code} — $detail")
+                    )
+                }
+
+                val id = Regex("\"id\"\\s*:\\s*\"([^\"]+)\"").find(bodyText)?.groupValues?.get(1)
+                    ?: return@withContext Result.failure(
+                        IllegalStateException("Upload succeeded but no file id returned: ${bodyText.take(200)}")
+                    )
+                val remoteMd5 = Regex("\"md5Checksum\"\\s*:\\s*\"([^\"]+)\"").find(bodyText)
+                    ?.groupValues?.get(1)
+                val remoteSize = Regex("\"size\"\\s*:\\s*\"([^\"]+)\"").find(bodyText)
+                    ?.groupValues?.get(1)?.toLongOrNull()
 
                 val localMd5 = calculateMd5(file)
-                val remoteMd5 = uploaded.md5Checksum
                 if (remoteMd5.isNullOrBlank()) {
                     return@withContext Result.failure(
                         IllegalStateException("Drive upload returned no integrity checksum for binary artifact $id")
@@ -157,7 +191,7 @@ class GoogleDriveServiceImpl(
                         IllegalStateException("Drive upload integrity mismatch for $id")
                     )
                 }
-                if (uploaded.size?.toLongOrNull() != file.length()) {
+                if (remoteSize != null && remoteSize != file.length()) {
                     return@withContext Result.failure(
                         IllegalStateException("Drive upload size mismatch for $id")
                     )
