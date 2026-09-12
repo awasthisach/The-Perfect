@@ -75,19 +75,29 @@ import com.vvf.smartmanager.ui.theme.VVFSmartManagerTheme
 class MainActivity : FragmentActivity() {
     private lateinit var googleDriveAuth: GoogleDriveAuth
 
+    /**
+     * Activity-scoped OAuth completion handler (not Application-held), so config changes
+     * do not leave a stale Application lambda. On success we always apply the token to
+     * [VVFApplication.googleDriveService] even if the UI callback was cleared.
+     */
+    private var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
+
     private val googleDriveSignInLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { activityResult ->
         val app = application as VVFApplication
-        val callback = app.pendingGoogleDriveSignInCallback ?: return@registerForActivityResult
+        val callback = pendingGoogleDriveSignInCallback
+        pendingGoogleDriveSignInCallback = null
         app.pendingGoogleDriveSignInCallback = null
         lifecycleScope.launch {
-            callback(
-                googleDriveAuth.handleSignInActivityResult(
-                    resultCode = activityResult.resultCode,
-                    data = activityResult.data
-                )
+            val result = googleDriveAuth.handleSignInActivityResult(
+                resultCode = activityResult.resultCode,
+                data = activityResult.data
             )
+            result.onSuccess { token ->
+                runCatching { app.googleDriveService.setAccessToken(token) }
+            }
+            callback?.invoke(result)
         }
     }
 
@@ -111,7 +121,7 @@ class MainActivity : FragmentActivity() {
                                 )
                             )
                         } else {
-                            (application as VVFApplication).pendingGoogleDriveSignInCallback = callback
+                            pendingGoogleDriveSignInCallback = callback
                             googleDriveSignInLauncher.launch(googleDriveAuth.buildDriveSignInIntent())
                         }
                     }
@@ -371,19 +381,11 @@ private fun VVFNavHost(
         }
         composable(TopLevelDestination.SETTINGS.route) {
             SettingsScreen(
-                onNavigateBack = { navController.popBackStack() },
-                initialBiometricEnabled = app.vaultAuthUseCase.isBiometricEnabled(),
-                onBiometricEnabledChange = { enabled ->
-                    app.vaultAuthUseCase.setBiometricEnabled(enabled)
-                },
                 initialAutoIndexOcr = app.isAutoIndexOcrEnabled(),
-                onAutoIndexOcrChange = { enabled ->
-                    app.setAutoIndexOcrEnabled(enabled)
-                },
+                onAutoIndexOcrChange = { enabled -> app.setAutoIndexOcrEnabled(enabled) },
                 initialOfflineOnlyMode = app.isOfflineOnlyModeEnabled(),
-                onOfflineOnlyModeChange = { enabled ->
-                    app.setOfflineOnlyModeEnabled(enabled)
-                }
+                onOfflineOnlyModeChange = { enabled -> app.setOfflineOnlyModeEnabled(enabled) },
+                onNavigateBack = { navController.popBackStack() }
             )
         }
     }
