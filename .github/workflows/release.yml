@@ -58,8 +58,12 @@ jobs:
             echo "::error::GH_FOSSA secret required for release promotion"
             exit 1
           fi
+          curl -fsSL https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
+          fossa --version
+          fossa analyze --project "The-Perfect" --revision "${{ github.sha }}"
+          fossa test --timeout 600
           cat > foss-status.json <<'EOF'
-          {"gate_id":"GATE-LICENSE-001","status":"PASS","reason":"GH_FOSSA present for release job"}
+          {"gate_id":"GATE-LICENSE-001","status":"PASS","reason":"fossa analyze + fossa test succeeded on release"}
           EOF
 
       - name: Validate release inputs and secrets
@@ -103,6 +107,17 @@ jobs:
           if not payload.get("client"):
               raise SystemExit("google-services.json contains no Firebase client configuration")
           PY
+
+      - name: Record instrumented DB evidence policy
+        run: |
+          echo "::notice::Unit tests and lint are hard on this release job."
+          echo "::warning::SQLCipher connectedAndroidTest remains a weekly/self-hosted KVM hard gate — not soft-passed here."
+
+      - name: Unit tests (release hard gate)
+        run: ./gradlew --no-daemon testDebugUnitTest --stacktrace
+
+      - name: Android lint (release hard gate)
+        run: ./gradlew --no-daemon lintDebug --stacktrace
 
       - name: Assemble signed release
         env:
