@@ -1,6 +1,5 @@
 package com.vvf.smartmanager.core.data.backup
 
-import android.util.Log
 import java.io.File
 import java.io.IOException
 
@@ -19,8 +18,7 @@ interface SnapshotSource {
  * File snapshot of a SQLCipher/SQLite database including WAL/SHM sidecars.
  *
  * Prefer providing [beforeSnapshot] (e.g. WAL checkpoint) so the copy is consistent.
- * Path resolution tries [databaseFile] and sibling candidates under the same databases/ dir
- * so OEM / Room naming quirks do not yield a silent "Snapshot failed for: database".
+ * Path resolution tries [databaseFile] and sibling candidates under the same databases/ dir.
  */
 class ReadOnlyDatabaseSnapshotSource(
     private val databaseFile: File,
@@ -32,23 +30,15 @@ class ReadOnlyDatabaseSnapshotSource(
     override fun snapshot(stagingDir: File): File? {
         val source = resolveExistingDatabaseFile()
         if (source == null) {
-            Log.e(
-                TAG,
-                "DB snapshot missing. expected=${databaseFile.absolutePath} " +
-                    "parentExists=${databaseFile.parentFile?.isDirectory} " +
-                    "siblings=${databaseFile.parentFile?.list()?.joinToString().orEmpty()}"
-            )
-            // Fresh install may not have flushed a file yet — stage an empty marker so
-            // cloud backup is not hard-blocked; restore treats missing DB payload carefully.
+            // Fresh install / empty DB: stage empty placeholder so cloud backup is not hard-blocked.
             return runCatching {
                 val target = File(stagingDir, databaseFile.name.ifBlank { "vvf_smart_manager_enc.db" })
                 target.parentFile?.mkdirs()
-                if (!target.exists()) target.writeBytes(ByteArray(0))
+                if (!target.exists()) {
+                    target.writeBytes(ByteArray(0))
+                }
                 target
-            }.getOrElse { err ->
-                Log.e(TAG, "Failed to stage empty DB placeholder", err)
-                null
-            }
+            }.getOrNull()
         }
 
         return try {
@@ -66,8 +56,6 @@ class ReadOnlyDatabaseSnapshotSource(
                 afterSnapshot?.invoke()
             }
         } catch (error: Throwable) {
-            Log.e(TAG, "DB snapshot copy failed from ${source.absolutePath}", error)
-            // Propagate so ArchiveService surfaces the real cause, not a bare key name.
             throw IOException(
                 "Database snapshot failed (${source.absolutePath}): ${error.message ?: error.javaClass.simpleName}",
                 error
@@ -80,23 +68,23 @@ class ReadOnlyDatabaseSnapshotSource(
         return totalSize(primary, "-wal", "-shm")
     }
 
-    /**
-     * Room/SQLCipher usually uses Context.getDatabasePath(name). Some devices or prior
-     * builds may leave the file under a slightly different name in the same folder.
-     */
     private fun resolveExistingDatabaseFile(): File? {
-        if (databaseFile.isFile && databaseFile.length() >= 0L) return databaseFile
+        if (databaseFile.isFile) return databaseFile
 
-        val parent = databaseFile.parentFile
-        val candidates = mutableListOf<File>()
-        if (parent != null) {
-            candidates += File(parent, databaseFile.name)
-            candidates += File(parent, "vvf_smart_manager_enc.db")
-            candidates += File(parent, "vvf_smart_manager.db")
-            parent.listFiles()
-                ?.filter { it.isFile && it.name.startsWith("vvf_smart_manager") && !it.name.contains("-wal") && !it.name.contains("-shm") }
-                ?.let { candidates.addAll(it) }
-        }
+        val parent = databaseFile.parentFile ?: return null
+        val candidates = mutableListOf(
+            File(parent, databaseFile.name),
+            File(parent, "vvf_smart_manager_enc.db"),
+            File(parent, "vvf_smart_manager.db")
+        )
+        parent.listFiles()
+            ?.filter {
+                it.isFile &&
+                    it.name.startsWith("vvf_smart_manager") &&
+                    !it.name.contains("-wal") &&
+                    !it.name.contains("-shm")
+            }
+            ?.let { candidates.addAll(it) }
 
         return candidates.firstOrNull { it.isFile }
     }
@@ -122,14 +110,11 @@ class ReadOnlyDatabaseSnapshotSource(
     }
 
     companion object {
-        private const val TAG = "ReadOnlyDbSnapshot"
         private const val DEFAULT_BUFFER = 64 * 1024
     }
 }
 
-/**
- * Stages an injected vault directory. No absolute path or application singleton is used.
- */
+/** Stages an injected vault directory. */
 class InjectedVaultSnapshotSource(
     private val vaultDirectory: File
 ) : SnapshotSource {
