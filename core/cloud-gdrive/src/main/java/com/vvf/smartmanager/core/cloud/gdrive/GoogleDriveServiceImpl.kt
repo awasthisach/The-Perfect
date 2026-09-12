@@ -140,7 +140,7 @@ class GoogleDriveServiceImpl(
                 val mediaType = (localFile.mimeType?.takeIf { it.isNotBlank() } ?: "application/octet-stream")
                     .toMediaType()
 
-                // Google requires upload host + multipart/related (not Retrofit form-data).
+                // Google requires the upload host and multipart/related, not Retrofit form-data.
                 val related = MultipartBody.Builder()
                     .setType("multipart/related".toMediaType())
                     .addPart(
@@ -148,9 +148,7 @@ class GoogleDriveServiceImpl(
                             metadataJson.toRequestBody("application/json; charset=UTF-8".toMediaType())
                         )
                     )
-                    .addPart(
-                        MultipartBody.Part.create(file.asRequestBody(mediaType))
-                    )
+                    .addPart(MultipartBody.Part.create(file.asRequestBody(mediaType)))
                     .build()
 
                 val request = Request.Builder()
@@ -162,46 +160,58 @@ class GoogleDriveServiceImpl(
                     .post(related)
                     .build()
 
-                val response = DriveNetwork.uploadClient().newCall(request).execute()
-                val bodyText = response.body?.string().orEmpty()
-                if (!response.isSuccessful) {
-                    val detail = bodyText.take(400).ifBlank { response.message }
-                    return@withContext Result.failure(
-                        IllegalStateException("Drive upload failed: HTTP ${response.code} — $detail")
-                    )
-                }
+                DriveNetwork.uploadClient().newCall(request).execute().use { response ->
+                    val bodyText = response.body?.string().orEmpty()
+                    if (!response.isSuccessful) {
+                        val detail = bodyText.take(400).ifBlank { response.message }
+                        return@withContext Result.failure(
+                            IllegalStateException("Drive upload failed: HTTP ${response.code} — $detail")
+                        )
+                    }
 
-                val id = Regex("\"id\"\\s*:\\s*\"([^\"]+)\"").find(bodyText)?.groupValues?.get(1)
-                    ?: return@withContext Result.failure(
-                        IllegalStateException("Upload succeeded but no file id returned: ${bodyText.take(200)}")
-                    )
-                val remoteMd5 = Regex("\"md5Checksum\"\\s*:\\s*\"([^\"]+)\"").find(bodyText)
-                    ?.groupValues?.get(1)
-                val remoteSize = Regex("\"size\"\\s*:\\s*\"([^\"]+)\"").find(bodyText)
-                    ?.groupValues?.get(1)?.toLongOrNull()
+                    val uploaded = try {
+                        DriveUploadResponseParser.parse(bodyText)
+                    } catch (e: Exception) {
+                        return@withContext Result.failure(
+                            IllegalStateException("Drive upload returned invalid JSON response", e)
+                        )
+                    }
 
-                val localMd5 = calculateMd5(file)
-                if (remoteMd5.isNullOrBlank()) {
-                    return@withContext Result.failure(
-                        IllegalStateException("Drive upload returned no integrity checksum for binary artifact $id")
-                    )
-                }
-                if (!remoteMd5.equals(localMd5, ignoreCase = true)) {
-                    return@withContext Result.failure(
-                        IllegalStateException("Drive upload integrity mismatch for $id")
-                    )
-                }
-                if (remoteSize != null && remoteSize != file.length()) {
-                    return@withContext Result.failure(
-                        IllegalStateException("Drive upload size mismatch for $id")
-                    )
-                }
+                    val id = uploaded?.id?.takeIf { it.isNotBlank() }
+                        ?: return@withContext Result.failure(
+                            IllegalStateException("Upload succeeded but no file id returned: ${bodyText.take(200)}")
+                        )
+                    val remoteMd5 = uploaded.md5Checksum
+                    val remoteSize = uploaded.size?.toLongOrNull()
 
-                currentAccount = currentAccount.copy(
-                    usedBytes = currentAccount.usedBytes + file.length(),
-                    lastSyncTimestamp = System.currentTimeMillis()
-                )
-                Result.success(id)
+                    val localMd5 = calculateMd5(file)
+                    if (remoteMd5.isNullOrBlank()) {
+                        return@withContext Result.failure(
+                            IllegalStateException("Drive upload returned no integrity checksum for binary artifact $id")
+                        )
+                    }
+                    if (!remoteMd5.equals(localMd5, ignoreCase = true)) {
+                        return@withContext Result.failure(
+                            IllegalStateException("Drive upload integrity mismatch for $id")
+                        )
+                    }
+                    if (remoteSize == null) {
+                        return@withContext Result.failure(
+                            IllegalStateException("Drive upload returned no size for binary artifact $id")
+                        )
+                    }
+                    if (remoteSize != file.length()) {
+                        return@withContext Result.failure(
+                            IllegalStateException("Drive upload size mismatch for $id")
+                        )
+                    }
+
+                    currentAccount = currentAccount.copy(
+                        usedBytes = currentAccount.usedBytes + file.length(),
+                        lastSyncTimestamp = System.currentTimeMillis()
+                    )
+                    Result.success(id)
+                }
             } catch (e: Exception) {
                 Result.failure(e)
             }
