@@ -31,12 +31,15 @@ class SnapshotSourceTest {
     }
 
     @Test
-    fun missingDatabaseReturnsNull() {
+    fun missingDatabaseStagesEmptyPlaceholder() {
         val root = Files.createTempDirectory("snapshot-missing").toFile()
         try {
-            val result = ReadOnlyDatabaseSnapshotSource(File(root, "missing.db"))
-                .snapshot(File(root, "staging").apply { mkdirs() })
-            assertTrue(result == null)
+            val staging = File(root, "staging").apply { mkdirs() }
+            val result = ReadOnlyDatabaseSnapshotSource(File(root, "missing.db")).snapshot(staging)
+            assertNotNull(result)
+            assertTrue(result!!.isFile)
+            assertEquals(0L, result.length())
+            assertEquals("missing.db", result.name)
         } finally {
             root.deleteRecursively()
         }
