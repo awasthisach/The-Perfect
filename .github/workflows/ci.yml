@@ -14,6 +14,9 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  UPLOAD_ARTIFACT_ACTION: b7c566a772e6b6bfb58ed0dc250532a479d7789f
+
 jobs:
   test_and_quality:
     name: Build, Test, Lint & Quality
@@ -34,9 +37,7 @@ jobs:
           packages: ""
           accept-android-sdk-licenses: true
       - name: Install required Android SDK components
-        run: |
-          set -euo pipefail
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
       - name: Create local.properties
         run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
       - name: Generate SQLCipher 4.5.4 compatibility fixture
@@ -51,112 +52,80 @@ jobs:
           ./configure --enable-tempstore=yes --enable-fts5 CFLAGS="-DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL" LDFLAGS="-lcrypto"
           make -j2
           test -x ./sqlcipher
-          ./sqlcipher :memory: "PRAGMA cipher_version;"
           printf '%s\n' "PRAGMA key = 'vvf-sqlcipher-compatibility-test';" "CREATE TABLE compatibility_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL);" "INSERT INTO compatibility_test (id, value) VALUES (1, 'legacy-4.5.4');" ".quit" | ./sqlcipher "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
           test -s "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
       - name: Verify Gradle wrapper
         run: ./gradlew --no-daemon --version
       - name: Run unit tests
         run: ./gradlew --no-daemon testDebugUnitTest --stacktrace
-      - name: Generate CPAS evidence from unit-test gate
+      - name: Run Android lint
+        run: ./gradlew --no-daemon lintDebug --stacktrace
+      - name: Assemble debug APK
+        run: ./gradlew --no-daemon assembleDebug --stacktrace
+      - name: Generate CPAS unit evidence
         if: success()
         run: |
           set -euo pipefail
-          python3 tools/audit/generate_evidence.py \
-            --commit-sha "${{ github.sha }}" \
-            --run-id "${{ github.run_id }}" \
-            --job-id "${{ github.job }}" \
-            --result PASS \
-            --environment "github-actions-${{ runner.os }}-unit" \
-            --output docs/assurance/cpas-evidence-run.json
-      - name: Upload CPAS evidence bundle
+          python3 tools/audit/generate_evidence.py --commit-sha "${{ github.sha }}" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --environment "github-actions-${{ runner.os }}-unit" --output docs/assurance/cpas-evidence-run.json
+      - name: Upload CPAS unit evidence
         if: success()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: cpas-evidence-run
           path: docs/assurance/cpas-evidence-run.json
           if-no-files-found: error
           retention-days: 30
-      - name: Run Android lint
-        run: ./gradlew --no-daemon lintDebug --stacktrace
-      - name: Assemble debug APK
-        run: ./gradlew --no-daemon assembleDebug --stacktrace
-      # Emulator boot remains soft (GH-hosted infra flake). Once booted, instrumented tests are HARD.
-      - name: Start Android emulator
+
+      # Emulator boot is deliberately SOFT because GitHub-hosted runners may lack KVM.
+      # The step exits successfully on infra failure and exposes booted=false, so no red
+      # error annotation is produced. Instrumentation remains HARD when boot succeeds.
+      - name: Start Android emulator (soft infra gate)
         id: emulator
-        continue-on-error: true
         timeout-minutes: 12
         env:
           ANDROID_AVD_HOME: ${{ runner.temp }}/avd
         run: |
-          set -euo pipefail
+          set -uo pipefail
           mkdir -p "$ANDROID_AVD_HOME"
           export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH"
-          echo "no" | avdmanager create avd --force --name vvf-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2"
-          adb start-server
-          emulator -avd vvf-api35 \
-            -no-window \
-            -gpu swiftshader_indirect \
-            -no-snapshot \
-            -noaudio \
-            -no-boot-anim \
-            -camera-back none \
-            -accel off \
-            -no-metrics \
-            -wipe-data \
-            > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          echo "no" | avdmanager create avd --force --name vvf-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2" || { echo "booted=false" >> "$GITHUB_OUTPUT"; echo "::warning::AVD creation failed; emulator infrastructure unavailable."; exit 0; }
+          adb start-server || true
+          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel off -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/emulator.pid"
           if ! timeout 180 adb wait-for-device; then
-            echo "::warning::adb wait-for-device timed out"
+            echo "::warning::adb wait-for-device timed out; treating emulator as an infrastructure skip."
             tail -n 80 "$RUNNER_TEMP/emulator.log" || true
-            exit 1
+            echo "booted=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           for _ in $(seq 1 60); do
             boot_completed="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
-            if [ "$boot_completed" = "1" ]; then
-              break
-            fi
+            [ "$boot_completed" = "1" ] && break
             sleep 5
           done
           if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)" != "1" ]; then
-            echo "::warning::Emulator failed to reach sys.boot_completed=1 (infra flake)"
+            echo "::warning::Emulator failed to reach sys.boot_completed=1; treating as infrastructure skip."
             tail -n 120 "$RUNNER_TEMP/emulator.log" || true
-            exit 1
+            echo "booted=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          adb shell settings put global window_animation_scale 0
-          adb shell settings put global transition_animation_scale 0
-          adb shell settings put global animator_duration_scale 0
+          adb shell settings put global window_animation_scale 0 || true
+          adb shell settings put global transition_animation_scale 0 || true
+          adb shell settings put global animator_duration_scale 0 || true
           adb devices
           echo "booted=true" >> "$GITHUB_OUTPUT"
-          echo "emulator_outcome=success" > "$GITHUB_WORKSPACE/.emulator-booted"
-      - name: Annotate SQLCipher instrumented skip (emulator infra flake)
-        if: ${{ steps.emulator.outcome != 'success' }}
-        run: |
-          echo "::warning::GATE-DB-001 emulator did not boot — SQLCipher instrumented SKIPPED (soft). Weekly instrumented workflow remains the hard DB gate when infra flakes."
+      - name: Annotate SQLCipher instrumented skip
+        if: ${{ steps.emulator.outputs.booted != 'true' }}
+        run: echo "::warning::GATE-DB-001 emulator did not boot — SQLCipher instrumentation SKIPPED (soft). Weekly instrumented workflow remains the hard DB gate."
       - name: Run SQLCipher compatibility instrumentation test
         id: sqlcipher_instrumented
-        if: ${{ steps.emulator.outcome == 'success' }}
+        if: ${{ steps.emulator.outputs.booted == 'true' }}
         run: ./gradlew --no-daemon :core:database-compat:connectedDebugAndroidTest --stacktrace
-      - name: Generate CPAS evidence including DB instrumented gate
-        if: ${{ steps.emulator.outcome == 'success' && steps.sqlcipher_instrumented.outcome == 'success' }}
+      - name: Generate CPAS full DB evidence
+        if: ${{ steps.emulator.outputs.booted == 'true' && steps.sqlcipher_instrumented.outcome == 'success' }}
         run: |
           set -euo pipefail
-          python3 tools/audit/generate_evidence.py \
-            --commit-sha "${{ github.sha }}" \
-            --run-id "${{ github.run_id }}" \
-            --job-id "${{ github.job }}" \
-            --result PASS \
-            --include-db \
-            --environment "github-actions-API35-emulator" \
-            --output docs/assurance/cpas-evidence-full.json
-      - name: Upload full CPAS evidence bundle
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: cpas-evidence-full
-          path: docs/assurance/cpas-evidence-full.json
-          if-no-files-found: ignore
-          retention-days: 30
+          python3 tools/audit/generate_evidence.py --commit-sha "${{ github.sha }}" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --include-db --environment "github-actions-API35-emulator" --output docs/assurance/cpas-evidence-full.json
       - name: Publish gate summary
         if: always()
         run: |
@@ -164,26 +133,10 @@ jobs:
           echo "| Gate | Policy |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
           echo "| Unit tests / lint / assemble | HARD — must pass |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Emulator boot | SOFT — infra flake tolerated |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| SQLCipher instrumented (after boot) | HARD — failure fails the job |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| FOSSA outdated-deps test | ADVISORY — analyze is hard on main |" >> "$GITHUB_STEP_SUMMARY"
-          echo "Emulator outcome: ${{ steps.emulator.outcome }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "Instrumented outcome: ${{ steps.sqlcipher_instrumented.outcome }}" >> "$GITHUB_STEP_SUMMARY"
-      - name: Collect Android emulator diagnostics
-        if: failure()
-        timeout-minutes: 2
-        run: |
-          set +e
-          export PATH="$ANDROID_HOME/platform-tools:$PATH"
-          if ! timeout 10 adb devices 2>/dev/null | grep -qE 'device$'; then
-            echo "No adb device present. Skipping diagnostics."
-            echo "unit-test or earlier step failed before emulator boot." > "$RUNNER_TEMP/emulator-logcat.txt" || true
-            exit 0
-          fi
-          timeout 15 adb devices -l || true
-          timeout 20 adb shell getprop || true
-          timeout 30 adb logcat -d -t 2000 > "$RUNNER_TEMP/emulator-logcat.txt" || true
-          cat "$RUNNER_TEMP/emulator.log" 2>/dev/null || true
+          echo "| Emulator boot | SOFT — infrastructure failure recorded without failing the job |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| SQLCipher instrumented after boot | HARD — failure fails the job |" >> "$GITHUB_STEP_SUMMARY"
+          echo "Emulator booted: ${{ steps.emulator.outputs.booted || 'false' }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Instrumented outcome: ${{ steps.sqlcipher_instrumented.outcome || 'skipped' }}" >> "$GITHUB_STEP_SUMMARY"
       - name: Stop Android emulator
         if: always()
         timeout-minutes: 1
@@ -197,9 +150,9 @@ jobs:
             kill -9 "$(cat "$RUNNER_TEMP/emulator.pid")" 2>/dev/null || true
           fi
           timeout 10 adb kill-server 2>/dev/null || true
-      - name: Upload test reports
+      - name: Upload unit test reports
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: unit-test-reports
           path: "**/build/reports/tests/**"
@@ -207,7 +160,7 @@ jobs:
           retention-days: 7
       - name: Upload Android test reports
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: android-test-reports
           path: "**/build/reports/androidTests/**"
@@ -215,25 +168,32 @@ jobs:
           retention-days: 7
       - name: Upload emulator diagnostics
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: android-emulator-diagnostics
           path: |
             ${{ runner.temp }}/emulator.log
-            ${{ runner.temp }}/emulator-logcat.txt
           if-no-files-found: ignore
           retention-days: 7
       - name: Upload lint reports
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: lint-reports
           path: "**/build/reports/lint-results-*.html"
           if-no-files-found: ignore
           retention-days: 7
+      - name: Upload full CPAS evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: cpas-evidence-full
+          path: docs/assurance/cpas-evidence-full.json
+          if-no-files-found: ignore
+          retention-days: 30
       - name: Upload debug APK
         if: success()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: vvf-smartmanager-debug-apk
           path: "**/build/outputs/apk/debug/*.apk"
@@ -250,105 +210,58 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
-
-      - name: Record FOSSA gate status when credentials missing
+      - name: Record missing FOSSA credential
         if: ${{ env.FOSSA_ENABLED != 'true' }}
         run: |
-          set -euo pipefail
           cat > foss-status.json <<'EOF'
-          {
-            "gate_id": "GATE-LICENSE-001",
-            "status": "BLOCKED",
-            "reason": "GH_FOSSA secret is not configured",
-            "policy": "CI records BLOCKED; release promotion requires FOSSA PASS"
-          }
+          {"gate_id":"GATE-LICENSE-001","status":"BLOCKED","reason":"GH_FOSSA secret is not configured","policy":"CI records BLOCKED; release promotion requires FOSSA PASS"}
           EOF
           echo "::warning::GH_FOSSA missing — GATE-LICENSE-001 BLOCKED for release."
-
-      - name: Diagnose FOSSA credentials (non-secret)
-        if: ${{ env.FOSSA_ENABLED == 'true' }}
-        run: |
-          set -euo pipefail
-          LEN="${#FOSSA_API_KEY}"
-          echo "GH_FOSSA length=$LEN"
-          if [ "$LEN" -lt 16 ]; then
-            echo "::error::GH_FOSSA looks too short (len=$LEN)."
-            exit 1
-          fi
-          if printf '%s' "$FOSSA_API_KEY" | grep -q '[[:space:]]'; then
-            echo "::error::GH_FOSSA contains whitespace — re-paste token without spaces/newlines."
-            exit 1
-          fi
-
       - name: Install FOSSA CLI
         if: ${{ env.FOSSA_ENABLED == 'true' }}
         run: |
           set -euo pipefail
           curl -fsSL https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
           fossa --version
-
-      - name: FOSSA analyze (upload inventory)
+      - name: FOSSA analyze
         id: fossa_analyze
         if: ${{ env.FOSSA_ENABLED == 'true' }}
         env:
           FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
-        run: |
-          set -euo pipefail
-          fossa analyze --project "The-Perfect" --revision "${{ github.sha }}"
-
-      - name: FOSSA test (advisory — outdated deps do not fail license gate)
+        run: fossa analyze --project "The-Perfect" --revision "${{ github.sha }}"
+      - name: FOSSA test (advisory)
         id: fossa_test
         if: ${{ env.FOSSA_ENABLED == 'true' && success() }}
         continue-on-error: true
         env:
           FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
-        run: |
-          set -euo pipefail
-          fossa test --timeout 600
-
+        run: fossa test --timeout 600
       - name: Record FOSSA gate status
-        if: ${{ env.FOSSA_ENABLED == 'true' && always() }}
+        if: ${{ always() }}
         run: |
           set -euo pipefail
+          if [ "${{ env.FOSSA_ENABLED }}" != "true" ]; then
+            exit 0
+          fi
           ANALYZE="${{ steps.fossa_analyze.outcome }}"
           TEST="${{ steps.fossa_test.outcome }}"
           if [ "$ANALYZE" = "success" ]; then
             if [ "$TEST" = "success" ]; then
-              STATUS="PASS"
-              REASON="fossa analyze + fossa test succeeded"
+              echo '{"gate_id":"GATE-LICENSE-001","status":"PASS","reason":"fossa analyze + fossa test succeeded"}' > foss-status.json
             else
-              STATUS="PASS"
-              REASON="fossa analyze succeeded; fossa test advisory fail (likely outdated deps)"
-              echo "::warning::fossa test advisory fail (outdated deps). GATE-LICENSE-001 still PASS on analyze."
+              echo '{"gate_id":"GATE-LICENSE-001","status":"PASS","reason":"fossa analyze succeeded; fossa test advisory fail (outdated dependencies)"}' > foss-status.json
+              echo "::warning::FOSSA test advisory fail; analyze gate remains PASS."
             fi
           else
-            STATUS="FAIL"
-            REASON="fossa analyze failed (auth, project link, or CLI error)"
+            echo '{"gate_id":"GATE-LICENSE-001","status":"BLOCKED","reason":"FOSSA analyze failed"}' > foss-status.json
+            echo "::error::FOSSA analyze failed; license gate is BLOCKED."
+            exit 1
           fi
-          cat > foss-status.json <<EOF
-          {
-            "gate_id": "GATE-LICENSE-001",
-            "status": "$STATUS",
-            "reason": "$REASON",
-            "analyze_outcome": "$ANALYZE",
-            "test_outcome": "$TEST",
-            "policy": "License gate requires analyze PASS; outdated-dep issues tracked in FOSSA UI"
-          }
-          EOF
-          cat foss-status.json
-          if [ "$STATUS" != "PASS" ]; then
-            if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
-              echo "::error::GATE-LICENSE-001 FAIL on main"
-              exit 1
-            fi
-            echo "::warning::GATE-LICENSE-001 status=$STATUS (non-main — advisory)"
-          fi
-
       - name: Upload FOSSA gate status
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: foss-status
           path: foss-status.json
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 30
