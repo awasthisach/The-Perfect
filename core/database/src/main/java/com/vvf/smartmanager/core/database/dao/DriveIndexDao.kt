@@ -25,7 +25,7 @@ interface DriveIndexDao {
     @Query("SELECT * FROM drive_index_files WHERE driveFileId = :driveFileId LIMIT 1")
     suspend fun getByDriveId(driveFileId: String): DriveIndexFileEntity?
 
-    @Query("SELECT * FROM drive_index_files ORDER BY modifiedTimeMs DESC LIMIT :limit")
+    @Query("SELECT * FROM drive_index_files WHERE indexStatus != 'REMOTE_REMOVED' ORDER BY modifiedTimeMs DESC LIMIT :limit")
     suspend fun getRecentFiles(limit: Int = 200): List<DriveIndexFileEntity>
 
     @Query("SELECT * FROM drive_index_files WHERE indexStatus != 'REMOTE_REMOVED' AND (name LIKE '%' || :query || '%' OR extractedText LIKE '%' || :query || '%') ORDER BY modifiedTimeMs DESC LIMIT :limit")
@@ -34,13 +34,13 @@ interface DriveIndexDao {
     @Query("SELECT * FROM drive_index_files WHERE pinnedPath IS NOT NULL ORDER BY pinnedAtMs DESC")
     fun observePinnedFiles(): Flow<List<DriveIndexFileEntity>>
 
-    @Query("SELECT name, sizeBytes, COUNT(*) AS count FROM drive_index_files WHERE sizeBytes > 0 GROUP BY sizeBytes, name HAVING COUNT(*) > 1 ORDER BY sizeBytes DESC")
+    @Query("SELECT name, sizeBytes, COUNT(*) AS count FROM drive_index_files WHERE indexStatus != 'REMOTE_REMOVED' AND sizeBytes > 0 GROUP BY sizeBytes, name HAVING COUNT(*) > 1 ORDER BY sizeBytes DESC")
     suspend fun findNameAndSizeDuplicateGroups(): List<DriveDuplicateGroup>
 
-    @Query("SELECT * FROM drive_index_files WHERE name = :name AND sizeBytes = :sizeBytes ORDER BY modifiedTimeMs ASC")
+    @Query("SELECT * FROM drive_index_files WHERE indexStatus != 'REMOTE_REMOVED' AND name = :name AND sizeBytes = :sizeBytes ORDER BY modifiedTimeMs ASC")
     suspend fun getDuplicateGroupFiles(name: String, sizeBytes: Long): List<DriveIndexFileEntity>
 
-    @Query("SELECT COUNT(*) FROM drive_index_files")
+    @Query("SELECT COUNT(*) FROM drive_index_files WHERE indexStatus != 'REMOTE_REMOVED'")
     suspend fun getIndexedFileCount(): Int
 
     @Query("UPDATE drive_index_files SET extractedText = :text, indexStatus = :status, lastIndexedAtMs = :indexedAtMs WHERE driveFileId = :driveFileId")
