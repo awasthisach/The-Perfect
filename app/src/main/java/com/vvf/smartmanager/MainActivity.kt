@@ -6,6 +6,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
 import com.vvf.smartmanager.core.cloud.gdrive.DriveSessionPolicy
+import com.vvf.smartmanager.core.background.drive.DriveMetadataSyncWorker
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.tasks.await
@@ -116,6 +117,7 @@ class MainActivity : FragmentActivity() {
                             )
                         } else {
                             app.googleDriveService.setAccessToken(session.driveAccessToken)
+                            DriveMetadataSyncWorker.enqueue(this@MainActivity)
                             Result.success(session.driveAccessToken)
                         }
                     } catch (_: Exception) {
@@ -401,6 +403,7 @@ private fun VVFNavHost(
                 },
                 onGoogleDriveSignOutRequested = {
                     lifecycleScope.launch {
+                        DriveMetadataSyncWorker.cancel(this@MainActivity)
                         app.googleDriveService.setAccessToken(null)
                         FirebaseAuth.getInstance().signOut()
                         googleDriveAuth.signOut()
