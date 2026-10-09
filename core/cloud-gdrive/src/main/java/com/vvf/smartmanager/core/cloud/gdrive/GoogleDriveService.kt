@@ -11,10 +11,26 @@ data class DriveFileListing(
     val nextPageToken: String?
 )
 
+data class DriveMetadataRecord(
+    val fileId: String,
+    val name: String,
+    val mimeType: String,
+    val sizeBytes: Long,
+    val modifiedTimeMs: Long,
+    val parentIds: List<String>,
+    val webViewLink: String?,
+    val starred: Boolean
+)
+
+data class DriveMetadataPage(
+    val files: List<DriveMetadataRecord>,
+    val nextPageToken: String?
+)
+
 data class DriveChange(
     val fileId: String,
     val removed: Boolean,
-    val file: FileItem?
+    val file: DriveMetadataRecord?
 )
 
 data class DriveChangePage(
@@ -37,6 +53,8 @@ interface GoogleDriveService {
     suspend fun listDriveFiles(folderId: String = "root"): Result<List<FileItem>>
     suspend fun listAllDriveFiles(): Result<DriveFileListing> =
         Result.failure(UnsupportedOperationException("Full Drive listing is not implemented by this provider."))
+    suspend fun listDriveMetadataPage(pageToken: String? = null, pageSize: Int = 50): Result<DriveMetadataPage> =
+        Result.failure(UnsupportedOperationException("Drive metadata paging is not implemented by this provider."))
     suspend fun getStartPageToken(): Result<String> =
         Result.failure(UnsupportedOperationException("Drive Changes API is not implemented by this provider."))
     suspend fun listChanges(pageToken: String): Result<DriveChangePage> =
