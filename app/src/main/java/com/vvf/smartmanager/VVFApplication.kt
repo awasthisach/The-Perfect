@@ -202,7 +202,6 @@ class VVFApplication : Application(), Configuration.Provider {
                 val appCheck = FirebaseAppCheck.getInstance()
                 appCheck.installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
                 DriveEmbeddingClient(
-                    context = this,
                     firebaseAuth = FirebaseAuth.getInstance(),
                     appCheck = appCheck,
                     googleAccountEmail = { runCatching { GoogleSignIn.getLastSignedInAccount(this)?.email }.getOrNull() },
