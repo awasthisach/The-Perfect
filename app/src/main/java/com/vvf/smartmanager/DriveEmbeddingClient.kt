@@ -1,6 +1,5 @@
 package com.vvf.smartmanager
 
-import android.content.Context
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.auth.FirebaseAuth
 import com.vvf.smartmanager.core.cloud.gdrive.DriveSessionPolicy
@@ -26,7 +25,6 @@ import java.util.concurrent.TimeUnit
  * explicitly advertises Android App Check support.
  */
 class DriveEmbeddingClient(
-    context: Context,
     private val firebaseAuth: FirebaseAuth,
     private val appCheck: FirebaseAppCheck,
     private val googleAccountEmail: () -> String?,
