@@ -594,14 +594,26 @@ fun DriveSemanticSearchAppContent(
                                             Text("Pinned bytes are stale. Repin after sync to refresh.", style = MaterialTheme.typography.bodySmall)
                                         }
                                     }
-                                    TextButton(onClick = {
-                                        scope.launch {
-                                            pinManager.unpin(file.driveFileId)
-                                                .onSuccess { statusMessage = "Offline pin removed. Drive file unchanged." }
-                                                .onFailure { statusMessage = it.message ?: "Could not remove offline pin." }
-                                            refreshLocalState()
+                                    Column {
+                                        if (file.indexStatus.endsWith("_PIN_STALE") || file.indexStatus == "METADATA_CHANGED_PIN_STALE") {
+                                            TextButton(onClick = {
+                                                scope.launch {
+                                                    pinManager.pin(file.driveFileId)
+                                                        .onSuccess { statusMessage = "Offline copy refreshed and SHA-256 recalculated." }
+                                                        .onFailure { statusMessage = it.message ?: "Could not refresh offline copy." }
+                                                    refreshLocalState()
+                                                }
+                                            }) { Text("Refresh pin") }
                                         }
-                                    }) { Text("Unpin") }
+                                        TextButton(onClick = {
+                                            scope.launch {
+                                                pinManager.unpin(file.driveFileId)
+                                                    .onSuccess { statusMessage = "Offline pin removed. Drive file unchanged." }
+                                                    .onFailure { statusMessage = it.message ?: "Could not remove offline pin." }
+                                                refreshLocalState()
+                                            }
+                                        }) { Text("Unpin") }
+                                    }
                                 }
                             }
                         }
