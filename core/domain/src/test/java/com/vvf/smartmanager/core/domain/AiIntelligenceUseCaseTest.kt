@@ -153,7 +153,13 @@ class AiIntelligenceUseCaseTest {
         val engine = FakeSemanticEngine()
         val fileRepo = FakeFileManagerRepo()
         val searchRepo = FakeSearchRepo()
-        val useCase = AiIntelligenceUseCase(engine, fileRepo, searchRepo)
+        val useCase = AiIntelligenceUseCase(
+            engine,
+            fileRepo,
+            searchRepo,
+            embeddingConsentGranted = { true },
+            embeddingBackendReady = { true }
+        )
 
         val targetFile = fileRepo.sampleFiles[0]
         val suggestedTags = useCase.suggestTags(targetFile)
