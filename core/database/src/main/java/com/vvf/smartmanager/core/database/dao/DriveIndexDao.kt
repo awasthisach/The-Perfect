@@ -25,6 +25,15 @@ interface DriveIndexDao {
     @Query("SELECT * FROM drive_index_files WHERE driveFileId = :driveFileId LIMIT 1")
     suspend fun getByDriveId(driveFileId: String): DriveIndexFileEntity?
 
+    @Query("SELECT * FROM drive_index_files WHERE indexStatus != 'REMOTE_REMOVED' ORDER BY driveFileId ASC")
+    suspend fun getAllForBackup(): List<DriveIndexFileEntity>
+
+    @Query("SELECT * FROM drive_index_files WHERE pinnedPath IS NOT NULL")
+    suspend fun getPinnedFiles(): List<DriveIndexFileEntity>
+
+    @Query("DELETE FROM drive_index_files WHERE pinnedPath IS NULL")
+    suspend fun clearUnpinnedForImport()
+
     @Query("SELECT * FROM drive_index_files WHERE indexStatus = 'METADATA_ONLY' ORDER BY modifiedTimeMs DESC LIMIT :limit")
     suspend fun getFilesNeedingText(limit: Int = 50): List<DriveIndexFileEntity>
 
