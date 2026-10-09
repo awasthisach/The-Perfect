@@ -14,6 +14,7 @@ import okhttp3.MultipartBody
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import retrofit2.HttpException
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.Files
@@ -30,8 +31,8 @@ import java.util.TimeZone
  * Production path: call [setAccessToken] after OAuth / Credential Manager, then use list/upload/download.
  * Without a token, operations fail with a clear error (no simulated cloud data).
  *
- * Access tokens typically expire in ~1 hour. This client tracks issue time and fails closed with a
- * re-auth message when the token is likely expired. True refresh-token rotation needs an auth code flow.
+ * Access tokens are kept in memory. When missing/expired, this client may refresh silently only if
+ * an existing Google Sign-In account and Firebase session are present and their emails match.
  */
 class GoogleDriveServiceImpl(
     private val context: Context,
