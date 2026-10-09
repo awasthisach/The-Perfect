@@ -25,10 +25,10 @@ interface DriveIndexDao {
     @Query("SELECT * FROM drive_index_files WHERE driveFileId = :driveFileId LIMIT 1")
     suspend fun getByDriveId(driveFileId: String): DriveIndexFileEntity?
 
-    @Query("SELECT * FROM drive_index_files WHERE indexStatus = 'METADATA_ONLY' ORDER BY modifiedTimeMs DESC LIMIT :limit")
+    @Query("SELECT * FROM drive_index_files WHERE indexStatus IN ('METADATA_ONLY', 'DOWNLOAD_FAILED', 'EXTRACTION_FAILED') AND indexAttempts < 3 ORDER BY modifiedTimeMs DESC LIMIT :limit")
     suspend fun getFilesNeedingText(limit: Int = 50): List<DriveIndexFileEntity>
 
-    @Query("UPDATE drive_index_files SET indexStatus = :status, lastIndexedAtMs = :indexedAtMs WHERE driveFileId = :driveFileId")
+    @Query("UPDATE drive_index_files SET indexStatus = :status, lastIndexedAtMs = :indexedAtMs, indexAttempts = CASE WHEN :status IN ('DOWNLOAD_FAILED', 'EXTRACTION_FAILED') THEN indexAttempts + 1 WHEN :status = 'METADATA_ONLY' THEN 0 ELSE indexAttempts END WHERE driveFileId = :driveFileId")
     suspend fun updateIndexStatus(driveFileId: String, status: String, indexedAtMs: Long)
 
     @Query("UPDATE drive_index_files SET indexStatus = 'METADATA_ONLY' WHERE indexStatus IN ('OCR_CONSENT_REQUIRED', 'OCR_DISABLED_BY_USER')")
@@ -55,7 +55,7 @@ interface DriveIndexDao {
     @Query("SELECT COUNT(*) FROM drive_index_files WHERE indexStatus != 'REMOTE_REMOVED'")
     suspend fun getIndexedFileCount(): Int
 
-    @Query("UPDATE drive_index_files SET extractedText = :text, extractionSource = :source, indexStatus = :status, lastIndexedAtMs = :indexedAtMs WHERE driveFileId = :driveFileId")
+    @Query("UPDATE drive_index_files SET extractedText = :text, extractionSource = :source, indexStatus = :status, indexAttempts = 0, lastIndexedAtMs = :indexedAtMs WHERE driveFileId = :driveFileId")
     suspend fun updateExtractedText(driveFileId: String, text: String, source: String?, status: String, indexedAtMs: Long)
 
     @Query("UPDATE drive_index_files SET contentSha256 = :sha256 WHERE driveFileId = :driveFileId")
