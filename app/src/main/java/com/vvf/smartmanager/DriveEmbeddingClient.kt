@@ -51,7 +51,8 @@ class DriveEmbeddingClient(
                     dimension = payload.optInt("dimension", 0),
                     mobileAuthEnabled = payload.optBoolean("mobileAuthEnabled", false)
                 )
-                val expected = info.model == EXPECTED_MODEL &&
+                val expected = payload.optBoolean("ok", false) &&
+                    info.model == EXPECTED_MODEL &&
                     info.version == EXPECTED_VERSION &&
                     info.dimension == EXPECTED_DIMENSION
                 Result.success(info.copy(mobileAuthEnabled = info.mobileAuthEnabled && expected))
