@@ -25,7 +25,8 @@ class DriveContentIndexCoordinator(
     private val driveIndexDao: DriveIndexDao,
     private val textExtractor: DriveTextExtractor,
     private val ocrEngine: IOcrEngine,
-    private val fullContentConsentGranted: () -> Boolean
+    private val fullContentConsentGranted: () -> Boolean,
+    private val autoOcrEnabled: () -> Boolean
 ) {
     suspend fun runBatch(): Result<Boolean> {
         val pending = driveIndexDao.getFilesNeedingText(BATCH_SIZE)
@@ -46,11 +47,11 @@ class DriveContentIndexCoordinator(
     private suspend fun indexOne(record: DriveIndexFileEntity) {
         val isImage = record.mimeType.startsWith("image/", ignoreCase = true)
         if (isImage && !fullContentConsentGranted()) {
-            driveIndexDao.updateIndexStatus(
-                record.driveFileId,
-                "OCR_CONSENT_REQUIRED",
-                System.currentTimeMillis()
-            )
+            driveIndexDao.updateIndexStatus(record.driveFileId, "OCR_CONSENT_REQUIRED", System.currentTimeMillis())
+            return
+        }
+        if (isImage && !autoOcrEnabled()) {
+            driveIndexDao.updateIndexStatus(record.driveFileId, "OCR_DISABLED_BY_USER", System.currentTimeMillis())
             return
         }
         if (record.sizeBytes > MAX_FILE_BYTES && !record.mimeType.startsWith("application/vnd.google-apps.")) {
@@ -80,10 +81,10 @@ class DriveContentIndexCoordinator(
             }
 
             val text = if (isImage) {
-                if (!fullContentConsentGranted()) {
+                if (!fullContentConsentGranted() || !autoOcrEnabled()) {
                     driveIndexDao.updateIndexStatus(
                         record.driveFileId,
-                        "OCR_CONSENT_REQUIRED",
+                        if (fullContentConsentGranted()) "OCR_DISABLED_BY_USER" else "OCR_CONSENT_REQUIRED",
                         System.currentTimeMillis()
                     )
                     return
@@ -103,10 +104,10 @@ class DriveContentIndexCoordinator(
                 textExtractor.extract(tempFile, extractedMime)
             }
 
-            if (isImage && !fullContentConsentGranted()) {
+            if (isImage && (!fullContentConsentGranted() || !autoOcrEnabled())) {
                 driveIndexDao.updateIndexStatus(
                     record.driveFileId,
-                    "OCR_CONSENT_REQUIRED",
+                    if (fullContentConsentGranted()) "OCR_DISABLED_BY_USER" else "OCR_CONSENT_REQUIRED",
                     System.currentTimeMillis()
                 )
                 return
