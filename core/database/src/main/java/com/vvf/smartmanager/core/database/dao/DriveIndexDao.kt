@@ -28,7 +28,7 @@ interface DriveIndexDao {
     @Query("SELECT * FROM drive_index_files ORDER BY modifiedTimeMs DESC LIMIT :limit")
     suspend fun getRecentFiles(limit: Int = 200): List<DriveIndexFileEntity>
 
-    @Query("SELECT * FROM drive_index_files WHERE name LIKE '%' || :query || '%' OR extractedText LIKE '%' || :query || '%' ORDER BY modifiedTimeMs DESC LIMIT :limit")
+    @Query("SELECT * FROM drive_index_files WHERE indexStatus != 'REMOTE_REMOVED' AND (name LIKE '%' || :query || '%' OR extractedText LIKE '%' || :query || '%') ORDER BY modifiedTimeMs DESC LIMIT :limit")
     suspend fun searchLocalText(query: String, limit: Int = 200): List<DriveIndexFileEntity>
 
     @Query("SELECT * FROM drive_index_files WHERE pinnedPath IS NOT NULL ORDER BY pinnedAtMs DESC")
@@ -61,8 +61,11 @@ interface DriveIndexDao {
     @Query("UPDATE drive_index_files SET pinnedPath = NULL, pinnedAtMs = NULL WHERE driveFileId = :driveFileId")
     suspend fun unpin(driveFileId: String)
 
-    @Query("DELETE FROM drive_index_files WHERE driveFileId = :driveFileId")
-    suspend fun removeStaleDriveMetadata(driveFileId: String)
+    @Query("DELETE FROM drive_index_files WHERE driveFileId = :driveFileId AND pinnedPath IS NULL")
+    suspend fun removeUnpinnedStaleDriveMetadata(driveFileId: String)
+
+    @Query("UPDATE drive_index_files SET indexStatus = 'REMOTE_REMOVED' WHERE driveFileId = :driveFileId AND pinnedPath IS NOT NULL")
+    suspend fun markPinnedFileAsRemoteRemoved(driveFileId: String)
 
     @Query("SELECT * FROM drive_sync_state WHERE id = 1 LIMIT 1")
     suspend fun getSyncState(): DriveSyncStateEntity?
