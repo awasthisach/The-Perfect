@@ -9,6 +9,7 @@ import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.nio.charset.StandardCharsets
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -101,6 +102,8 @@ class DriveIndexBackupManager(
         output.write(bytes)
         output.flush()
         Result.success(DriveIndexBackupSummary(payloadFiles.size, truncated))
+    } catch (cancelled: CancellationException) {
+        throw cancelled
     } catch (e: Exception) {
         Result.failure(IllegalStateException(e.message ?: "Could not export the local index."))
     }
@@ -222,6 +225,8 @@ class DriveIndexBackupManager(
         }
         driveIndexDao.saveSyncState(reconciledState)
         Result.success(DriveIndexBackupSummary(imported, payload.truncated))
+    } catch (cancelled: CancellationException) {
+        throw cancelled
     } catch (e: Exception) {
         Result.failure(IllegalStateException(e.message ?: "Could not import the local index."))
     }
