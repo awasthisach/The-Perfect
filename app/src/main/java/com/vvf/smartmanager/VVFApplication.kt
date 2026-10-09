@@ -226,12 +226,15 @@ class VVFApplication : Application(), Configuration.Provider {
             semanticPlugin = semanticSearchPlugin,
             searchRepository = searchRepository,
             fileManagerRepository = fileManagerRepository,
-            embeddingConsentGranted = { isEmbeddingConsentGranted() }
+            embeddingConsentGranted = { isEmbeddingConsentGranted() },
+            embeddingBackendReady = { false }
         )
         aiIntelligenceUseCase = AiIntelligenceUseCase(
             semanticPlugin = semanticSearchPlugin,
             fileManagerRepository = fileManagerRepository,
-            searchRepository = searchRepository
+            searchRepository = searchRepository,
+            embeddingConsentGranted = { isEmbeddingConsentGranted() },
+            embeddingBackendReady = { false }
         )
         googleDriveService = GoogleDriveServiceImpl(this)
         val cloudDrivers = mapOf(
