@@ -46,6 +46,9 @@ interface DriveIndexDao {
     @Query("SELECT * FROM drive_index_files WHERE pinnedPath IS NOT NULL ORDER BY pinnedAtMs DESC")
     fun observePinnedFiles(): Flow<List<DriveIndexFileEntity>>
 
+    @Query("SELECT * FROM drive_index_files WHERE pinnedPath IS NOT NULL ORDER BY pinnedAtMs ASC")
+    suspend fun getPinnedFilesOldestFirst(): List<DriveIndexFileEntity>
+
     @Query("SELECT name, sizeBytes, COUNT(*) AS count FROM drive_index_files WHERE indexStatus != 'REMOTE_REMOVED' AND sizeBytes > 0 GROUP BY sizeBytes, name HAVING COUNT(*) > 1 ORDER BY sizeBytes DESC")
     suspend fun findNameAndSizeDuplicateGroups(): List<DriveDuplicateGroup>
 
@@ -67,10 +70,10 @@ interface DriveIndexDao {
     @Query("UPDATE drive_index_files SET embeddingVector = NULL, embeddingModel = NULL, embeddingVersion = NULL, embeddingDimension = NULL")
     suspend fun clearAllEmbeddings()
 
-    @Query("UPDATE drive_index_files SET pinnedPath = :path, pinnedAtMs = :pinnedAtMs WHERE driveFileId = :driveFileId")
-    suspend fun markPinned(driveFileId: String, path: String, pinnedAtMs: Long)
+    @Query("UPDATE drive_index_files SET pinnedPath = :path, pinnedAtMs = :pinnedAtMs, pinnedModifiedTimeMs = :pinnedModifiedTimeMs WHERE driveFileId = :driveFileId")
+    suspend fun markPinned(driveFileId: String, path: String, pinnedAtMs: Long, pinnedModifiedTimeMs: Long)
 
-    @Query("UPDATE drive_index_files SET pinnedPath = NULL, pinnedAtMs = NULL WHERE driveFileId = :driveFileId")
+    @Query("UPDATE drive_index_files SET pinnedPath = NULL, pinnedAtMs = NULL, pinnedModifiedTimeMs = NULL WHERE driveFileId = :driveFileId")
     suspend fun unpin(driveFileId: String)
 
     @Query("DELETE FROM drive_index_files WHERE driveFileId = :driveFileId AND pinnedPath IS NULL")
