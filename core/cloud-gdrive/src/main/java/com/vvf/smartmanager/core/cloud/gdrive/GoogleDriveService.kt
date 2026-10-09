@@ -19,8 +19,11 @@ data class DriveMetadataRecord(
     val modifiedTimeMs: Long,
     val parentIds: List<String>,
     val webViewLink: String?,
-    val starred: Boolean
+    val starred: Boolean,
+    val trashed: Boolean
 )
+
+class DriveChangeTokenInvalidException : IllegalStateException("Drive change cursor expired; a full metadata resync is required.")
 
 data class DriveMetadataPage(
     val files: List<DriveMetadataRecord>,
