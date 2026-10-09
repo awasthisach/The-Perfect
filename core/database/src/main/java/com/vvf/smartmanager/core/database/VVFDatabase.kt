@@ -91,6 +91,7 @@ abstract class VVFDatabase : RoomDatabase() {
                         `pinnedPath` TEXT,
                         `pinnedAtMs` INTEGER,
                         `indexStatus` TEXT NOT NULL,
+                        `indexAttempts` INTEGER NOT NULL,
                         `lastIndexedAtMs` INTEGER NOT NULL
                     )
                     """.trimIndent()
