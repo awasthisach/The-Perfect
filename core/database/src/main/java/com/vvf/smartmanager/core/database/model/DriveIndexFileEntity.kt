@@ -31,6 +31,7 @@ data class DriveIndexFileEntity(
     val webViewLink: String? = null,
     val starred: Boolean = false,
     val extractedText: String = "",
+    val extractionSource: String? = null,
     val contentSha256: String? = null,
     val embeddingModel: String? = null,
     val embeddingVersion: Int? = null,
