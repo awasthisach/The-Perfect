@@ -8,6 +8,7 @@ import com.vvf.smartmanager.core.background.workers.FileIndexingRuntime
 import com.vvf.smartmanager.core.background.workers.CloudBackupBootstrap
 import com.vvf.smartmanager.core.background.workers.JunkScanBootstrap
 import com.vvf.smartmanager.core.background.BackgroundSyncManager
+import com.vvf.smartmanager.core.background.drive.DriveSyncRuntime
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveServiceImpl
 import com.vvf.smartmanager.core.data.backup.InjectedVaultSnapshotSource
@@ -237,6 +238,7 @@ class VVFApplication : Application(), Configuration.Provider {
             embeddingBackendReady = { false }
         )
         googleDriveService = GoogleDriveServiceImpl(this)
+        DriveSyncRuntime.configure(googleDriveService, database.driveIndexDao())
         val cloudDrivers = mapOf(
             CloudProviderType.ONE_DRIVE to OneDriveDriverImpl(),
             CloudProviderType.DROPBOX to DropboxDriverImpl(),
