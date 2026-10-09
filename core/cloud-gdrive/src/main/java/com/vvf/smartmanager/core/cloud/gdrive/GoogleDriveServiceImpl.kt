@@ -81,7 +81,12 @@ class GoogleDriveServiceImpl(
         val firebaseEmail = runCatching { FirebaseAuth.getInstance().currentUser?.email }.getOrNull()
         if (!DriveSessionPolicy.accountsMatch(googleAccount?.email, firebaseEmail)) {
             setAccessToken(null)
-            throw IllegalStateException("Google Drive and Firebase sessions are not aligned. Sign in again.")
+            val message = if (googleAccount == null || firebaseEmail.isNullOrBlank()) {
+                "Google Drive token/session is missing. Sign in again."
+            } else {
+                "Google Drive and Firebase sessions are not aligned. Sign in again."
+            }
+            throw IllegalStateException(message)
         }
 
         val currentToken = accessToken?.takeIf { it.isNotBlank() }
