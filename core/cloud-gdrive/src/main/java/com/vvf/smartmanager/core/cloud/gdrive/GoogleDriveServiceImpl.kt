@@ -16,6 +16,8 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.ResponseBody
 import retrofit2.HttpException
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.Files
@@ -290,8 +292,13 @@ class GoogleDriveServiceImpl(
 
                 require(DriveIdValidator.isValidParentId(remoteFolderId)) { "Invalid destination folder id." }
                 val parent = remoteFolderId
-                val safeName = file.name.replace("\\", "\\\\").replace("\"", "\\\"")
-                val metadataJson = """{"name":"$safeName","parents":["$parent"]}"""
+                require(file.name.isNotBlank() && file.name.none { it.isISOControl() }) {
+                    "Local file name contains unsupported control characters."
+                }
+                val metadataJson = JSONObject()
+                    .put("name", file.name)
+                    .put("parents", JSONArray().put(parent))
+                    .toString()
                 val mediaType = (localFile.mimeType?.takeIf { it.isNotBlank() } ?: "application/octet-stream")
                     .toMediaType()
 
@@ -461,9 +468,11 @@ class GoogleDriveServiceImpl(
                     "Folder name must contain 1–255 printable characters."
                 }
                 require(DriveIdValidator.isValidParentId(parentFolderId)) { "Invalid destination folder id." }
-                val escapedName = cleanName.replace("\\", "\\\\").replace("\"", "\\\"")
-                val escapedParent = parentFolderId
-                val metadata = """{"name":"$escapedName","mimeType":"application/vnd.google-apps.folder","parents":["$escapedParent"]}"""
+                val metadata = JSONObject()
+                    .put("name", cleanName)
+                    .put("mimeType", "application/vnd.google-apps.folder")
+                    .put("parents", JSONArray().put(parentFolderId))
+                    .toString()
                     .toRequestBody("application/json; charset=UTF-8".toMediaType())
                 val id = driveApi.createFolder(bearer(), metadata).id
                     ?.takeIf(DriveIdValidator::isValidFileId)
