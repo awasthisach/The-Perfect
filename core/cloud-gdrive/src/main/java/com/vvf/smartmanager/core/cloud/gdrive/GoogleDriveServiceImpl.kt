@@ -38,6 +38,7 @@ class GoogleDriveServiceImpl(
     companion object {
         private const val DRIVE_PAGE_SIZE = 1000
         private const val MAX_LISTED_FILES = 20_000
+        private const val MAX_PAGE_TOKEN_LENGTH = 4096
     }
 
     @Volatile
@@ -155,6 +156,45 @@ class GoogleDriveServiceImpl(
             Result.success(DriveFileListing(items, incomplete = pageToken != null, nextPageToken = pageToken))
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    override suspend fun getStartPageToken(): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val token = driveApi.getStartPageToken(bearer()).startPageToken
+                ?.takeIf { it.isNotBlank() && it.length <= MAX_PAGE_TOKEN_LENGTH }
+                ?: throw IllegalStateException("Drive did not return a valid change cursor.")
+            Result.success(token)
+        } catch (_: Exception) {
+            Result.failure(IllegalStateException("Could not start incremental Drive sync. Try a full-list sync."))
+        }
+    }
+
+    override suspend fun listChanges(pageToken: String): Result<DriveChangePage> = withContext(Dispatchers.IO) {
+        try {
+            require(pageToken.isNotBlank() && pageToken.length <= MAX_PAGE_TOKEN_LENGTH && pageToken.none { it.isISOControl() }) {
+                "Invalid Drive change cursor."
+            }
+            val response = driveApi.listChanges(bearer(), pageToken = pageToken, pageSize = DRIVE_PAGE_SIZE)
+            val changes = response.changes.map { change ->
+                val id = (change.fileId ?: change.file?.id)
+                    ?.takeIf(DriveIdValidator::isValidFileId)
+                    ?: throw IllegalStateException("Drive returned a change without a valid file id.")
+                DriveChange(
+                    fileId = id,
+                    removed = change.removed,
+                    file = change.file?.let(::toFileItem)
+                )
+            }
+            Result.success(
+                DriveChangePage(
+                    changes = changes,
+                    nextPageToken = response.nextPageToken,
+                    newStartPageToken = response.newStartPageToken
+                )
+            )
+        } catch (_: Exception) {
+            Result.failure(IllegalStateException("Drive incremental sync failed. Retry or fall back to a full-list sync."))
         }
     }
 
