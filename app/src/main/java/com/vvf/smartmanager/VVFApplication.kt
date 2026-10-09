@@ -67,6 +67,8 @@ class VVFApplication : Application(), Configuration.Provider {
         private const val TAG = "VVFApplication"
         private const val SETTINGS_PREFS = "vvf_app_settings"
         private const val KEY_AUTO_INDEX_OCR = "auto_index_ocr"
+        private const val KEY_FULL_CONTENT_INDEX_CONSENT = "full_content_index_consent_v1"
+        private const val KEY_EMBEDDING_CONSENT = "embedding_consent_v1"
         private const val KEY_OFFLINE_ONLY_MODE = "offline_only_mode"
     }
 
@@ -119,10 +121,28 @@ class VVFApplication : Application(), Configuration.Provider {
         getSharedPreferences(SETTINGS_PREFS, MODE_PRIVATE)
     }
 
-    fun isAutoIndexOcrEnabled(): Boolean = settingsPrefs.getBoolean(KEY_AUTO_INDEX_OCR, true)
+    fun isEmbeddingConsentGranted(): Boolean =
+        settingsPrefs.getBoolean(KEY_EMBEDDING_CONSENT, false)
+
+    fun setEmbeddingConsentGranted(granted: Boolean) {
+        settingsPrefs.edit().putBoolean(KEY_EMBEDDING_CONSENT, granted).apply()
+    }
+
+    fun isFullContentIndexConsentGranted(): Boolean =
+        settingsPrefs.getBoolean(KEY_FULL_CONTENT_INDEX_CONSENT, false)
+
+    fun setFullContentIndexConsentGranted(granted: Boolean) {
+        settingsPrefs.edit().putBoolean(KEY_FULL_CONTENT_INDEX_CONSENT, granted).apply()
+        if (!granted) settingsPrefs.edit().putBoolean(KEY_AUTO_INDEX_OCR, false).apply()
+    }
+
+    fun isAutoIndexOcrEnabled(): Boolean =
+        isFullContentIndexConsentGranted() && settingsPrefs.getBoolean(KEY_AUTO_INDEX_OCR, false)
 
     fun setAutoIndexOcrEnabled(enabled: Boolean) {
-        settingsPrefs.edit().putBoolean(KEY_AUTO_INDEX_OCR, enabled).apply()
+        settingsPrefs.edit()
+            .putBoolean(KEY_AUTO_INDEX_OCR, enabled && isFullContentIndexConsentGranted())
+            .apply()
     }
 
     fun isOfflineOnlyModeEnabled(): Boolean = settingsPrefs.getBoolean(KEY_OFFLINE_ONLY_MODE, true)
@@ -205,7 +225,8 @@ class VVFApplication : Application(), Configuration.Provider {
         semanticSearchUseCase = SemanticSearchUseCase(
             semanticPlugin = semanticSearchPlugin,
             searchRepository = searchRepository,
-            fileManagerRepository = fileManagerRepository
+            fileManagerRepository = fileManagerRepository,
+            embeddingConsentGranted = { isEmbeddingConsentGranted() }
         )
         aiIntelligenceUseCase = AiIntelligenceUseCase(
             semanticPlugin = semanticSearchPlugin,
