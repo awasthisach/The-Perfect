@@ -136,7 +136,7 @@ class AiIntelligenceUseCaseTest {
         val engine = FakeSemanticEngine()
         val fileRepo = FakeFileManagerRepo()
         val searchRepo = FakeSearchRepo()
-        val useCase = AiIntelligenceUseCase(engine, fileRepo, searchRepo)
+        val useCase = AiIntelligenceUseCase(engine, fileRepo, searchRepo, embeddingConsentGranted = { true }, embeddingBackendReady = { true })
 
         assertTrue(useCase.isAiModelReady())
 
