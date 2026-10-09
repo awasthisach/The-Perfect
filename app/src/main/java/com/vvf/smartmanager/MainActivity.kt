@@ -5,6 +5,7 @@ import android.content.Intent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
+import com.vvf.smartmanager.core.cloud.gdrive.DriveSessionPolicy
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.tasks.await
@@ -105,7 +106,7 @@ class MainActivity : FragmentActivity() {
                             .signInWithCredential(credential)
                             .await()
                         val firebaseEmail = firebaseResult.user?.email?.trim()?.lowercase()
-                        if (firebaseEmail.isNullOrBlank() || firebaseEmail != session.email) {
+                        if (!DriveSessionPolicy.accountsMatch(session.email, firebaseEmail)) {
                             FirebaseAuth.getInstance().signOut()
                             app.googleDriveService.setAccessToken(null)
                             Result.failure(
