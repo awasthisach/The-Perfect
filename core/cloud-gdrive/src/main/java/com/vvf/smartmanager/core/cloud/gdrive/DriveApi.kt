@@ -75,7 +75,7 @@ interface DriveApi {
     @GET("about")
     suspend fun about(
         @Header("Authorization") bearer: String,
-        @Query("fields") fields: String = "storageQuota"
+        @Query("fields") fields: String = "user(emailAddress,displayName),storageQuota"
     ): DriveAboutResponse
 }
 
@@ -97,7 +97,13 @@ data class DriveFileDto(
 )
 
 data class DriveAboutResponse(
-    @Json(name = "storageQuota") val storageQuota: DriveStorageQuota? = null
+    @Json(name = "storageQuota") val storageQuota: DriveStorageQuota? = null,
+    @Json(name = "user") val user: DriveUser? = null
+)
+
+data class DriveUser(
+    @Json(name = "emailAddress") val emailAddress: String? = null,
+    @Json(name = "displayName") val displayName: String? = null
 )
 
 data class DriveStorageQuota(
