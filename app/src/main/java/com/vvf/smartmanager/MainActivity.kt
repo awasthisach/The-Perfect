@@ -5,6 +5,9 @@ import android.content.Intent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
+import kotlinx.coroutines.tasks.await
 import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
 import kotlinx.coroutines.launch
 import android.os.Bundle
@@ -90,14 +93,43 @@ class MainActivity : FragmentActivity() {
         pendingGoogleDriveSignInCallback = null
         app.pendingGoogleDriveSignInCallback = null
         lifecycleScope.launch {
-            val result = googleDriveAuth.handleSignInActivityResult(
+            val result = googleDriveAuth.handleUnifiedSignInActivityResult(
                 resultCode = activityResult.resultCode,
                 data = activityResult.data
             )
-            result.onSuccess { token ->
-                runCatching { app.googleDriveService.setAccessToken(token) }
-            }
-            callback?.invoke(result)
+            val linkedResult = result.fold(
+                onSuccess = { session ->
+                    try {
+                        val credential = GoogleAuthProvider.getCredential(session.googleIdToken, null)
+                        val firebaseResult = FirebaseAuth.getInstance()
+                            .signInWithCredential(credential)
+                            .await()
+                        val firebaseEmail = firebaseResult.user?.email?.trim()?.lowercase()
+                        if (firebaseEmail.isNullOrBlank() || firebaseEmail != session.email) {
+                            FirebaseAuth.getInstance().signOut()
+                            app.googleDriveService.setAccessToken(null)
+                            Result.failure(
+                                IllegalStateException(
+                                    "Google Drive and Firebase accounts do not match. Sign in again with the same Google account."
+                                )
+                            )
+                        } else {
+                            app.googleDriveService.setAccessToken(session.driveAccessToken)
+                            Result.success(session.driveAccessToken)
+                        }
+                    } catch (_: Exception) {
+                        FirebaseAuth.getInstance().signOut()
+                        app.googleDriveService.setAccessToken(null)
+                        Result.failure(
+                            IllegalStateException(
+                                "Could not link Google Drive and Firebase sessions. Check network and Firebase OAuth configuration, then retry."
+                            )
+                        )
+                    }
+                },
+                onFailure = { Result.failure(it) }
+            )
+            callback?.invoke(linkedResult)
         }
     }
 
