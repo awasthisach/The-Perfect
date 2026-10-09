@@ -143,7 +143,7 @@ fun DriveSemanticSearchAppContent(
     suspend fun refreshLocalState() {
         syncState = dao.getSyncState()
         allFiles = dao.getRecentFiles(20_000)
-        indexedCount = allFiles.count { it.indexStatus == "TEXT_INDEXED" || it.indexStatus == "OCR_INDEXED" }
+        indexedCount = allFiles.count { it.indexStatus in setOf("TEXT_INDEXED", "OCR_INDEXED", "TEXT_INDEXED_PIN_STALE", "OCR_INDEXED_PIN_STALE") }
         pendingTextCount = allFiles.count { it.indexStatus == "METADATA_ONLY" }
         failedTextCount = allFiles.count {
             it.indexStatus in setOf("DOWNLOAD_FAILED", "EXTRACTION_FAILED", "TOO_LARGE")
@@ -579,6 +579,9 @@ fun DriveSemanticSearchAppContent(
                                     Column(Modifier.weight(1f)) {
                                         Text(file.name, style = MaterialTheme.typography.titleMedium)
                                         Text(file.pinnedPath.orEmpty())
+                                        if (file.indexStatus.endsWith("_PIN_STALE") || file.indexStatus == "METADATA_CHANGED_PIN_STALE") {
+                                            Text("Pinned bytes are stale. Repin after sync to refresh.", style = MaterialTheme.typography.bodySmall)
+                                        }
                                     }
                                     TextButton(onClick = {
                                         scope.launch {
