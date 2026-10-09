@@ -16,11 +16,14 @@ class SemanticSearchUseCase(
     private val semanticPlugin: ISemanticSearchEngine,
     private val searchRepository: SearchRepository,
     private val fileManagerRepository: FileManagerRepository,
-    private val embeddingConsentGranted: () -> Boolean = { false }
+    private val embeddingConsentGranted: () -> Boolean = { false },
+    private val embeddingBackendReady: () -> Boolean = { false }
 ) {
-    fun isPluginReady(): Boolean = semanticPlugin.isModelReady()
+    fun isPluginReady(): Boolean =
+        embeddingConsentGranted() && embeddingBackendReady() && semanticPlugin.isModelReady()
 
     suspend fun downloadPluginModel(onProgress: (Float) -> Unit = {}): Boolean {
+        if (!embeddingConsentGranted() || !embeddingBackendReady()) return false
         return semanticPlugin.downloadModel(onProgress)
     }
 
@@ -28,7 +31,7 @@ class SemanticSearchUseCase(
         query: String,
         options: SemanticSearchOptions = SemanticSearchOptions()
     ): List<SemanticSearchResult> {
-        if (query.isBlank() || !embeddingConsentGranted() || !semanticPlugin.isModelReady()) {
+        if (query.isBlank() || !embeddingConsentGranted() || !embeddingBackendReady() || !semanticPlugin.isModelReady()) {
             return emptyList()
         }
 
