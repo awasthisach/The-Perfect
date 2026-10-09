@@ -19,6 +19,8 @@ android {
 }
 
 dependencies {
+  api(project(":core:cloud-gdrive"))
+  api(project(":core:database"))
   api(project(":core:domain"))
   api(project(":core:common"))
   implementation(libs.androidx.work.runtime.ktx)
