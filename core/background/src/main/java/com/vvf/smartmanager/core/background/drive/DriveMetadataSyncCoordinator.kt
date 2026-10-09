@@ -37,6 +37,7 @@ class DriveMetadataSyncCoordinator(
             state = state.copy(
                 changeStartPageToken = startToken,
                 fullListPageToken = "",
+                fullListGeneration = System.currentTimeMillis(),
                 fullListFilesSeen = 0,
                 changePageToken = null,
                 indexingInProgress = true,
@@ -76,10 +77,16 @@ class DriveMetadataSyncCoordinator(
         val remaining = (MAX_DRIVE_FILES - state.fullListFilesSeen).coerceAtLeast(0)
         val records = page.files.take(remaining)
         for (record in records) {
-            if (record.trashed) markRemoteRemoved(record.fileId) else upsertMetadata(record)
+            if (record.trashed) markRemoteRemoved(record.fileId)
+            else upsertMetadata(record, state.fullListGeneration)
         }
         val seen = state.fullListFilesSeen + records.size
         val capped = seen >= MAX_DRIVE_FILES && page.nextPageToken != null
+        val fullListComplete = page.nextPageToken == null && !capped
+        if (fullListComplete && state.fullListGeneration != null) {
+            driveIndexDao.deleteUnseenAfterFullSync(state.fullListGeneration)
+            driveIndexDao.markUnseenPinsAfterFullSync(state.fullListGeneration)
+        }
         val nextState = when {
             page.nextPageToken != null && !capped -> state.copy(
                 fullListPageToken = page.nextPageToken,
@@ -89,6 +96,7 @@ class DriveMetadataSyncCoordinator(
             )
             else -> state.copy(
                 fullListPageToken = null,
+                fullListGeneration = null,
                 fullListFilesSeen = seen,
                 changePageToken = state.changeStartPageToken,
                 indexingInProgress = true,
@@ -117,6 +125,7 @@ class DriveMetadataSyncCoordinator(
                         changeStartPageToken = freshStartToken,
                         changePageToken = null,
                         fullListPageToken = "",
+                        fullListGeneration = System.currentTimeMillis(),
                         fullListFilesSeen = 0,
                         indexingInProgress = true,
                         listingIncomplete = true,
@@ -158,7 +167,7 @@ class DriveMetadataSyncCoordinator(
         return Result.success(page.nextPageToken != null)
     }
 
-    private suspend fun upsertMetadata(record: DriveMetadataRecord) {
+    private suspend fun upsertMetadata(record: DriveMetadataRecord, fullSyncGeneration: Long? = null) {
         val existing = driveIndexDao.getByDriveId(record.fileId)
         if (existing == null) {
             driveIndexDao.upsertFile(
@@ -168,6 +177,7 @@ class DriveMetadataSyncCoordinator(
                     mimeType = record.mimeType,
                     sizeBytes = record.sizeBytes,
                     modifiedTimeMs = record.modifiedTimeMs,
+                    lastSeenFullSyncAtMs = fullSyncGeneration,
                     parentIdsCsv = record.parentIds.joinToString(","),
                     webViewLink = record.webViewLink,
                     starred = record.starred
@@ -183,6 +193,7 @@ class DriveMetadataSyncCoordinator(
                 mimeType = record.mimeType,
                 sizeBytes = record.sizeBytes,
                 modifiedTimeMs = record.modifiedTimeMs,
+                lastSeenFullSyncAtMs = fullSyncGeneration ?: existing.lastSeenFullSyncAtMs,
                 parentIdsCsv = record.parentIds.joinToString(","),
                 webViewLink = record.webViewLink,
                 starred = record.starred,
