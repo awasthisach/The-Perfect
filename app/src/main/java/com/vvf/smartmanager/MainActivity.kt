@@ -415,6 +415,10 @@ private fun VVFNavHost(
             SettingsScreen(
                 initialAutoIndexOcr = app.isAutoIndexOcrEnabled(),
                 onAutoIndexOcrChange = { enabled -> app.setAutoIndexOcrEnabled(enabled) },
+                initialEmbeddingConsent = app.isEmbeddingConsentGranted(),
+                onEmbeddingConsentChange = { granted -> app.setEmbeddingConsentGranted(granted) },
+                initialFullContentIndexConsent = app.isFullContentIndexConsentGranted(),
+                onFullContentIndexConsentChange = { granted -> app.setFullContentIndexConsentGranted(granted) },
                 initialOfflineOnlyMode = app.isOfflineOnlyModeEnabled(),
                 onOfflineOnlyModeChange = { enabled -> app.setOfflineOnlyModeEnabled(enabled) },
                 onNavigateBack = { navController.popBackStack() }
