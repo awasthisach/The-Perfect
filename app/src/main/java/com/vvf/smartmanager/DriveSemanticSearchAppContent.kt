@@ -279,9 +279,25 @@ fun DriveSemanticSearchAppContent(
                     Text("Google Drive: ${if (connected) "Connected" else "Not connected"}")
                     Text("Account: ${firebaseEmail ?: "Not signed in"}")
                     Text("Indexed text: $indexedCount · Awaiting extraction: $pendingTextCount · Failed: $failedTextCount")
-                    Text("Drive metadata: ${if (syncState?.listingIncomplete == true) "Listing may be incomplete (20,000-file cap)" else "Last sync recorded"}")
+                    Text(
+                        "Drive metadata: " + when {
+                            syncState == null -> "Not synced yet"
+                            syncState?.listingIncomplete == true -> "Listing may be incomplete (20,000-file cap)"
+                            else -> "Sync cursor saved"
+                        }
+                    )
                     syncState?.lastSyncAtMs?.let { Text("Last sync: ${DateFormat.getDateTimeInstance().format(Date(it))}") }
                     syncState?.lastError?.let { Text("Sync note: $it") }
+                    if (failedTextCount > 0) {
+                        OutlinedButton(onClick = {
+                            scope.launch {
+                                val retryCount = dao.requeueFailedTextIndexing()
+                                DriveContentIndexWorker.enqueue(context)
+                                statusMessage = "Queued $retryCount retryable extraction failures. Oversized files remain skipped."
+                                refreshLocalState()
+                            }
+                        }) { Text("Retry failed extraction") }
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (!connected) {
                             Button(onClick = {
