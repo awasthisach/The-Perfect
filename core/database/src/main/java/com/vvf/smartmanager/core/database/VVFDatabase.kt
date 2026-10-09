@@ -82,6 +82,7 @@ abstract class VVFDatabase : RoomDatabase() {
                         `webViewLink` TEXT,
                         `starred` INTEGER NOT NULL,
                         `extractedText` TEXT NOT NULL,
+                        `extractionSource` TEXT,
                         `contentSha256` TEXT,
                         `embeddingModel` TEXT,
                         `embeddingVersion` INTEGER,
