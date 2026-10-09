@@ -4,10 +4,15 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
-import androidx.room.Transaction
 import com.vvf.smartmanager.core.database.model.DriveIndexFileEntity
 import com.vvf.smartmanager.core.database.model.DriveSyncStateEntity
 import kotlinx.coroutines.flow.Flow
+
+data class DriveDuplicateGroup(
+    val name: String,
+    val sizeBytes: Long,
+    val count: Int
+)
 
 @Dao
 interface DriveIndexDao {
@@ -29,8 +34,11 @@ interface DriveIndexDao {
     @Query("SELECT * FROM drive_index_files WHERE pinnedPath IS NOT NULL ORDER BY pinnedAtMs DESC")
     fun observePinnedFiles(): Flow<List<DriveIndexFileEntity>>
 
-    @Query("SELECT * FROM drive_index_files WHERE sizeBytes > 0 GROUP BY sizeBytes, name HAVING COUNT(*) > 1 ORDER BY sizeBytes DESC")
-    suspend fun findNameAndSizeDuplicateCandidates(): List<DriveIndexFileEntity>
+    @Query("SELECT name, sizeBytes, COUNT(*) AS count FROM drive_index_files WHERE sizeBytes > 0 GROUP BY sizeBytes, name HAVING COUNT(*) > 1 ORDER BY sizeBytes DESC")
+    suspend fun findNameAndSizeDuplicateGroups(): List<DriveDuplicateGroup>
+
+    @Query("SELECT * FROM drive_index_files WHERE name = :name AND sizeBytes = :sizeBytes ORDER BY modifiedTimeMs ASC")
+    suspend fun getDuplicateGroupFiles(name: String, sizeBytes: Long): List<DriveIndexFileEntity>
 
     @Query("SELECT COUNT(*) FROM drive_index_files")
     suspend fun getIndexedFileCount(): Int
@@ -62,10 +70,4 @@ interface DriveIndexDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveSyncState(state: DriveSyncStateEntity)
 
-    @Transaction
-    suspend fun clearEmbeddingsAndResetIndexState() {
-        clearAllEmbeddings()
-        val current = getSyncState() ?: DriveSyncStateEntity()
-        saveSyncState(current.copy(indexingCursor = null, lastError = null))
-    }
 }
