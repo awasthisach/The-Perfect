@@ -1,74 +1,38 @@
-# VVF Smart Manager (Production Hardening)
+# Drive Semantic Search
 
-> **VVF Smart Manager** is an offline-first Android file manager, encrypted vault, and privacy-focused productivity suite.
+**Native Android application** for searching a user's own Google Drive files by keywords and meaning. The intended client is Kotlin + Jetpack Compose + Material 3; this project is not a website wrapper and must not use a WebView for its core experience.
 
----
+## Product requirements
 
-## Technology stack
+The binding product specification and staged acceptance gates are in [Drive Semantic Search migration plan](docs/DRIVE_SEMANTIC_SEARCH_MIGRATION_PLAN.md).
 
-- **Language:** Kotlin + Coroutines/Flow
-- **UI:** Jetpack Compose + Material 3
-- **Architecture:** Modular Clean Architecture / MVVM-style ViewModels
-- **Dependency injection:** Manual application composition root (Hilt migration is not yet complete)
-- **Navigation:** Jetpack Navigation Compose with centralized route constants
-- **Persistence:** Room + SQLCipher
-- **Security:** Android Keystore, AES-GCM vault encryption, protected database passphrase
-- **Background work:** AndroidX WorkManager
-- **OCR:** ML Kit plugin
-- **Semantic search:** on-device plugin architecture
-- **Cloud:** Google Drive core integration plus cloud-driver SPI
-- **Build:** Gradle Kotlin DSL + version catalog
-- **Compile/Target SDK:** 36
-- **Minimum SDK:** 24
+- Google account selection is interactive; Drive and Firebase sessions must represent the same account.
+- Drive metadata and text are indexed locally. Keyword/metadata search remains usable if neural embeddings are unavailable or disabled.
+- Neural embeddings are strictly opt-in. No Gemini API key belongs in the Android app.
+- No Google Drive file deletion or trash operation is allowed.
+- Offline file bytes belong in app-private storage. Index backup must never include OAuth tokens, Firebase ID tokens, or API keys.
+- The embed worker is https://drive-semantic-embed.awasthi-sach.workers.dev. Android must not bypass its authentication/origin controls. Until a documented mobile client is explicitly authorized, use a trusted authenticated proxy or add a verified Android app-check path.
 
-## Project structure
+## Technology target
 
-```text
-app/                 Application entry point and navigation
-core/common/         Shared utilities
-core/model/          Shared models/contracts
-core/security/       Cryptographic and Keystore services
-core/database/       Room/SQLCipher persistence
-core/data/           Repository/data implementations
-core/domain/         Business use cases and backup orchestration
-core/background/     WorkManager jobs
-core/cloud-gdrive/   Google Drive integration
-core/plugin-spi/     Plugin contracts
-feature/*             User-facing feature modules
-plugins/*             Optional provider/engine implementations
-docs/                Architecture, security and readiness documentation
-```
+- Kotlin, Jetpack Compose, Material 3; minSdk 26.
+- Coroutines and Flow; Room for metadata, extracted text, vectors, vault records and resumable indexing state.
+- WorkManager batches of 50 with automatic continuation and a durable resume cursor.
+- Local PDF/Office/plain-text extraction. ML Kit OCR only after explicit opt-in to full-content indexing.
+- Drive sync uses the Changes API with a full-list fallback and a documented cap of approximately 20,000 files.
 
-## Build locally
+## Current status — migration in progress
 
-Use the Gradle wrapper rather than a system Gradle installation:
+This repository has existing Smart Manager modules and must be treated as a migration, not as an already-complete Drive Semantic Search product. The migration branch is removing unsafe build configuration and aligning the app identity and permission boundary first. A green build alone is not proof of production readiness.
 
-```bash
-# Configure Android SDK through Android Studio or local.properties
-./gradlew assembleDebug
-./gradlew testDebugUnitTest
-./gradlew lintDebug
-```
+Do not claim production release readiness until the gates in the migration plan have passing CI evidence, account/session and Drive workflows are verified on a physical Android device, security tests pass, and recovery/backup behavior has been exercised. Cloud restore must remain disabled/fail-closed until integrity verification, atomic staging and rollback are proven.
 
-### Production release
+## Build and test
 
-Production releases **must never use the Android debug keystore**. `assembleRelease` requires these environment variables:
+Use the Gradle wrapper:
 
-```text
-KEYSTORE_PATH
-STORE_PASSWORD
-KEY_ALIAS        # optional; defaults to upload
-KEY_PASSWORD
-```
+    ./gradlew testDebugUnitTest
+    ./gradlew lintDebug
+    ./gradlew assembleDebug
 
-The supported CI release path is `.github/workflows/release.yml`, which requires the corresponding GitHub Actions secrets.
-
-## Current production status
-
-This repository is under active production hardening and is **not yet independently verified for public release**. The current evidence-based readiness assessment is maintained in:
-
-- [Production Readiness Audit](docs/PRODUCTION_READINESS_2026-08-31.md)
-- [Architecture Guide](docs/ARCHITECTURE.md)
-- [Security Whitepaper](docs/SECURITY_WHITEPAPER.md)
-
-Cloud restore remains intentionally fail-closed until download, integrity verification, atomic staging, rollback, and recovery tests are complete.
+A release build must use a separately managed production upload key injected by CI secrets. Never commit signing keys or embed their private material in Gradle scripts. Release verification and the remaining security gates are documented in the migration plan.
