@@ -41,8 +41,20 @@ class DriveOfflinePinManager(
             temporary = tempFile
             require(tempFile.path.startsWith(pinDirectory.path + File.separator)) { "Invalid temporary cache path." }
 
-            val downloaded = driveService.downloadFile(fileId, tempFile.absolutePath).getOrElse { throw it }
-            require(downloaded && tempFile.isFile) { "Drive did not provide a local file for offline pinning." }
+            val isWorkspaceFile = metadata.mimeType.startsWith("application/vnd.google-apps.") &&
+                !metadata.mimeType.equals("application/vnd.google-apps.folder", ignoreCase = true)
+            val localRepresentationMime = if (isWorkspaceFile) {
+                driveService.downloadForIndexing(
+                    fileId = fileId,
+                    mimeType = metadata.mimeType,
+                    destinationPath = tempFile.absolutePath
+                ).getOrElse { throw it }
+            } else {
+                val downloaded = driveService.downloadFile(fileId, tempFile.absolutePath).getOrElse { throw it }
+                require(downloaded) { "Drive did not provide a local file for offline pinning." }
+                metadata.mimeType
+            }
+            require(tempFile.isFile) { "Drive did not provide a local file for offline pinning." }
             val byteCount = tempFile.length()
             require(byteCount in 0L..MAX_PINNED_BYTES) { "File exceeds the 200 MB offline limit." }
             if (metadata.sizeBytes > 0L && !metadata.mimeType.startsWith("application/vnd.google-apps.") &&
@@ -52,7 +64,14 @@ class DriveOfflinePinManager(
             }
             val digest = sha256(tempFile)
             val existingPinPath = metadata.pinnedPath
-            val newDestination = File(pinDirectory, "${fileId}.${UUID.randomUUID()}.offline").canonicalFile
+            val extension = if (isWorkspaceFile) {
+                when (localRepresentationMime.lowercase()) {
+                    "text/csv" -> ".offline.csv"
+                    "text/plain" -> ".offline.txt"
+                    else -> ".offline.export"
+                }
+            } else ".offline"
+            val newDestination = File(pinDirectory, "${fileId}.${UUID.randomUUID()}$extension").canonicalFile
             destination = newDestination
             require(newDestination.path.startsWith(pinDirectory.path + File.separator)) { "Invalid offline destination path." }
             Files.move(
