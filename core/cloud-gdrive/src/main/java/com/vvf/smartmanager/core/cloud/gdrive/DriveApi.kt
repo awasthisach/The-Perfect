@@ -9,6 +9,7 @@ import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.Multipart
 import retrofit2.http.POST
+import retrofit2.http.PATCH
 import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
@@ -29,6 +30,23 @@ interface DriveApi {
         @Query("pageSize") pageSize: Int = 100,
         @Query("pageToken") pageToken: String? = null
     ): DriveFileListResponse
+
+    @GET("files/{fileId}")
+    suspend fun getFile(
+        @Header("Authorization") bearer: String,
+        @Path("fileId") fileId: String,
+        @Query("fields") fields: String = "id,name,mimeType,size,modifiedTime,parents,md5Checksum,starred,webViewLink"
+    ): DriveFileDto
+
+    @PATCH("files/{fileId}")
+    suspend fun updateFile(
+        @Header("Authorization") bearer: String,
+        @Path("fileId") fileId: String,
+        @Body metadata: RequestBody,
+        @Query("addParents") addParents: String? = null,
+        @Query("removeParents") removeParents: String? = null,
+        @Query("fields") fields: String = "id,name,mimeType,size,modifiedTime,parents,starred,webViewLink"
+    ): DriveFileDto
 
     @Streaming
     @GET("files/{fileId}")
