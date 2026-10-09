@@ -9,6 +9,7 @@ import com.vvf.smartmanager.core.background.workers.CloudBackupBootstrap
 import com.vvf.smartmanager.core.background.workers.JunkScanBootstrap
 import com.vvf.smartmanager.core.background.BackgroundSyncManager
 import com.vvf.smartmanager.core.background.drive.DriveSyncRuntime
+import com.vvf.smartmanager.core.background.drive.DriveContentIndexWorker
 import com.vvf.smartmanager.core.background.drive.DriveContentIndexRuntime
 import com.vvf.smartmanager.core.domain.DriveTextExtractor
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
@@ -139,7 +140,15 @@ class VVFApplication : Application(), Configuration.Provider {
 
     fun setFullContentIndexConsentGranted(granted: Boolean) {
         settingsPrefs.edit().putBoolean(KEY_FULL_CONTENT_INDEX_CONSENT, granted).apply()
-        if (!granted) settingsPrefs.edit().putBoolean(KEY_AUTO_INDEX_OCR, false).apply()
+        if (!granted) {
+            settingsPrefs.edit().putBoolean(KEY_AUTO_INDEX_OCR, false).apply()
+            DriveContentIndexWorker.cancel(this)
+            if (::database.isInitialized) {
+                applicationScope.launch { database.driveIndexDao().clearOcrIndexedText() }
+            }
+        } else if (::database.isInitialized) {
+            applicationScope.launch { database.driveIndexDao().requeueOcrConsentRequired() }
+        }
     }
 
     fun isAutoIndexOcrEnabled(): Boolean =
