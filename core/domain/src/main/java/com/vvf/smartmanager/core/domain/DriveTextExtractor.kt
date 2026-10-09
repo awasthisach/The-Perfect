@@ -5,6 +5,8 @@ import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.util.zip.ZipFile
@@ -52,6 +54,7 @@ class DriveTextExtractor(context: Context) {
 
     private fun extractWordDocument(file: File): String = ZipFile(file).use { zip ->
         val parts = zip.entries().asSequence()
+            .take(MAX_ZIP_ENTRIES)
             .filter { entry ->
                 !entry.isDirectory && (
                     entry.name == "word/document.xml" ||
@@ -61,24 +64,35 @@ class DriveTextExtractor(context: Context) {
                         entry.name == "word/endnotes.xml"
                     )
             }
-            .toList()
+            .take(MAX_OOXML_PARTS)
             .sortedBy { it.name }
-        parts.joinToString(" ") { entry -> xmlText(zip.getInputStream(entry).use { it.readBytes() }) }
+            .toList()
+        val output = StringBuilder()
+        for (entry in parts) {
+            if (output.length >= MAX_EXTRACTED_CHARACTERS) break
+            val bytes = zip.getInputStream(entry).use { readZipEntryBounded(it) }
+            output.append(xmlText(bytes).take(MAX_EXTRACTED_CHARACTERS - output.length)).append(' ')
+        }
+        output.toString().take(MAX_EXTRACTED_CHARACTERS)
     }
 
     private fun extractSpreadsheet(file: File): String = ZipFile(file).use { zip ->
         val sharedStrings = zip.getEntry("xl/sharedStrings.xml")?.let { entry ->
-            xmlTextNodes(zip.getInputStream(entry).use { it.readBytes() }, "t")
+            xmlTextNodes(zip.getInputStream(entry).use { readZipEntryBounded(it) }, "t")
         }.orEmpty()
         val sheets = zip.entries().asSequence()
+            .take(MAX_ZIP_ENTRIES)
             .filter { !it.isDirectory && Regex("xl/worksheets/sheet[0-9]+\\.xml").matches(it.name) }
+            .take(MAX_OOXML_PARTS)
             .sortedBy { it.name }
             .toList()
-        val values = mutableListOf<String>()
+        val output = StringBuilder()
         for (sheet in sheets) {
-            val document = parseXml(zip.getInputStream(sheet).use { it.readBytes() })
+            if (output.length >= MAX_EXTRACTED_CHARACTERS) break
+            val document = parseXml(zip.getInputStream(sheet).use { readZipEntryBounded(it) })
             val cells = document.getElementsByTagNameNS("*", "c")
             for (index in 0 until cells.length) {
+                if (output.length >= MAX_EXTRACTED_CHARACTERS) break
                 val cell = cells.item(index) as? org.w3c.dom.Element ?: continue
                 val valueNode = cell.getElementsByTagNameNS("*", "v").item(0)
                 val value = valueNode?.textContent?.trim().orEmpty()
@@ -86,21 +100,30 @@ class DriveTextExtractor(context: Context) {
                 val resolved = if (cell.getAttribute("t") == "s") {
                     sharedStrings.getOrNull(value.toIntOrNull() ?: -1).orEmpty()
                 } else value
-                if (resolved.isNotBlank()) values += resolved
+                if (resolved.isNotBlank()) output.append(resolved.take(MAX_EXTRACTED_CHARACTERS - output.length)).append(' ')
             }
-            values += xmlTextNodesFromDocument(document, "t")
-            if (values.sumOf { it.length } >= MAX_EXTRACTED_CHARACTERS) break
+            for (value in xmlTextNodesFromDocument(document, "t")) {
+                if (output.length >= MAX_EXTRACTED_CHARACTERS) break
+                output.append(value.take(MAX_EXTRACTED_CHARACTERS - output.length)).append(' ')
+            }
         }
-        values.joinToString(" ").take(MAX_EXTRACTED_CHARACTERS)
+        output.toString().take(MAX_EXTRACTED_CHARACTERS)
     }
 
     private fun extractPresentation(file: File): String = ZipFile(file).use { zip ->
-        zip.entries().asSequence()
+        val slides = zip.entries().asSequence()
+            .take(MAX_ZIP_ENTRIES)
             .filter { !it.isDirectory && Regex("ppt/slides/slide[0-9]+\\.xml").matches(it.name) }
+            .take(MAX_OOXML_PARTS)
             .sortedBy { it.name }
-            .joinToString(" ") { entry ->
-                xmlTextNodes(zip.getInputStream(entry).use { it.readBytes() }, "t")
-            }
+            .toList()
+        val output = StringBuilder()
+        for (slide in slides) {
+            if (output.length >= MAX_EXTRACTED_CHARACTERS) break
+            val bytes = zip.getInputStream(slide).use { readZipEntryBounded(it) }
+            output.append(xmlText(bytes).take(MAX_EXTRACTED_CHARACTERS - output.length)).append(' ')
+        }
+        output.toString().take(MAX_EXTRACTED_CHARACTERS)
     }
 
     private fun readText(file: File): String =
@@ -122,9 +145,33 @@ class DriveTextExtractor(context: Context) {
 
     private fun xmlTextNodesFromDocument(document: org.w3c.dom.Document, localName: String): List<String> {
         val nodes = document.getElementsByTagNameNS("*", localName)
-        return (0 until nodes.length).mapNotNull { index ->
-            nodes.item(index)?.textContent?.trim()?.takeIf { it.isNotEmpty() }
+        val output = mutableListOf<String>()
+        var total = 0
+        for (index in 0 until nodes.length) {
+            if (total >= MAX_EXTRACTED_CHARACTERS) break
+            val value = nodes.item(index)?.textContent?.trim().orEmpty()
+            if (value.isBlank()) continue
+            val bounded = value.take(MAX_EXTRACTED_CHARACTERS - total)
+            output += bounded
+            total += bounded.length
         }
+        return output
+    }
+
+    private fun readZipEntryBounded(input: InputStream): ByteArray {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        var total = 0
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            total += read
+            if (total > MAX_XML_ENTRY_BYTES) {
+                throw DriveTextExtractionException("Office XML entry exceeds the extraction safety limit.")
+            }
+            output.write(buffer, 0, read)
+        }
+        return output.toByteArray()
     }
 
     private fun parseXml(bytes: ByteArray): org.w3c.dom.Document {
@@ -133,8 +180,8 @@ class DriveTextExtractor(context: Context) {
             setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
             setFeature("http://xml.org/sax/features/external-general-entities", false)
             setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-            setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "")
-            setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "")
+            runCatching { setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "") }
+            runCatching { setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "") }
         }
         return factory.newDocumentBuilder().parse(ByteArrayInputStream(bytes))
     }
@@ -142,6 +189,9 @@ class DriveTextExtractor(context: Context) {
     companion object {
         const val MAX_FILE_BYTES = 50L * 1024L * 1024L
         const val MAX_EXTRACTED_CHARACTERS = 1_000_000
+        private const val MAX_XML_ENTRY_BYTES = 8 * 1024 * 1024
+        private const val MAX_ZIP_ENTRIES = 10_000
+        private const val MAX_OOXML_PARTS = 2_000
         private val TEXT_EXTENSIONS = setOf("txt", "md", "csv", "json", "xml", "html", "htm", "log", "yaml", "yml")
     }
 }
