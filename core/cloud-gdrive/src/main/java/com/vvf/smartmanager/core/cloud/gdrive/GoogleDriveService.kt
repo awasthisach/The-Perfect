@@ -64,5 +64,7 @@ interface GoogleDriveService {
         Result.failure(UnsupportedOperationException("Star updates are not implemented by this provider."))
     suspend fun uploadFile(localFile: FileItem, remoteFolderId: String = "root"): Result<String>
     suspend fun downloadFile(fileId: String, destinationPath: String): Result<Boolean>
+    suspend fun downloadForIndexing(fileId: String, mimeType: String, destinationPath: String): Result<String> =
+        Result.failure(UnsupportedOperationException("Local content download/export is not implemented by this provider."))
     suspend fun getStorageQuota(): Result<Pair<Long, Long>>
 }
