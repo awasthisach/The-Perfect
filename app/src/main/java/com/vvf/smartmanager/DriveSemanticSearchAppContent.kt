@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -51,6 +52,7 @@ import com.vvf.smartmanager.core.domain.DriveSearchTypeFilter
 import com.vvf.smartmanager.core.model.FileItem
 import com.vvf.smartmanager.feature.vault.VaultScreen
 import com.vvf.smartmanager.feature.vault.VaultViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.DateFormat
@@ -95,6 +97,8 @@ fun DriveSemanticSearchAppContent(
     var duplicateGroups by remember { mutableStateOf<List<com.vvf.smartmanager.core.database.dao.DriveDuplicateGroup>>(emptyList()) }
     var selectedDuplicate by remember { mutableStateOf<com.vvf.smartmanager.core.database.dao.DriveDuplicateGroup?>(null) }
     var selectedDuplicateFiles by remember { mutableStateOf<List<DriveIndexFileEntity>>(emptyList()) }
+    var pendingImportUri by remember { mutableStateOf<Uri?>(null) }
+    var showImportConfirm by remember { mutableStateOf(false) }
     var moveDialogFile by remember { mutableStateOf<DriveIndexFileEntity?>(null) }
     var moveDialogOpen by remember { mutableStateOf(false) }
     var moveConfirmationOpen by remember { mutableStateOf(false) }
@@ -152,6 +156,7 @@ fun DriveSemanticSearchAppContent(
         if (query.isBlank()) {
             results = emptyList()
         } else {
+            delay(180)
             results = runCatching { DriveSearchRepository(dao).search(query, filter, limit = 200) }
                 .getOrDefault(emptyList())
         }
@@ -230,20 +235,9 @@ fun DriveSemanticSearchAppContent(
         }
     }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        if (uri != null) scope.launch {
-            val input = context.contentResolver.openInputStream(uri)
-            if (input == null) {
-                statusMessage = "Could not read the selected backup file."
-            } else {
-                input.use {
-                    backupManager.importFrom(it)
-                        .onSuccess { count ->
-                            statusMessage = "Imported $count local index records. Drive sync will rebuild its cursor."
-                            refreshLocalState()
-                        }
-                        .onFailure { statusMessage = it.message ?: "Local index import failed." }
-                }
-            }
+        if (uri != null) {
+            pendingImportUri = uri
+            showImportConfirm = true
         }
     }
 
@@ -568,7 +562,13 @@ fun DriveSemanticSearchAppContent(
                 }
 
                 DriveTab.OFFLINE -> {
-                    Text("Pinned files · ${pinnedFiles.size}/${DriveOfflinePinManager.MAX_PINNED_FILES} files · 200 MB cap")
+                    val pinnedBytes = pinnedFiles.sumOf { file ->
+                        file.pinnedPath?.let { path ->
+                            runCatching { File(path).canonicalFile.takeIf { it.isFile }?.length() ?: file.sizeBytes }
+                                .getOrDefault(file.sizeBytes)
+                        } ?: file.sizeBytes
+                    }
+                    Text("Pinned files · ${pinnedFiles.size}/${DriveOfflinePinManager.MAX_PINNED_FILES} files · ${pinnedBytes / (1024L * 1024L)} MB / 200 MB")
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(pinnedFiles, key = { it.driveFileId }) { file ->
                             Card(modifier = Modifier.fillMaxWidth()) {
@@ -610,7 +610,7 @@ fun DriveSemanticSearchAppContent(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("Select an existing Drive folder. Moving happens only after the next confirmation.")
-                    LazyColumn {
+                    LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
                         items(allFiles.filter { it.mimeType == "application/vnd.google-apps.folder" && it.driveFileId != moveDialogFile?.driveFileId }.take(100)) { folder ->
                             Row {
                                 RadioButton(
@@ -697,6 +697,49 @@ fun DriveSemanticSearchAppContent(
                 ) { Text("Review move") }
             },
             dismissButton = { TextButton(onClick = { suggestionDialogFile = null }) { Text("Cancel") } }
+        )
+    }
+
+    if (showImportConfirm && pendingImportUri != null) {
+        AlertDialog(
+            onDismissRequest = {
+                showImportConfirm = false
+                pendingImportUri = null
+            },
+            title = { Text("Import local index backup?") },
+            text = {
+                Text(
+                    "This replaces unpinned local index records with the selected JSON backup. Existing offline-pinned files are retained. Drive OAuth tokens, Firebase tokens, API keys, vault records and file bytes are not imported."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val uri = pendingImportUri
+                    showImportConfirm = false
+                    pendingImportUri = null
+                    if (uri != null) scope.launch {
+                        val input = context.contentResolver.openInputStream(uri)
+                        if (input == null) {
+                            statusMessage = "Could not read the selected backup file."
+                        } else {
+                            input.use {
+                                backupManager.importFrom(it)
+                                    .onSuccess { count ->
+                                        statusMessage = "Imported $count local index records. Drive sync will rebuild its cursor."
+                                        refreshLocalState()
+                                    }
+                                    .onFailure { statusMessage = it.message ?: "Local index import failed." }
+                            }
+                        }
+                    }
+                }) { Text("Import") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showImportConfirm = false
+                    pendingImportUri = null
+                }) { Text("Cancel") }
+            }
         )
     }
 
