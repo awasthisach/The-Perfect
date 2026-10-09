@@ -25,8 +25,9 @@ interface DriveApi {
         @Header("Authorization") bearer: String,
         @Query("q") query: String? = null,
         @Query("spaces") spaces: String = "drive",
-        @Query("fields") fields: String = "files(id,name,mimeType,size,modifiedTime,parents,md5Checksum)",
-        @Query("pageSize") pageSize: Int = 100
+        @Query("fields") fields: String = "nextPageToken,files(id,name,mimeType,size,modifiedTime,parents,md5Checksum,starred,webViewLink)",
+        @Query("pageSize") pageSize: Int = 100,
+        @Query("pageToken") pageToken: String? = null
     ): DriveFileListResponse
 
     @Streaming
@@ -61,7 +62,8 @@ interface DriveApi {
 }
 
 data class DriveFileListResponse(
-    @Json(name = "files") val files: List<DriveFileDto> = emptyList()
+    @Json(name = "files") val files: List<DriveFileDto> = emptyList(),
+    @Json(name = "nextPageToken") val nextPageToken: String? = null
 )
 
 data class DriveFileDto(
@@ -71,7 +73,9 @@ data class DriveFileDto(
     @Json(name = "size") val size: String? = null,
     @Json(name = "modifiedTime") val modifiedTime: String? = null,
     @Json(name = "parents") val parents: List<String> = emptyList(),
-    @Json(name = "md5Checksum") val md5Checksum: String? = null
+    @Json(name = "md5Checksum") val md5Checksum: String? = null,
+    @Json(name = "starred") val starred: Boolean? = null,
+    @Json(name = "webViewLink") val webViewLink: String? = null
 )
 
 data class DriveAboutResponse(
