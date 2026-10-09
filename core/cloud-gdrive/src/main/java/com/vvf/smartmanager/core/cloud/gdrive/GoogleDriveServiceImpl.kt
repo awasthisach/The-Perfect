@@ -76,11 +76,8 @@ class GoogleDriveServiceImpl(
                 "Google Drive not authenticated. Complete OAuth / Credential Manager and call setAccessToken()."
             )
         }
-        val ageMs = System.currentTimeMillis() - tokenIssuedAtMs
-        if (tokenIssuedAtMs > 0L && ageMs > 55L * 60L * 1000L) {
-            throw IllegalStateException(
-                "Google Drive access token is likely expired (age=${ageMs / 1000}s). Please sign in again."
-            )
+        if (DriveSessionPolicy.isLikelyExpired(tokenIssuedAtMs, System.currentTimeMillis())) {
+            throw IllegalStateException("Google Drive access token is likely expired. Please sign in again.")
         }
         return "Bearer $t"
     }
