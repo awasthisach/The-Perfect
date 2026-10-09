@@ -44,6 +44,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -81,14 +82,18 @@ import com.vvf.smartmanager.core.domain.DriveRankedResult
 import com.vvf.smartmanager.core.domain.DriveSearchRepository
 import com.vvf.smartmanager.core.domain.DriveSearchTypeFilter
 import com.vvf.smartmanager.core.domain.OfflinePinManager
+import com.vvf.smartmanager.core.model.FileItem
+import android.provider.OpenableColumns
 import com.vvf.smartmanager.feature.vault.VaultScreen
 import com.vvf.smartmanager.feature.vault.VaultViewModel
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -142,6 +147,8 @@ fun DriveSemanticSearchHome(
     var selectedFolderId by remember { mutableStateOf<String?>(null) }
     var showEmbeddingConsentDialog by remember { mutableStateOf(false) }
     var showOcrConsentDialog by remember { mutableStateOf(false) }
+    var showCreateFolderDialog by remember { mutableStateOf(false) }
+    var newFolderName by remember { mutableStateOf("") }
 
     suspend fun refreshDashboard() {
         val firebaseEmail = runCatching { FirebaseAuth.getInstance().currentUser?.email }.getOrNull()
@@ -312,6 +319,57 @@ fun DriveSemanticSearchHome(
         }
     }
 
+    val uploadFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) scope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val displayName = context.contentResolver.query(
+                        uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
+                    )?.use { cursor ->
+                        if (cursor.moveToFirst()) cursor.getString(0) else null
+                    }?.takeIf { it.isNotBlank() } ?: "drive-upload-${System.currentTimeMillis()}"
+                    val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
+                    val stagingDirectory = File(context.cacheDir, "drive-upload-staging").apply { mkdirs() }
+                    val stagingFile = File(stagingDirectory, "${UUID.randomUUID()}.upload")
+                    try {
+                        val input = context.contentResolver.openInputStream(uri)
+                            ?: throw IllegalStateException("Could not read the selected file.")
+                        input.use { source ->
+                            FileOutputStream(stagingFile).use { output ->
+                                val buffer = ByteArray(8192)
+                                var total = 0L
+                                while (true) {
+                                    val read = source.read(buffer)
+                                    if (read < 0) break
+                                    total += read
+                                    require(total <= 200L * 1024L * 1024L) { "Upload exceeds the 200 MiB safety limit." }
+                                    output.write(buffer, 0, read)
+                                }
+                                output.flush()
+                                output.fd.sync()
+                            }
+                        }
+                        val item = FileItem(
+                            path = stagingFile.absolutePath,
+                            name = displayName,
+                            sizeBytes = stagingFile.length(),
+                            lastModified = stagingFile.lastModified(),
+                            isDirectory = false,
+                            mimeType = mimeType
+                        )
+                        app.googleDriveService.uploadFile(item).getOrThrow()
+                    } finally {
+                        stagingFile.delete()
+                    }
+                }
+            }
+            result.onSuccess {
+                statusMessage = "Upload completed. Drive metadata sync is queued."
+                DriveMetadataSyncWorker.enqueue(context)
+            }.onFailure { statusMessage = it.message ?: "Upload failed." }
+        }
+    }
+
     val importBackupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
             val result = runCatching {
@@ -424,6 +482,9 @@ fun DriveSemanticSearchHome(
                     }
                 )
                 DriveHomeTab.SEARCH -> SearchTab(
+                    accountLinked = accountLinked,
+                    onCreateFolder = { showCreateFolderDialog = true },
+                    onUploadFile = { uploadFileLauncher.launch("*/*") },
                     query = searchQuery,
                     onQueryChange = { searchQuery = it },
                     typeFilter = searchFilter,
@@ -495,6 +556,44 @@ fun DriveSemanticSearchHome(
                 }) { Text("Consent") }
             },
             dismissButton = { TextButton(onClick = { showOcrConsentDialog = false }) { Text("Cancel") } }
+        )
+    }
+
+    if (showCreateFolderDialog) {
+        AlertDialog(
+            onDismissRequest = { showCreateFolderDialog = false },
+            title = { Text("Create Drive folder") },
+            text = {
+                OutlinedTextField(
+                    value = newFolderName,
+                    onValueChange = { newFolderName = it },
+                    label = { Text("Folder name") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val name = newFolderName.trim()
+                        if (name.isBlank()) {
+                            statusMessage = "Enter a folder name."
+                        } else {
+                            scope.launch {
+                                app.googleDriveService.createFolder(name).onSuccess {
+                                    showCreateFolderDialog = false
+                                    newFolderName = ""
+                                    statusMessage = "Folder created in Google Drive. Metadata sync is queued."
+                                    DriveMetadataSyncWorker.enqueue(context)
+                                }.onFailure {
+                                    statusMessage = "Could not create the folder. Check Drive write permission."
+                                }
+                            }
+                        }
+                    },
+                    enabled = newFolderName.trim().isNotBlank()
+                ) { Text("Create folder") }
+            },
+            dismissButton = { TextButton(onClick = { showCreateFolderDialog = false }) { Text("Cancel") } }
         )
     }
 
@@ -629,6 +728,9 @@ private fun DashboardTab(
 
 @Composable
 private fun SearchTab(
+    accountLinked: Boolean,
+    onCreateFolder: () -> Unit,
+    onUploadFile: () -> Unit,
     query: String,
     onQueryChange: (String) -> Unit,
     typeFilter: DriveSearchTypeFilter,
@@ -641,6 +743,16 @@ private fun SearchTab(
     onPin: (DriveIndexFileEntity) -> Unit
 ) {
     Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onCreateFolder, enabled = accountLinked, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Default.Folder, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text("New folder")
+            }
+            Button(onClick = onUploadFile, enabled = accountLinked, modifier = Modifier.weight(1f)) {
+                Text("Upload file")
+            }
+        }
         OutlinedTextField(
             value = query,
             onValueChange = onQueryChange,
