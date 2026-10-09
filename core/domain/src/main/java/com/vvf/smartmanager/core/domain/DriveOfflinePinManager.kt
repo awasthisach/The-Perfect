@@ -44,7 +44,7 @@ class DriveOfflinePinManager(
             val downloaded = driveService.downloadFile(fileId, tempFile.absolutePath).getOrElse { throw it }
             require(downloaded && tempFile.isFile) { "Drive did not provide a local file for offline pinning." }
             val byteCount = tempFile.length()
-            require(byteCount in 1L..MAX_PINNED_BYTES) { "File is empty or exceeds the 200 MB offline limit." }
+            require(byteCount in 0L..MAX_PINNED_BYTES) { "File exceeds the 200 MB offline limit." }
             if (metadata.sizeBytes > 0L && !metadata.mimeType.startsWith("application/vnd.google-apps.") &&
                 metadata.sizeBytes != byteCount
             ) {
@@ -64,8 +64,8 @@ class DriveOfflinePinManager(
             temporary = null
 
             evictOldestUntilFits(fileId, byteCount)
-            driveIndexDao.markPinned(fileId, newDestination.absolutePath, System.currentTimeMillis())
             driveIndexDao.updateContentSha256(fileId, digest)
+            driveIndexDao.markPinned(fileId, newDestination.absolutePath, System.currentTimeMillis())
             existingPinPath?.let { oldPath ->
                 val oldFile = File(oldPath).canonicalFile
                 if (oldFile.path.startsWith(pinDirectory.path + File.separator) &&
@@ -119,7 +119,9 @@ class DriveOfflinePinManager(
             .toMutableList()
         var totalBytes = pins.sumOf { record ->
             record.pinnedPath?.let { path ->
-                runCatching { File(path).canonicalFile.length() }.getOrDefault(record.sizeBytes)
+                runCatching {
+                    File(path).canonicalFile.takeIf { it.isFile }?.length() ?: record.sizeBytes
+                }.getOrDefault(record.sizeBytes)
             } ?: record.sizeBytes
         }
         var count = pins.size
