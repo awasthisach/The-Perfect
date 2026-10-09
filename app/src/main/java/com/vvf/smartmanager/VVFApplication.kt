@@ -127,6 +127,9 @@ class VVFApplication : Application(), Configuration.Provider {
 
     fun setEmbeddingConsentGranted(granted: Boolean) {
         settingsPrefs.edit().putBoolean(KEY_EMBEDDING_CONSENT, granted).apply()
+        if (!granted && ::database.isInitialized) {
+            applicationScope.launch { database.driveIndexDao().clearAllEmbeddings() }
+        }
     }
 
     fun isFullContentIndexConsentGranted(): Boolean =
