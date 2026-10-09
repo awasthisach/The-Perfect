@@ -72,6 +72,22 @@ interface DriveApi {
         @Query("fields") fields: String = "id,name,mimeType,parents,modifiedTime"
     ): DriveFileDto
 
+    @GET("changes/startPageToken")
+    suspend fun getStartPageToken(
+        @Header("Authorization") bearer: String,
+        @Query("supportsAllDrives") supportsAllDrives: Boolean = true
+    ): DriveStartPageTokenResponse
+
+    @GET("changes")
+    suspend fun listChanges(
+        @Header("Authorization") bearer: String,
+        @Query("pageToken") pageToken: String,
+        @Query("pageSize") pageSize: Int = 1000,
+        @Query("includeItemsFromAllDrives") includeItemsFromAllDrives: Boolean = true,
+        @Query("supportsAllDrives") supportsAllDrives: Boolean = true,
+        @Query("fields") fields: String = "nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,size,modifiedTime,parents,md5Checksum,starred,webViewLink))"
+    ): DriveChangesResponse
+
     @GET("about")
     suspend fun about(
         @Header("Authorization") bearer: String,
@@ -99,6 +115,22 @@ data class DriveFileDto(
 data class DriveAboutResponse(
     @Json(name = "storageQuota") val storageQuota: DriveStorageQuota? = null,
     @Json(name = "user") val user: DriveUser? = null
+)
+
+data class DriveStartPageTokenResponse(
+    @Json(name = "startPageToken") val startPageToken: String? = null
+)
+
+data class DriveChangesResponse(
+    @Json(name = "changes") val changes: List<DriveChangeDto> = emptyList(),
+    @Json(name = "nextPageToken") val nextPageToken: String? = null,
+    @Json(name = "newStartPageToken") val newStartPageToken: String? = null
+)
+
+data class DriveChangeDto(
+    @Json(name = "fileId") val fileId: String? = null,
+    @Json(name = "removed") val removed: Boolean = false,
+    @Json(name = "file") val file: DriveFileDto? = null
 )
 
 data class DriveUser(
