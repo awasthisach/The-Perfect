@@ -72,6 +72,7 @@ private val SoftGold = Color(0xFFD4A95A)
 fun CloudScreen(
     viewModel: CloudViewModel,
     onGoogleDriveSignInRequested: () -> Unit,
+    onGoogleDriveSignOutRequested: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -204,6 +205,13 @@ fun CloudScreen(
                                     modifier = Modifier.testTag("connect_provider_button")
                                 ) {
                                     Text("Connect", fontSize = 12.sp)
+                                }
+                            } else if (currentProvider == CloudProviderType.GOOGLE_DRIVE) {
+                                OutlinedButton(
+                                    onClick = onGoogleDriveSignOutRequested,
+                                    modifier = Modifier.testTag("disconnect_google_drive_button")
+                                ) {
+                                    Text("Sign out", fontSize = 12.sp)
                                 }
                             } else {
                                 Surface(shape = RoundedCornerShape(6.dp), color = EmeraldGreen.copy(alpha = 0.15f)) {
