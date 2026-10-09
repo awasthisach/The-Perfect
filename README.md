@@ -12,6 +12,7 @@ The binding product specification and staged acceptance gates are in [Drive Sema
 - No Google Drive file deletion or trash operation is allowed.
 - Offline file bytes belong in app-private storage. Index backup must never include OAuth tokens, Firebase ID tokens, or API keys.
 - The embed worker is https://drive-semantic-embed.awasthi-sach.workers.dev. Android must not bypass its authentication/origin controls. Until a documented mobile client is explicitly authorized, use a trusted authenticated proxy or add a verified Android app-check path.
+- OpenAI API keys must remain server-side. The current embedding Worker uses Gemini; adding `OPENAI_API_KEY` alone does not enable OpenAI. See [OpenAI API key setup and integration status](docs/OPENAI_API_KEY_SETUP.md).
 
 ## Technology target
 
