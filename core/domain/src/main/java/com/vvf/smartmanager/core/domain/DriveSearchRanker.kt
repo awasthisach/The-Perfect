@@ -27,7 +27,7 @@ object DriveSearchRanker {
         limit: Int = 200
     ): List<DriveRankedResult> {
         val terms = tokenize(query).distinct()
-        if (terms.isEmpty() || files.isEmpty() || limit <= 0) return emptyList()
+        if ((terms.isEmpty() && (!embeddingsEnabled || semanticCosineScores.isEmpty())) || files.isEmpty() || limit <= 0) return emptyList()
 
         val candidates = files.filter { it.indexStatus != "REMOTE_REMOVED" }
         if (candidates.isEmpty()) return emptyList()
