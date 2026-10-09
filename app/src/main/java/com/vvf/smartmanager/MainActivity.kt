@@ -397,6 +397,14 @@ private fun VVFNavHost(
                     onGoogleDriveSignInRequested { accessTokenResult ->
                         cloudViewModel.completeGoogleDriveSignIn(accessTokenResult)
                     }
+                },
+                onGoogleDriveSignOutRequested = {
+                    lifecycleScope.launch {
+                        app.googleDriveService.setAccessToken(null)
+                        FirebaseAuth.getInstance().signOut()
+                        googleDriveAuth.signOut()
+                        cloudViewModel.loadAllAccounts()
+                    }
                 }
             )
         }
