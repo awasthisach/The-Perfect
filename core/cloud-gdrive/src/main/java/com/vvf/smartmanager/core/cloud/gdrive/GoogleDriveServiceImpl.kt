@@ -12,6 +12,10 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
+import java.io.FileOutputStream
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.util.UUID
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -256,17 +260,33 @@ class GoogleDriveServiceImpl(
 
     override suspend fun downloadFile(fileId: String, destinationPath: String): Result<Boolean> =
         withContext(Dispatchers.IO) {
+            var temp: File? = null
             try {
-                val body = driveApi.downloadFile(bearer(), fileId)
-                val dest = File(destinationPath)
+                require(DriveIdValidator.isValidFileId(fileId)) { "Invalid Drive file id." }
+                val dest = File(destinationPath).canonicalFile
+                val privateRoot = context.filesDir.canonicalFile
+                require(dest.path.startsWith(privateRoot.path + File.separator)) {
+                    "Downloaded file bytes must remain in app-private storage."
+                }
                 dest.parentFile?.mkdirs()
+                temp = File(dest.parentFile, dest.name + "." + UUID.randomUUID() + ".part")
+                val body = driveApi.downloadFile(bearer(), fileId)
                 body.byteStream().use { input ->
-                    dest.outputStream().use { output ->
+                    FileOutputStream(temp).use { output ->
                         input.copyTo(output)
+                        output.flush()
+                        output.fd.sync()
                     }
                 }
+                Files.move(
+                    temp.toPath(),
+                    dest.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING
+                )
                 Result.success(true)
             } catch (e: Exception) {
+                temp?.delete()
                 Result.failure(e)
             }
         }
