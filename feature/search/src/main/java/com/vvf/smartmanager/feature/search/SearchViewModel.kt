@@ -54,7 +54,7 @@ class SearchViewModel(
     private val _snackbarMessage = MutableStateFlow<String?>(null)
     private val _isSearching = MutableStateFlow(false)
     private val _semanticResults = MutableStateFlow<List<SemanticSearchResult>>(emptyList())
-    private val _isSemanticEnabled = MutableStateFlow(true)
+    private val _isSemanticEnabled = MutableStateFlow(false)
     private val _semanticSimilarityThreshold = MutableStateFlow(0.80f)
 
     private val _searchHistory = searchHistoryUseCase.getHistory()
