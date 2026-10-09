@@ -27,6 +27,7 @@ data class DriveIndexFileEntity(
     val mimeType: String,
     val sizeBytes: Long,
     val modifiedTimeMs: Long,
+    val lastSeenFullSyncAtMs: Long? = null,
     val parentIdsCsv: String = "",
     val webViewLink: String? = null,
     val starred: Boolean = false,
