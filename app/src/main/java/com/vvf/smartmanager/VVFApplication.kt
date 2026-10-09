@@ -3,6 +3,9 @@ package com.vvf.smartmanager
 import android.app.Application
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.appcheck.FirebaseAppCheck
+import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
+import com.google.android.gms.auth.api.signin.GoogleSignIn
 import androidx.work.Configuration
 import com.vvf.smartmanager.core.background.workers.FileIndexingOutcome
 import com.vvf.smartmanager.core.background.workers.FileIndexingRuntime
@@ -48,6 +51,8 @@ import com.vvf.smartmanager.core.domain.SearchHistoryUseCase
 import com.vvf.smartmanager.core.domain.SearchIndexManagementUseCase
 import com.vvf.smartmanager.core.domain.SemanticSearchUseCase
 import com.vvf.smartmanager.core.domain.DriveTextExtractor
+import com.vvf.smartmanager.core.domain.EmbeddingProvider
+import com.vvf.smartmanager.core.domain.DisabledEmbeddingProvider
 import com.vvf.smartmanager.core.domain.TagManagementUseCase
 import com.vvf.smartmanager.core.domain.VaultAuthUseCase
 import com.vvf.smartmanager.core.model.CloudProviderType
@@ -113,6 +118,7 @@ class VVFApplication : Application(), Configuration.Provider {
     lateinit var semanticSearchUseCase: SemanticSearchUseCase
     lateinit var aiIntelligenceUseCase: AiIntelligenceUseCase
     lateinit var googleDriveService: GoogleDriveService
+    lateinit var embeddingProvider: EmbeddingProvider
     lateinit var cloudSyncUseCase: CloudSyncUseCase
     lateinit var backgroundSyncManager: BackgroundSyncManager
     lateinit var ocrPlugin: OcrPluginImpl
@@ -183,6 +189,24 @@ class VVFApplication : Application(), Configuration.Provider {
         cryptoSecurityManager = CryptoSecurityManager(this)
 
         val jvmUnitTest = CryptoSecurityManager.isJvmUnitTestEnvironment(this)
+        embeddingProvider = if (jvmUnitTest) {
+            DisabledEmbeddingProvider()
+        } else {
+            runCatching {
+                val appCheck = FirebaseAppCheck.getInstance()
+                appCheck.installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
+                DriveEmbeddingClient(
+                    context = this,
+                    firebaseAuth = FirebaseAuth.getInstance(),
+                    appCheck = appCheck,
+                    googleAccountEmail = { runCatching { GoogleSignIn.getLastSignedInAccount(this)?.email }.getOrNull() },
+                    consentGranted = { isEmbeddingConsentGranted() }
+                )
+            }.getOrElse {
+                Log.w(TAG, "Firebase App Check is unavailable; neural embedding requests remain disabled.")
+                DisabledEmbeddingProvider()
+            }
+        }
         if (jvmUnitTest) {
             database = VVFDatabase.buildInMemoryDatabase(this)
             Log.i(TAG, "JVM unit-test environment: using in-memory Room database")
