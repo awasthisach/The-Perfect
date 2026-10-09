@@ -394,9 +394,11 @@ class GoogleDriveServiceImpl(
                 "application/vnd.google-apps.document" ->
                     driveApi.exportFile(bearer(), fileId, "text/plain") to "text/plain"
                 "application/vnd.google-apps.spreadsheet" ->
-                    driveApi.exportFile(bearer(), fileId, "text/csv") to "text/csv"
+                    driveApi.exportFile(bearer(), fileId, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") to
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 "application/vnd.google-apps.presentation" ->
-                    driveApi.exportFile(bearer(), fileId, "text/plain") to "text/plain"
+                    driveApi.exportFile(bearer(), fileId, "application/vnd.openxmlformats-officedocument.presentationml.presentation") to
+                        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
                 else -> driveApi.downloadFile(bearer(), fileId) to mimeType
             }
             writeBodyAtomically(body, destinationPath, MAX_INDEX_FILE_BYTES)
@@ -407,44 +409,47 @@ class GoogleDriveServiceImpl(
     }
 
     private fun writeBodyAtomically(body: ResponseBody, destinationPath: String, maxBytes: Long) {
-        val dest = File(destinationPath).canonicalFile
-        val privateRoot = context.filesDir.canonicalFile
-        val cacheRoot = context.cacheDir.canonicalFile
-        val inPrivateFiles = dest.path.startsWith(privateRoot.path + File.separator)
-        val inPrivateCache = dest.path.startsWith(cacheRoot.path + File.separator)
-        require(inPrivateFiles || inPrivateCache) {
-            "Downloaded file bytes must remain in app-private storage."
-        }
-        require(body.contentLength() < 0L || body.contentLength() <= maxBytes) {
-            "Downloaded file exceeds the configured size limit."
-        }
-        dest.parentFile?.mkdirs()
-        val tempFile = File(dest.parentFile, dest.name + "." + UUID.randomUUID() + ".part")
-        try {
-            body.byteStream().use { input ->
-                FileOutputStream(tempFile).use { output ->
-                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                    var total = 0L
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        total += read
-                        require(total <= maxBytes) { "Downloaded file exceeds the configured size limit." }
-                        output.write(buffer, 0, read)
-                    }
-                    output.flush()
-                    output.fd.sync()
-                }
+        body.use { responseBody ->
+            val dest = File(destinationPath).canonicalFile
+            val privateRoot = context.filesDir.canonicalFile
+            val cacheRoot = context.cacheDir.canonicalFile
+            val inPrivateFiles = dest.path.startsWith(privateRoot.path + File.separator)
+            val inPrivateCache = dest.path.startsWith(cacheRoot.path + File.separator)
+            require(inPrivateFiles || inPrivateCache) {
+                "Downloaded file bytes must remain in app-private storage."
             }
-            Files.move(
-                tempFile.toPath(),
-                dest.toPath(),
-                StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING
-            )
-        } catch (e: Exception) {
-            tempFile.delete()
-            throw e
+            val contentLength = responseBody.contentLength()
+            require(contentLength < 0L || contentLength <= maxBytes) {
+                "Downloaded file exceeds the configured size limit."
+            }
+            dest.parentFile?.mkdirs()
+            val tempFile = File(dest.parentFile, dest.name + "." + UUID.randomUUID() + ".part")
+            try {
+                responseBody.byteStream().use { input ->
+                    FileOutputStream(tempFile).use { output ->
+                        val buffer = ByteArray(8192)
+                        var total = 0L
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            total += read
+                            require(total <= maxBytes) { "Downloaded file exceeds the configured size limit." }
+                            output.write(buffer, 0, read)
+                        }
+                        output.flush()
+                        output.fd.sync()
+                    }
+                }
+                Files.move(
+                    tempFile.toPath(),
+                    dest.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING
+                )
+            } catch (e: Exception) {
+                tempFile.delete()
+                throw e
+            }
         }
     }
 
