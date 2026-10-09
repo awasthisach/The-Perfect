@@ -72,12 +72,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.firebase.auth.FirebaseAuth
 import com.vvf.smartmanager.core.background.drive.DriveMetadataSyncWorker
+import com.vvf.smartmanager.core.background.drive.DriveEmbeddingIndexWorker
 import com.vvf.smartmanager.core.cloud.gdrive.DriveSessionPolicy
 import com.vvf.smartmanager.core.database.dao.DriveDuplicateGroup
 import com.vvf.smartmanager.core.database.model.DriveIndexFileEntity
 import com.vvf.smartmanager.core.domain.DriveIndexBackupManager
 import com.vvf.smartmanager.core.domain.DriveRankedResult
 import com.vvf.smartmanager.core.domain.DriveSearchRepository
+import com.vvf.smartmanager.core.domain.DriveSemanticSearchCoordinator
 import com.vvf.smartmanager.core.domain.DriveSearchTypeFilter
 import com.vvf.smartmanager.core.domain.OfflinePinManager
 import com.vvf.smartmanager.core.model.FileItem
@@ -112,8 +114,18 @@ fun DriveSemanticSearchHome(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val dao = remember(app) { app.database.driveIndexDao() }
+    var embeddingBackendReady by remember { mutableStateOf(false) }
     val searchRepository = remember(app) {
-        DriveSearchRepository(dao, { app.isEmbeddingConsentGranted() }, { false })
+        DriveSearchRepository(dao, { app.isEmbeddingConsentGranted() }, { embeddingBackendReady })
+    }
+    val semanticSearch = remember(app) {
+        DriveSemanticSearchCoordinator(
+            driveIndexDao = dao,
+            localSearchRepository = searchRepository,
+            embeddingProvider = app.embeddingProvider,
+            embeddingConsentGranted = { app.isEmbeddingConsentGranted() },
+            embeddingBackendReady = { embeddingBackendReady }
+        )
     }
     val pinManager = remember(app) { OfflinePinManager(context, app.googleDriveService, dao) }
     val backupManager = remember(app) {
@@ -159,7 +171,11 @@ fun DriveSemanticSearchHome(
         pendingContentCount = dao.getPendingContentCount()
     }
 
-    LaunchedEffect(Unit) { refreshDashboard() }
+    LaunchedEffect(Unit) {
+        embeddingBackendReady = app.embeddingProvider.health().getOrNull()?.mobileAuthEnabled == true
+        if (embeddingBackendReady && app.isEmbeddingConsentGranted()) DriveEmbeddingIndexWorker.enqueue(context)
+        refreshDashboard()
+    }
     LaunchedEffect(activeTab) {
         if (activeTab == DriveHomeTab.DUPLICATES) {
             duplicateGroups = runCatching { dao.findNameAndSizeDuplicateGroups() }.getOrDefault(emptyList())
@@ -172,10 +188,9 @@ fun DriveSemanticSearchHome(
         } else {
             delay(250)
             searchResults = runCatching {
-                searchRepository.search(
+                semanticSearch.search(
                     query = searchQuery,
                     typeFilter = searchFilter,
-                    embeddingsEnabled = app.isEmbeddingConsentGranted(),
                     limit = 200
                 )
             }.getOrDefault(emptyList())
@@ -452,6 +467,7 @@ fun DriveSemanticSearchHome(
                     pendingContentCount = pendingContentCount,
                     syncState = syncState,
                     embeddingConsent = app.isEmbeddingConsentGranted(),
+                    embeddingBackendReady = embeddingBackendReady,
                     fullContentConsent = app.isFullContentIndexConsentGranted(),
                     autoOcrEnabled = app.isAutoIndexOcrEnabled(),
                     onSignIn = ::requestSignIn,
@@ -531,7 +547,15 @@ fun DriveSemanticSearchHome(
                 Button(onClick = {
                     app.setEmbeddingConsentGranted(true)
                     showEmbeddingConsentDialog = false
-                    statusMessage = "Consent saved. Neural requests remain disabled until the trusted Android backend path is verified."
+                    scope.launch {
+                        embeddingBackendReady = app.embeddingProvider.health().getOrNull()?.mobileAuthEnabled == true
+                        if (embeddingBackendReady) {
+                            DriveEmbeddingIndexWorker.enqueue(context)
+                            statusMessage = "Consent saved. Neural indexing is queued through Firebase ID token and App Check."
+                        } else {
+                            statusMessage = "Consent saved. The worker has not enabled Android App Check; no embedding request was sent."
+                        }
+                    }
                 }) { Text("Consent") }
             },
             dismissButton = { TextButton(onClick = { showEmbeddingConsentDialog = false }) { Text("Cancel") } }
@@ -642,6 +666,7 @@ private fun DashboardTab(
     pendingContentCount: Int,
     syncState: com.vvf.smartmanager.core.database.model.DriveSyncStateEntity?,
     embeddingConsent: Boolean,
+    embeddingBackendReady: Boolean,
     fullContentConsent: Boolean,
     autoOcrEnabled: Boolean,
     onSignIn: () -> Unit,
@@ -699,7 +724,12 @@ private fun DashboardTab(
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Neural embeddings", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(if (embeddingConsent) "Consent recorded." else "Off until you explicitly consent.")
-                    Text("Neural requests remain disabled until the trusted Android worker/proxy authentication path is deployed and verified.")
+                    Text(
+                        when {
+                            embeddingBackendReady -> "Authenticated Android embedding endpoint is available."
+                            else -> "Neural requests remain disabled until the worker advertises Android App Check support."
+                        }
+                    )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Embedding consent", modifier = Modifier.weight(1f))
                         Switch(checked = embeddingConsent, onCheckedChange = onEmbeddingToggle)
