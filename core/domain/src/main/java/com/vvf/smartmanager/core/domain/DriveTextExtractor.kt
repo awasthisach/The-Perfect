@@ -8,7 +8,6 @@ import java.io.ByteArrayInputStream
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.util.zip.ZipFile
-import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
 
 class DriveTextExtractionException(message: String) : IllegalStateException(message)
@@ -102,7 +101,7 @@ class DriveTextExtractor(context: Context) {
                 } else value
                 if (resolved.isNotBlank()) values += resolved
             }
-            values += xmlTextNodesFromDocument(document, "t")
+            values.addAll(xmlTextNodesFromDocument(document, "t"))
             if (values.sumOf { it.length } >= MAX_EXTRACTED_CHARACTERS) break
         }
         values.joinToString(" ").take(MAX_EXTRACTED_CHARACTERS)
@@ -112,9 +111,8 @@ class DriveTextExtractor(context: Context) {
         zip.entries().asSequence()
             .filter { !it.isDirectory && Regex("ppt/slides/slide[0-9]+\\.xml").matches(it.name) }
             .sortedBy { it.name }
-            .joinToString(" ") { entry ->
-                xmlTextNodes(readZipEntryBounded(zip, entry), "t")
-            }
+            .flatMap { entry -> xmlTextNodes(readZipEntryBounded(zip, entry), "t") }
+            .joinToString(" ")
     }
 
     private fun readZipEntryBounded(zip: ZipFile, entry: java.util.zip.ZipEntry): ByteArray {
@@ -171,8 +169,8 @@ class DriveTextExtractor(context: Context) {
             setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
             setFeature("http://xml.org/sax/features/external-general-entities", false)
             setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-            setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "")
-            setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "")
+            setAttribute("http://javax.xml.XMLConstants/property/accessExternalDTD", "")
+            setAttribute("http://javax.xml.XMLConstants/property/accessExternalSchema", "")
         }
         return factory.newDocumentBuilder().parse(ByteArrayInputStream(bytes))
     }
