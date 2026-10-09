@@ -143,7 +143,8 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         setContent {
             VVFSmartManagerTheme {
-                VVFAppContent(
+                DriveSemanticSearchHome(
+                    app = application as VVFApplication,
                     onGoogleDriveSignInRequested = { callback ->
                         if (
                             BuildConfig.GOOGLE_WEB_CLIENT_ID.isBlank() ||
@@ -160,6 +161,13 @@ class MainActivity : FragmentActivity() {
                             pendingGoogleDriveSignInCallback = callback
                             googleDriveSignInLauncher.launch(googleDriveAuth.buildDriveSignInIntent())
                         }
+                    },
+                    onGoogleDriveSignOutRequested = {
+                        DriveMetadataSyncWorker.cancel(this@MainActivity)
+                        DriveContentIndexWorker.cancel(this@MainActivity)
+                        (application as VVFApplication).googleDriveService.setAccessToken(null)
+                        FirebaseAuth.getInstance().signOut()
+                        googleDriveAuth.signOut()
                     }
                 )
             }
