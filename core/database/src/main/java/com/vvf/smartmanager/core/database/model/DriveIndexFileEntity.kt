@@ -40,5 +40,6 @@ data class DriveIndexFileEntity(
     val pinnedPath: String? = null,
     val pinnedAtMs: Long? = null,
     val indexStatus: String = "METADATA_ONLY",
+    val indexAttempts: Int = 0,
     val lastIndexedAtMs: Long = 0L
 )
