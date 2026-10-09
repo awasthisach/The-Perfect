@@ -39,11 +39,12 @@ class OfflinePinManager(
             }
 
             val stagingDirectory = File(context.filesDir, "pinned/.staging").apply { mkdirs() }
-            stagingFile = File(stagingDirectory, "$fileId.${UUID.randomUUID()}.tmp")
-            driveService.downloadFile(fileId, stagingFile.absolutePath).getOrElse {
+            val staged = File(stagingDirectory, "$fileId.${UUID.randomUUID()}.tmp")
+            stagingFile = staged
+            driveService.downloadFile(fileId, staged.absolutePath).getOrElse {
                 throw IllegalStateException("Download failed.")
             }
-            val downloadedBytes = stagingFile.length()
+            val downloadedBytes = staged.length()
             require(downloadedBytes <= MAX_PINNED_BYTES) { "File exceeds the offline pin size limit." }
 
             val pins = driveIndexDao.getPinnedFilesOldestFirst().filterNot { it.driveFileId == fileId }
@@ -62,7 +63,7 @@ class OfflinePinManager(
             val pinnedDirectory = File(context.filesDir, "pinned").apply { mkdirs() }
             val finalFile = File(pinnedDirectory, "$fileId.bin")
             Files.move(
-                stagingFile.toPath(),
+                staged.toPath(),
                 finalFile.toPath(),
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING
