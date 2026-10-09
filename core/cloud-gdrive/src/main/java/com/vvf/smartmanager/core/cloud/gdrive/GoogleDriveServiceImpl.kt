@@ -31,6 +31,11 @@ class GoogleDriveServiceImpl(
     private val driveApi: DriveApi = DriveNetwork.createApi()
 ) : GoogleDriveService {
 
+    companion object {
+        private const val DRIVE_PAGE_SIZE = 1000
+        private const val MAX_LISTED_FILES = 20_000
+    }
+
     @Volatile
     private var accessToken: String? = null
 
@@ -103,27 +108,58 @@ class GoogleDriveServiceImpl(
     override suspend fun listDriveFiles(folderId: String): Result<List<FileItem>> = withContext(Dispatchers.IO) {
         try {
             val parent = folderId.ifBlank { "root" }
-            val q = "'$parent' in parents and trashed = false"
-            val response = driveApi.listFiles(bearer = bearer(), query = q)
-            val items = response.files.map { dto ->
-                FileItem(
-                    path = "gdrive://${dto.id.orEmpty()}",
-                    name = dto.name.orEmpty(),
-                    sizeBytes = dto.size?.toLongOrNull() ?: 0L,
-                    lastModified = parseDriveTime(dto.modifiedTime),
-                    isDirectory = dto.mimeType == "application/vnd.google-apps.folder",
-                    mimeType = dto.mimeType
+            require(DriveIdValidator.isValidParentId(parent)) { "Invalid Drive folder id." }
+            val query = "'$parent' in parents and trashed = false"
+            val items = mutableListOf<FileItem>()
+            var pageToken: String? = null
+            do {
+                val response = driveApi.listFiles(
+                    bearer = bearer(),
+                    query = query,
+                    pageSize = DRIVE_PAGE_SIZE,
+                    pageToken = pageToken
                 )
-            }
-            currentAccount = currentAccount.copy(
-                isConnected = true,
-                lastSyncTimestamp = System.currentTimeMillis()
-            )
+                items += response.files.take(MAX_LISTED_FILES - items.size).map(::toFileItem)
+                pageToken = response.nextPageToken
+                if (items.size >= MAX_LISTED_FILES) break
+            } while (pageToken != null)
+            currentAccount = currentAccount.copy(isConnected = true, lastSyncTimestamp = System.currentTimeMillis())
             Result.success(items)
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
+
+    override suspend fun listAllDriveFiles(): Result<DriveFileListing> = withContext(Dispatchers.IO) {
+        try {
+            val items = mutableListOf<FileItem>()
+            var pageToken: String? = null
+            do {
+                val response = driveApi.listFiles(
+                    bearer = bearer(),
+                    query = "trashed = false",
+                    pageSize = DRIVE_PAGE_SIZE,
+                    pageToken = pageToken
+                )
+                items += response.files.take(MAX_LISTED_FILES - items.size).map(::toFileItem)
+                pageToken = response.nextPageToken
+                if (items.size >= MAX_LISTED_FILES) break
+            } while (pageToken != null)
+            currentAccount = currentAccount.copy(isConnected = true, lastSyncTimestamp = System.currentTimeMillis())
+            Result.success(DriveFileListing(items, incomplete = pageToken != null, nextPageToken = pageToken))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private fun toFileItem(dto: DriveFileDto): FileItem = FileItem(
+        path = "gdrive://${dto.id.orEmpty()}",
+        name = dto.name.orEmpty(),
+        sizeBytes = dto.size?.toLongOrNull() ?: 0L,
+        lastModified = parseDriveTime(dto.modifiedTime),
+        isDirectory = dto.mimeType == "application/vnd.google-apps.folder",
+        mimeType = dto.mimeType
+    )
 
     override suspend fun uploadFile(localFile: FileItem, remoteFolderId: String): Result<String> =
         withContext(Dispatchers.IO) {
