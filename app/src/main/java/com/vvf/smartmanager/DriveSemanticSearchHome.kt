@@ -44,7 +44,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -72,7 +71,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.firebase.auth.FirebaseAuth
-import com.vvf.smartmanager.core.background.drive.DriveContentIndexWorker
 import com.vvf.smartmanager.core.background.drive.DriveMetadataSyncWorker
 import com.vvf.smartmanager.core.cloud.gdrive.DriveSessionPolicy
 import com.vvf.smartmanager.core.database.dao.DriveDuplicateGroup
