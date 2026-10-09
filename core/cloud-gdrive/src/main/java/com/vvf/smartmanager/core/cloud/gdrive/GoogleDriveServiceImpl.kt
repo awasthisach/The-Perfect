@@ -134,6 +134,32 @@ class GoogleDriveServiceImpl(
         }
     }
 
+    override suspend fun listDriveMetadataPage(
+        pageToken: String?,
+        pageSize: Int
+    ): Result<DriveMetadataPage> = withContext(Dispatchers.IO) {
+        try {
+            require(pageSize in 1..50) { "Drive metadata batch size must be between 1 and 50." }
+            require(pageToken == null || (pageToken.length <= MAX_PAGE_TOKEN_LENGTH && pageToken.none { it.isISOControl() })) {
+                "Invalid Drive listing cursor."
+            }
+            val response = driveApi.listFiles(
+                bearer = bearer(),
+                query = "trashed = false",
+                pageSize = pageSize,
+                pageToken = pageToken
+            )
+            Result.success(
+                DriveMetadataPage(
+                    files = response.files.map(::toMetadataRecord),
+                    nextPageToken = response.nextPageToken
+                )
+            )
+        } catch (_: Exception) {
+            Result.failure(IllegalStateException("Drive metadata page failed. Retry the sync."))
+        }
+    }
+
     override suspend fun listAllDriveFiles(): Result<DriveFileListing> = withContext(Dispatchers.IO) {
         try {
             val items = mutableListOf<FileItem>()
@@ -180,7 +206,7 @@ class GoogleDriveServiceImpl(
                 DriveChange(
                     fileId = id,
                     removed = change.removed,
-                    file = change.file?.let(::toFileItem)
+                    file = change.file?.let(::toMetadataRecord)
                 )
             }
             Result.success(
@@ -193,6 +219,21 @@ class GoogleDriveServiceImpl(
         } catch (_: Exception) {
             Result.failure(IllegalStateException("Drive incremental sync failed. Retry or fall back to a full-list sync."))
         }
+    }
+
+    private fun toMetadataRecord(dto: DriveFileDto): DriveMetadataRecord {
+        val id = dto.id?.takeIf(DriveIdValidator::isValidFileId)
+            ?: throw IllegalStateException("Drive returned a file without a valid resource id.")
+        return DriveMetadataRecord(
+            fileId = id,
+            name = dto.name.orEmpty(),
+            mimeType = dto.mimeType.orEmpty(),
+            sizeBytes = dto.size?.toLongOrNull() ?: 0L,
+            modifiedTimeMs = parseDriveTime(dto.modifiedTime),
+            parentIds = dto.parents.filter(DriveIdValidator::isValidParentId),
+            webViewLink = dto.webViewLink,
+            starred = dto.starred == true
+        )
     }
 
     private fun toFileItem(dto: DriveFileDto): FileItem {
