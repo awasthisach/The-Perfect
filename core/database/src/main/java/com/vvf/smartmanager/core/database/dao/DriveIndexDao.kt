@@ -31,7 +31,7 @@ interface DriveIndexDao {
     @Query("UPDATE drive_index_files SET indexStatus = :status, lastIndexedAtMs = :indexedAtMs WHERE driveFileId = :driveFileId")
     suspend fun updateIndexStatus(driveFileId: String, status: String, indexedAtMs: Long)
 
-    @Query("UPDATE drive_index_files SET indexStatus = 'METADATA_ONLY' WHERE indexStatus = 'OCR_CONSENT_REQUIRED'")
+    @Query("UPDATE drive_index_files SET indexStatus = 'METADATA_ONLY' WHERE indexStatus IN ('OCR_CONSENT_REQUIRED', 'OCR_DISABLED_BY_USER')")
     suspend fun requeueOcrConsentRequired()
 
     @Query("UPDATE drive_index_files SET extractedText = '', extractionSource = NULL, indexStatus = 'OCR_CONSENT_REQUIRED', lastIndexedAtMs = 0, embeddingVector = NULL, embeddingModel = NULL, embeddingVersion = NULL, embeddingDimension = NULL WHERE extractionSource = 'OCR'")
