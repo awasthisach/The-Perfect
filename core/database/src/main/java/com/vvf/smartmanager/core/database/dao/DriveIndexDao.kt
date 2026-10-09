@@ -43,6 +43,12 @@ interface DriveIndexDao {
     @Query("SELECT * FROM drive_index_files WHERE indexStatus != 'REMOTE_REMOVED' AND (name LIKE '%' || :query || '%' OR extractedText LIKE '%' || :query || '%') ORDER BY modifiedTimeMs DESC LIMIT :limit")
     suspend fun searchLocalText(query: String, limit: Int = 200): List<DriveIndexFileEntity>
 
+    @Query("SELECT * FROM drive_index_files WHERE mimeType = 'application/vnd.google-apps.folder' AND indexStatus != 'REMOTE_REMOVED' ORDER BY name COLLATE NOCASE")
+    suspend fun getDriveFolders(): List<DriveIndexFileEntity>
+
+    @Query("UPDATE drive_index_files SET starred = :starred WHERE driveFileId = :driveFileId")
+    suspend fun updateStarred(driveFileId: String, starred: Boolean)
+
     @Query("SELECT * FROM drive_index_files WHERE pinnedPath IS NOT NULL ORDER BY pinnedAtMs DESC")
     fun observePinnedFiles(): Flow<List<DriveIndexFileEntity>>
 
