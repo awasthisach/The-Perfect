@@ -45,6 +45,31 @@ class DriveIndexDaoTest {
     }
 
     @Test
+    fun changedPinnedFileIsReindexedAndPinStalenessIsPreservedUntilRepinnedOrUnpinned() = runBlocking {
+        val id = "PinnedFileIdentifier1234567890"
+        dao.upsertFile(
+            DriveIndexFileEntity(
+                driveFileId = id,
+                name = "changed.pdf",
+                mimeType = "application/pdf",
+                sizeBytes = 100L,
+                modifiedTimeMs = 200L,
+                extractedText = "",
+                pinnedPath = "/private/offline/old.pdf",
+                pinnedAtMs = 10L,
+                indexStatus = "METADATA_CHANGED_PIN_STALE"
+            )
+        )
+
+        assertEquals(id, dao.getFilesNeedingText().single().driveFileId)
+        dao.updateExtractedText(id, "new remote text", "NATIVE_TEXT", "TEXT_INDEXED", 300L)
+        assertEquals("TEXT_INDEXED_PIN_STALE", dao.getByDriveId(id)?.indexStatus)
+
+        dao.unpin(id)
+        assertEquals("TEXT_INDEXED", dao.getByDriveId(id)?.indexStatus)
+    }
+
+    @Test
     fun duplicateGroupsRequireSameNameAndSizeAndExcludeRemovedOrEmptyFiles() = runBlocking {
         add("file-id-duplicate-00000001", "report.pdf", 100L)
         add("file-id-duplicate-00000002", "report.pdf", 100L)
