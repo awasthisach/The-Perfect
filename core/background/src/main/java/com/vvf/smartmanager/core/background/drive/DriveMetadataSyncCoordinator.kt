@@ -179,11 +179,7 @@ class DriveMetadataSyncCoordinator(
                 embeddingVersion = if (contentChanged) null else existing.embeddingVersion,
                 embeddingDimension = if (contentChanged) null else existing.embeddingDimension,
                 embeddingVector = if (contentChanged) null else existing.embeddingVector,
-                indexStatus = when {
-                    contentChanged && existing.pinnedPath != null -> "METADATA_CHANGED_PIN_STALE"
-                    contentChanged -> "METADATA_ONLY"
-                    else -> existing.indexStatus
-                },
+                indexStatus = if (contentChanged) "METADATA_ONLY" else existing.indexStatus,
                 lastIndexedAtMs = if (contentChanged) 0L else existing.lastIndexedAtMs
             )
         )
