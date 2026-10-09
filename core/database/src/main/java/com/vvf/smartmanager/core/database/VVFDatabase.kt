@@ -107,6 +107,7 @@ abstract class VVFDatabase : RoomDatabase() {
                         `changeStartPageToken` TEXT,
                         `changePageToken` TEXT,
                         `fullListPageToken` TEXT,
+                        `fullListFilesSeen` INTEGER NOT NULL,
                         `indexingCursor` TEXT,
                         `indexingInProgress` INTEGER NOT NULL,
                         `listingIncomplete` INTEGER NOT NULL,
