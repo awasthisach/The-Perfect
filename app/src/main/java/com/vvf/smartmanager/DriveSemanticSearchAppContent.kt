@@ -333,6 +333,8 @@ fun DriveSemanticSearchAppContent(
                                         }) { Text("Pin offline") }
                                         TextButton(onClick = {
                                             suggestionDialogFile = file
+                                            selectedFolderId = null
+                                            selectedFolderName = null
                                             val terms = file.name.lowercase().split(Regex("[^\\p{L}\\p{Nd}]+")).filter { it.length >= 2 }.toSet()
                                             folderSuggestions = allFiles.filter {
                                                 it.mimeType == "application/vnd.google-apps.folder" &&
