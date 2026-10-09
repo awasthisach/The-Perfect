@@ -47,7 +47,21 @@ class DriveTextExtractor(context: Context) {
 
     private fun extractPdf(file: File): String =
         PDDocument.load(file).use { document ->
-            PDFTextStripper().getText(document).take(MAX_EXTRACTED_CHARACTERS)
+            val pageCount = document.numberOfPages
+            val stripper = PDFTextStripper()
+            if (pageCount <= PDF_FULL_PAGE_LIMIT) {
+                stripper.startPage = 1
+                stripper.endPage = pageCount
+                stripper.getText(document).take(MAX_EXTRACTED_CHARACTERS)
+            } else {
+                val first = stripper.apply { startPage = 1; endPage = PDF_SAMPLE_PAGES }.getText(document)
+                val last = stripper.apply {
+                    startPage = (pageCount - PDF_SAMPLE_PAGES + 1).coerceAtLeast(1)
+                    endPage = pageCount
+                }.getText(document)
+                (first + "\\n\\n[Middle pages omitted from local index]\\n\\n" + last)
+                    .take(MAX_EXTRACTED_CHARACTERS)
+            }
         }
 
     private fun extractWordDocument(file: File): String = ZipFile(file).use { zip ->
@@ -63,12 +77,12 @@ class DriveTextExtractor(context: Context) {
             }
             .toList()
             .sortedBy { it.name }
-        parts.joinToString(" ") { entry -> xmlText(zip.getInputStream(entry).use { it.readBytes() }) }
+        parts.joinToString(" ") { entry -> xmlText(readZipEntryBounded(zip, entry)) }
     }
 
     private fun extractSpreadsheet(file: File): String = ZipFile(file).use { zip ->
         val sharedStrings = zip.getEntry("xl/sharedStrings.xml")?.let { entry ->
-            xmlTextNodes(zip.getInputStream(entry).use { it.readBytes() }, "t")
+            xmlTextNodes(readZipEntryBounded(zip, entry), "t")
         }.orEmpty()
         val sheets = zip.entries().asSequence()
             .filter { !it.isDirectory && Regex("xl/worksheets/sheet[0-9]+\\.xml").matches(it.name) }
@@ -76,7 +90,7 @@ class DriveTextExtractor(context: Context) {
             .toList()
         val values = mutableListOf<String>()
         for (sheet in sheets) {
-            val document = parseXml(zip.getInputStream(sheet).use { it.readBytes() })
+            val document = parseXml(readZipEntryBounded(zip, sheet))
             val cells = document.getElementsByTagNameNS("*", "c")
             for (index in 0 until cells.length) {
                 val cell = cells.item(index) as? org.w3c.dom.Element ?: continue
@@ -99,8 +113,32 @@ class DriveTextExtractor(context: Context) {
             .filter { !it.isDirectory && Regex("ppt/slides/slide[0-9]+\\.xml").matches(it.name) }
             .sortedBy { it.name }
             .joinToString(" ") { entry ->
-                xmlTextNodes(zip.getInputStream(entry).use { it.readBytes() }, "t")
+                xmlTextNodes(readZipEntryBounded(zip, entry), "t")
             }
+    }
+
+    private fun readZipEntryBounded(zip: ZipFile, entry: java.util.zip.ZipEntry): ByteArray {
+        val declaredSize = entry.size
+        if (declaredSize > MAX_XML_ENTRY_BYTES) {
+            throw DriveTextExtractionException("Office document contains an oversized XML part.")
+        }
+        return zip.getInputStream(entry).use { input ->
+            val output = java.io.ByteArrayOutputStream(
+                if (declaredSize in 1..MAX_XML_ENTRY_BYTES) declaredSize.toInt() else 8192
+            )
+            val buffer = ByteArray(8192)
+            var total = 0
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                total += count
+                if (total > MAX_XML_ENTRY_BYTES) {
+                    throw DriveTextExtractionException("Office document XML part exceeds the safe extraction limit.")
+                }
+                output.write(buffer, 0, count)
+            }
+            output.toByteArray()
+        }
     }
 
     private fun readText(file: File): String =
@@ -142,6 +180,9 @@ class DriveTextExtractor(context: Context) {
     companion object {
         const val MAX_FILE_BYTES = 50L * 1024L * 1024L
         const val MAX_EXTRACTED_CHARACTERS = 1_000_000
+        private const val MAX_XML_ENTRY_BYTES = 4 * 1024 * 1024
+        private const val PDF_FULL_PAGE_LIMIT = 10
+        private const val PDF_SAMPLE_PAGES = 5
         private val TEXT_EXTENSIONS = setOf("txt", "md", "csv", "json", "xml", "html", "htm", "log", "yaml", "yml")
     }
 }
