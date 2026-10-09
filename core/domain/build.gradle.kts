@@ -30,6 +30,7 @@ dependencies {
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.kotlinx.serialization.json)
   testImplementation(libs.junit)
+  testImplementation(libs.robolectric)
   testImplementation(libs.kotlinx.coroutines.test)
   testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
   testImplementation("com.squareup.okhttp3:okhttp:4.12.0")
