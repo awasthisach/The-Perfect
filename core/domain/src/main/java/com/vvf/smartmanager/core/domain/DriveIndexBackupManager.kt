@@ -13,6 +13,7 @@ import kotlinx.serialization.json.Json
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.OutputStream
+import java.net.URI
 import java.util.Base64
 
 /**
@@ -150,7 +151,7 @@ class DriveIndexBackupManager(private val database: VVFDatabase) {
             sizeBytes = entry.sizeBytes,
             modifiedTimeMs = entry.modifiedTimeMs,
             parentIdsCsv = entry.parentIdsCsv.take(MAX_PARENT_IDS_CHARS),
-            webViewLink = entry.webViewLink?.take(MAX_LINK_CHARS),
+            webViewLink = sanitizeDriveLink(entry.webViewLink),
             starred = entry.starred,
             extractedText = entry.extractedText,
             extractionSource = entry.extractionSource,
@@ -162,6 +163,23 @@ class DriveIndexBackupManager(private val database: VVFDatabase) {
             indexStatus = entry.indexStatus,
             lastIndexedAtMs = entry.lastIndexedAtMs.coerceAtLeast(0L)
         )
+    }
+
+    private fun sanitizeDriveLink(value: String?): String? {
+        if (value.isNullOrBlank() || value.length > MAX_LINK_CHARS) return null
+        return runCatching {
+            val uri = URI(value)
+            val allowedHosts = setOf(
+                "drive.google.com", "docs.google.com",
+                "sheets.google.com", "slides.google.com"
+            )
+            value.takeIf {
+                uri.scheme.equals("https", ignoreCase = true) &&
+                    uri.host?.lowercase() in allowedHosts &&
+                    uri.userInfo == null &&
+                    (uri.port == -1 || uri.port == 443)
+            }
+        }.getOrNull()
     }
 
     private fun readBounded(input: InputStream, maxBytes: Int): ByteArray {
