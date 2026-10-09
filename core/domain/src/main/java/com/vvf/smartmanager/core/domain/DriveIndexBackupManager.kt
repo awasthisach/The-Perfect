@@ -240,7 +240,7 @@ class DriveIndexBackupManager(private val database: VVFDatabase) {
         private val ALLOWED_INDEX_STATUSES = setOf(
             "METADATA_ONLY", "TEXT_INDEXED", "OCR_INDEXED", "OCR_CONSENT_REQUIRED",
             "DOWNLOAD_FAILED", "EXTRACTION_FAILED", "TOO_LARGE", "METADATA_CHANGED_PIN_STALE",
-            "REMOTE_REMOVED"
+            "REMOTE_REMOVED", "TEXT_INDEXED_PIN_STALE", "OCR_INDEXED_PIN_STALE"
         )
     }
 }
