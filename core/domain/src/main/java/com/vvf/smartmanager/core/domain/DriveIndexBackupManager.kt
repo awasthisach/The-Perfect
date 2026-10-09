@@ -4,6 +4,7 @@ import com.vvf.smartmanager.core.cloud.gdrive.DriveIdValidator
 import com.vvf.smartmanager.core.cloud.gdrive.DriveSessionPolicy
 import com.vvf.smartmanager.core.database.dao.DriveIndexDao
 import com.vvf.smartmanager.core.database.model.DriveIndexFileEntity
+import com.vvf.smartmanager.core.database.model.DriveSyncStateEntity
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.OutputStream
@@ -142,6 +143,12 @@ class DriveIndexBackupManager(
             item
         }
 
+        var syncState = driveIndexDao.getSyncState()
+        if (syncState?.accountEmail != null && syncState.accountEmail != email) {
+            driveIndexDao.clearUnpinnedDriveRecords()
+            driveIndexDao.markPinsFromPreviousAccount()
+            syncState = DriveSyncStateEntity(accountEmail = email)
+        }
         var imported = 0
         for (item in validated) {
             val existing = driveIndexDao.getByDriveId(item.driveFileId)
@@ -188,6 +195,32 @@ class DriveIndexBackupManager(
             )
             imported++
         }
+        val now = System.currentTimeMillis()
+        val currentState = syncState ?: DriveSyncStateEntity(accountEmail = email)
+        val reconciledState = if (currentState.accountEmail == email && currentState.changeStartPageToken != null) {
+            currentState.copy(
+                accountEmail = email,
+                fullListPageToken = "",
+                fullListGeneration = now,
+                fullListFilesSeen = 0,
+                changePageToken = null,
+                indexingInProgress = true,
+                listingIncomplete = true,
+                lastError = "Imported index; reconciling with Drive."
+            )
+        } else {
+            currentState.copy(
+                accountEmail = email,
+                fullListPageToken = null,
+                fullListGeneration = null,
+                fullListFilesSeen = 0,
+                changePageToken = null,
+                indexingInProgress = false,
+                listingIncomplete = true,
+                lastError = "Imported index; Drive sync is required."
+            )
+        }
+        driveIndexDao.saveSyncState(reconciledState)
         Result.success(DriveIndexBackupSummary(imported, payload.truncated))
     } catch (e: Exception) {
         Result.failure(IllegalStateException(e.message ?: "Could not import the local index."))
