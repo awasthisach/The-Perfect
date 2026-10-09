@@ -82,7 +82,10 @@ class CryptoSecurityManager(
         private const val DB_PASSPHRASE_TEMP_SUFFIX = ".tmp"
         private const val DB_PASSPHRASE_FORMAT_VERSION: Byte = 2
 
-        private const val PBKDF2_ITERATIONS = 600_000
+        private const val LEGACY_PBKDF2_ITERATIONS = 600_000
+        private const val CURRENT_PBKDF2_ITERATIONS = 310_000
+        private const val MIN_ACCEPTED_PBKDF2_ITERATIONS = 100_000
+        private const val MAX_ACCEPTED_PBKDF2_ITERATIONS = 1_000_000
         private val memoryKeyMap = mutableMapOf<String, SecretKey>()
 
         @JvmStatic
@@ -418,8 +421,8 @@ class CryptoSecurityManager(
 
     fun exportVaultAuthMetadata(): Map<String, String> {
         val keys = listOf(
-            "vault_pin_hash", "vault_pin_hash_iv", "vault_pin_salt", "vault_pin_salt_iv",
-            "vault_decoy_pin_hash", "vault_decoy_pin_hash_iv", "vault_decoy_pin_salt", "vault_decoy_pin_salt_iv",
+            "vault_pin_hash", "vault_pin_hash_iv", "vault_pin_salt", "vault_pin_salt_iv", "vault_pin_iterations",
+            "vault_decoy_pin_hash", "vault_decoy_pin_hash_iv", "vault_decoy_pin_salt", "vault_decoy_pin_salt_iv", "vault_decoy_pin_iterations",
             "vault_biometric_enabled"
         )
         val out = linkedMapOf<String, String>()
@@ -442,6 +445,13 @@ class CryptoSecurityManager(
                     editor.putBoolean(key, value.equals("true", ignoreCase = true))
                     wrote = true
                 }
+                "vault_pin_iterations", "vault_decoy_pin_iterations" -> {
+                    val iterations = value.toIntOrNull()
+                    if (iterations != null && iterations in MIN_ACCEPTED_PBKDF2_ITERATIONS..MAX_ACCEPTED_PBKDF2_ITERATIONS) {
+                        editor.putInt(key, iterations)
+                        wrote = true
+                    }
+                }
                 "vault_pin_hash", "vault_pin_hash_iv", "vault_pin_salt", "vault_pin_salt_iv",
                 "vault_decoy_pin_hash", "vault_decoy_pin_hash_iv", "vault_decoy_pin_salt", "vault_decoy_pin_salt_iv" -> {
                     editor.putString(key, value)
@@ -456,7 +466,8 @@ class CryptoSecurityManager(
         if (!isValidPinFormat(pin)) return false
         val salt = ByteArray(16)
         SecureRandom().nextBytes(salt)
-        val hash = hashPin(pin, salt)
+        val iterations = CURRENT_PBKDF2_ITERATIONS
+        val hash = hashPin(pin, salt, iterations)
         val (encHash, hashIv) = encryptBytes(hash, alias = VAULT_META_KEY_ALIAS)
         val (encSalt, saltIv) = encryptBytes(salt, alias = VAULT_META_KEY_ALIAS)
         prefs.edit()
@@ -464,6 +475,7 @@ class CryptoSecurityManager(
             .putString("vault_pin_hash_iv", Base64.encodeToString(hashIv, Base64.NO_WRAP))
             .putString("vault_pin_salt", Base64.encodeToString(encSalt, Base64.NO_WRAP))
             .putString("vault_pin_salt_iv", Base64.encodeToString(saltIv, Base64.NO_WRAP))
+            .putInt("vault_pin_iterations", iterations)
             .apply()
         return true
     }
@@ -473,7 +485,8 @@ class CryptoSecurityManager(
         if (matchesRealPin(decoyPin)) return false
         val salt = ByteArray(16)
         SecureRandom().nextBytes(salt)
-        val hash = hashPin(decoyPin, salt)
+        val iterations = CURRENT_PBKDF2_ITERATIONS
+        val hash = hashPin(decoyPin, salt, iterations)
         val (encHash, hashIv) = encryptBytes(hash, alias = VAULT_META_KEY_ALIAS)
         val (encSalt, saltIv) = encryptBytes(salt, alias = VAULT_META_KEY_ALIAS)
         prefs.edit()
@@ -481,13 +494,15 @@ class CryptoSecurityManager(
             .putString("vault_decoy_pin_hash_iv", Base64.encodeToString(hashIv, Base64.NO_WRAP))
             .putString("vault_decoy_pin_salt", Base64.encodeToString(encSalt, Base64.NO_WRAP))
             .putString("vault_decoy_pin_salt_iv", Base64.encodeToString(saltIv, Base64.NO_WRAP))
+            .putInt("vault_decoy_pin_iterations", iterations)
             .apply()
         return true
     }
 
     fun removeDecoyPin(): Boolean {
         prefs.edit().remove("vault_decoy_pin_hash").remove("vault_decoy_pin_hash_iv")
-            .remove("vault_decoy_pin_salt").remove("vault_decoy_pin_salt_iv").apply()
+            .remove("vault_decoy_pin_salt").remove("vault_decoy_pin_salt_iv")
+            .remove("vault_decoy_pin_iterations").apply()
         return true
     }
 
@@ -517,7 +532,8 @@ class CryptoSecurityManager(
         hashKey = "vault_pin_hash",
         hashIvKey = "vault_pin_hash_iv",
         saltKey = "vault_pin_salt",
-        saltIvKey = "vault_pin_salt_iv"
+        saltIvKey = "vault_pin_salt_iv",
+        iterationsKey = "vault_pin_iterations"
     )
 
     private fun matchesDecoyPin(pin: String): Boolean = matchesStoredPin(
@@ -525,7 +541,8 @@ class CryptoSecurityManager(
         hashKey = "vault_decoy_pin_hash",
         hashIvKey = "vault_decoy_pin_hash_iv",
         saltKey = "vault_decoy_pin_salt",
-        saltIvKey = "vault_decoy_pin_salt_iv"
+        saltIvKey = "vault_decoy_pin_salt_iv",
+        iterationsKey = "vault_decoy_pin_iterations"
     )
 
     private fun matchesStoredPin(
@@ -533,12 +550,17 @@ class CryptoSecurityManager(
         hashKey: String,
         hashIvKey: String,
         saltKey: String,
-        saltIvKey: String
+        saltIvKey: String,
+        iterationsKey: String
     ): Boolean {
         val hash = prefs.getString(hashKey, null) ?: return false
         val hashIv = prefs.getString(hashIvKey, null) ?: return false
         val salt = prefs.getString(saltKey, null) ?: return false
         val saltIv = prefs.getString(saltIvKey, null) ?: return false
+        // Records created before iteration metadata was introduced used 600,000 rounds.
+        // New PINs use the product-specified 310,000 rounds without invalidating legacy vaults.
+        val iterations = prefs.getInt(iterationsKey, LEGACY_PBKDF2_ITERATIONS)
+        if (iterations !in MIN_ACCEPTED_PBKDF2_ITERATIONS..MAX_ACCEPTED_PBKDF2_ITERATIONS) return false
         return try {
             val expectedHash = decryptBytes(
                 Base64.decode(hash, Base64.NO_WRAP),
@@ -550,7 +572,7 @@ class CryptoSecurityManager(
                 Base64.decode(saltIv, Base64.NO_WRAP),
                 VAULT_META_KEY_ALIAS
             )
-            MessageDigest.isEqual(expectedHash, hashPin(pin, decodedSalt))
+            MessageDigest.isEqual(expectedHash, hashPin(pin, decodedSalt, iterations))
         } catch (_: Exception) {
             false
         }
@@ -567,10 +589,11 @@ class CryptoSecurityManager(
     fun setAutoLockTimeoutSeconds(seconds: Int) { prefs.edit().putInt("vault_auto_lock_seconds", seconds).apply() }
     fun wipeBuffer(buffer: ByteArray) { buffer.fill(0) }
 
-    private fun hashPin(pin: String, salt: ByteArray): ByteArray {
+    private fun hashPin(pin: String, salt: ByteArray, iterations: Int): ByteArray {
+        require(iterations in MIN_ACCEPTED_PBKDF2_ITERATIONS..MAX_ACCEPTED_PBKDF2_ITERATIONS)
         val pinChars = pin.toCharArray()
         return try {
-            val spec = javax.crypto.spec.PBEKeySpec(pinChars, salt, PBKDF2_ITERATIONS, 256)
+            val spec = javax.crypto.spec.PBEKeySpec(pinChars, salt, iterations, 256)
             try {
                 javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
             } finally {
