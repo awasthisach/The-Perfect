@@ -84,25 +84,33 @@ class DriveIndexBackupManager(private val database: VVFDatabase) {
         Result.failure(IllegalArgumentException(e.message ?: "Local index backup is invalid."))
     }
 
-    private fun toBackupEntry(file: DriveIndexFileEntity): BackupEntry = BackupEntry(
-        driveFileId = file.driveFileId,
-        name = file.name,
-        mimeType = file.mimeType,
-        sizeBytes = file.sizeBytes,
-        modifiedTimeMs = file.modifiedTimeMs,
-        parentIdsCsv = file.parentIdsCsv,
-        webViewLink = file.webViewLink,
-        starred = file.starred,
-        extractedText = file.extractedText,
-        extractionSource = file.extractionSource,
-        contentSha256 = file.contentSha256,
-        embeddingModel = file.embeddingModel,
-        embeddingVersion = file.embeddingVersion,
-        embeddingDimension = file.embeddingDimension,
-        embeddingVectorBase64 = file.embeddingVector?.let { Base64.getEncoder().encodeToString(it) },
-        indexStatus = file.indexStatus,
-        lastIndexedAtMs = file.lastIndexedAtMs
-    )
+    private fun toBackupEntry(file: DriveIndexFileEntity): BackupEntry {
+        val vector = file.embeddingVector?.takeIf {
+            file.embeddingModel == EXPECTED_EMBEDDING_MODEL &&
+                file.embeddingVersion == EXPECTED_EMBEDDING_VERSION &&
+                file.embeddingDimension == EXPECTED_EMBEDDING_DIMENSION &&
+                it.size == EXPECTED_EMBEDDING_DIMENSION * Float.SIZE_BYTES
+        }
+        return BackupEntry(
+            driveFileId = file.driveFileId,
+            name = file.name,
+            mimeType = file.mimeType,
+            sizeBytes = file.sizeBytes,
+            modifiedTimeMs = file.modifiedTimeMs,
+            parentIdsCsv = file.parentIdsCsv,
+            webViewLink = file.webViewLink,
+            starred = file.starred,
+            extractedText = file.extractedText,
+            extractionSource = file.extractionSource,
+            contentSha256 = file.contentSha256,
+            embeddingModel = if (vector != null) file.embeddingModel else null,
+            embeddingVersion = if (vector != null) file.embeddingVersion else null,
+            embeddingDimension = if (vector != null) file.embeddingDimension else null,
+            embeddingVectorBase64 = vector?.let { Base64.getEncoder().encodeToString(it) },
+            indexStatus = file.indexStatus,
+            lastIndexedAtMs = file.lastIndexedAtMs
+        )
+    }
 
     private fun toEntity(entry: BackupEntry): DriveIndexFileEntity {
         require(DriveIdValidator.isValidFileId(entry.driveFileId)) { "Backup contains an invalid Drive file ID." }
