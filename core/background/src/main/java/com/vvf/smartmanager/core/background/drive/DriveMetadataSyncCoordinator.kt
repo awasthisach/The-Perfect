@@ -176,7 +176,7 @@ class DriveMetadataSyncCoordinator(
             return
         }
 
-        val contentChanged = existing.modifiedTimeMs != record.modifiedTimeMs
+        val contentChanged = existing.modifiedTimeMs != record.modifiedTimeMs || existing.indexStatus == "REMOTE_REMOVED"
         driveIndexDao.upsertFile(
             existing.copy(
                 name = record.name,
