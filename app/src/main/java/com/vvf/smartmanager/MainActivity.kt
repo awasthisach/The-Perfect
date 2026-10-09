@@ -257,7 +257,7 @@ fun VVFAppContent(
                         )
                     }
                 }
-                VVFNavHost(navController = navController, app = app, onGoogleDriveSignInRequested = onGoogleDriveSignInRequested, modifier = Modifier.fillMaxSize())
+                VVFNavHost(navController = navController, app = app, onGoogleDriveSignInRequested = onGoogleDriveSignInRequested, modifier = Modifier.fillMaxSize(), onGoogleDriveSignOutRequested = onGoogleDriveSignOutRequested)
             }
         } else {
             Scaffold(
@@ -318,6 +318,7 @@ fun VVFAppContent(
                     navController = navController,
                     app = app,
                     onGoogleDriveSignInRequested = onGoogleDriveSignInRequested,
+                    onGoogleDriveSignOutRequested = onGoogleDriveSignOutRequested,
                     modifier = Modifier.fillMaxSize().padding(innerPadding)
                 )
             }
@@ -330,6 +331,7 @@ private fun VVFNavHost(
     navController: androidx.navigation.NavHostController,
     app: VVFApplication,
     onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit,
+    onGoogleDriveSignOutRequested: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     NavHost(
