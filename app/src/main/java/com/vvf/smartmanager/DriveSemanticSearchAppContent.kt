@@ -590,6 +590,11 @@ fun DriveSemanticSearchAppContent(
                                     Column(Modifier.weight(1f)) {
                                         Text(file.name, style = MaterialTheme.typography.titleMedium)
                                         Text(file.pinnedPath.orEmpty())
+                                        if (file.mimeType.startsWith("application/vnd.google-apps.") &&
+                                            !file.mimeType.equals("application/vnd.google-apps.folder", ignoreCase = true)
+                                        ) {
+                                            Text("Offline search export; the original Google file remains in Drive.", style = MaterialTheme.typography.bodySmall)
+                                        }
                                         if (file.indexStatus.endsWith("_PIN_STALE") || file.indexStatus == "METADATA_CHANGED_PIN_STALE") {
                                             Text("Pinned bytes are stale. Repin after sync to refresh.", style = MaterialTheme.typography.bodySmall)
                                         }
