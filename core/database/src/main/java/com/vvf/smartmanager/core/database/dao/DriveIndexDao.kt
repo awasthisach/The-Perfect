@@ -82,6 +82,12 @@ interface DriveIndexDao {
     @Query("UPDATE drive_index_files SET indexStatus = 'REMOTE_REMOVED' WHERE driveFileId = :driveFileId AND pinnedPath IS NOT NULL")
     suspend fun markPinnedFileAsRemoteRemoved(driveFileId: String)
 
+    @Query("DELETE FROM drive_index_files WHERE pinnedPath IS NULL AND (lastSeenFullSyncAtMs IS NULL OR lastSeenFullSyncAtMs != :generation)")
+    suspend fun deleteUnseenAfterFullSync(generation: Long)
+
+    @Query("UPDATE drive_index_files SET indexStatus = 'REMOTE_REMOVED', extractedText = '', extractionSource = NULL, embeddingVector = NULL, embeddingModel = NULL, embeddingVersion = NULL, embeddingDimension = NULL WHERE pinnedPath IS NOT NULL AND (lastSeenFullSyncAtMs IS NULL OR lastSeenFullSyncAtMs != :generation)")
+    suspend fun markUnseenPinsAfterFullSync(generation: Long)
+
     @Query("DELETE FROM drive_index_files WHERE pinnedPath IS NULL")
     suspend fun clearUnpinnedDriveRecords()
 
