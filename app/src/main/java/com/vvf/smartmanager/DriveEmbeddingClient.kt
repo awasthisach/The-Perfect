@@ -8,6 +8,7 @@ import com.vvf.smartmanager.core.domain.EmbeddingBackendInfo
 import com.vvf.smartmanager.core.domain.EmbeddingBatch
 import com.vvf.smartmanager.core.domain.EmbeddingMode
 import com.vvf.smartmanager.core.domain.EmbeddingProvider
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -32,7 +33,7 @@ class DriveEmbeddingClient(
     private val consentGranted: () -> Boolean,
     private val baseUrl: String = DEFAULT_BASE_URL
 ) : EmbeddingProvider {
-    private val appContext = context.applicationContext
+    init { require(baseUrl.startsWith("https://")) { "Embedding endpoint must use HTTPS." } }
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -126,6 +127,8 @@ class DriveEmbeddingClient(
                     }
                     Result.success(EmbeddingBatch(vectors))
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 Result.failure(IllegalStateException(e.message ?: "Embedding request failed."))
             }
