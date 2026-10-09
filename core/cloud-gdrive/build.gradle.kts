@@ -25,6 +25,8 @@ android {
 }
 
 dependencies {
+  implementation(platform(libs.firebase.bom))
+  implementation(libs.firebase.auth)
   api(project(":core:model"))
   api(project(":core:common"))
   api(project(":core:plugin-spi"))
