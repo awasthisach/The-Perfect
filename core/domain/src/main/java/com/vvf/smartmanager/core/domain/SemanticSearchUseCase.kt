@@ -15,7 +15,8 @@ import com.vvf.smartmanager.core.plugin.spi.ISemanticSearchEngine
 class SemanticSearchUseCase(
     private val semanticPlugin: ISemanticSearchEngine,
     private val searchRepository: SearchRepository,
-    private val fileManagerRepository: FileManagerRepository
+    private val fileManagerRepository: FileManagerRepository,
+    private val embeddingConsentGranted: () -> Boolean = { false }
 ) {
     fun isPluginReady(): Boolean = semanticPlugin.isModelReady()
 
@@ -27,7 +28,7 @@ class SemanticSearchUseCase(
         query: String,
         options: SemanticSearchOptions = SemanticSearchOptions()
     ): List<SemanticSearchResult> {
-        if (query.isBlank() || !semanticPlugin.isModelReady()) {
+        if (query.isBlank() || !embeddingConsentGranted() || !semanticPlugin.isModelReady()) {
             return emptyList()
         }
 
