@@ -180,6 +180,7 @@ class DriveMetadataSyncCoordinator(
                 embeddingDimension = if (contentChanged) null else existing.embeddingDimension,
                 embeddingVector = if (contentChanged) null else existing.embeddingVector,
                 indexStatus = if (contentChanged) "METADATA_ONLY" else existing.indexStatus,
+                indexAttempts = if (contentChanged) 0 else existing.indexAttempts,
                 lastIndexedAtMs = if (contentChanged) 0L else existing.lastIndexedAtMs
             )
         )
