@@ -37,33 +37,42 @@ class DriveOfflinePinManager(
             if (!pinDirectory.exists() && !pinDirectory.mkdirs()) {
                 throw IllegalStateException("Could not create private offline cache.")
             }
-            temporary = File(pinDirectory, ".${fileId}.${UUID.randomUUID()}.part").canonicalFile
-            require(temporary.path.startsWith(pinDirectory.path + File.separator)) { "Invalid temporary cache path." }
+            val tempFile = File(pinDirectory, ".${fileId}.${UUID.randomUUID()}.part").canonicalFile
+            temporary = tempFile
+            require(tempFile.path.startsWith(pinDirectory.path + File.separator)) { "Invalid temporary cache path." }
 
-            val downloaded = driveService.downloadFile(fileId, temporary.absolutePath).getOrElse { throw it }
-            require(downloaded && temporary.isFile) { "Drive did not provide a local file for offline pinning." }
-            val byteCount = temporary.length()
-            require(byteCount in 1..MAX_PINNED_BYTES) { "File is empty or exceeds the 200 MB offline limit." }
+            val downloaded = driveService.downloadFile(fileId, tempFile.absolutePath).getOrElse { throw it }
+            require(downloaded && tempFile.isFile) { "Drive did not provide a local file for offline pinning." }
+            val byteCount = tempFile.length()
+            require(byteCount in 1L..MAX_PINNED_BYTES) { "File is empty or exceeds the 200 MB offline limit." }
             if (metadata.sizeBytes > 0L && !metadata.mimeType.startsWith("application/vnd.google-apps.") &&
                 metadata.sizeBytes != byteCount
             ) {
                 throw IllegalStateException("Downloaded file size does not match Drive metadata.")
             }
-            val digest = sha256(temporary)
-            destination = File(pinDirectory, "${fileId}.offline").canonicalFile
-            require(destination.path.startsWith(pinDirectory.path + File.separator)) { "Invalid offline destination path." }
+            val digest = sha256(tempFile)
+            val existingPinPath = metadata.pinnedPath
+            val newDestination = File(pinDirectory, "${fileId}.${UUID.randomUUID()}.offline").canonicalFile
+            destination = newDestination
+            require(newDestination.path.startsWith(pinDirectory.path + File.separator)) { "Invalid offline destination path." }
             Files.move(
-                temporary.toPath(),
-                destination.toPath(),
+                tempFile.toPath(),
+                newDestination.toPath(),
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING
             )
             temporary = null
 
             evictOldestUntilFits(fileId, byteCount)
-            driveIndexDao.markPinned(fileId, destination.absolutePath, System.currentTimeMillis())
+            driveIndexDao.markPinned(fileId, newDestination.absolutePath, System.currentTimeMillis())
             driveIndexDao.updateContentSha256(fileId, digest)
-            Result.success(destination)
+            existingPinPath?.let { oldPath ->
+                val oldFile = File(oldPath).canonicalFile
+                if (oldFile.path.startsWith(pinDirectory.path + File.separator) &&
+                    oldFile != newDestination && oldFile.exists()
+                ) oldFile.delete()
+            }
+            Result.success(newDestination)
         } catch (cancelled: CancellationException) {
             temporary?.delete()
             throw cancelled
@@ -118,19 +127,19 @@ class DriveOfflinePinManager(
             val oldest = pins.removeFirstOrNull()
                 ?: throw IllegalStateException("Offline cache cannot fit within the configured limit.")
             val path = oldest.pinnedPath
-            if (path != null) {
-                val file = File(path).canonicalFile
+            val pathFile = path?.let { File(it).canonicalFile }
+            val pinnedBytes = pathFile?.takeIf { it.exists() }?.length() ?: oldest.sizeBytes
+            if (pathFile != null) {
                 val root = File(filesDir, PIN_DIRECTORY).canonicalFile
-                require(file.path.startsWith(root.path + File.separator)) {
+                require(pathFile.path.startsWith(root.path + File.separator)) {
                     "Stored offline path is outside the app-private pin directory."
                 }
-                if (file.exists() && !file.delete()) {
+                if (pathFile.exists() && !pathFile.delete()) {
                     throw IllegalStateException("Could not evict the oldest offline copy.")
                 }
             }
             driveIndexDao.unpin(oldest.driveFileId)
-            totalBytes -= path?.let { runCatching { File(it).length() }.getOrDefault(oldest.sizeBytes) }
-                ?: oldest.sizeBytes
+            totalBytes = (totalBytes - pinnedBytes).coerceAtLeast(0L)
             count--
         }
     }
