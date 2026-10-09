@@ -14,6 +14,7 @@ import okhttp3.MultipartBody
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.ResponseBody
 import retrofit2.HttpException
 import java.io.File
 import java.io.FileOutputStream
@@ -42,6 +43,8 @@ class GoogleDriveServiceImpl(
     companion object {
         private const val DRIVE_PAGE_SIZE = 1000
         private const val MAX_LISTED_FILES = 20_000
+        private const val MAX_INDEX_FILE_BYTES = 50L * 1024L * 1024L
+        private const val MAX_PINNED_FILE_BYTES = 200L * 1024L * 1024L
         private const val MAX_PAGE_TOKEN_LENGTH = 4096
     }
 
@@ -366,37 +369,84 @@ class GoogleDriveServiceImpl(
 
     override suspend fun downloadFile(fileId: String, destinationPath: String): Result<Boolean> =
         withContext(Dispatchers.IO) {
-            var temp: File? = null
             try {
                 require(DriveIdValidator.isValidFileId(fileId)) { "Invalid Drive file id." }
-                val dest = File(destinationPath).canonicalFile
-                val privateRoot = context.filesDir.canonicalFile
-                require(dest.path.startsWith(privateRoot.path + File.separator)) {
-                    "Downloaded file bytes must remain in app-private storage."
-                }
-                dest.parentFile?.mkdirs()
-                val tempFile = File(dest.parentFile, dest.name + "." + UUID.randomUUID() + ".part")
-                temp = tempFile
-                val body = driveApi.downloadFile(bearer(), fileId)
-                body.byteStream().use { input ->
-                    FileOutputStream(tempFile).use { output ->
-                        input.copyTo(output)
-                        output.flush()
-                        output.fd.sync()
-                    }
-                }
-                Files.move(
-                    tempFile.toPath(),
-                    dest.toPath(),
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING
+                writeBodyAtomically(
+                    body = driveApi.downloadFile(bearer(), fileId),
+                    destinationPath = destinationPath,
+                    maxBytes = MAX_PINNED_FILE_BYTES
                 )
                 Result.success(true)
             } catch (e: Exception) {
-                temp?.delete()
                 Result.failure(e)
             }
         }
+
+    override suspend fun downloadForIndexing(
+        fileId: String,
+        mimeType: String,
+        destinationPath: String
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            require(DriveIdValidator.isValidFileId(fileId)) { "Invalid Drive file id." }
+            val type = mimeType.lowercase()
+            val (body, extractedMimeType) = when (type) {
+                "application/vnd.google-apps.document" ->
+                    driveApi.exportFile(bearer(), fileId, "text/plain") to "text/plain"
+                "application/vnd.google-apps.spreadsheet" ->
+                    driveApi.exportFile(bearer(), fileId, "text/csv") to "text/csv"
+                "application/vnd.google-apps.presentation" ->
+                    driveApi.exportFile(bearer(), fileId, "text/plain") to "text/plain"
+                else -> driveApi.downloadFile(bearer(), fileId) to mimeType
+            }
+            writeBodyAtomically(body, destinationPath, MAX_INDEX_FILE_BYTES)
+            Result.success(extractedMimeType)
+        } catch (e: Exception) {
+            Result.failure(IllegalStateException("Could not safely download this file for local indexing."))
+        }
+    }
+
+    private fun writeBodyAtomically(body: ResponseBody, destinationPath: String, maxBytes: Long) {
+        val dest = File(destinationPath).canonicalFile
+        val privateRoot = context.filesDir.canonicalFile
+        val cacheRoot = context.cacheDir.canonicalFile
+        val inPrivateFiles = dest.path.startsWith(privateRoot.path + File.separator)
+        val inPrivateCache = dest.path.startsWith(cacheRoot.path + File.separator)
+        require(inPrivateFiles || inPrivateCache) {
+            "Downloaded file bytes must remain in app-private storage."
+        }
+        require(body.contentLength() < 0L || body.contentLength() <= maxBytes) {
+            "Downloaded file exceeds the configured size limit."
+        }
+        dest.parentFile?.mkdirs()
+        val tempFile = File(dest.parentFile, dest.name + "." + UUID.randomUUID() + ".part")
+        try {
+            body.byteStream().use { input ->
+                FileOutputStream(tempFile).use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var total = 0L
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        total += read
+                        require(total <= maxBytes) { "Downloaded file exceeds the configured size limit." }
+                        output.write(buffer, 0, read)
+                    }
+                    output.flush()
+                    output.fd.sync()
+                }
+            }
+            Files.move(
+                tempFile.toPath(),
+                dest.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING
+            )
+        } catch (e: Exception) {
+            tempFile.delete()
+            throw e
+        }
+    }
 
     override suspend fun createFolder(name: String, parentFolderId: String): Result<String> =
         withContext(Dispatchers.IO) {
