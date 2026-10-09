@@ -24,6 +24,12 @@ import kotlinx.coroutines.withContext
  * 2. [buildDriveSignInIntent] + [handleSignInActivityResult] — Drive access token
  *    with scope [DRIVE_FILE_SCOPE] for [GoogleDriveServiceImpl.setAccessToken].
  */
+data class GoogleDriveAuthSession(
+    val driveAccessToken: String,
+    val googleIdToken: String,
+    val email: String
+)
+
 class GoogleDriveAuth(
     private val context: Context,
     private val serverClientId: String
@@ -109,6 +115,45 @@ class GoogleDriveAuth(
             extractAccessTokenFromSignInResult(data)
         }
 
+    /**
+     * Produces the two distinct credentials needed for a linked session.
+     * The caller must authenticate Firebase with googleIdToken and verify the email
+     * before installing driveAccessToken in the Drive service.
+     */
+    suspend fun handleUnifiedSignInActivityResult(
+        resultCode: Int,
+        data: Intent?
+    ): Result<GoogleDriveAuthSession> = withContext(Dispatchers.IO) {
+        if (data == null) {
+            return@withContext Result.failure(
+                IllegalStateException("Google sign-in returned no account result (result=$resultCode).")
+            )
+        }
+        try {
+            val account = GoogleSignIn.getSignedInAccountFromIntent(data).await()
+            val email = account.email?.trim()?.lowercase()
+                ?: return@withContext Result.failure(IllegalStateException("Google account email is unavailable."))
+            val idToken = account.idToken?.takeIf { it.isNotBlank() }
+                ?: return@withContext Result.failure(IllegalStateException("Google ID token is unavailable; check the Web OAuth client configuration."))
+            val googleAccount = account.account
+                ?: return@withContext Result.failure(IllegalStateException("Google account details are unavailable."))
+            val accessToken = accessTokenForAccount(googleAccount).getOrElse {
+                return@withContext Result.failure(it)
+            }
+            Result.success(
+                GoogleDriveAuthSession(
+                    driveAccessToken = accessToken,
+                    googleIdToken = idToken,
+                    email = email
+                )
+            )
+        } catch (e: ApiException) {
+            Result.failure(IllegalStateException(mapApiException(e), e))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun extractAccessTokenFromSignInResult(data: Intent?): Result<String> =
         withContext(Dispatchers.IO) {
             try {
@@ -159,7 +204,7 @@ class GoogleDriveAuth(
     }
 
     companion object {
-        const val DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
+        const val DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive"
 
         /** Common Google Sign-In [ApiException] status codes → actionable message. */
         fun mapApiException(e: ApiException): String = when (e.statusCode) {
