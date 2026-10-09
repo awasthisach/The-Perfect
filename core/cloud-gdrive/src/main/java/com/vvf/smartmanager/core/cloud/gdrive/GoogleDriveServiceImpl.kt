@@ -170,7 +170,8 @@ class GoogleDriveServiceImpl(
                     return@withContext Result.failure(IllegalArgumentException("Local file not found: $path"))
                 }
 
-                val parent = resolveFolderId(remoteFolderId)
+                require(DriveIdValidator.isValidParentId(remoteFolderId)) { "Invalid destination folder id." }
+                val parent = remoteFolderId
                 val safeName = file.name.replace("\\", "\\\\").replace("\"", "\\\"")
                 val metadataJson = """{"name":"$safeName","parents":["$parent"]}"""
                 val mediaType = (localFile.mimeType?.takeIf { it.isNotBlank() } ?: "application/octet-stream")
@@ -270,6 +271,62 @@ class GoogleDriveServiceImpl(
             }
         }
 
+    override suspend fun createFolder(name: String, parentFolderId: String): Result<String> =
+        withContext(Dispatchers.IO) {
+            try {
+                val cleanName = name.trim()
+                require(cleanName.isNotEmpty() && cleanName.length <= 255 && cleanName.none { it.isISOControl() }) {
+                    "Folder name must contain 1–255 printable characters."
+                }
+                require(DriveIdValidator.isValidParentId(parentFolderId)) { "Invalid destination folder id." }
+                val escapedName = cleanName.replace("\\", "\\\\").replace("\"", "\\\"")
+                val escapedParent = parentFolderId
+                val metadata = """{"name":"$escapedName","mimeType":"application/vnd.google-apps.folder","parents":["$escapedParent"]}"""
+                    .toRequestBody("application/json; charset=UTF-8".toMediaType())
+                val id = driveApi.createFolder(bearer(), metadata).id
+                    ?.takeIf(DriveIdValidator::isValidFileId)
+                    ?: throw IllegalStateException("Drive did not return a valid folder id.")
+                Result.success(id)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
+    override suspend fun moveFile(fileId: String, targetFolderId: String): Result<Boolean> =
+        withContext(Dispatchers.IO) {
+            try {
+                require(DriveIdValidator.isValidFileId(fileId)) { "Invalid Drive file id." }
+                require(DriveIdValidator.isValidParentId(targetFolderId)) { "Invalid destination folder id." }
+                val current = driveApi.getFile(bearer(), fileId)
+                val parents = current.parents.filter(DriveIdValidator::isValidFileId)
+                require(parents.isNotEmpty()) { "Drive did not return the file's current parent ids." }
+                val body = "{}".toRequestBody("application/json; charset=UTF-8".toMediaType())
+                val updated = driveApi.updateFile(
+                    bearer = bearer(),
+                    fileId = fileId,
+                    metadata = body,
+                    addParents = targetFolderId,
+                    removeParents = parents.joinToString(",")
+                )
+                Result.success(updated.id == fileId)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
+    override suspend fun starFile(fileId: String, starred: Boolean): Result<Boolean> =
+        withContext(Dispatchers.IO) {
+            try {
+                require(DriveIdValidator.isValidFileId(fileId)) { "Invalid Drive file id." }
+                val metadata = """{"starred":$starred}"""
+                    .toRequestBody("application/json; charset=UTF-8".toMediaType())
+                val updated = driveApi.updateFile(bearer(), fileId, metadata)
+                Result.success(updated.id == fileId && updated.starred == starred)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
     override suspend fun getStorageQuota(): Result<Pair<Long, Long>> = withContext(Dispatchers.IO) {
         try {
             val about = driveApi.about(bearer())
@@ -296,41 +353,6 @@ class GoogleDriveServiceImpl(
             usedBytes = 0L,
             totalBytes = 0L
         )
-    }
-
-    /**
-     * Resolve a remote folder reference to a Drive folder id.
-     *
-     * Human folder names (e.g. "VVF_Backups") must be looked up / created.
-     * Only strings that look like real Drive resource ids are used as-is.
-     * The previous heuristic (length >= 10) misclassified "VVF_Backups" as a fileId
-     * and produced HTTP 404: File not found: VVF_Backups.
-     */
-    private suspend fun resolveFolderId(folderReference: String): String {
-        val ref = folderReference.trim().trimEnd('.')
-        if (ref.isBlank() || ref.equals("root", ignoreCase = true)) return "root"
-        if (looksLikeDriveId(ref)) return ref
-
-        val escapedName = ref.replace("\\", "\\\\").replace("'", "\\'")
-        val query = "name = '$escapedName' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-        val existing = driveApi.listFiles(bearer(), query = query, pageSize = 10).files.firstOrNull()
-        if (existing?.id != null) return existing.id
-
-        val safeFolderName = ref.replace("\\", "\\\\").replace("\"", "\\\"")
-        val metadata = """{"name":"$safeFolderName","mimeType":"application/vnd.google-apps.folder","parents":["root"]}"""
-            .toRequestBody("application/json; charset=UTF-8".toMediaType())
-        return driveApi.createFolder(bearer(), metadata).id
-            ?: throw IllegalStateException("Drive folder creation returned no id for '$ref'")
-    }
-
-    /**
-     * Drive resource ids are typically ~25–44 characters (often ~33).
-     * Short readable names like "VVF_Backups" must NOT be treated as ids.
-     */
-    private fun looksLikeDriveId(value: String): Boolean {
-        if (value.length < 20 || value.length > 128) return false
-        if (value.contains(' ') || value.contains('/') || value.contains('.')) return false
-        return value.all { it.isLetterOrDigit() || it == '-' || it == '_' }
     }
 
     private fun calculateMd5(file: File): String {
