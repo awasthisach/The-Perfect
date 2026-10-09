@@ -25,6 +25,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -101,11 +102,29 @@ fun DriveSemanticSearchAppContent(
     val backupManager = remember(app) { DriveIndexBackupManager(app.database) }
     val pinManager = remember(app) { DriveOfflinePinManager(app.filesDir, app.googleDriveService, dao) }
 
-    val signedInEmail = GoogleSignIn.getLastSignedInAccount(context)?.email
-    val firebaseEmail = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.email
-    val connected = !signedInEmail.isNullOrBlank() &&
-        !firebaseEmail.isNullOrBlank() &&
-        signedInEmail.equals(firebaseEmail, ignoreCase = true)
+    var firebaseEmail by remember {
+        mutableStateOf(com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.email)
+    }
+    var connected by remember {
+        mutableStateOf(
+            GoogleSignIn.getLastSignedInAccount(context)?.email?.equals(
+                com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.email,
+                ignoreCase = true
+            ) == true
+        )
+    }
+    DisposableEffect(context) {
+        val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
+        val listener = com.google.firebase.auth.FirebaseAuth.AuthStateListener { currentAuth ->
+            firebaseEmail = currentAuth.currentUser?.email
+            val googleEmail = GoogleSignIn.getLastSignedInAccount(context)?.email
+            connected = !googleEmail.isNullOrBlank() &&
+                !firebaseEmail.isNullOrBlank() &&
+                googleEmail.equals(firebaseEmail, ignoreCase = true)
+        }
+        auth.addAuthStateListener(listener)
+        onDispose { auth.removeAuthStateListener(listener) }
+    }
 
     suspend fun refreshLocalState() {
         syncState = dao.getSyncState()
@@ -211,6 +230,8 @@ fun DriveSemanticSearchAppContent(
                             Button(onClick = {
                                 onGoogleDriveSignInRequested { result ->
                                     result.onSuccess {
+                                        firebaseEmail = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.email
+                                        connected = true
                                         statusMessage = "Google and Firebase sessions linked. Drive sync queued."
                                         scope.launch { refreshLocalState() }
                                     }.onFailure { statusMessage = it.message ?: "Google sign-in failed." }
