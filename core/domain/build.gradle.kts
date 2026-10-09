@@ -20,6 +20,8 @@ android {
 }
 
 dependencies {
+  testImplementation(libs.androidx.core)
+  testImplementation(libs.robolectric)
   implementation("com.tom-roush:pdfbox-android:2.0.27.0")
   api(project(":core:data"))
   api(project(":core:database"))
