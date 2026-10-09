@@ -49,6 +49,14 @@ interface DriveApi {
     ): DriveFileDto
 
     @Streaming
+    @GET("files/{fileId}/export")
+    suspend fun exportFile(
+        @Header("Authorization") bearer: String,
+        @Path("fileId") fileId: String,
+        @Query("mimeType") mimeType: String
+    ): okhttp3.ResponseBody
+
+    @Streaming
     @GET("files/{fileId}")
     suspend fun downloadFile(
         @Header("Authorization") bearer: String,
