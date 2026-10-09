@@ -56,14 +56,22 @@ fun SettingsScreen(
     onNavigateBack: (() -> Unit)? = null,
     initialBiometricEnabled: Boolean = false,
     onBiometricEnabledChange: ((Boolean) -> Unit)? = null,
-    initialAutoIndexOcr: Boolean = true,
+    initialAutoIndexOcr: Boolean = false,
     onAutoIndexOcrChange: ((Boolean) -> Unit)? = null,
+    initialEmbeddingConsent: Boolean = false,
+    onEmbeddingConsentChange: ((Boolean) -> Unit)? = null,
+    initialFullContentIndexConsent: Boolean = false,
+    onFullContentIndexConsentChange: ((Boolean) -> Unit)? = null,
     initialOfflineOnlyMode: Boolean = true,
     onOfflineOnlyModeChange: ((Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var biometricEnabled by remember(initialBiometricEnabled) { mutableStateOf(initialBiometricEnabled) }
     var autoIndexOcr by remember(initialAutoIndexOcr) { mutableStateOf(initialAutoIndexOcr) }
+    var embeddingConsent by remember(initialEmbeddingConsent) { mutableStateOf(initialEmbeddingConsent) }
+    var fullContentIndexConsent by remember(initialFullContentIndexConsent) { mutableStateOf(initialFullContentIndexConsent) }
+    var showEmbeddingConsentDialog by remember { mutableStateOf(false) }
+    var showFullContentConsentDialog by remember { mutableStateOf(false) }
     var offlineOnlyMode by remember(initialOfflineOnlyMode) { mutableStateOf(initialOfflineOnlyMode) }
     var showLicensesDialog by remember { mutableStateOf(false) }
     var showArchitectureDialog by remember { mutableStateOf(false) }
@@ -96,7 +104,7 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
-                        Text("VVF Smart Manager", color = BhagwaOrange, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                        Text("Drive Semantic Search", color = BhagwaOrange, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
                         Text("Vishva Vijayaa Foundation", color = Color.White.copy(alpha = 0.9f), fontSize = 12.sp)
                     }
                 }
@@ -132,10 +140,43 @@ fun SettingsScreen(
                 Card(shape = RoundedCornerShape(14.dp)) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         SettingToggleRow(
+                            icon = Icons.Default.CheckCircle,
+                            title = "Optional neural-search consent",
+                            subtitle = "Semantic matching is off by default. Consent records your choice; embedding calls remain blocked until native backend authorization is verified.",
+                            isChecked = embeddingConsent,
+                            onCheckedChange = {
+                                if (it) {
+                                    showEmbeddingConsentDialog = true
+                                } else {
+                                    embeddingConsent = false
+                                    onEmbeddingConsentChange?.invoke(false)
+                                }
+                            }
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+                        SettingToggleRow(
+                            icon = Icons.Default.Storage,
+                            title = "Full-content indexing consent",
+                            subtitle = "Allow on-device OCR text from images to be added to your local search index.",
+                            isChecked = fullContentIndexConsent,
+                            onCheckedChange = {
+                                if (it) {
+                                    showFullContentConsentDialog = true
+                                } else {
+                                    fullContentIndexConsent = false
+                                    autoIndexOcr = false
+                                    onFullContentIndexConsentChange?.invoke(false)
+                                    onAutoIndexOcrChange?.invoke(false)
+                                }
+                            }
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+                        SettingToggleRow(
                             icon = Icons.Default.Storage,
                             title = "Auto-Index OCR Text in Core Search",
-                            subtitle = "Index OCR keywords into SQLite FTS4",
+                            subtitle = "Index OCR keywords locally; requires full-content indexing consent.",
                             isChecked = autoIndexOcr,
+                            enabled = fullContentIndexConsent,
                             onCheckedChange = {
                                 autoIndexOcr = it
                                 onAutoIndexOcrChange?.invoke(it)
@@ -165,6 +206,52 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+
+    if (showEmbeddingConsentDialog) {
+        AlertDialog(
+            onDismissRequest = { showEmbeddingConsentDialog = false },
+            title = { Text("Optional neural-search consent") },
+            text = {
+                Text(
+                    "Semantic search may process your query and selected indexed text with an embedding service. " +
+                        "No embedding request will be sent until the Android client authentication path is approved and enabled. " +
+                        "You can withdraw consent here at any time."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    embeddingConsent = true
+                    onEmbeddingConsentChange?.invoke(true)
+                    showEmbeddingConsentDialog = false
+                }) { Text("I consent") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEmbeddingConsentDialog = false }) { Text("Not now") }
+            }
+        )
+    }
+    if (showFullContentConsentDialog) {
+        AlertDialog(
+            onDismissRequest = { showFullContentConsentDialog = false },
+            title = { Text("Full-content indexing consent") },
+            text = {
+                Text(
+                    "If enabled, on-device OCR may extract text from images and add it to the local search index. " +
+                        "This can index sensitive text visible in images. OCR indexing remains off unless you separately enable auto-indexing."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    fullContentIndexConsent = true
+                    onFullContentIndexConsentChange?.invoke(true)
+                    showFullContentConsentDialog = false
+                }) { Text("I consent") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFullContentConsentDialog = false }) { Text("Not now") }
+            }
+        )
     }
 
     if (showLicensesDialog) {
