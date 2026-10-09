@@ -26,7 +26,7 @@ interface DriveApi {
         @Header("Authorization") bearer: String,
         @Query("q") query: String? = null,
         @Query("spaces") spaces: String = "drive",
-        @Query("fields") fields: String = "nextPageToken,files(id,name,mimeType,size,modifiedTime,parents,md5Checksum,starred,webViewLink)",
+        @Query("fields") fields: String = "nextPageToken,files(id,name,mimeType,size,modifiedTime,parents,md5Checksum,starred,webViewLink,trashed)",
         @Query("pageSize") pageSize: Int = 100,
         @Query("pageToken") pageToken: String? = null
     ): DriveFileListResponse
@@ -85,7 +85,7 @@ interface DriveApi {
         @Query("pageSize") pageSize: Int = 1000,
         @Query("includeItemsFromAllDrives") includeItemsFromAllDrives: Boolean = true,
         @Query("supportsAllDrives") supportsAllDrives: Boolean = true,
-        @Query("fields") fields: String = "nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,size,modifiedTime,parents,md5Checksum,starred,webViewLink))"
+        @Query("fields") fields: String = "nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,size,modifiedTime,parents,md5Checksum,starred,webViewLink,trashed))"
     ): DriveChangesResponse
 
     @GET("about")
@@ -109,7 +109,8 @@ data class DriveFileDto(
     @Json(name = "parents") val parents: List<String> = emptyList(),
     @Json(name = "md5Checksum") val md5Checksum: String? = null,
     @Json(name = "starred") val starred: Boolean? = null,
-    @Json(name = "webViewLink") val webViewLink: String? = null
+    @Json(name = "webViewLink") val webViewLink: String? = null,
+    @Json(name = "trashed") val trashed: Boolean = false
 )
 
 data class DriveAboutResponse(
