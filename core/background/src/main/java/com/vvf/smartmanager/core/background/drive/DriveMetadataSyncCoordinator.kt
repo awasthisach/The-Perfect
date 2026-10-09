@@ -13,10 +13,24 @@ import com.vvf.smartmanager.core.database.model.DriveSyncStateEntity
  */
 class DriveMetadataSyncCoordinator(
     private val driveService: GoogleDriveService,
-    private val driveIndexDao: DriveIndexDao
+    private val driveIndexDao: DriveIndexDao,
+    private val currentAccountEmail: () -> String? = { "test@example.com" }
 ) {
     suspend fun runOneBatch(): Result<Boolean> {
         var state = driveIndexDao.getSyncState() ?: DriveSyncStateEntity()
+        val activeEmail = currentAccountEmail()?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+            ?: return Result.failure(IllegalStateException("A linked Google/Firebase account is required for Drive sync."))
+        if (state.accountEmail != null && state.accountEmail != activeEmail) {
+            driveIndexDao.clearUnpinnedDriveRecords()
+            driveIndexDao.markPinsFromPreviousAccount()
+            state = DriveSyncStateEntity(accountEmail = activeEmail)
+            driveIndexDao.saveSyncState(state)
+            return Result.success(true)
+        }
+        if (state.accountEmail == null) {
+            state = state.copy(accountEmail = activeEmail)
+            driveIndexDao.saveSyncState(state)
+        }
 
         if (state.changeStartPageToken == null && state.fullListPageToken == null && !state.indexingInProgress) {
             val startToken = driveService.getStartPageToken().getOrElse { return Result.failure(it) }
