@@ -27,6 +27,7 @@ dependencies {
   api(project(":core:plugin-spi"))
   api(project(":core:cloud-gdrive"))
   api(project(":core:common"))
+  implementation(libs.androidx.room.runtime)
   implementation(libs.androidx.room.ktx)
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.kotlinx.serialization.json)
