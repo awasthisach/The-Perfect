@@ -30,6 +30,14 @@ class DriveIndexBackupManager(private val database: VVFDatabase) {
     suspend fun exportTo(output: OutputStream): Result<Int> = try {
         val files = database.driveIndexDao().getAllForBackup()
         require(files.size <= MAX_FILES) { "Local index exceeds the backup file-count limit." }
+        val totalTextChars = files.sumOf { it.extractedText.length.toLong() }
+        require(totalTextChars <= MAX_TOTAL_TEXT_CHARS) {
+            "Local index text is too large for a safe JSON backup. Reduce indexed content and retry."
+        }
+        val totalVectorBytes = files.sumOf { it.embeddingVector?.size?.toLong() ?: 0L }
+        require(totalVectorBytes <= MAX_TOTAL_VECTOR_BYTES) {
+            "Local index has too many vectors for a safe JSON backup. Export a smaller index."
+        }
         val envelope = BackupEnvelope(
             schemaVersion = SCHEMA_VERSION,
             createdAtMs = System.currentTimeMillis(),
@@ -227,6 +235,8 @@ class DriveIndexBackupManager(private val database: VVFDatabase) {
     companion object {
         const val SCHEMA_VERSION = 1
         private const val MAX_FILES = 20_000
+        private const val MAX_TOTAL_TEXT_CHARS = 15_000_000L
+        private const val MAX_TOTAL_VECTOR_BYTES = 20L * 1024L * 1024L
         private const val MAX_BACKUP_BYTES = 100 * 1024 * 1024
         private const val MAX_NAME_CHARS = 1024
         private const val MAX_MIME_CHARS = 256
