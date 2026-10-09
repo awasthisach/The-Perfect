@@ -131,6 +131,9 @@ class DriveIndexBackupManager(
                 "Backup metadata exceeds allowed limits."
             }
             require(item.sizeBytes >= 0L && item.modifiedTimeMs >= 0L) { "Backup contains invalid file metadata." }
+            require(item.extractionSource == null || item.extractionSource in setOf("NATIVE_TEXT", "OCR")) {
+                "Backup contains an unsupported extraction source."
+            }
             require(item.extractedText.length <= MAX_TEXT_PER_FILE) { "Backup contains an oversized text entry." }
             totalTextChars += item.extractedText.length
             require(totalTextChars <= MAX_TOTAL_TEXT_CHARS) { "Backup extracted text exceeds the safety limit." }
