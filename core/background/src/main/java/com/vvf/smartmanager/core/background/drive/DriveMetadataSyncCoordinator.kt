@@ -173,6 +173,7 @@ class DriveMetadataSyncCoordinator(
                 webViewLink = record.webViewLink,
                 starred = record.starred,
                 extractedText = if (contentChanged) "" else existing.extractedText,
+                extractionSource = if (contentChanged) null else existing.extractionSource,
                 contentSha256 = if (contentChanged) null else existing.contentSha256,
                 embeddingModel = if (contentChanged) null else existing.embeddingModel,
                 embeddingVersion = if (contentChanged) null else existing.embeddingVersion,
