@@ -16,6 +16,9 @@ import com.vvf.smartmanager.core.background.drive.DriveSyncRuntime
 import com.vvf.smartmanager.core.background.drive.DriveContentIndexCoordinator
 import com.vvf.smartmanager.core.background.drive.DriveContentIndexRuntime
 import com.vvf.smartmanager.core.background.drive.DriveContentIndexWorker
+import com.vvf.smartmanager.core.background.drive.DriveEmbeddingIndexCoordinator
+import com.vvf.smartmanager.core.background.drive.DriveEmbeddingRuntime
+import com.vvf.smartmanager.core.background.drive.DriveEmbeddingIndexWorker
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveServiceImpl
 import com.vvf.smartmanager.core.data.backup.InjectedVaultSnapshotSource
@@ -138,8 +141,11 @@ class VVFApplication : Application(), Configuration.Provider {
 
     fun setEmbeddingConsentGranted(granted: Boolean) {
         settingsPrefs.edit().putBoolean(KEY_EMBEDDING_CONSENT, granted).apply()
-        if (!granted && ::database.isInitialized) {
-            applicationScope.launch { database.driveIndexDao().clearAllEmbeddings() }
+        if (!granted) {
+            DriveEmbeddingIndexWorker.cancel(this)
+            if (::database.isInitialized) {
+                applicationScope.launch { database.driveIndexDao().clearAllEmbeddings() }
+            }
         }
     }
 
@@ -299,6 +305,13 @@ class VVFApplication : Application(), Configuration.Provider {
                 ocrEngine = ocrPlugin,
                 fullContentConsentGranted = { isFullContentIndexConsentGranted() },
                 autoOcrEnabled = { isAutoIndexOcrEnabled() }
+            )
+        )
+        DriveEmbeddingRuntime.configure(
+            DriveEmbeddingIndexCoordinator(
+                driveIndexDao = driveIndexDao,
+                embeddingProvider = embeddingProvider,
+                embeddingConsentGranted = { isEmbeddingConsentGranted() }
             )
         )
         val cloudDrivers = mapOf(
