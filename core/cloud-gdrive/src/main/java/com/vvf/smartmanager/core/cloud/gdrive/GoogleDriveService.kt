@@ -42,12 +42,6 @@ data class DriveChangePage(
     val newStartPageToken: String?
 )
 
-data class DriveFileListing(
-    val files: List<FileItem>,
-    val incomplete: Boolean,
-    val nextPageToken: String?
-)
-
 interface GoogleDriveService {
     /** Stores a token produced by the activity-owned Google sign-in flow. */
     fun setAccessToken(token: String?) = Unit
@@ -62,14 +56,6 @@ interface GoogleDriveService {
         Result.failure(UnsupportedOperationException("Drive Changes API is not implemented by this provider."))
     suspend fun listChanges(pageToken: String): Result<DriveChangePage> =
         Result.failure(UnsupportedOperationException("Drive Changes API is not implemented by this provider."))
-    suspend fun createFolder(name: String, parentFolderId: String = "root"): Result<String> =
-        Result.failure(UnsupportedOperationException("Folder creation is not implemented by this provider."))
-    suspend fun moveFile(fileId: String, targetFolderId: String): Result<Boolean> =
-        Result.failure(UnsupportedOperationException("Moving files is not implemented by this provider."))
-    suspend fun starFile(fileId: String, starred: Boolean): Result<Boolean> =
-        Result.failure(UnsupportedOperationException("Star updates are not implemented by this provider."))
-    suspend fun listAllDriveFiles(): Result<DriveFileListing> =
-        Result.failure(UnsupportedOperationException("Full Drive listing is not implemented by this provider."))
     suspend fun createFolder(name: String, parentFolderId: String = "root"): Result<String> =
         Result.failure(UnsupportedOperationException("Folder creation is not implemented by this provider."))
     suspend fun moveFile(fileId: String, targetFolderId: String): Result<Boolean> =
