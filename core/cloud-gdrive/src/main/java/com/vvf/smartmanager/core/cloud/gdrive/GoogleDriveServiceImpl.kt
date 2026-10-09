@@ -198,14 +198,18 @@ class GoogleDriveServiceImpl(
         }
     }
 
-    private fun toFileItem(dto: DriveFileDto): FileItem = FileItem(
-        path = "gdrive://${dto.id.orEmpty()}",
-        name = dto.name.orEmpty(),
-        sizeBytes = dto.size?.toLongOrNull() ?: 0L,
-        lastModified = parseDriveTime(dto.modifiedTime),
-        isDirectory = dto.mimeType == "application/vnd.google-apps.folder",
-        mimeType = dto.mimeType
-    )
+    private fun toFileItem(dto: DriveFileDto): FileItem {
+        val id = dto.id?.takeIf(DriveIdValidator::isValidFileId)
+            ?: throw IllegalStateException("Drive returned a file without a valid resource id.")
+        return FileItem(
+            path = "gdrive://$id",
+            name = dto.name.orEmpty(),
+            sizeBytes = dto.size?.toLongOrNull() ?: 0L,
+            lastModified = parseDriveTime(dto.modifiedTime),
+            isDirectory = dto.mimeType == "application/vnd.google-apps.folder",
+            mimeType = dto.mimeType
+        )
+    }
 
     override suspend fun uploadFile(localFile: FileItem, remoteFolderId: String): Result<String> =
         withContext(Dispatchers.IO) {
