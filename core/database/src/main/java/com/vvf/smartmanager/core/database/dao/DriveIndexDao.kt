@@ -88,10 +88,10 @@ interface DriveIndexDao {
     @Query("UPDATE drive_index_files SET embeddingVector = NULL, embeddingModel = NULL, embeddingVersion = NULL, embeddingDimension = NULL")
     suspend fun clearAllEmbeddings()
 
-    @Query("UPDATE drive_index_files SET pinnedPath = :path, pinnedAtMs = :pinnedAtMs, indexStatus = CASE WHEN indexStatus = 'TEXT_INDEXED_PIN_STALE' THEN 'TEXT_INDEXED' WHEN indexStatus = 'OCR_INDEXED_PIN_STALE' THEN 'OCR_INDEXED' ELSE indexStatus END WHERE driveFileId = :driveFileId")
+    @Query("UPDATE drive_index_files SET pinnedPath = :path, pinnedAtMs = :pinnedAtMs, indexStatus = CASE WHEN indexStatus = 'METADATA_CHANGED_PIN_STALE' THEN 'METADATA_ONLY' WHEN indexStatus = 'TEXT_INDEXED_PIN_STALE' THEN 'TEXT_INDEXED' WHEN indexStatus = 'OCR_INDEXED_PIN_STALE' THEN 'OCR_INDEXED' ELSE indexStatus END WHERE driveFileId = :driveFileId")
     suspend fun markPinned(driveFileId: String, path: String, pinnedAtMs: Long)
 
-    @Query("UPDATE drive_index_files SET pinnedPath = NULL, pinnedAtMs = NULL, indexStatus = CASE WHEN indexStatus = 'TEXT_INDEXED_PIN_STALE' THEN 'TEXT_INDEXED' WHEN indexStatus = 'OCR_INDEXED_PIN_STALE' THEN 'OCR_INDEXED' ELSE indexStatus END WHERE driveFileId = :driveFileId")
+    @Query("UPDATE drive_index_files SET pinnedPath = NULL, pinnedAtMs = NULL, indexStatus = CASE WHEN indexStatus = 'METADATA_CHANGED_PIN_STALE' THEN 'METADATA_ONLY' WHEN indexStatus = 'TEXT_INDEXED_PIN_STALE' THEN 'TEXT_INDEXED' WHEN indexStatus = 'OCR_INDEXED_PIN_STALE' THEN 'OCR_INDEXED' ELSE indexStatus END WHERE driveFileId = :driveFileId")
     suspend fun unpin(driveFileId: String)
 
     @Query("DELETE FROM drive_index_files WHERE driveFileId = :driveFileId AND pinnedPath IS NULL")
