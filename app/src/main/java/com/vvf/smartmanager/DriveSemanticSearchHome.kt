@@ -583,7 +583,7 @@ private fun DashboardTab(
                     Text(
                         when {
                             syncState?.indexingInProgress == true -> "Drive metadata sync is in progress."
-                            syncState?.lastSyncAtMs != null -> "Last metadata sync: ${formatTime(syncState.lastSyncAtMs)}"
+                            syncState?.lastSyncAtMs != null -> "Last metadata sync: ${formatTime(syncState.lastSyncAtMs ?: 0L)}"
                             else -> "No completed Drive sync yet."
                         }
                     )
