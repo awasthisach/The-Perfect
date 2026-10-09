@@ -25,6 +25,18 @@ interface DriveIndexDao {
     @Query("SELECT * FROM drive_index_files WHERE driveFileId = :driveFileId LIMIT 1")
     suspend fun getByDriveId(driveFileId: String): DriveIndexFileEntity?
 
+    @Query("SELECT * FROM drive_index_files WHERE indexStatus = 'METADATA_ONLY' ORDER BY modifiedTimeMs DESC LIMIT :limit")
+    suspend fun getFilesNeedingText(limit: Int = 50): List<DriveIndexFileEntity>
+
+    @Query("UPDATE drive_index_files SET indexStatus = :status, lastIndexedAtMs = :indexedAtMs WHERE driveFileId = :driveFileId")
+    suspend fun updateIndexStatus(driveFileId: String, status: String, indexedAtMs: Long)
+
+    @Query("UPDATE drive_index_files SET indexStatus = 'METADATA_ONLY' WHERE indexStatus = 'OCR_CONSENT_REQUIRED'")
+    suspend fun requeueOcrConsentRequired()
+
+    @Query("UPDATE drive_index_files SET extractedText = '', extractionSource = NULL, indexStatus = 'OCR_CONSENT_REQUIRED', lastIndexedAtMs = 0, embeddingVector = NULL, embeddingModel = NULL, embeddingVersion = NULL, embeddingDimension = NULL WHERE extractionSource = 'OCR'")
+    suspend fun clearOcrIndexedText()
+
     @Query("SELECT * FROM drive_index_files WHERE indexStatus != 'REMOTE_REMOVED' ORDER BY modifiedTimeMs DESC LIMIT :limit")
     suspend fun getRecentFiles(limit: Int = 200): List<DriveIndexFileEntity>
 
@@ -43,8 +55,8 @@ interface DriveIndexDao {
     @Query("SELECT COUNT(*) FROM drive_index_files WHERE indexStatus != 'REMOTE_REMOVED'")
     suspend fun getIndexedFileCount(): Int
 
-    @Query("UPDATE drive_index_files SET extractedText = :text, indexStatus = :status, lastIndexedAtMs = :indexedAtMs WHERE driveFileId = :driveFileId")
-    suspend fun updateExtractedText(driveFileId: String, text: String, status: String, indexedAtMs: Long)
+    @Query("UPDATE drive_index_files SET extractedText = :text, extractionSource = :source, indexStatus = :status, lastIndexedAtMs = :indexedAtMs WHERE driveFileId = :driveFileId")
+    suspend fun updateExtractedText(driveFileId: String, text: String, source: String?, status: String, indexedAtMs: Long)
 
     @Query("UPDATE drive_index_files SET contentSha256 = :sha256 WHERE driveFileId = :driveFileId")
     suspend fun updateContentSha256(driveFileId: String, sha256: String)
