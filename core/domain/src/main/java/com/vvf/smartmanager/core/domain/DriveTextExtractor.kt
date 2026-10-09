@@ -151,7 +151,7 @@ class DriveTextExtractor(context: Context) {
             builder.toString()
         }
 
-    private fun xmlText(bytes: ByteArray): String = xmlTextNodesFromDocument(parseXml(bytes), "t")
+    private fun xmlText(bytes: ByteArray): String = xmlTextNodesFromDocument(parseXml(bytes), "t").joinToString(" ")
 
     private fun xmlTextNodes(bytes: ByteArray, localName: String): List<String> =
         xmlTextNodesFromDocument(parseXml(bytes), localName)
