@@ -113,6 +113,9 @@ fun DriveSemanticSearchAppContent(
     var fullContentConsent by remember { mutableStateOf(app.isFullContentIndexConsentGranted()) }
     var embeddingConsent by remember { mutableStateOf(app.isEmbeddingConsentGranted()) }
     val pinnedFiles by dao.observePinnedFiles().collectAsState(initial = emptyList())
+    val observedFiles by dao.observeRecentFiles(20_000).collectAsState(initial = emptyList())
+    val observedSyncState by dao.observeSyncState().collectAsState(initial = null)
+    val observedDuplicateGroups by dao.observeNameAndSizeDuplicateGroups().collectAsState(initial = emptyList())
     val backupManager = remember(app) { DriveIndexBackupManager(app.database) }
     val pinManager = remember(app) { DriveOfflinePinManager(app.filesDir, app.googleDriveService, dao) }
 
@@ -152,6 +155,14 @@ fun DriveSemanticSearchAppContent(
     }
 
     LaunchedEffect(Unit) { refreshLocalState() }
+    LaunchedEffect(observedFiles) {
+        allFiles = observedFiles
+        indexedCount = observedFiles.count { it.indexStatus in setOf("TEXT_INDEXED", "OCR_INDEXED", "TEXT_INDEXED_PIN_STALE", "OCR_INDEXED_PIN_STALE") }
+        pendingTextCount = observedFiles.count { it.indexStatus == "METADATA_ONLY" || it.indexStatus == "METADATA_CHANGED_PIN_STALE" }
+        failedTextCount = observedFiles.count { it.indexStatus in setOf("DOWNLOAD_FAILED", "EXTRACTION_FAILED", "TOO_LARGE") }
+    }
+    LaunchedEffect(observedSyncState) { syncState = observedSyncState }
+    LaunchedEffect(observedDuplicateGroups) { duplicateGroups = observedDuplicateGroups }
     LaunchedEffect(query, filter) {
         if (query.isBlank()) {
             results = emptyList()
