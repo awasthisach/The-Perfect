@@ -430,6 +430,7 @@ class CryptoSecurityManager(
             when (val value = prefs.all[key]) {
                 is String -> out[key] = value
                 is Boolean -> out[key] = value.toString()
+                is Int -> out[key] = value.toString()
             }
         }
         return out
