@@ -11,6 +11,18 @@ data class DriveFileListing(
     val nextPageToken: String?
 )
 
+data class DriveChange(
+    val fileId: String,
+    val removed: Boolean,
+    val file: FileItem?
+)
+
+data class DriveChangePage(
+    val changes: List<DriveChange>,
+    val nextPageToken: String?,
+    val newStartPageToken: String?
+)
+
 data class DriveFileListing(
     val files: List<FileItem>,
     val incomplete: Boolean,
@@ -25,6 +37,10 @@ interface GoogleDriveService {
     suspend fun listDriveFiles(folderId: String = "root"): Result<List<FileItem>>
     suspend fun listAllDriveFiles(): Result<DriveFileListing> =
         Result.failure(UnsupportedOperationException("Full Drive listing is not implemented by this provider."))
+    suspend fun getStartPageToken(): Result<String> =
+        Result.failure(UnsupportedOperationException("Drive Changes API is not implemented by this provider."))
+    suspend fun listChanges(pageToken: String): Result<DriveChangePage> =
+        Result.failure(UnsupportedOperationException("Drive Changes API is not implemented by this provider."))
     suspend fun createFolder(name: String, parentFolderId: String = "root"): Result<String> =
         Result.failure(UnsupportedOperationException("Folder creation is not implemented by this provider."))
     suspend fun moveFile(fileId: String, targetFolderId: String): Result<Boolean> =
