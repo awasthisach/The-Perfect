@@ -22,6 +22,7 @@ class DriveContentIndexWorker(
         return coordinator.runBatch().fold(
             onSuccess = { moreWork ->
                 if (moreWork) enqueueContinuation(applicationContext)
+                else DriveEmbeddingIndexWorker.enqueue(applicationContext)
                 Result.success(workDataOf("more_work" to moreWork))
             },
             onFailure = {
