@@ -6,7 +6,7 @@ import com.vvf.smartmanager.core.database.VVFDatabase
 import com.vvf.smartmanager.core.database.model.DriveIndexFileEntity
 import com.vvf.smartmanager.core.database.model.DriveSyncStateEntity
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.SerializationException
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
@@ -39,6 +39,8 @@ class DriveIndexBackupManager(private val database: VVFDatabase) {
         output.write(bytes)
         output.flush()
         Result.success(files.size)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
     } catch (e: Exception) {
         Result.failure(IllegalStateException(e.message ?: "Could not export local index JSON."))
     }
@@ -76,6 +78,8 @@ class DriveIndexBackupManager(private val database: VVFDatabase) {
             )
         }
         Result.success(imported.size)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
     } catch (e: Exception) {
         Result.failure(IllegalArgumentException(e.message ?: "Local index backup is invalid."))
     }
