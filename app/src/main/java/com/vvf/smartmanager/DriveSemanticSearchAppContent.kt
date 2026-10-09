@@ -105,6 +105,8 @@ fun DriveSemanticSearchAppContent(
     var showEmbeddingConsent by remember { mutableStateOf(false) }
     var showCreateFolder by remember { mutableStateOf(false) }
     var newFolderName by remember { mutableStateOf("") }
+    var showFullContentConsent by remember { mutableStateOf(false) }
+    var fullContentConsent by remember { mutableStateOf(app.isFullContentIndexConsentGranted()) }
     var embeddingConsent by remember { mutableStateOf(app.isEmbeddingConsentGranted()) }
     val pinnedFiles by dao.observePinnedFiles().collectAsState(initial = emptyList())
     val backupManager = remember(app) { DriveIndexBackupManager(app.database) }
@@ -332,6 +334,55 @@ fun DriveSemanticSearchAppContent(
                                 }
                             }
                         }
+                    }
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Full-content OCR indexing", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                if (fullContentConsent) "Consent granted; image OCR may be indexed locally."
+                                else "Off. Image OCR is not indexed without your explicit consent.",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                "OCR runs on-device. Withdrawing consent clears OCR-derived indexed text and cancels queued content indexing.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = { showFullContentConsent = true }) { Text("Review OCR consent") }
+                                if (fullContentConsent) {
+                                    OutlinedButton(onClick = {
+                                        app.setFullContentIndexConsentGranted(false)
+                                        fullContentConsent = false
+                                        statusMessage = "OCR consent withdrawn. OCR-derived indexed text is being cleared."
+                                    }) { Text("Withdraw") }
+                                }
+                            }
+                        }
+                    }
+                    if (showFullContentConsent) {
+                        AlertDialog(
+                            onDismissRequest = { showFullContentConsent = false },
+                            title = { Text("Full-content OCR consent") },
+                            text = {
+                                Text(
+                                    "If enabled, images in your Drive index may be downloaded to app-private storage and OCR text extracted on this device. OCR text can contain sensitive information. Withdrawing consent clears OCR-derived indexed text. No image bytes or OCR text are sent to the embedding service by this OCR step."
+                                )
+                            },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    app.setFullContentIndexConsentGranted(true)
+                                    fullContentConsent = true
+                                    showFullContentConsent = false
+                                    if (connected) DriveContentIndexWorker.enqueue(context)
+                                    statusMessage = if (connected) {
+                                        "OCR consent recorded. Local content indexing queued."
+                                    } else {
+                                        "OCR consent recorded. Sign in and sync Drive to resume local indexing."
+                                    }
+                                }) { Text("I consent") }
+                            },
+                            dismissButton = { TextButton(onClick = { showFullContentConsent = false }) { Text("Not now") } }
+                        )
                     }
                     if (showCreateFolder) {
                         AlertDialog(
