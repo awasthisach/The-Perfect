@@ -64,6 +64,12 @@ interface DriveIndexDao {
     @Query("SELECT COUNT(*) FROM drive_index_files WHERE indexStatus != 'REMOTE_REMOVED'")
     suspend fun getIndexedFileCount(): Int
 
+    @Query("SELECT COUNT(*) FROM drive_index_files WHERE indexStatus IN ('TEXT_INDEXED', 'OCR_INDEXED')")
+    suspend fun getContentIndexedCount(): Int
+
+    @Query("SELECT COUNT(*) FROM drive_index_files WHERE indexStatus IN ('METADATA_ONLY', 'DOWNLOAD_FAILED', 'EXTRACTION_FAILED') AND indexAttempts < 3")
+    suspend fun getPendingContentCount(): Int
+
     @Query("UPDATE drive_index_files SET extractedText = :text, extractionSource = :source, indexStatus = :status, indexAttempts = 0, lastIndexedAtMs = :indexedAtMs WHERE driveFileId = :driveFileId")
     suspend fun updateExtractedText(driveFileId: String, text: String, source: String?, status: String, indexedAtMs: Long)
 
