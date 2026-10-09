@@ -119,12 +119,12 @@ class DriveTextExtractor(context: Context) {
 
     private fun readZipEntryBounded(zip: ZipFile, entry: java.util.zip.ZipEntry): ByteArray {
         val declaredSize = entry.size
-        if (declaredSize > MAX_XML_ENTRY_BYTES) {
+        if (declaredSize > MAX_XML_ENTRY_BYTES.toLong()) {
             throw DriveTextExtractionException("Office document contains an oversized XML part.")
         }
         return zip.getInputStream(entry).use { input ->
             val output = java.io.ByteArrayOutputStream(
-                if (declaredSize in 1..MAX_XML_ENTRY_BYTES) declaredSize.toInt() else 8192
+                if (declaredSize in 1L..MAX_XML_ENTRY_BYTES.toLong()) declaredSize.toInt() else 8192
             )
             val buffer = ByteArray(8192)
             var total = 0
