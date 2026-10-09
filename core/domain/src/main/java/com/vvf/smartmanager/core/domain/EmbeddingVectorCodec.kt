@@ -17,7 +17,7 @@ object EmbeddingVectorCodec {
     fun decode(bytes: ByteArray?, expectedDimension: Int): FloatArray? {
         if (bytes == null || expectedDimension <= 0 || bytes.size != expectedDimension * Float.SIZE_BYTES) return null
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-        return FloatArray(expectedDimension) { buffer.float }.takeIf { vector -> vector.all(Float::isFinite) }
+        return FloatArray(expectedDimension) { buffer.float }.takeIf { vector -> vector.all { it.isFinite() } }
     }
 
     fun cosine(left: FloatArray, right: FloatArray): Float {
