@@ -12,7 +12,9 @@ enum class DriveSearchTypeFilter {
  * may provide verified cosine scores only when consent and the authenticated embedding backend are on.
  */
 class DriveSearchRepository(
-    private val driveIndexDao: DriveIndexDao
+    private val driveIndexDao: DriveIndexDao,
+    private val embeddingConsentGranted: () -> Boolean = { false },
+    private val embeddingBackendReady: () -> Boolean = { false }
 ) {
     suspend fun search(
         query: String,
@@ -38,7 +40,7 @@ class DriveSearchRepository(
             query = query,
             files = candidates.values.toList(),
             semanticCosineScores = semanticCosineScores,
-            embeddingsEnabled = embeddingsEnabled,
+            embeddingsEnabled = embeddingsEnabled && embeddingConsentGranted() && embeddingBackendReady(),
             limit = limit.coerceIn(1, MAX_RESULTS)
         )
     }
