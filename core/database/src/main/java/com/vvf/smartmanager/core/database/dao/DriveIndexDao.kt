@@ -52,6 +52,12 @@ interface DriveIndexDao {
     @Query("SELECT * FROM drive_index_files WHERE indexStatus != 'REMOTE_REMOVED' ORDER BY modifiedTimeMs DESC LIMIT :limit")
     suspend fun getRecentFiles(limit: Int = 200): List<DriveIndexFileEntity>
 
+    @Query("SELECT * FROM drive_index_files WHERE indexStatus != 'REMOTE_REMOVED' ORDER BY modifiedTimeMs DESC LIMIT :limit")
+    fun observeRecentFiles(limit: Int = 200): kotlinx.coroutines.flow.Flow<List<DriveIndexFileEntity>>
+
+    @Query("SELECT * FROM drive_sync_state WHERE id = 1 LIMIT 1")
+    fun observeSyncState(): kotlinx.coroutines.flow.Flow<com.vvf.smartmanager.core.database.model.DriveSyncStateEntity?>
+
     @Query("SELECT * FROM drive_index_files WHERE indexStatus != 'REMOTE_REMOVED' AND (name LIKE '%' || :query || '%' OR extractedText LIKE '%' || :query || '%') ORDER BY modifiedTimeMs DESC LIMIT :limit")
     suspend fun searchLocalText(query: String, limit: Int = 200): List<DriveIndexFileEntity>
 
@@ -60,6 +66,9 @@ interface DriveIndexDao {
 
     @Query("SELECT name, sizeBytes, COUNT(*) AS count FROM drive_index_files WHERE indexStatus != 'REMOTE_REMOVED' AND sizeBytes > 0 GROUP BY sizeBytes, name HAVING COUNT(*) > 1 ORDER BY sizeBytes DESC")
     suspend fun findNameAndSizeDuplicateGroups(): List<DriveDuplicateGroup>
+
+    @Query("SELECT name, sizeBytes, COUNT(*) AS count FROM drive_index_files WHERE indexStatus != 'REMOTE_REMOVED' AND sizeBytes > 0 GROUP BY sizeBytes, name HAVING COUNT(*) > 1 ORDER BY sizeBytes DESC")
+    fun observeNameAndSizeDuplicateGroups(): kotlinx.coroutines.flow.Flow<List<DriveDuplicateGroup>>
 
     @Query("SELECT * FROM drive_index_files WHERE indexStatus != 'REMOTE_REMOVED' AND name = :name AND sizeBytes = :sizeBytes ORDER BY modifiedTimeMs ASC")
     suspend fun getDuplicateGroupFiles(name: String, sizeBytes: Long): List<DriveIndexFileEntity>
