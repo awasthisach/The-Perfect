@@ -269,17 +269,18 @@ class GoogleDriveServiceImpl(
                     "Downloaded file bytes must remain in app-private storage."
                 }
                 dest.parentFile?.mkdirs()
-                temp = File(dest.parentFile, dest.name + "." + UUID.randomUUID() + ".part")
+                val tempFile = File(dest.parentFile, dest.name + "." + UUID.randomUUID() + ".part")
+                temp = tempFile
                 val body = driveApi.downloadFile(bearer(), fileId)
                 body.byteStream().use { input ->
-                    FileOutputStream(temp).use { output ->
+                    FileOutputStream(tempFile).use { output ->
                         input.copyTo(output)
                         output.flush()
                         output.fd.sync()
                     }
                 }
                 Files.move(
-                    temp.toPath(),
+                    tempFile.toPath(),
                     dest.toPath(),
                     StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING
