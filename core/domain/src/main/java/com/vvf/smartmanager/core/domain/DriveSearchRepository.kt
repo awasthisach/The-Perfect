@@ -28,11 +28,18 @@ class DriveSearchRepository(
             .filter { it.length >= 2 }
             .distinct()
             .take(MAX_QUERY_TERMS)
-        if (terms.isEmpty()) return emptyList()
+        val hybridEnabled = embeddingsEnabled && embeddingConsentGranted() && embeddingBackendReady() &&
+            semanticCosineScores.isNotEmpty()
+        if (terms.isEmpty() && !hybridEnabled) return emptyList()
 
         val candidates = linkedMapOf<String, DriveIndexFileEntity>()
         for (term in terms) {
             driveIndexDao.searchLocalText(term, CANDIDATES_PER_TERM).forEach { file ->
+                if (matchesType(file, typeFilter)) candidates.putIfAbsent(file.driveFileId, file)
+            }
+        }
+        if (hybridEnabled) {
+            driveIndexDao.getFilesByDriveIds(semanticCosineScores.keys.take(MAX_RESULTS)).forEach { file ->
                 if (matchesType(file, typeFilter)) candidates.putIfAbsent(file.driveFileId, file)
             }
         }
