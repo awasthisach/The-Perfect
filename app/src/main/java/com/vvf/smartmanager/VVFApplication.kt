@@ -2,6 +2,7 @@ package com.vvf.smartmanager
 
 import android.app.Application
 import android.util.Log
+import com.google.firebase.auth.FirebaseAuth
 import androidx.work.Configuration
 import com.vvf.smartmanager.core.background.workers.FileIndexingOutcome
 import com.vvf.smartmanager.core.background.workers.FileIndexingRuntime
@@ -264,7 +265,7 @@ class VVFApplication : Application(), Configuration.Provider {
         )
         googleDriveService = GoogleDriveServiceImpl(this)
         val driveIndexDao = database.driveIndexDao()
-        DriveSyncRuntime.configure(googleDriveService, driveIndexDao)
+        DriveSyncRuntime.configure(googleDriveService, driveIndexDao) { FirebaseAuth.getInstance().currentUser?.email }
         DriveContentIndexRuntime.configure(
             DriveContentIndexCoordinator(
                 context = this,
