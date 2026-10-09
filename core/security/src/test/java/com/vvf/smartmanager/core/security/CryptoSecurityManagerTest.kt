@@ -139,4 +139,20 @@ class CryptoSecurityManagerTest {
             )
         }
     }
+    @Test
+    fun newVaultPinsUseProductKdfRoundsAndRoundTrip() {
+        val prefs = ApplicationProvider.getApplicationContext<android.content.Context>()
+            .getSharedPreferences("vvf_secure_vault_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+
+        assertTrue(cryptoSecurityManager.setupVaultPin("2468"))
+        assertEquals(310_000, prefs.getInt("vault_pin_iterations", -1))
+        assertTrue(cryptoSecurityManager.verifyVaultPin("2468"))
+        assertFalse(cryptoSecurityManager.verifyVaultPin("1357"))
+
+        assertTrue(cryptoSecurityManager.setupDecoyPin("8642"))
+        assertEquals(310_000, prefs.getInt("vault_decoy_pin_iterations", -1))
+        assertTrue(cryptoSecurityManager.verifyDecoyPin("8642"))
+    }
+
 }
