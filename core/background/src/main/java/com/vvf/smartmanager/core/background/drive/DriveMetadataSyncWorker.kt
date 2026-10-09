@@ -26,6 +26,7 @@ class DriveMetadataSyncWorker(
         return batch.fold(
             onSuccess = { moreWork ->
                 if (moreWork) enqueueContinuation(applicationContext)
+                else DriveContentIndexWorker.enqueue(applicationContext)
                 Result.success(workDataOf("more_work" to moreWork))
             },
             onFailure = {
