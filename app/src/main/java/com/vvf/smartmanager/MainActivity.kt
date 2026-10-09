@@ -165,6 +165,7 @@ class MainActivity : FragmentActivity() {
                         lifecycleScope.launch {
                             DriveMetadataSyncWorker.cancel(this@MainActivity)
                             DriveContentIndexWorker.cancel(this@MainActivity)
+                            val app = application as VVFApplication
                             app.googleDriveService.setAccessToken(null)
                             FirebaseAuth.getInstance().signOut()
                             googleDriveAuth.signOut()
@@ -178,7 +179,8 @@ class MainActivity : FragmentActivity() {
 
 @Composable
 fun VVFAppContent(
-    onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit
+    onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit,
+    onGoogleDriveSignOutRequested: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -411,16 +413,7 @@ private fun VVFNavHost(
                         cloudViewModel.completeGoogleDriveSignIn(accessTokenResult)
                     }
                 },
-                onGoogleDriveSignOutRequested = {
-                    lifecycleScope.launch {
-                        DriveMetadataSyncWorker.cancel(this@MainActivity)
-                        DriveContentIndexWorker.cancel(this@MainActivity)
-                        app.googleDriveService.setAccessToken(null)
-                        FirebaseAuth.getInstance().signOut()
-                        googleDriveAuth.signOut()
-                        cloudViewModel.loadAllAccounts()
-                    }
-                }
+                onGoogleDriveSignOutRequested = onGoogleDriveSignOutRequested
             )
         }
         composable(TopLevelDestination.PLUGINS.route) {
