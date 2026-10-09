@@ -61,9 +61,10 @@ class DriveIndexBackupManager(
         val email = currentAccountEmail()?.trim()?.lowercase()
             ?.takeIf { it.isNotBlank() }
             ?: throw IllegalStateException("Sign in to Google Drive before exporting the local index.")
-        val records = driveIndexDao.getRecentFiles(MAX_FILES)
+        val fetchedRecords = driveIndexDao.getRecentFiles(MAX_FILES + 1)
         var totalTextChars = 0
-        var truncated = records.size >= MAX_FILES
+        var truncated = fetchedRecords.size > MAX_FILES
+        val records = fetchedRecords.take(MAX_FILES)
         val payloadFiles = records.map { record ->
             val remaining = (MAX_TOTAL_TEXT_CHARS - totalTextChars).coerceAtLeast(0)
             val allowed = minOf(MAX_TEXT_PER_FILE, remaining)
@@ -146,9 +147,15 @@ class DriveIndexBackupManager(
             val existing = driveIndexDao.getByDriveId(item.driveFileId)
             val ocrAllowed = allowOcrContent()
             val removeOcr = item.extractionSource == "OCR" && !ocrAllowed
-            val text = if (removeOcr) "" else item.extractedText
-            val source = if (removeOcr) null else item.extractionSource
             val contentChanged = existing != null && existing.modifiedTimeMs != item.modifiedTimeMs
+            val text = when {
+                removeOcr || contentChanged -> ""
+                else -> item.extractedText
+            }
+            val source = when {
+                removeOcr || contentChanged -> null
+                else -> item.extractionSource
+            }
             driveIndexDao.upsertFile(
                 DriveIndexFileEntity(
                     id = existing?.id ?: 0L,
@@ -172,8 +179,8 @@ class DriveIndexBackupManager(
                     pinnedModifiedTimeMs = existing?.pinnedModifiedTimeMs,
                     indexStatus = when {
                         removeOcr -> "OCR_CONSENT_REQUIRED"
-                        text.isNotBlank() -> "TEXT_INDEXED"
-                        else -> "BACKUP_IMPORTED"
+                        contentChanged || text.isBlank() -> "METADATA_ONLY"
+                        else -> "TEXT_INDEXED"
                     },
                     indexAttempts = 0,
                     lastIndexedAtMs = if (text.isNotBlank()) System.currentTimeMillis() else 0L
