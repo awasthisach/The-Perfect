@@ -221,7 +221,10 @@ fun DriveSemanticSearchAppContent(
                                 DriveMetadataSyncWorker.enqueue(context)
                                 statusMessage = "Drive metadata sync queued."
                             }) { Text("Sync Drive") }
-                            OutlinedButton(onClick = onGoogleDriveSignOutRequested) { Text("Sign out") }
+                            OutlinedButton(onClick = {
+                                onGoogleDriveSignOutRequested()
+                                statusMessage = "Signed out of Google Drive and Firebase."
+                            }) { Text("Sign out") }
                         }
                         OutlinedButton(onClick = { scope.launch { refreshLocalState() } }) { Text("Refresh") }
                     }
