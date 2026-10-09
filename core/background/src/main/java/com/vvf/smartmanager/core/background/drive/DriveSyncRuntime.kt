@@ -14,14 +14,23 @@ object DriveSyncRuntime {
     @Volatile
     private var dao: DriveIndexDao? = null
 
-    fun configure(driveService: GoogleDriveService, driveIndexDao: DriveIndexDao) {
+    @Volatile
+    private var accountEmailProvider: (() -> String?)? = null
+
+    fun configure(
+        driveService: GoogleDriveService,
+        driveIndexDao: DriveIndexDao,
+        currentAccountEmail: () -> String?
+    ) {
         service = driveService
         dao = driveIndexDao
+        accountEmailProvider = currentAccountEmail
     }
 
     fun coordinatorOrNull(): DriveMetadataSyncCoordinator? {
         val driveService = service ?: return null
         val driveIndexDao = dao ?: return null
-        return DriveMetadataSyncCoordinator(driveService, driveIndexDao)
+        val emailProvider = accountEmailProvider ?: return null
+        return DriveMetadataSyncCoordinator(driveService, driveIndexDao, emailProvider)
     }
 }
