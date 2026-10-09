@@ -14,6 +14,12 @@ data class DriveDuplicateGroup(
     val count: Int
 )
 
+data class DriveVectorRecord(
+    val driveFileId: String,
+    val mimeType: String,
+    val embeddingVector: ByteArray?
+)
+
 @Dao
 interface DriveIndexDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -75,6 +81,21 @@ interface DriveIndexDao {
 
     @Query("UPDATE drive_index_files SET contentSha256 = :sha256 WHERE driveFileId = :driveFileId")
     suspend fun updateContentSha256(driveFileId: String, sha256: String)
+
+    @Query("UPDATE drive_index_files SET embeddingVector = :vector, embeddingModel = :model, embeddingVersion = :version, embeddingDimension = :dimension WHERE driveFileId = :driveFileId")
+    suspend fun updateEmbeddingVector(driveFileId: String, model: String, version: Int, dimension: Int, vector: ByteArray)
+
+    @Query("SELECT * FROM drive_index_files WHERE extractedText != '' AND indexStatus IN ('TEXT_INDEXED', 'OCR_INDEXED') AND (embeddingVector IS NULL OR embeddingModel != :model OR embeddingVersion != :version OR embeddingDimension != :dimension) ORDER BY modifiedTimeMs DESC LIMIT :limit")
+    suspend fun getFilesNeedingEmbeddings(model: String, version: Int, dimension: Int, limit: Int): List<DriveIndexFileEntity>
+
+    @Query("SELECT COUNT(*) FROM drive_index_files WHERE embeddingVector IS NOT NULL AND indexStatus != 'REMOTE_REMOVED'")
+    suspend fun getEmbeddingVectorCount(): Int
+
+    @Query("SELECT driveFileId, mimeType, embeddingVector FROM drive_index_files WHERE embeddingVector IS NOT NULL AND indexStatus != 'REMOTE_REMOVED' ORDER BY modifiedTimeMs DESC LIMIT :limit OFFSET :offset")
+    suspend fun getEmbeddingVectorsPage(limit: Int, offset: Int): List<DriveVectorRecord>
+
+    @Query("SELECT * FROM drive_index_files WHERE driveFileId IN (:driveFileIds) AND indexStatus != 'REMOTE_REMOVED'")
+    suspend fun getFilesByDriveIds(driveFileIds: List<String>): List<DriveIndexFileEntity>
 
     @Query("UPDATE drive_index_files SET embeddingVector = :vector, embeddingModel = :model, embeddingVersion = :version, embeddingDimension = :dimension WHERE driveFileId = :driveFileId")
     suspend fun updateEmbedding(driveFileId: String, vector: ByteArray, model: String, version: Int, dimension: Int)
