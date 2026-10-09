@@ -175,7 +175,7 @@ class DriveIndexBackupManager(private val database: VVFDatabase) {
             )
             value.takeIf {
                 uri.scheme.equals("https", ignoreCase = true) &&
-                    uri.host?.lowercase() in allowedHosts &&
+                    uri.host?.lowercase()?.let { it in allowedHosts } == true &&
                     uri.userInfo == null &&
                     (uri.port == -1 || uri.port == 443)
             }
