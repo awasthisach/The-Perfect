@@ -25,11 +25,15 @@ import kotlinx.coroutines.flow.flowOn
 class AiIntelligenceUseCase(
     private val semanticPlugin: ISemanticSearchEngine,
     private val fileManagerRepository: FileManagerRepository,
-    private val searchRepository: SearchRepository
+    private val searchRepository: SearchRepository,
+    private val embeddingConsentGranted: () -> Boolean = { false },
+    private val embeddingBackendReady: () -> Boolean = { false }
 ) {
-    fun isAiModelReady(): Boolean = semanticPlugin.isModelReady()
+    fun isAiModelReady(): Boolean =
+        embeddingConsentGranted() && embeddingBackendReady() && semanticPlugin.isModelReady()
 
     suspend fun downloadAiModel(onProgress: (Float) -> Unit = {}): Boolean {
+        if (!embeddingConsentGranted() || !embeddingBackendReady()) return false
         return semanticPlugin.downloadModel(onProgress)
     }
 
@@ -38,7 +42,7 @@ class AiIntelligenceUseCase(
      * @param similarityThreshold Range 0.70f to 0.95f (70% to 95%)
      */
     fun scanNearDuplicates(similarityThreshold: Float = 0.80f): Flow<List<DuplicateFileGroup>> = flow {
-        if (!semanticPlugin.isModelReady()) {
+        if (!isAiModelReady()) {
             emit(emptyList())
             return@flow
         }
@@ -94,6 +98,7 @@ class AiIntelligenceUseCase(
      * Suggests conceptual tags for an individual file item.
      */
     suspend fun suggestTags(fileItem: FileItem): List<AiSuggestedTag> {
+        if (!isAiModelReady()) return emptyList()
         val textContent = buildString {
             append(fileItem.name)
             if (fileItem.tags.isNotEmpty()) {
@@ -127,8 +132,12 @@ class AiIntelligenceUseCase(
             SemanticCandidate(it, it.name + " " + it.tags.joinToString(" "))
         }
 
-        val clusters = semanticPlugin.findNearDuplicates(candidates, clampedThreshold)
-        val tagCount = candidates.sumOf { semanticPlugin.suggestTags(it).size }
+        val clusters = if (isAiModelReady()) {
+            semanticPlugin.findNearDuplicates(candidates, clampedThreshold)
+        } else {
+            emptyList()
+        }
+        val tagCount = if (isAiModelReady()) candidates.sumOf { semanticPlugin.suggestTags(it).size } else 0
 
         emit(
             AiIntelligenceSummary(
