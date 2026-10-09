@@ -9,6 +9,9 @@ import com.vvf.smartmanager.core.background.workers.CloudBackupBootstrap
 import com.vvf.smartmanager.core.background.workers.JunkScanBootstrap
 import com.vvf.smartmanager.core.background.BackgroundSyncManager
 import com.vvf.smartmanager.core.background.drive.DriveSyncRuntime
+import com.vvf.smartmanager.core.background.drive.DriveContentIndexCoordinator
+import com.vvf.smartmanager.core.background.drive.DriveContentIndexRuntime
+import com.vvf.smartmanager.core.background.drive.DriveContentIndexWorker
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveServiceImpl
 import com.vvf.smartmanager.core.data.backup.InjectedVaultSnapshotSource
@@ -43,6 +46,7 @@ import com.vvf.smartmanager.core.domain.SearchFilesUseCase
 import com.vvf.smartmanager.core.domain.SearchHistoryUseCase
 import com.vvf.smartmanager.core.domain.SearchIndexManagementUseCase
 import com.vvf.smartmanager.core.domain.SemanticSearchUseCase
+import com.vvf.smartmanager.core.domain.DriveTextExtractor
 import com.vvf.smartmanager.core.domain.TagManagementUseCase
 import com.vvf.smartmanager.core.domain.VaultAuthUseCase
 import com.vvf.smartmanager.core.model.CloudProviderType
@@ -137,16 +141,34 @@ class VVFApplication : Application(), Configuration.Provider {
 
     fun setFullContentIndexConsentGranted(granted: Boolean) {
         settingsPrefs.edit().putBoolean(KEY_FULL_CONTENT_INDEX_CONSENT, granted).apply()
-        if (!granted) settingsPrefs.edit().putBoolean(KEY_AUTO_INDEX_OCR, false).apply()
+        if (!granted) {
+            settingsPrefs.edit().putBoolean(KEY_AUTO_INDEX_OCR, false).apply()
+            DriveContentIndexWorker.cancel(this)
+            if (::database.isInitialized) {
+                applicationScope.launch {
+                    database.driveIndexDao().clearOcrIndexedText()
+                    DriveContentIndexWorker.enqueue(this@VVFApplication)
+                }
+            }
+        }
     }
 
     fun isAutoIndexOcrEnabled(): Boolean =
         isFullContentIndexConsentGranted() && settingsPrefs.getBoolean(KEY_AUTO_INDEX_OCR, false)
 
     fun setAutoIndexOcrEnabled(enabled: Boolean) {
-        settingsPrefs.edit()
-            .putBoolean(KEY_AUTO_INDEX_OCR, enabled && isFullContentIndexConsentGranted())
-            .apply()
+        val effective = enabled && isFullContentIndexConsentGranted()
+        settingsPrefs.edit().putBoolean(KEY_AUTO_INDEX_OCR, effective).apply()
+        if (::database.isInitialized) {
+            applicationScope.launch {
+                if (effective) database.driveIndexDao().requeueOcrConsentRequired()
+                if (effective) DriveContentIndexWorker.enqueue(this@VVFApplication)
+                else {
+                    DriveContentIndexWorker.cancel(this@VVFApplication)
+                    DriveContentIndexWorker.enqueue(this@VVFApplication)
+                }
+            }
+        }
     }
 
     fun isOfflineOnlyModeEnabled(): Boolean = settingsPrefs.getBoolean(KEY_OFFLINE_ONLY_MODE, true)
@@ -241,7 +263,18 @@ class VVFApplication : Application(), Configuration.Provider {
             embeddingBackendReady = { false }
         )
         googleDriveService = GoogleDriveServiceImpl(this)
-        DriveSyncRuntime.configure(googleDriveService, database.driveIndexDao())
+        val driveIndexDao = database.driveIndexDao()
+        DriveSyncRuntime.configure(googleDriveService, driveIndexDao)
+        DriveContentIndexRuntime.configure(
+            DriveContentIndexCoordinator(
+                context = this,
+                driveService = googleDriveService,
+                driveIndexDao = driveIndexDao,
+                textExtractor = DriveTextExtractor(this),
+                ocrEngine = ocrPlugin,
+                fullContentConsentGranted = { isAutoIndexOcrEnabled() }
+            )
+        )
         val cloudDrivers = mapOf(
             CloudProviderType.ONE_DRIVE to OneDriveDriverImpl(),
             CloudProviderType.DROPBOX to DropboxDriverImpl(),
