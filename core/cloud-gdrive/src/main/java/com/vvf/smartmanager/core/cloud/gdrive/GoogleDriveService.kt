@@ -11,12 +11,20 @@ data class DriveFileListing(
     val nextPageToken: String?
 )
 
+data class DriveFileListing(
+    val files: List<FileItem>,
+    val incomplete: Boolean,
+    val nextPageToken: String?
+)
+
 interface GoogleDriveService {
     /** Stores a token produced by the activity-owned Google sign-in flow. */
     fun setAccessToken(token: String?) = Unit
 
     suspend fun authenticate(): Result<Boolean>
     suspend fun listDriveFiles(folderId: String = "root"): Result<List<FileItem>>
+    suspend fun listAllDriveFiles(): Result<DriveFileListing> =
+        Result.failure(UnsupportedOperationException("Full Drive listing is not implemented by this provider."))
     suspend fun listAllDriveFiles(): Result<DriveFileListing> =
         Result.failure(UnsupportedOperationException("Full Drive listing is not implemented by this provider."))
     suspend fun createFolder(name: String, parentFolderId: String = "root"): Result<String> =
