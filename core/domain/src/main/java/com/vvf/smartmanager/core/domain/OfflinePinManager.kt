@@ -7,6 +7,7 @@ import com.vvf.smartmanager.core.database.dao.DriveIndexDao
 import com.vvf.smartmanager.core.database.model.DriveIndexFileEntity
 import java.io.File
 import java.io.FileInputStream
+import kotlinx.coroutines.CancellationException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
@@ -88,6 +89,8 @@ class OfflinePinManager(
                 pinnedModifiedTimeMs = record.modifiedTimeMs
             )
             Result.success(driveIndexDao.getByDriveId(fileId) ?: record)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Result.failure(IllegalStateException(e.message ?: "Could not pin file offline."))
         } finally {
@@ -101,6 +104,8 @@ class OfflinePinManager(
         record?.pinnedPath?.let { safePinnedFile(it)?.delete() }
         driveIndexDao.unpin(fileId)
         Result.success(true)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
     } catch (_: Exception) {
         Result.failure(IllegalStateException("Could not remove the offline pin."))
     }
