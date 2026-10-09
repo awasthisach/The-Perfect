@@ -550,7 +550,8 @@ private fun DashboardTab(
     onEmbeddingToggle: (Boolean) -> Unit,
     onOcrConsentToggle: (Boolean) -> Unit,
     onAutoOcrToggle: (Boolean) -> Unit
-) {
+ ) {
+    val lastSyncLabel = syncState?.lastSyncAtMs?.let { formatTime(it) }
     LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Card(Modifier.fillMaxWidth()) {
