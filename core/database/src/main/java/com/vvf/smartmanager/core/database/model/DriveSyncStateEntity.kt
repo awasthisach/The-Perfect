@@ -10,6 +10,7 @@ import androidx.room.PrimaryKey
 data class DriveSyncStateEntity(
     @PrimaryKey
     val id: Int = 1,
+    val accountEmail: String? = null,
     val changeStartPageToken: String? = null,
     val changePageToken: String? = null,
     val fullListPageToken: String? = null,
