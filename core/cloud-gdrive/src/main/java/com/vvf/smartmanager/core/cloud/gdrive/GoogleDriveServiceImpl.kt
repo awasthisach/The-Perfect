@@ -230,8 +230,14 @@ class GoogleDriveServiceImpl(
                     newStartPageToken = response.newStartPageToken
                 )
             )
+        } catch (e: HttpException) {
+            if (e.code() == 410 || e.code() == 400) {
+                Result.failure(DriveChangeTokenInvalidException())
+            } else {
+                Result.failure(IllegalStateException("Drive incremental sync failed. Retry the sync."))
+            }
         } catch (_: Exception) {
-            Result.failure(IllegalStateException("Drive incremental sync failed. Retry or fall back to a full-list sync."))
+            Result.failure(IllegalStateException("Drive incremental sync failed. Retry the sync."))
         }
     }
 
@@ -246,7 +252,8 @@ class GoogleDriveServiceImpl(
             modifiedTimeMs = parseDriveTime(dto.modifiedTime),
             parentIds = dto.parents.filter(DriveIdValidator::isValidParentId),
             webViewLink = dto.webViewLink,
-            starred = dto.starred == true
+            starred = dto.starred == true,
+            trashed = dto.trashed
         )
     }
 
