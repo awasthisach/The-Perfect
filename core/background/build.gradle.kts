@@ -29,4 +29,5 @@ dependencies {
   testImplementation(libs.androidx.work.testing)
   testImplementation(libs.robolectric)
   testImplementation(libs.androidx.core)
+  testImplementation(libs.androidx.room.runtime)
 }
