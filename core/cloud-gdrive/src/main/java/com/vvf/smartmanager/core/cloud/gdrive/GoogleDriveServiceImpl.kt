@@ -100,6 +100,8 @@ class GoogleDriveServiceImpl(
                 isConnected = true,
                 usedBytes = usage,
                 totalBytes = limit,
+                accountEmail = about.user?.emailAddress.orEmpty(),
+                displayName = about.user?.displayName?.takeIf { it.isNotBlank() } ?: "Google Drive",
                 lastSyncTimestamp = System.currentTimeMillis()
             )
             Result.success(true)
@@ -356,7 +358,9 @@ class GoogleDriveServiceImpl(
             currentAccount = currentAccount.copy(
                 isConnected = true,
                 usedBytes = usage,
-                totalBytes = limit
+                totalBytes = limit,
+                accountEmail = about.user?.emailAddress.orEmpty(),
+                displayName = about.user?.displayName?.takeIf { it.isNotBlank() } ?: "Google Drive"
             )
             Result.success(Pair(usage, limit))
         } catch (e: Exception) {
