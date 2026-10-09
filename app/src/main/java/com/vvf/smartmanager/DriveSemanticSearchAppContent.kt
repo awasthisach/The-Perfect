@@ -1,6 +1,7 @@
 package com.vvf.smartmanager
 
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -47,11 +48,16 @@ import com.vvf.smartmanager.core.domain.DriveOfflinePinManager
 import com.vvf.smartmanager.core.domain.DriveRankedResult
 import com.vvf.smartmanager.core.domain.DriveSearchRepository
 import com.vvf.smartmanager.core.domain.DriveSearchTypeFilter
+import com.vvf.smartmanager.core.model.FileItem
 import com.vvf.smartmanager.feature.vault.VaultScreen
 import com.vvf.smartmanager.feature.vault.VaultViewModel
 import kotlinx.coroutines.launch
+import java.io.File
 import java.text.DateFormat
 import java.util.Date
+import java.util.UUID
+
+private const val MAX_UPLOAD_BYTES = 100L * 1024L * 1024L
 
 private enum class DriveTab(val title: String) {
     DASHBOARD("Dashboard"),
@@ -97,6 +103,8 @@ fun DriveSemanticSearchAppContent(
     var suggestionDialogFile by remember { mutableStateOf<DriveIndexFileEntity?>(null) }
     var folderSuggestions by remember { mutableStateOf<List<DriveIndexFileEntity>>(emptyList()) }
     var showEmbeddingConsent by remember { mutableStateOf(false) }
+    var showCreateFolder by remember { mutableStateOf(false) }
+    var newFolderName by remember { mutableStateOf("") }
     var embeddingConsent by remember { mutableStateOf(app.isEmbeddingConsentGranted()) }
     val pinnedFiles by dao.observePinnedFiles().collectAsState(initial = emptyList())
     val backupManager = remember(app) { DriveIndexBackupManager(app.database) }
@@ -169,6 +177,53 @@ fun DriveSemanticSearchAppContent(
                         .onSuccess { count -> statusMessage = "Exported $count local index records. No credentials or pin bytes were exported." }
                         .onFailure { statusMessage = it.message ?: "Local index export failed." }
                 }
+            }
+        }
+    }
+    val uploadLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri != null) scope.launch {
+            var temporary: File? = null
+            try {
+                val resolver = context.contentResolver
+                val displayName = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
+                }?.takeIf { it.isNotBlank() } ?: "drive-upload.bin"
+                val mimeType = resolver.getType(uri)?.takeIf { it.isNotBlank() } ?: "application/octet-stream"
+                val temp = File(context.cacheDir, "drive-upload-${UUID.randomUUID()}.tmp")
+                temporary = temp
+                val input = resolver.openInputStream(uri) ?: throw IllegalStateException("Could not read the selected file.")
+                input.use { source ->
+                    temp.outputStream().use { target ->
+                        val buffer = ByteArray(8192)
+                        var total = 0L
+                        while (true) {
+                            val count = source.read(buffer)
+                            if (count < 0) break
+                            total += count
+                            require(total <= MAX_UPLOAD_BYTES) { "Upload is limited to 100 MB per file." }
+                            target.write(buffer, 0, count)
+                        }
+                        target.flush()
+                    }
+                }
+                val item = FileItem(
+                    path = temp.absolutePath,
+                    name = displayName,
+                    sizeBytes = temp.length(),
+                    lastModified = System.currentTimeMillis(),
+                    isDirectory = false,
+                    mimeType = mimeType
+                )
+                app.googleDriveService.uploadFile(item, "root")
+                    .onSuccess { id ->
+                        statusMessage = "Uploaded to Drive. File ID: $id"
+                        DriveMetadataSyncWorker.enqueue(context)
+                    }
+                    .onFailure { statusMessage = it.message ?: "Drive upload failed." }
+            } catch (e: Exception) {
+                statusMessage = e.message ?: "Drive upload failed."
+            } finally {
+                temporary?.delete()
             }
         }
     }
@@ -248,6 +303,10 @@ fun DriveSemanticSearchAppContent(
                             }) { Text("Sign out") }
                         }
                         OutlinedButton(onClick = { scope.launch { refreshLocalState() } }) { Text("Refresh") }
+                        if (connected) {
+                            OutlinedButton(onClick = { uploadLauncher.launch(arrayOf("*/*")) }) { Text("Upload file") }
+                            OutlinedButton(onClick = { showCreateFolder = true }) { Text("New folder") }
+                        }
                     }
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -273,6 +332,40 @@ fun DriveSemanticSearchAppContent(
                                 }
                             }
                         }
+                    }
+                    if (showCreateFolder) {
+                        AlertDialog(
+                            onDismissRequest = { showCreateFolder = false },
+                            title = { Text("Create Drive folder") },
+                            text = {
+                                OutlinedTextField(
+                                    value = newFolderName,
+                                    onValueChange = { newFolderName = it },
+                                    label = { Text("Folder name") },
+                                    singleLine = true
+                                )
+                            },
+                            confirmButton = {
+                                TextButton(
+                                    enabled = newFolderName.trim().isNotEmpty(),
+                                    onClick = {
+                                        val name = newFolderName.trim()
+                                        showCreateFolder = false
+                                        scope.launch {
+                                            app.googleDriveService.createFolder(name, "root")
+                                                .onSuccess {
+                                                    statusMessage = "Drive folder created."
+                                                    newFolderName = ""
+                                                    DriveMetadataSyncWorker.enqueue(context)
+                                                }
+                                                .onFailure { statusMessage = it.message ?: "Could not create Drive folder." }
+                                            refreshLocalState()
+                                        }
+                                    }
+                                ) { Text("Create") }
+                            },
+                            dismissButton = { TextButton(onClick = { showCreateFolder = false }) { Text("Cancel") } }
+                        )
                     }
                     if (showEmbeddingConsent) {
                         AlertDialog(
