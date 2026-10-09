@@ -26,7 +26,7 @@ dependencies {
   api(project(":core:model"))
   api(project(":core:common"))
   api(project(":core:security"))
-  implementation(libs.androidx.room.runtime)
+  api(libs.androidx.room.runtime)
   implementation(libs.androidx.room.ktx)
   implementation(libs.sqlcipher.android)
   "ksp"(libs.androidx.room.compiler)
