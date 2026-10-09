@@ -107,6 +107,7 @@ abstract class VVFDatabase : RoomDatabase() {
                     """
                     CREATE TABLE IF NOT EXISTS `drive_sync_state` (
                         `id` INTEGER NOT NULL PRIMARY KEY,
+                        `accountEmail` TEXT,
                         `changeStartPageToken` TEXT,
                         `changePageToken` TEXT,
                         `fullListPageToken` TEXT,
