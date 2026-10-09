@@ -122,7 +122,7 @@ class SemanticSearchUseCaseTest {
         val engine = FakeSemanticEngine()
         val fileRepo = FakeFileManagerRepo()
         val searchRepo = FakeSearchRepo()
-        val useCase = SemanticSearchUseCase(engine, searchRepo, fileRepo)
+        val useCase = SemanticSearchUseCase(engine, searchRepo, fileRepo, embeddingConsentGranted = { true }, embeddingBackendReady = { true })
 
         assertTrue(useCase.isPluginReady())
 
