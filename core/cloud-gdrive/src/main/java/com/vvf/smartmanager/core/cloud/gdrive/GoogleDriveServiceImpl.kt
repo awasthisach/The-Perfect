@@ -262,8 +262,6 @@ class GoogleDriveServiceImpl(
             } else {
                 Result.failure(IllegalStateException("Drive incremental sync failed. Retry the sync."))
             }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
         } catch (_: Exception) {
             Result.failure(IllegalStateException("Drive incremental sync failed. Retry the sync."))
         }
