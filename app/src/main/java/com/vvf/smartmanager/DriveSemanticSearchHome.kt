@@ -442,7 +442,8 @@ fun DriveSemanticSearchHome(
                     }
                 }
             }
-            when (activeTab) {
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                when (activeTab) {
                 DriveHomeTab.DASHBOARD -> DashboardTab(
                     accountLinked = accountLinked,
                     accountEmail = accountEmail,
@@ -510,6 +511,7 @@ fun DriveSemanticSearchHome(
                     onExport = { createBackupLauncher.launch("drive-index-backup.json") },
                     onImport = { importBackupLauncher.launch(arrayOf("application/json", "text/json")) }
                 )
+                }
             }
         }
     }
@@ -879,7 +881,7 @@ private fun OfflineTab(pinnedFiles: List<DriveIndexFileEntity>, onUnpin: (DriveI
         if (pinnedFiles.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("No files pinned for offline use.") }
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(pinnedFiles, key = { it.driveFileId }) { file ->
                     Card(Modifier.fillMaxWidth()) {
                         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
