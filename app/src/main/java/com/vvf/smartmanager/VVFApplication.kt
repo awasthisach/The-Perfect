@@ -272,7 +272,8 @@ class VVFApplication : Application(), Configuration.Provider {
                 driveIndexDao = driveIndexDao,
                 textExtractor = DriveTextExtractor(this),
                 ocrEngine = ocrPlugin,
-                fullContentConsentGranted = { isAutoIndexOcrEnabled() }
+                fullContentConsentGranted = { isFullContentIndexConsentGranted() },
+                autoOcrEnabled = { isAutoIndexOcrEnabled() }
             )
         )
         val cloudDrivers = mapOf(
