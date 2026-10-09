@@ -14,6 +14,7 @@ data class DriveSyncStateEntity(
     val changeStartPageToken: String? = null,
     val changePageToken: String? = null,
     val fullListPageToken: String? = null,
+    val fullListGeneration: Long? = null,
     val fullListFilesSeen: Int = 0,
     val indexingCursor: String? = null,
     val indexingInProgress: Boolean = false,
