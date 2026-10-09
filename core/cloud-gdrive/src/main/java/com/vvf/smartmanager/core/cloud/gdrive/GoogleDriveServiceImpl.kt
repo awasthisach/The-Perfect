@@ -7,6 +7,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.vvf.smartmanager.core.model.CloudAccount
 import com.vvf.smartmanager.core.model.CloudProviderType
 import com.vvf.smartmanager.core.model.FileItem
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -102,6 +103,8 @@ class GoogleDriveServiceImpl(
             ?: throw IllegalStateException("Google Drive session expired. Please sign in again.")
         val refreshed = try {
             GoogleAuthUtil.getToken(context, account, "oauth2:https://www.googleapis.com/auth/drive")
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             setAccessToken(null)
             throw IllegalStateException("Google Drive token refresh failed. Sign in again.")
@@ -128,6 +131,8 @@ class GoogleDriveServiceImpl(
                 lastSyncTimestamp = System.currentTimeMillis()
             )
             Result.success(true)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             currentAccount = currentAccount.copy(isConnected = false)
             Result.failure(e)
@@ -154,6 +159,8 @@ class GoogleDriveServiceImpl(
             } while (pageToken != null)
             currentAccount = currentAccount.copy(isConnected = true, lastSyncTimestamp = System.currentTimeMillis())
             Result.success(items)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -180,6 +187,8 @@ class GoogleDriveServiceImpl(
                     nextPageToken = response.nextPageToken
                 )
             )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             Result.failure(IllegalStateException("Drive metadata page failed. Retry the sync."))
         }
@@ -202,6 +211,8 @@ class GoogleDriveServiceImpl(
             } while (pageToken != null)
             currentAccount = currentAccount.copy(isConnected = true, lastSyncTimestamp = System.currentTimeMillis())
             Result.success(DriveFileListing(items, incomplete = pageToken != null, nextPageToken = pageToken))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -213,6 +224,8 @@ class GoogleDriveServiceImpl(
                 ?.takeIf { it.isNotBlank() && it.length <= MAX_PAGE_TOKEN_LENGTH }
                 ?: throw IllegalStateException("Drive did not return a valid change cursor.")
             Result.success(token)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             Result.failure(IllegalStateException("Could not start incremental Drive sync. Try a full-list sync."))
         }
@@ -241,12 +254,16 @@ class GoogleDriveServiceImpl(
                     newStartPageToken = response.newStartPageToken
                 )
             )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: HttpException) {
             if (e.code() == 410 || e.code() == 400) {
                 Result.failure(DriveChangeTokenInvalidException())
             } else {
                 Result.failure(IllegalStateException("Drive incremental sync failed. Retry the sync."))
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             Result.failure(IllegalStateException("Drive incremental sync failed. Retry the sync."))
         }
@@ -333,7 +350,9 @@ class GoogleDriveServiceImpl(
 
                     val uploaded = try {
                         DriveUploadResponseParser.parse(bodyText)
-                    } catch (e: Exception) {
+                    } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
                         return@withContext Result.failure(
                             IllegalStateException("Drive upload returned invalid JSON response", e)
                         )
@@ -374,7 +393,9 @@ class GoogleDriveServiceImpl(
                     )
                     Result.success(id)
                 }
-            } catch (e: Exception) {
+            } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
                 Result.failure(e)
             }
         }
@@ -389,7 +410,9 @@ class GoogleDriveServiceImpl(
                     maxBytes = MAX_PINNED_FILE_BYTES
                 )
                 Result.success(true)
-            } catch (e: Exception) {
+            } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
                 Result.failure(e)
             }
         }
@@ -413,6 +436,8 @@ class GoogleDriveServiceImpl(
             }
             writeBodyAtomically(body, destinationPath, MAX_INDEX_FILE_BYTES)
             Result.success(extractedMimeType)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Result.failure(IllegalStateException("Could not safely download this file for local indexing."))
         }
@@ -454,6 +479,8 @@ class GoogleDriveServiceImpl(
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING
             )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             tempFile.delete()
             throw e
@@ -478,7 +505,9 @@ class GoogleDriveServiceImpl(
                     ?.takeIf(DriveIdValidator::isValidFileId)
                     ?: throw IllegalStateException("Drive did not return a valid folder id.")
                 Result.success(id)
-            } catch (e: Exception) {
+            } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
                 Result.failure(e)
             }
         }
@@ -500,7 +529,9 @@ class GoogleDriveServiceImpl(
                     removeParents = parents.joinToString(",")
                 )
                 Result.success(updated.id == fileId)
-            } catch (e: Exception) {
+            } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
                 Result.failure(e)
             }
         }
@@ -513,7 +544,9 @@ class GoogleDriveServiceImpl(
                     .toRequestBody("application/json; charset=UTF-8".toMediaType())
                 val updated = driveApi.updateFile(bearer(), fileId, metadata)
                 Result.success(updated.id == fileId && updated.starred == starred)
-            } catch (e: Exception) {
+            } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
                 Result.failure(e)
             }
         }
@@ -531,6 +564,8 @@ class GoogleDriveServiceImpl(
                 displayName = about.user?.displayName?.takeIf { it.isNotBlank() } ?: "Google Drive"
             )
             Result.success(Pair(usage, limit))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -568,13 +603,17 @@ class GoogleDriveServiceImpl(
                 timeZone = TimeZone.getTimeZone("UTC")
             }
             fmt.parse(iso)?.time ?: 0L
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             try {
                 val fmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
                     timeZone = TimeZone.getTimeZone("UTC")
                 }
                 fmt.parse(iso)?.time ?: 0L
-            } catch (_: Exception) {
+            } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
                 0L
             }
         }
