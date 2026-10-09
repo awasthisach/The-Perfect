@@ -90,6 +90,7 @@ abstract class VVFDatabase : RoomDatabase() {
                         `embeddingVector` BLOB,
                         `pinnedPath` TEXT,
                         `pinnedAtMs` INTEGER,
+                        `pinnedModifiedTimeMs` INTEGER,
                         `indexStatus` TEXT NOT NULL,
                         `indexAttempts` INTEGER NOT NULL,
                         `lastIndexedAtMs` INTEGER NOT NULL
