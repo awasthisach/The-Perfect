@@ -1,6 +1,9 @@
 package com.vvf.smartmanager.core.cloud.gdrive
 
 import android.content.Context
+import com.google.android.gms.auth.GoogleAuthUtil
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.firebase.auth.FirebaseAuth
 import com.vvf.smartmanager.core.model.CloudAccount
 import com.vvf.smartmanager.core.model.CloudProviderType
 import com.vvf.smartmanager.core.model.FileItem
@@ -70,27 +73,38 @@ class GoogleDriveServiceImpl(
     }
 
     private fun bearer(): String {
-        val t = accessToken
-        if (t.isNullOrBlank()) {
-            throw IllegalStateException(
-                "Google Drive not authenticated. Complete OAuth / Credential Manager and call setAccessToken()."
-            )
+        val googleAccount = GoogleSignIn.getLastSignedInAccount(context)
+        val firebaseEmail = runCatching { FirebaseAuth.getInstance().currentUser?.email }.getOrNull()
+        if (!DriveSessionPolicy.accountsMatch(googleAccount?.email, firebaseEmail)) {
+            setAccessToken(null)
+            throw IllegalStateException("Google Drive and Firebase sessions are not aligned. Sign in again.")
         }
-        if (DriveSessionPolicy.isLikelyExpired(tokenIssuedAtMs, System.currentTimeMillis())) {
-            throw IllegalStateException("Google Drive access token is likely expired. Please sign in again.")
+
+        val currentToken = accessToken?.takeIf { it.isNotBlank() }
+        val now = System.currentTimeMillis()
+        if (currentToken != null && !DriveSessionPolicy.isLikelyExpired(tokenIssuedAtMs, now)) {
+            return "Bearer $currentToken"
         }
-        return "Bearer $t"
+
+        // Silent refresh is allowed only for an existing, aligned Google + Firebase session.
+        val account = googleAccount?.account
+            ?: throw IllegalStateException("Google Drive session expired. Please sign in again.")
+        val refreshed = try {
+            GoogleAuthUtil.getToken(context, account, "oauth2:https://www.googleapis.com/auth/drive")
+        } catch (_: Exception) {
+            setAccessToken(null)
+            throw IllegalStateException("Google Drive token refresh failed. Sign in again.")
+        }
+        if (refreshed.isBlank()) {
+            setAccessToken(null)
+            throw IllegalStateException("Google Drive token refresh returned an empty token. Sign in again.")
+        }
+        setAccessToken(refreshed)
+        return "Bearer $refreshed"
     }
 
     override suspend fun authenticate(): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            if (accessToken.isNullOrBlank()) {
-                return@withContext Result.failure(
-                    IllegalStateException(
-                        "No access token. Wire Google Sign-In / Credential Manager and call setAccessToken(token)."
-                    )
-                )
-            }
             val about = driveApi.about(bearer())
             val usage = about.storageQuota?.usage?.toLongOrNull() ?: 0L
             val limit = about.storageQuota?.limit?.toLongOrNull() ?: 0L
