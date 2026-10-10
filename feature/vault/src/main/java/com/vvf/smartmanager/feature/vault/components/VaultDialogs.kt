@@ -1,5 +1,10 @@
 package com.vvf.smartmanager.feature.vault.components
 
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -47,6 +52,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,6 +66,11 @@ import com.vvf.smartmanager.core.common.FormatUtils
 import com.vvf.smartmanager.core.model.VaultItem
 import com.vvf.smartmanager.feature.vault.PinSetupStep
 import java.io.File
+import java.io.IOException
+import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,16 +78,94 @@ fun VaultAddFileDialog(
     onDismiss: () -> Unit,
     onEncryptFile: (File, String, String, Boolean) -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val importScope = rememberCoroutineScope()
     var filePath by remember { mutableStateOf("") }
+    var selectedFileName by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("Documents") }
     var notes by remember { mutableStateOf("") }
-    var deleteOriginal by remember { mutableStateOf(true) }
     var categoryDropdownExpanded by remember { mutableStateOf(false) }
+    var isImporting by remember { mutableStateOf(false) }
+    var selectionError by remember { mutableStateOf<String?>(null) }
 
     val categories = listOf("Images", "Videos", "Documents", "Audio", "Archives", "Other")
+    fun discardStagedCopy() {
+        val staged = filePath.takeIf { it.isNotBlank() }?.let(::File) ?: return
+        val stagingRoot = File(context.cacheDir, "vault-imports").canonicalFile
+        val canonicalStaged = runCatching { staged.canonicalFile }.getOrNull() ?: return
+        if (canonicalStaged.path.startsWith(stagingRoot.path + File.separator)) {
+            canonicalStaged.delete()
+            canonicalStaged.parentFile?.delete()
+        }
+    }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri != null) {
+            isImporting = true
+            selectionError = null
+            importScope.launch {
+                val stagedResult = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val displayName = context.contentResolver.query(
+                            uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
+                        )?.use { cursor ->
+                            val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                            if (column >= 0 && cursor.moveToFirst()) cursor.getString(column) else null
+                        }?.takeIf { it.isNotBlank() } ?: "selected-file"
+                        val safeName = displayName.substringAfterLast('/').substringAfterLast('\\')
+                            .replace(Regex("[^A-Za-z0-9._-]"), "_").take(120).ifBlank { "selected-file" }
+                        val stagingDir = File(context.cacheDir, "vault-imports/${UUID.randomUUID()}")
+                        if (!stagingDir.mkdirs() && !stagingDir.isDirectory) {
+                            throw IOException("Could not prepare private import storage.")
+                        }
+                        val destination = File(stagingDir, safeName)
+                        try {
+                            val input = context.contentResolver.openInputStream(uri)
+                                ?: throw IOException("The selected document could not be opened.")
+                            input.use { source ->
+                                destination.outputStream().use { output ->
+                                    val buffer = ByteArray(8192)
+                                    var total = 0L
+                                    while (true) {
+                                        val count = source.read(buffer)
+                                        if (count < 0) break
+                                        total += count
+                                        if (total > MAX_VAULT_IMPORT_BYTES) {
+                                            throw IOException("Files larger than 512 MB cannot be imported into the Vault.")
+                                        }
+                                        output.write(buffer, 0, count)
+                                    }
+                                }
+                            }
+                            destination
+                        } catch (error: Exception) {
+                            destination.delete()
+                            stagingDir.delete()
+                            throw error
+                        }
+                    }
+                }
+                isImporting = false
+                stagedResult.onSuccess { staged ->
+                    discardStagedCopy()
+                    filePath = staged.absolutePath
+                    selectedFileName = staged.name
+                    selectedCategory = when (staged.extension.lowercase()) {
+                        "jpg", "jpeg", "png", "gif", "webp" -> "Images"
+                        "mp4", "mkv", "mov", "avi" -> "Videos"
+                        "mp3", "wav", "m4a", "flac" -> "Audio"
+                        "zip", "7z", "rar", "tar", "gz" -> "Archives"
+                        "pdf", "txt", "doc", "docx", "odt", "rtf" -> "Documents"
+                        else -> "Other"
+                    }
+                }.onFailure {
+                    selectionError = it.message ?: "Could not read the selected document."
+                }
+            }
+        }
+    }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { discardStagedCopy(); onDismiss() },
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
@@ -100,22 +189,32 @@ fun VaultAddFileDialog(
                     .padding(vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                OutlinedButton(
+                    onClick = { filePicker.launch(arrayOf("*/*")) },
+                    enabled = !isImporting,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (isImporting) "Importing selected file…" else "Choose file from device")
+                }
                 OutlinedTextField(
-                    value = filePath,
-                    onValueChange = { filePath = it },
-                    label = { Text("File Path to Encrypt") },
-                    placeholder = { Text("/path/to/sensitive_file.pdf") },
+                    value = selectedFileName,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Selected file") },
+                    placeholder = { Text("No file selected") },
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("vault_add_file_path_input")
                 )
-
                 Text(
-                    text = "Enter the full path of a real file. Demo/sample files are not created automatically.",
+                    text = "A temporary private copy is encrypted. The original document stays in its original location.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                selectionError?.let { error ->
+                    Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
 
                 // Category Dropdown
                 ExposedDropdownMenuBox(
@@ -158,34 +257,22 @@ fun VaultAddFileDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // Shred original checkbox
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { deleteOriginal = !deleteOriginal }
-                ) {
-                    Checkbox(
-                        checked = deleteOriginal,
-                        onCheckedChange = { deleteOriginal = it },
-                        colors = CheckboxDefaults.colors(checkedColor = BhagwaOrange)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Securely shred original plaintext file",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
+                Text(
+                    text = "The temporary import copy is removed after the encryption attempt. The source file is never deleted by this action.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         },
         confirmButton = {
             Button(
                 onClick = {
                     val file = File(filePath)
-                    if (file.exists()) {
-                        onEncryptFile(file, selectedCategory, notes, deleteOriginal)
+                    if (file.isFile) {
+                        onEncryptFile(file, selectedCategory, notes, true)
                     }
                 },
-                enabled = filePath.isNotBlank() && File(filePath).exists(),
+                enabled = !isImporting && filePath.isNotBlank() && File(filePath).isFile,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = BhagwaOrange,
                     contentColor = Color.White
@@ -196,7 +283,7 @@ fun VaultAddFileDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = { discardStagedCopy(); onDismiss() }) {
                 Text("Cancel")
             }
         }
