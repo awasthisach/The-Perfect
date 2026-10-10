@@ -9,8 +9,9 @@ interface OcrPluginSPI : IOcrEngine {
     override val version: String get() = "1.0.0"
 }
 
-/** Service Provider Interface for local on-device semantic search. */
+/** Service Provider Interface for local similarity search. */
 interface SemanticSearchSPI : ISemanticSearchEngine {
+    // Keep the legacy ID for stored plugin settings; this implementation is not TFLite.
     override val pluginId: String get() = "plugin.semantic.tflite"
     override val version: String get() = "1.0.0"
 }
