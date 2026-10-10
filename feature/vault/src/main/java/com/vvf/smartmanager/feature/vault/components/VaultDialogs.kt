@@ -87,6 +87,7 @@ fun VaultAddFileDialog(
     var notes by remember { mutableStateOf("") }
     var categoryDropdownExpanded by remember { mutableStateOf(false) }
     var isImporting by remember { mutableStateOf(false) }
+    var isSubmitting by remember { mutableStateOf(false) }
     var selectionError by remember { mutableStateOf<String?>(null) }
 
     val categories = listOf("Images", "Videos", "Documents", "Audio", "Archives", "Other")
@@ -171,7 +172,7 @@ fun VaultAddFileDialog(
     }
 
     AlertDialog(
-        onDismissRequest = { discardStagedCopy(); onDismiss() },
+        onDismissRequest = { if (!isImporting && !isSubmitting) { discardStagedCopy(); onDismiss() } },
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
@@ -274,7 +275,8 @@ fun VaultAddFileDialog(
             Button(
                 onClick = {
                     val file = File(filePath)
-                    if (file.isFile) {
+                    if (file.isFile && !isSubmitting) {
+                        isSubmitting = true
                         onEncryptFile(file, selectedCategory, notes, true)
                     }
                 },
@@ -289,7 +291,7 @@ fun VaultAddFileDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = { discardStagedCopy(); onDismiss() }) {
+            TextButton(enabled = !isImporting && !isSubmitting, onClick = { discardStagedCopy(); onDismiss() }) {
                 Text("Cancel")
             }
         }
