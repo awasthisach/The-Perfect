@@ -68,6 +68,7 @@ abstract class VVFDatabase : RoomDatabase() {
         val MIGRATION_2_3: Migration = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `file_metadata` ADD COLUMN `contentText` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `file_metadata` ADD COLUMN `canonicalUri` TEXT")
                 db.execSQL("DROP TABLE IF EXISTS `file_fts`")
                 db.execSQL(
                     "CREATE VIRTUAL TABLE IF NOT EXISTS `file_fts` USING FTS4(" +
