@@ -22,7 +22,7 @@ import kotlinx.coroutines.withContext
  * Paths:
  * 1. [requestGoogleIdToken] — Credential Manager (OpenID id_token only).
  * 2. [buildDriveSignInIntent] + [handleSignInActivityResult] — Drive access token
- *    with scope [DRIVE_FILE_SCOPE] for [GoogleDriveServiceImpl.setAccessToken].
+ *    with scope [DRIVE_SCOPE] for [GoogleDriveServiceImpl.setAccessToken].
  */
 class GoogleDriveAuth(
     private val context: Context,
@@ -67,7 +67,7 @@ class GoogleDriveAuth(
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestEmail()
             .requestIdToken(serverClientId)
-            .requestScopes(Scope(DRIVE_FILE_SCOPE))
+            .requestScopes(Scope(DRIVE_SCOPE))
             .build()
         return GoogleSignIn.getClient(context, gso).signInIntent
     }
@@ -129,7 +129,7 @@ class GoogleDriveAuth(
             val token = com.google.android.gms.auth.GoogleAuthUtil.getToken(
                 context,
                 acct,
-                "oauth2:$DRIVE_FILE_SCOPE"
+                "oauth2:$DRIVE_SCOPE"
             )
             if (token.isNullOrBlank()) {
                 Result.failure(
@@ -150,7 +150,7 @@ class GoogleDriveAuth(
             val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
                 .requestEmail()
                 .requestIdToken(serverClientId)
-                .requestScopes(Scope(DRIVE_FILE_SCOPE))
+                .requestScopes(Scope(DRIVE_SCOPE))
                 .build()
             GoogleSignIn.getClient(context, gso).signOut().await()
         } catch (_: Exception) {
@@ -159,7 +159,7 @@ class GoogleDriveAuth(
     }
 
     companion object {
-        const val DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
+        const val DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 
         /** Common Google Sign-In [ApiException] status codes → actionable message. */
         fun mapApiException(e: ApiException): String = when (e.statusCode) {
