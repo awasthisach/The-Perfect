@@ -123,6 +123,18 @@ interface FileDao {
     @Query("SELECT * FROM file_metadata WHERE path LIKE 'gdrive://%' ORDER BY name ASC")
     suspend fun getDriveIndexRows(): List<FileMetadataEntity>
 
+    @Query("SELECT * FROM file_metadata WHERE path LIKE 'gdrive://%' AND offlinePinned = 1 ORDER BY COALESCE(offlinePinnedAt, 0) ASC")
+    suspend fun getOfflinePinnedDriveFiles(): List<FileMetadataEntity>
+
+    @Query("SELECT COALESCE(SUM(offlineBytes), 0) FROM file_metadata WHERE path LIKE 'gdrive://%' AND offlinePinned = 1")
+    suspend fun getOfflinePinnedBytes(): Long
+
+    @Query("SELECT COUNT(*) FROM file_metadata WHERE path LIKE 'gdrive://%' AND offlinePinned = 1")
+    suspend fun getOfflinePinnedCount(): Int
+
+    @Query("UPDATE file_metadata SET offlinePinned = :pinned, offlineLocalPath = :localPath, offlinePinnedAt = :pinnedAt, offlineBytes = :offlineBytes WHERE path = :path")
+    suspend fun setOfflinePin(path: String, pinned: Boolean, localPath: String?, pinnedAt: Long?, offlineBytes: Long)
+
     /** Replaces only the local Drive index atomically; never performs remote Drive mutations. */
     @Transaction
     suspend fun replaceDriveIndexRows(rows: List<FileMetadataEntity>) {
