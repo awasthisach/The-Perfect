@@ -15,5 +15,6 @@ data class FileFtsEntity(
     val name: String,
     val path: String,
     val tags: String,
-    val mimeType: String
+    val mimeType: String,
+    val contentText: String
 )
