@@ -362,13 +362,24 @@ class GoogleDriveServiceImpl(
     override suspend fun downloadFileBounded(
         fileId: String,
         destinationPath: String,
-        maxBytes: Long
+        maxBytes: Long,
+        mimeType: String?
     ): Result<Boolean> = withContext(Dispatchers.IO) {
         val destination = File(destinationPath)
         try {
-            require(maxBytes in 1..(100L * 1024L * 1024L)) { "Download limit must be between 1 byte and 100 MiB" }
+            require(maxBytes in 1..(200L * 1024L * 1024L)) { "Download limit must be between 1 byte and 200 MiB" }
             requireValidDriveId(fileId, "fileId")
-            val body = driveApi.downloadFile(bearer(), fileId)
+            val exportMime = when (mimeType?.lowercase()) {
+                "application/vnd.google-apps.document",
+                "application/vnd.google-apps.presentation" -> "application/pdf"
+                "application/vnd.google-apps.spreadsheet" -> DriveOfficeTextExtractorMime.XLSX
+                else -> null
+            }
+            val body = if (exportMime != null) {
+                driveApi.exportTextFile(bearer(), fileId, exportMime)
+            } else {
+                driveApi.downloadFile(bearer(), fileId)
+            }
             body.use { response ->
                 if (response.contentLength() > maxBytes) {
                     throw IllegalArgumentException("Drive file exceeds the configured download limit")
