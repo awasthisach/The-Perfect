@@ -97,7 +97,7 @@ internal object DriveOfficeTextExtractor {
                         val body = cell.groupValues[2]
                         val raw = Regex("<v\\b[^>]*>(.*?)</v>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
                             .find(body)?.groupValues?.get(1)?.let(::decodeXmlEntities).orEmpty()
-                        if (Regex("""\\bt=["']s["']""").containsMatchIn(attributes)) {
+                        if (Regex("""\bt=["']s["']""").containsMatchIn(attributes)) {
                             sharedStrings.getOrNull(raw.toIntOrNull() ?: -1).orEmpty()
                         } else if (Regex("""\\bt=["']inlineStr["']""").containsMatchIn(attributes)) {
                             extractTextNodes(body, "t")
