@@ -418,6 +418,8 @@ private fun VVFNavHost(
             SettingsScreen(
                 initialAutoIndexOcr = app.isAutoIndexOcrEnabled(),
                 onAutoIndexOcrChange = { enabled -> app.setAutoIndexOcrEnabled(enabled) },
+                initialDriveFullContentConsent = app.isDriveFullContentConsentEnabled(),
+                onDriveFullContentConsentChange = { enabled -> app.setDriveFullContentConsentEnabled(enabled) },
                 initialOfflineOnlyMode = app.isOfflineOnlyModeEnabled(),
                 onOfflineOnlyModeChange = { enabled -> app.setOfflineOnlyModeEnabled(enabled) },
                 initialEmbeddingConsent = app.isEmbeddingConsentEnabled(),
