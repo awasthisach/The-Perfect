@@ -155,6 +155,7 @@ class VVFApplication : Application(), Configuration.Provider {
                 .result
                 .get()
         }
+        DriveOfflineManager(this@VVFApplication).clearAllLocalCopies()
         if (::database.isInitialized) {
             database.fileDao().deleteAllDriveIndexRows()
             database.searchFtsDao().rebuildFtsIndex()
