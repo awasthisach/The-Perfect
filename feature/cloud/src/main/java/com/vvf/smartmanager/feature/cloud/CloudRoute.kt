@@ -14,6 +14,7 @@ import com.vvf.smartmanager.core.model.CloudProviderType
 fun CloudRoute(
     viewModel: CloudViewModel,
     onGoogleDriveSignInRequested: () -> Unit,
+    onDriveIndexRequested: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -40,6 +41,7 @@ fun CloudRoute(
     CloudScreen(
         viewModel = viewModel,
         onGoogleDriveSignInRequested = onGoogleDriveSignInRequested,
+        onDriveIndexRequested = onDriveIndexRequested,
         modifier = modifier
     )
 }
