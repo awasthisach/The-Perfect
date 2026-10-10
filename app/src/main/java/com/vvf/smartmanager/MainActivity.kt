@@ -396,6 +396,10 @@ private fun VVFNavHost(
                     onGoogleDriveSignInRequested { accessTokenResult ->
                         cloudViewModel.completeGoogleDriveSignIn(accessTokenResult)
                     }
+                },
+                onDriveIndexRequested = {
+                    app.enqueueDriveIndexing()
+                    Toast.makeText(app, "Drive search indexing scheduled", Toast.LENGTH_SHORT).show()
                 }
             )
         }
