@@ -1,5 +1,7 @@
 package com.vvf.smartmanager.feature.vault
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -40,6 +42,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -47,6 +53,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.vvf.smartmanager.core.common.FormatUtils
+import com.vvf.smartmanager.core.model.VaultItem
 import com.vvf.smartmanager.feature.vault.components.EmeraldGreen
 import com.vvf.smartmanager.feature.vault.components.VaultAddFileDialog
 import com.vvf.smartmanager.feature.vault.components.VaultCategoryFilterChips
@@ -61,6 +68,8 @@ import com.vvf.smartmanager.feature.vault.components.VaultSettingsDialog
 import com.vvf.smartmanager.feature.vault.components.VaultSetupDecoyDialog
 import java.io.File
 
+private enum class VaultDocumentAction { RESTORE, EXPORT_COPY }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VaultUnlockedContent(
@@ -70,6 +79,29 @@ fun VaultUnlockedContent(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    var pendingDocumentItem by remember { mutableStateOf<VaultItem?>(null) }
+    var pendingDocumentAction by remember { mutableStateOf(VaultDocumentAction.EXPORT_COPY) }
+    val createDocumentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri ->
+        val item = pendingDocumentItem
+        val action = pendingDocumentAction
+        pendingDocumentItem = null
+        if (uri != null && item != null) {
+            viewModel.transferVaultItemToUri(
+                item = item,
+                destinationUri = uri,
+                contentResolver = context.contentResolver,
+                cacheDirectory = context.cacheDir,
+                removeFromVaultAfterTransfer = action == VaultDocumentAction.RESTORE
+            )
+        }
+    }
+    val requestDocumentTransfer: (VaultItem, VaultDocumentAction) -> Unit = { item, action ->
+        pendingDocumentItem = item
+        pendingDocumentAction = action
+        createDocumentLauncher.launch(item.originalName)
+    }
 
     Scaffold(
         modifier = modifier
@@ -247,11 +279,9 @@ fun VaultUnlockedContent(
             VaultItemDetailDialog(
                 item = uiState.selectedItem!!,
                 onDismiss = { viewModel.dismissItemDetailDialog() },
-                onRestore = { viewModel.restoreItem(it) },
+                onRestore = { item -> requestDocumentTransfer(item, VaultDocumentAction.RESTORE) },
                 onExportCopy = { item ->
-                    val exportDir = File(context.filesDir, "exported")
-                    val destFile = File(exportDir, item.originalName)
-                    viewModel.exportItem(item, destFile)
+                    requestDocumentTransfer(item, VaultDocumentAction.EXPORT_COPY)
                 },
                 onDeletePermanently = { viewModel.showConfirmDeleteDialog() }
             )
