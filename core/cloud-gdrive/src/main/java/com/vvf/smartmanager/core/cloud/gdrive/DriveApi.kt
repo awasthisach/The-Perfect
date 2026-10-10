@@ -69,6 +69,15 @@ interface DriveApi {
         @Query("alt") alt: String = "media"
     ): ResponseBody
 
+    /** Exports native Google Workspace documents as plain text/CSV for local indexing. */
+    @Streaming
+    @GET("files/{fileId}/export")
+    suspend fun exportTextFile(
+        @Header("Authorization") bearer: String,
+        @Path("fileId") fileId: String,
+        @Query("mimeType") mimeType: String = "text/plain"
+    ): ResponseBody
+
     @GET("about")
     suspend fun about(@Header("Authorization") bearer: String, @Query("fields") fields: String = "storageQuota"): DriveAboutResponse
 }
