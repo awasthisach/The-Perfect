@@ -99,7 +99,7 @@ internal object DriveOfficeTextExtractor {
                             .find(body)?.groupValues?.get(1)?.let(::decodeXmlEntities).orEmpty()
                         if (Regex("""\bt=["']s["']""").containsMatchIn(attributes)) {
                             sharedStrings.getOrNull(raw.toIntOrNull() ?: -1).orEmpty()
-                        } else if (Regex("""\\bt=["']inlineStr["']""").containsMatchIn(attributes)) {
+                        } else if (Regex("""\bt=["']inlineStr["']""").containsMatchIn(attributes)) {
                             extractTextNodes(body, "t")
                         } else raw
                     }
