@@ -40,10 +40,14 @@ class DriveIndexBackupManager(private val context: Context) {
                         .put("canonicalUri", row.canonicalUri ?: JSONObject.NULL)
                 )
             }
+            val accountEmail = context.getSharedPreferences("drive_search_index", Context.MODE_PRIVATE)
+                .getString("account_email", "")
+                .orEmpty()
             val root = JSONObject()
                 .put("format", FORMAT_NAME)
                 .put("schemaVersion", SCHEMA_VERSION)
                 .put("exportedAt", System.currentTimeMillis())
+                .put("accountEmail", accountEmail)
                 .put("files", files)
             val bytes = root.toString().toByteArray(Charsets.UTF_8)
             require(bytes.size <= MAX_BACKUP_BYTES) { "JSON backup exceeds the 50 MiB limit" }
@@ -64,6 +68,12 @@ class DriveIndexBackupManager(private val context: Context) {
             val root = JSONObject(bytes.toString(Charsets.UTF_8))
             require(root.optString("format") == FORMAT_NAME) { "This is not a Drive Semantic Search index backup" }
             require(root.optInt("schemaVersion", -1) == SCHEMA_VERSION) { "Unsupported index backup version" }
+            val backupEmail = root.optString("accountEmail", "").trim().lowercase()
+            val indexPrefs = context.getSharedPreferences("drive_search_index", Context.MODE_PRIVATE)
+            val currentEmail = indexPrefs.getString("account_email", null)?.trim()?.lowercase()
+            if (!currentEmail.isNullOrBlank()) {
+                require(backupEmail == currentEmail) { "This index backup belongs to a different Google account" }
+            }
             val files = root.optJSONArray("files")
                 ?: throw IllegalArgumentException("Backup is missing the files list")
             require(files.length() <= MAX_FILES) { "Backup exceeds the 20,000-file safety limit" }
@@ -118,6 +128,9 @@ class DriveIndexBackupManager(private val context: Context) {
             // Imported data is a local snapshot, not proof of a current remote changes cursor.
             context.getSharedPreferences("drive_search_index", Context.MODE_PRIVATE)
                 .edit()
+                .apply {
+                    if (currentEmail.isNullOrBlank() && backupEmail.isNotBlank()) putString("account_email", backupEmail)
+                }
                 .remove("changes_cursor")
                 .putString("last_status", "IMPORTED_LOCAL_SNAPSHOT")
                 .putInt("last_indexed_count", rows.size)
