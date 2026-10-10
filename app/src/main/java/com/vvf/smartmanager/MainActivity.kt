@@ -513,7 +513,8 @@ private fun VVFNavHost(
                 },
                 onGoogleDriveSignOutRequested = onGoogleDriveSignOutRequested,
                 onExportDriveIndexRequested = onExportDriveIndexRequested,
-                onImportDriveIndexRequested = onImportDriveIndexRequested
+                onImportDriveIndexRequested = onImportDriveIndexRequested,
+                driveIndexStatus = app.driveIndexStatus
             )
         }
         composable(TopLevelDestination.PLUGINS.route) {
