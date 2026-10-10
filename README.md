@@ -1,74 +1,37 @@
-# VVF Smart Manager (Production Hardening)
+# Drive Semantic Search
 
-> **VVF Smart Manager** is an offline-first Android file manager, encrypted vault, and privacy-focused productivity suite.
+Android-native Google Drive search app built with Kotlin, Jetpack Compose, Material 3, Room, Coroutines/Flow, and WorkManager. This project must not be packaged as a WebView wrapper.
 
----
+## Product contract
 
-## Technology stack
+- Google account selection is interactive; Drive OAuth and Firebase Auth must refer to the same account.
+- Google Drive access is read/write only for user-confirmed upload, folder creation, move, and star actions. The app must never delete Drive files.
+- Local keyword/full-text and metadata search remains available when neural search is disabled or unavailable.
+- Neural search requires explicit, revocable consent. Consent defaults to off.
+- No Gemini API key or other server secret belongs in the APK.
+- File bytes belong in app-private storage. Backups must never include OAuth tokens, Firebase ID tokens, or API keys.
+- Minimum supported Android version: API 26.
 
-- **Language:** Kotlin + Coroutines/Flow
-- **UI:** Jetpack Compose + Material 3
-- **Architecture:** Modular Clean Architecture / MVVM-style ViewModels
-- **Dependency injection:** Manual application composition root (Hilt migration is not yet complete)
-- **Navigation:** Jetpack Navigation Compose with centralized route constants
-- **Persistence:** Room + SQLCipher
-- **Security:** Android Keystore, AES-GCM vault encryption, protected database passphrase
-- **Background work:** AndroidX WorkManager
-- **OCR:** ML Kit plugin
-- **Semantic search:** on-device plugin architecture
-- **Cloud:** Google Drive core integration plus cloud-driver SPI
-- **Build:** Gradle Kotlin DSL + version catalog
-- **Compile/Target SDK:** 36
-- **Minimum SDK:** 24
+## Architecture
 
-## Project structure
+- app/: Compose application shell, preferences, and dependency wiring.
+- core/cloud-gdrive/: Google OAuth/Firebase account linking, Drive REST API, paginated metadata listing, Drive changes cursor contracts, and explicit Drive mutation methods.
+- core/domain/: local search and consent-gated semantic/keyword hybrid ranking.
+- core/security/: Android Keystore AES-GCM protection and PBKDF2-HMAC-SHA256 vault PIN derivation.
+- core/database/: Room/SQLCipher persistence.
+- core/background/: WorkManager indexing.
+- feature/*: UI features.
+- docs/ANDROID_EMBEDDING_AUTH.md: mobile embedding authentication, consent, and proxy requirements.
+- docs/DRIVE_SEMANTIC_SEARCH_IMPLEMENTATION_GAP.md: implementation and release-gate audit.
 
-```text
-app/                 Application entry point and navigation
-core/common/         Shared utilities
-core/model/          Shared models/contracts
-core/security/       Cryptographic and Keystore services
-core/database/       Room/SQLCipher persistence
-core/data/           Repository/data implementations
-core/domain/         Business use cases and backup orchestration
-core/background/     WorkManager jobs
-core/cloud-gdrive/   Google Drive integration
-core/plugin-spi/     Plugin contracts
-feature/*             User-facing feature modules
-plugins/*             Optional provider/engine implementations
-docs/                Architecture, security and readiness documentation
-```
+## Build and test
 
-## Build locally
+    ./gradlew testDebugUnitTest
+    ./gradlew lintDebug
+    ./gradlew assembleDebug
 
-Use the Gradle wrapper rather than a system Gradle installation:
+A release build must use managed release signing secrets. The repository must not contain a reusable signing key. The Google OAuth Android client must be registered with the actual package name and signing certificate fingerprints.
 
-```bash
-# Configure Android SDK through Android Studio or local.properties
-./gradlew assembleDebug
-./gradlew testDebugUnitTest
-./gradlew lintDebug
-```
+## Release status
 
-### Production release
-
-Production releases **must never use the Android debug keystore**. `assembleRelease` requires these environment variables:
-
-```text
-KEYSTORE_PATH
-STORE_PASSWORD
-KEY_ALIAS        # optional; defaults to upload
-KEY_PASSWORD
-```
-
-The supported CI release path is `.github/workflows/release.yml`, which requires the corresponding GitHub Actions secrets.
-
-## Current production status
-
-This repository is under active production hardening and is **not yet independently verified for public release**. The current evidence-based readiness assessment is maintained in:
-
-- [Production Readiness Audit](docs/PRODUCTION_READINESS_2026-08-31.md)
-- [Architecture Guide](docs/ARCHITECTURE.md)
-- [Security Whitepaper](docs/SECURITY_WHITEPAPER.md)
-
-Cloud restore remains intentionally fail-closed until download, integrity verification, atomic staging, rollback, and recovery tests are complete.
+**Not production-ready until all gates in the implementation-gap audit are verified.** In particular, the trusted mobile embedding proxy/App Check path, complete resumable Drive-to-Room indexing pipeline, on-device PDF/Office/text extraction, offline pinning and eviction, JSON index import/export, full screen flow, and real-device OAuth/Drive tests require passing evidence. A green CI run alone does not establish production readiness.
