@@ -12,6 +12,7 @@ import com.vvf.smartmanager.core.model.FileOperationProgress
 import com.vvf.smartmanager.core.model.FileSortOption
 import com.vvf.smartmanager.core.model.NearDuplicateCluster
 import com.vvf.smartmanager.core.model.SearchFilter
+import com.vvf.smartmanager.core.model.SearchMatchType
 import com.vvf.smartmanager.core.model.SearchResultItem
 import com.vvf.smartmanager.core.model.SemanticCandidate
 import com.vvf.smartmanager.core.model.SemanticSearchOptions
