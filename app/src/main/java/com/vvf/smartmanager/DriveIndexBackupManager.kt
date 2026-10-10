@@ -124,6 +124,7 @@ class DriveIndexBackupManager(private val context: Context) {
 
             val app = context.applicationContext as VVFApplication
             app.database.fileDao().replaceDriveIndexRows(rows)
+            DriveOfflineManager(context).clearAllLocalCopies()
             app.database.searchFtsDao().rebuildFtsIndex()
             // Imported data is a local snapshot, not proof of a current remote changes cursor.
             val prefs = context.getSharedPreferences("drive_search_index", Context.MODE_PRIVATE)
