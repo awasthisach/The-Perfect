@@ -41,12 +41,6 @@ android {
       keyAlias = providers.environmentVariable("KEY_ALIAS").orNull
       keyPassword = providers.environmentVariable("KEY_PASSWORD").orNull
     }
-    getByName("debug") {
-      storeFile = vvfDebugKeystoreFile
-      storePassword = "vvfdebug123"
-      keyAlias = "vvfdebug"
-      keyPassword = "vvfdebug123"
-    }
   }
 
   buildTypes {
