@@ -9,6 +9,7 @@ interface GoogleDriveService {
     suspend fun listDriveFiles(folderId: String = "root"): Result<List<FileItem>>
     suspend fun uploadFile(localFile: FileItem, remoteFolderId: String = "root"): Result<String>
     suspend fun downloadFile(fileId: String, destinationPath: String): Result<Boolean>
+    suspend fun downloadFileBounded(fileId: String, destinationPath: String, maxBytes: Long): Result<Boolean> = Result.failure(UnsupportedOperationException("Bounded download is not implemented"))
     /** Returns bounded plain text for supported text files and Google Workspace exports. */
     suspend fun extractTextContent(fileId: String, mimeType: String?): Result<String> = Result.failure(UnsupportedOperationException("Text extraction is not implemented"))
     suspend fun getStorageQuota(): Result<Pair<Long, Long>>
