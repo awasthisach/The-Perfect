@@ -48,7 +48,7 @@ class DriveIndexingWorker(
         try {
             val savedCursor = prefs.getString(KEY_CURSOR, null)
             val snapshot = app.googleDriveService.syncDriveSnapshot(savedCursor).getOrElse {
-                saveStatus(prefs, "RETRY_REQUIRED", 0, false, it.message.orEmpty())
+                saveStatus(app, "RETRY_REQUIRED", 0, false, it.message.orEmpty())
                 return@withContext if (runAttemptCount < 5) Result.retry()
                 else Result.failure(workDataOf("reason" to "Drive sync failed; sign in again or retry later"))
             }
@@ -104,10 +104,10 @@ class DriveIndexingWorker(
                 // Do not commit a cursor after a capped full listing: that would silently skip
                 // files beyond the cap. The status is visible to diagnostics and the next manual
                 // sync will retry a bounded full listing.
-                saveStatus(prefs, "LIMIT_REACHED", indexed, true, "Drive listing reached the 20,000-file safety cap; index may be incomplete")
+                saveStatus(app, "LIMIT_REACHED", indexed, true, "Drive listing reached the 20,000-file safety cap; index may be incomplete")
             } else {
                 prefs.edit().putString(KEY_CURSOR, snapshot.cursor).apply()
-                saveStatus(prefs, "SYNCED", indexed, false, "")
+                saveStatus(app, "SYNCED", indexed, false, "")
             }
             Result.success(
                 workDataOf(
@@ -119,7 +119,7 @@ class DriveIndexingWorker(
         } catch (e: Exception) {
             // Never log bearer tokens or response headers.
             Log.w(TAG, "Drive indexing interrupted; cursor was not advanced", e)
-            saveStatus(prefs, "RETRY_REQUIRED", 0, false, e.message.orEmpty())
+            saveStatus(app, "RETRY_REQUIRED", 0, false, e.message.orEmpty())
             if (runAttemptCount < 5) Result.retry()
             else Result.failure(workDataOf("reason" to "Drive indexing failed; last committed cursor was preserved"))
         }
