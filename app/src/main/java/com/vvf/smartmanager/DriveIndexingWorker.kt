@@ -10,6 +10,7 @@ import com.vvf.smartmanager.core.cloud.gdrive.DriveFileDto
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
 import com.vvf.smartmanager.core.model.FileItem
+import com.vvf.smartmanager.core.model.OcrOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -130,11 +131,11 @@ class DriveIndexingWorker(
         val unchanged = old != null &&
             old.modifiedDate == item.lastModified &&
             old.md5Hash == item.md5Hash
-        val canExtract = isSupportedTextType(item.mimeType)
+        val canExtract = isSupportedTextType(item.mimeType) ||
+            (app.isDriveFullContentConsentEnabled() && isFullContentType(item))
         val content = when {
             unchanged && (!canExtract || old!!.contentText.isNotEmpty()) -> old!!.contentText
-            canExtract -> app.googleDriveService.extractTextContent(id, item.mimeType)
-                .getOrElse { old?.contentText?.takeIf { unchanged }.orEmpty() }
+            canExtract -> extractDriveText(app, id, item, unchanged, old)
             else -> ""
         }
         dao.insertOrUpdate(
@@ -154,6 +155,69 @@ class DriveIndexingWorker(
                 canonicalUri = item.canonicalUri
             )
         )
+    }
+
+    private suspend fun extractDriveText(
+        app: VVFApplication,
+        id: String,
+        item: FileItem,
+        unchanged: Boolean,
+        old: FileMetadataEntity?
+    ): String {
+        if (isSupportedTextType(item.mimeType)) {
+            return app.googleDriveService.extractTextContent(id, item.mimeType)
+                .getOrElse { old?.contentText?.takeIf { unchanged }.orEmpty() }
+        }
+        if (!app.isDriveFullContentConsentEnabled() || !isFullContentType(item)) return ""
+        if (item.sizeBytes !in 1..MAX_BINARY_DOWNLOAD_BYTES.toLong()) {
+            return old?.contentText?.takeIf { unchanged }.orEmpty()
+        }
+
+        val extension = item.name.substringAfterLast('.', "bin")
+            .lowercase()
+            .filter { it.isLetterOrDigit() }
+            .take(8)
+            .ifBlank { "bin" }
+        val directory = java.io.File(applicationContext.cacheDir, "drive-index-inputs").apply { mkdirs() }
+        val temporary = java.io.File.createTempFile("drive_index_", ".$extension", directory)
+        try {
+            val download = app.googleDriveService.downloadFile(id, temporary.absolutePath)
+            if (download.isFailure || temporary.length() !in 1..MAX_BINARY_DOWNLOAD_BYTES.toLong()) {
+                return old?.contentText?.takeIf { unchanged }.orEmpty()
+            }
+            val mime = item.mimeType.orEmpty().lowercase()
+            if (mime == DriveOfficeTextExtractor.DOCX ||
+                mime == DriveOfficeTextExtractor.XLSX ||
+                mime == DriveOfficeTextExtractor.PPTX
+            ) {
+                return runCatching { DriveOfficeTextExtractor.extract(temporary, mime) }
+                    .getOrElse { old?.contentText?.takeIf { unchanged }.orEmpty() }
+            }
+            val localItem = item.copy(
+                path = temporary.absolutePath,
+                sizeBytes = temporary.length(),
+                canonicalUri = null,
+                localFileId = null
+            )
+            return app.extractTextUseCase(
+                localItem,
+                OcrOptions(maxDimension = 2048, maxPagesForPdf = MAX_PDF_PAGES)
+            ).fold(
+                onSuccess = { it.fullText.take(MAX_EXTRACTED_TEXT_CHARS) },
+                onFailure = { old?.contentText?.takeIf { unchanged }.orEmpty() }
+            )
+        } finally {
+            temporary.delete()
+        }
+    }
+
+    private fun isFullContentType(item: FileItem): Boolean {
+        val mime = item.mimeType.orEmpty().lowercase()
+        val extension = item.extension
+        return mime == "application/pdf" ||
+            mime.startsWith("image/") ||
+            mime in setOf(DriveOfficeTextExtractor.DOCX, DriveOfficeTextExtractor.XLSX, DriveOfficeTextExtractor.PPTX) ||
+            extension in setOf("pdf", "jpg", "jpeg", "png", "webp", "bmp", "heic", "docx", "xlsx", "pptx")
     }
 
     private fun isSupportedTextType(mimeType: String?): Boolean {
@@ -208,6 +272,9 @@ class DriveIndexingWorker(
         private const val KEY_MESSAGE = "last_message"
         private const val KEY_UPDATED_AT = "last_updated_at"
         private const val BATCH_SIZE = 50
+        private const val MAX_BINARY_DOWNLOAD_BYTES = 20 * 1024 * 1024
+        private const val MAX_EXTRACTED_TEXT_CHARS = 250_000
+        private const val MAX_PDF_PAGES = 10
         private const val DRIVE_PATH_PREFIX = "gdrive://"
     }
 }
