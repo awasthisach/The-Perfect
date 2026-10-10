@@ -39,7 +39,7 @@ open_findings:
   - id: PROD-011
     severity: high
     title: Vault file selection and recovery path need scoped-storage validation
-    status: discovered
+    status: repair_implemented
     notes: >
       The add-file dialog now uses the Android Storage Access Framework, bounds private
       staging imports to 512 MB, and cleans temporary copies after the encryption attempt.
