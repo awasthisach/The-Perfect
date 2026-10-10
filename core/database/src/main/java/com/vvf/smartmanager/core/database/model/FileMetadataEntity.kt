@@ -29,8 +29,6 @@ data class FileMetadataEntity(
     val parentPath: String,
     val sizeBytes: Long,
     val mimeType: String,
-    /** Extracted local/Drive text; never contains auth credentials. */
-    val contentText: String = "",
     val isDirectory: Boolean,
     val modifiedDate: Long,
     val isFavorite: Boolean = false,
@@ -39,5 +37,7 @@ data class FileMetadataEntity(
     val deletedTimestamp: Long? = null,
     val tags: String = "", // Comma-separated tags
     val md5Hash: String? = null, // For Level 2 duplicate detection
-    val operationState: String = "IDLE" // To support DurableOperationState tests
+    val operationState: String = "IDLE", // To support DurableOperationState tests
+    /** Extracted local/Drive text; never contains auth credentials. */
+    val contentText: String = ""
 )
