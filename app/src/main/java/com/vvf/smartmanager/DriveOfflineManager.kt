@@ -75,15 +75,16 @@ class DriveOfflineManager(private val context: Context) {
                 else -> item.name.substringAfterLast('.', "bin")
                     .lowercase().filter { it.isLetterOrDigit() }.take(10).ifBlank { "bin" }
             }
-            finalFile = File(directory, "$id.$extension")
-            if (finalFile.exists() && !finalFile.delete()) {
+            val destination = File(directory, "$id.$extension")
+            finalFile = destination
+            if (destination.exists() && !destination.delete()) {
                 return@withContext Result.failure(IllegalStateException("Could not replace a stale offline copy"))
             }
-            if (!staging.renameTo(finalFile)) {
-                staging.copyTo(finalFile, overwrite = true)
+            if (!staging.renameTo(destination)) {
+                staging.copyTo(destination, overwrite = true)
                 staging.delete()
             }
-            dao.setOfflinePin(item.path, true, finalFile.absolutePath, System.currentTimeMillis(), actualBytes)
+            dao.setOfflinePin(item.path, true, destination.absolutePath, System.currentTimeMillis(), actualBytes)
             Result.success(true)
         } catch (e: Exception) {
             finalFile?.delete()
