@@ -8,33 +8,33 @@ import com.vvf.smartmanager.core.model.SemanticSearchOptions
 import com.vvf.smartmanager.core.model.SemanticSearchResult
 
 /**
- * Standard SPI contract for On-Device AI Semantic Search Engine plugin.
+ * SPI contract for local similarity-search engines. Implementations must accurately identify whether they use a neural model.
  * Guarantees zero cloud telemetry, 100% on-device vector embedding and similarity scoring.
  */
 interface ISemanticSearchEngine {
     val pluginId: String get() = "plugin.semantic.tflite"
-    val displayName: String get() = "TFLite On-Device Semantic AI Search"
+    val displayName: String get() = "Deterministic Token Similarity (Non-neural)"
     val version: String get() = "1.0.0"
     val isEnabled: Boolean get() = true
 
     /**
-     * Checks if the lightweight on-device TFLite model is downloaded and initialized.
+     * Checks whether this implementation is ready. This does not imply a neural model is present.
      */
     fun isModelReady(): Boolean
 
     /**
-     * Downloads/initializes the lightweight embedding model.
+     * Ensures the similarity engine is ready. A deterministic implementation may have no model to download.
      * @param progressCallback Progress report from 0.0f to 1.0f.
      */
     suspend fun downloadModel(progressCallback: (Float) -> Unit = {}): Boolean
 
     /**
-     * Generates a normalized high-dimensional semantic vector embedding for the given text.
+     * Generates a normalized vector for this implementation. Deterministic token projections are not neural embeddings.
      */
     suspend fun generateEmbedding(text: String): FloatArray
 
     /**
-     * Computes cosine similarities between query embedding and candidates,
+     * Computes vector similarities between a query and candidates,
      * filtering candidates above the similarity threshold (70% - 95%) and sorting by relevance.
      */
     suspend fun searchSimilar(
@@ -44,7 +44,7 @@ interface ISemanticSearchEngine {
     ): List<SemanticSearchResult>
 
     /**
-     * Detects near-duplicate clusters among candidate files using pairwise vector cosine similarity
+     * Detects candidate clusters using pairwise vector similarity
      * with the specified threshold (e.g. 0.70f to 0.95f).
      */
     suspend fun findNearDuplicates(
