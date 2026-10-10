@@ -163,6 +163,8 @@ class OfflineSearchRepository(
                 md5Hash = entity.md5Hash,
                 localFileId = entity.path.removePrefix("gdrive://").takeIf { entity.path.startsWith("gdrive://") },
                 canonicalUri = entity.canonicalUri,
+                isOfflinePinned = entity.offlinePinned,
+                offlineLocalPath = entity.offlineLocalPath,
                 tags = tagList
             )
         }
@@ -221,6 +223,8 @@ class OfflineSearchRepository(
                     md5Hash = entity.md5Hash,
                     localFileId = entity.path.removePrefix("gdrive://").takeIf { entity.path.startsWith("gdrive://") },
                     canonicalUri = entity.canonicalUri,
+                    isOfflinePinned = entity.offlinePinned,
+                    offlineLocalPath = entity.offlineLocalPath,
                     tags = tagList
                 )
                 if (!filter.includeHidden && fileItem.isHidden) return@mapNotNull null
