@@ -492,8 +492,12 @@ class VaultViewModel(
                 )
             }
             val isDecoy = (_uiState.value.sessionMode == VaultSessionMode.DECOY)
-            val result = withContext(Dispatchers.IO) {
-                lockFileInVaultUseCase(sourceFile, category, notes, deleteOriginal, isDecoy)
+            val result = try {
+                withContext(Dispatchers.IO) {
+                    lockFileInVaultUseCase(sourceFile, category, notes, deleteOriginal, isDecoy)
+                }
+            } finally {
+                cleanupVaultImportStaging(sourceFile)
             }
             _uiState.update {
                 it.copy(
@@ -505,6 +509,18 @@ class VaultViewModel(
                         "Encryption failed: ${result.exceptionOrNull()?.message}"
                     }
                 )
+            }
+        }
+    }
+
+    private fun cleanupVaultImportStaging(sourceFile: File) {
+        runCatching {
+            val staged = sourceFile.canonicalFile
+            val stagingDirectory = staged.parentFile ?: return
+            val stagingRoot = stagingDirectory.parentFile ?: return
+            if (stagingRoot.name == "vault-imports") {
+                staged.delete()
+                stagingDirectory.delete()
             }
         }
     }
