@@ -1,5 +1,7 @@
 package com.vvf.smartmanager.feature.vault
 
+import android.content.ContentResolver
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -10,6 +12,7 @@ import com.vvf.smartmanager.core.domain.LockFileInVaultUseCase
 import com.vvf.smartmanager.core.domain.RestoreVaultItemUseCase
 import com.vvf.smartmanager.core.domain.VaultAuthUseCase
 import com.vvf.smartmanager.core.model.VaultItem
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -22,6 +25,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
+import java.util.UUID
 
 class VaultViewModel(
     private val getVaultItemsUseCase: GetVaultItemsUseCase,
@@ -563,6 +568,69 @@ class VaultViewModel(
                     isProcessing = false,
                     showItemDetailDialog = false,
                     userMessage = if (result.isSuccess) "Exported copy to: ${destinationFile.name}" else "Export failed: ${result.exceptionOrNull()?.message}"
+                )
+            }
+        }
+    }
+
+    /**
+     * Export or restore through the Storage Access Framework. A restore removes the encrypted
+     * vault item only after the decrypted copy has been written successfully to the user-selected URI.
+     */
+    fun transferVaultItemToUri(
+        item: VaultItem,
+        destinationUri: Uri,
+        contentResolver: ContentResolver,
+        cacheDirectory: File,
+        removeFromVaultAfterTransfer: Boolean
+    ) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(isProcessing = true, processingMessage = if (removeFromVaultAfterTransfer) {
+                    "Restoring to selected location..."
+                } else {
+                    "Exporting decrypted copy..."
+                })
+            }
+            val outcome = try {
+                val exportedName = withContext(Dispatchers.IO) {
+                    val safeName = item.originalName
+                        .replace(Regex("[^A-Za-z0-9._-]"), "_")
+                        .take(120)
+                        .ifBlank { "vault-export.bin" }
+                    val tempFile = File(cacheDirectory, "vault-export-${UUID.randomUUID()}-$safeName")
+                    try {
+                        exportVaultItemUseCase(item.id, tempFile).getOrElse { throw it }
+                        val output = contentResolver.openOutputStream(destinationUri, "w")
+                            ?: throw IOException("The selected destination could not be opened.")
+                        output.use { target ->
+                            tempFile.inputStream().use { source -> source.copyTo(target) }
+                        }
+                        if (removeFromVaultAfterTransfer) {
+                            deleteVaultItemUseCase(item.id).getOrElse { throw it }
+                        }
+                        item.originalName
+                    } finally {
+                        tempFile.delete()
+                    }
+                }
+                Result.success(exportedName)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Result.failure(error)
+            }
+            _uiState.update {
+                it.copy(
+                    isProcessing = false,
+                    showItemDetailDialog = if (outcome.isSuccess) false else it.showItemDetailDialog,
+                    selectedItem = if (outcome.isSuccess) null else it.selectedItem,
+                    userMessage = outcome.fold(
+                        onSuccess = { name ->
+                            if (removeFromVaultAfterTransfer) "Restored: $name" else "Exported copy: $name"
+                        },
+                        onFailure = { error -> "Transfer failed: ${error.message ?: "unknown error"}" }
+                    )
                 )
             }
         }
