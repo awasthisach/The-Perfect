@@ -114,7 +114,7 @@ fun VaultAddFileDialog(
                             if (column >= 0 && cursor.moveToFirst()) cursor.getString(column) else null
                         }?.takeIf { it.isNotBlank() } ?: "selected-file"
                         val safeName = displayName.substringAfterLast('/').substringAfterLast('\\')
-                            .replace(Regex("[^A-Za-z0-9._-]"), "_").take(120).ifBlank { "selected-file" }
+                            .replace(Regex("[^\\p{L}\\p{Nd}._-]"), "_").take(120).ifBlank { "selected-file" }
                         val stagingDir = File(context.cacheDir, "vault-imports/${UUID.randomUUID()}")
                         if (!stagingDir.mkdirs() && !stagingDir.isDirectory) {
                             throw IOException("Could not prepare private import storage.")
