@@ -170,6 +170,22 @@ class VVFApplication : Application(), Configuration.Provider {
 
     fun setDriveFullContentConsentEnabled(enabled: Boolean) {
         settingsPrefs.edit().putBoolean(KEY_DRIVE_FULL_CONTENT_CONSENT, enabled).apply()
+        if (!enabled && ::database.isInitialized) {
+            applicationScope.launch {
+                runCatching {
+                    database.fileDao().clearDriveFullContentText(
+                        listOf(
+                            DriveOfficeTextExtractor.DOCX,
+                            DriveOfficeTextExtractor.XLSX,
+                            DriveOfficeTextExtractor.PPTX
+                        )
+                    )
+                    database.searchFtsDao().rebuildFtsIndex()
+                }.onFailure { error ->
+                    Log.w(TAG, "Could not clear full-content Drive text after consent revocation", error)
+                }
+            }
+        }
     }
 
     override fun onCreate() {
