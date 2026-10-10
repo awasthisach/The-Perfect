@@ -334,7 +334,14 @@ fun VaultItemDetailDialog(
                 DetailRow(label = "Encrypted Size", value = FormatUtils.formatBytes(item.sizeBytes))
                 DetailRow(label = "Locked On", value = FormatUtils.formatDate(item.createdAt))
                 DetailRow(label = "MIME Type", value = item.mimeType)
-                DetailRow(label = "Original Path", value = item.originalPath)
+                if (item.originalPath.contains("${File.separator}vault-imports${File.separator}")) {
+                    DetailRow(
+                        label = "Source",
+                        value = "Imported through the document picker; the original file remains in its original location."
+                    )
+                } else {
+                    DetailRow(label = "Original Path", value = item.originalPath)
+                }
                 val itemNotes = item.notes
                 if (!itemNotes.isNullOrBlank()) {
                     DetailRow(label = "Notes", value = itemNotes)
