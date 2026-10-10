@@ -24,7 +24,7 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
     private val embeddingDimension: Int = 128
     private val embeddingCache = ConcurrentHashMap<String, FloatArray>()
 
-    override fun isModelReady(): Boolean = isModelDownloaded
+    override fun isModelReady(): Boolean = isEngineReady
 
     override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean = withContext(Dispatchers.IO) {
         // This implementation ships as code and has no external model asset to download.
