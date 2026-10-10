@@ -193,7 +193,7 @@ class DriveIndexingWorker(
         val directory = java.io.File(applicationContext.cacheDir, "drive-index-inputs").apply { mkdirs() }
         val temporary = java.io.File.createTempFile("drive_index_", ".$extension", directory)
         try {
-            val download = app.googleDriveService.downloadFileBounded(id, temporary.absolutePath, MAX_BINARY_DOWNLOAD_BYTES.toLong())
+            val download = app.googleDriveService.downloadFileBounded(id, temporary.absolutePath, MAX_BINARY_DOWNLOAD_BYTES.toLong(), item.mimeType)
             if (download.isFailure || temporary.length() !in 1..MAX_BINARY_DOWNLOAD_BYTES.toLong()) {
                 return old?.contentText?.takeIf { unchanged }.orEmpty()
             }
