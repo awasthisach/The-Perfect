@@ -3,6 +3,7 @@ package com.vvf.smartmanager.ui.navigation
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Search
@@ -10,6 +11,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material.icons.outlined.CleaningServices
 import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Search
@@ -36,7 +38,7 @@ enum class TopLevelDestination(
         route = "explorer",
         selectedIcon = Icons.Filled.Folder,
         unselectedIcon = Icons.Outlined.Folder,
-        title = "Files",
+        title = "Dashboard",
         testTag = "nav_item_explorer"
     ),
     VAULT(
@@ -50,7 +52,7 @@ enum class TopLevelDestination(
         route = "cleaner",
         selectedIcon = Icons.Filled.CleaningServices,
         unselectedIcon = Icons.Outlined.CleaningServices,
-        title = "Cleaner",
+        title = "Duplicates",
         testTag = "nav_item_cleaner"
     ),
     SEARCH(
@@ -64,8 +66,15 @@ enum class TopLevelDestination(
         route = "cloud",
         selectedIcon = Icons.Filled.Cloud,
         unselectedIcon = Icons.Outlined.Cloud,
-        title = "Cloud",
+        title = "Backup",
         testTag = "nav_item_cloud"
+    ),
+    OFFLINE(
+        route = "offline",
+        selectedIcon = Icons.Filled.CloudDownload,
+        unselectedIcon = Icons.Outlined.CloudDownload,
+        title = "Offline",
+        testTag = "nav_item_offline"
     ),
     PLUGINS(
         route = "plugins",
