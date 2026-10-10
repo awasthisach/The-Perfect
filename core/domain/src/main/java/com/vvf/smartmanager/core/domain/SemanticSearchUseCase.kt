@@ -9,7 +9,9 @@ import com.vvf.smartmanager.core.model.SemanticSearchResult
 import com.vvf.smartmanager.core.plugin.spi.ISemanticSearchEngine
 
 /**
- * UseCase to execute On-Device Semantic AI Search over indexed files and tags.
+ * Legacy use case for local similarity search over indexed filenames and tags. The bundled plugin is a
+ * deterministic token-projection baseline, not a neural model. Production neural ranking stays disabled
+ * until the authenticated embedding backend is implemented and verified.
  * Bounded candidate set prevents lag/OOM when library is large.
  */
 class SemanticSearchUseCase(
