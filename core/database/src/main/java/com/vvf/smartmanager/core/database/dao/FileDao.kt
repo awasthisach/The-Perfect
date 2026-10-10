@@ -109,6 +109,9 @@ interface FileDao {
             OR mimeType IN (:officeMimeTypes)
             OR lower(name) LIKE '%.pdf' OR lower(name) LIKE '%.docx'
             OR lower(name) LIKE '%.xlsx' OR lower(name) LIKE '%.pptx'
+            OR lower(name) LIKE '%.jpg' OR lower(name) LIKE '%.jpeg'
+            OR lower(name) LIKE '%.png' OR lower(name) LIKE '%.webp'
+            OR lower(name) LIKE '%.bmp' OR lower(name) LIKE '%.heic'
           )
     """)
     suspend fun clearDriveFullContentText(officeMimeTypes: List<String>)

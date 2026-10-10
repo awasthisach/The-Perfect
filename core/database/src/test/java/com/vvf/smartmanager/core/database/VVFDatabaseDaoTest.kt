@@ -261,6 +261,31 @@ class VVFDatabaseDaoTest {
     }
 
     @Test
+    fun revokingFullContentConsentClearsImageTextEvenWhenMimeTypeIsGeneric() = runBlocking {
+        val scannedImage = FileMetadataEntity(
+            path = "gdrive://scanImage123",
+            name = "scan.jpg",
+            parentPath = "gdrive://root",
+            sizeBytes = 100L,
+            mimeType = "application/octet-stream",
+            isDirectory = false,
+            modifiedDate = 100L,
+            contentText = "private OCR text"
+        )
+        fileDao.insertOrUpdate(scannedImage)
+
+        fileDao.clearDriveFullContentText(
+            listOf(
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            )
+        )
+
+        assertEquals("", fileDao.getByPath(scannedImage.path)?.contentText)
+    }
+
+    @Test
     fun driveRowsDoNotPolluteLocalFavoritesDuplicatesOrStorageTotals() = runBlocking {
         val local = FileMetadataEntity(
             path = "/storage/emulated/0/Documents/local.pdf",
