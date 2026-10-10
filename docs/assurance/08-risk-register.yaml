@@ -41,10 +41,11 @@ open_findings:
     title: Vault file selection and recovery path need scoped-storage validation
     status: discovered
     notes: >
-      The add-file dialog currently accepts a filesystem path instead of using the
-      Android Storage Access Framework. Generated demo files were removed, but selecting
-      user files and exporting/restoring them through scoped storage still needs implementation
-      and device verification.
+      The add-file dialog now uses the Android Storage Access Framework, bounds private
+      staging imports to 512 MB, and cleans temporary copies after the encryption attempt.
+      Export and restore write through a user-selected document URI; restore only removes the
+      encrypted vault item after the destination write succeeds. CI and physical-device
+      verification of cancellation, provider failures, and large-file behavior are still pending.
     residual_risk: high
     last_updated: "2026-10-10"
 
