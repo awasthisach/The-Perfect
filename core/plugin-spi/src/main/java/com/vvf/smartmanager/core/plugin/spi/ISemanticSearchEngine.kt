@@ -9,7 +9,7 @@ import com.vvf.smartmanager.core.model.SemanticSearchResult
 
 /**
  * SPI contract for local similarity-search engines. Implementations must accurately identify whether they use a neural model.
- * Guarantees zero cloud telemetry, 100% on-device vector embedding and similarity scoring.
+ * Local implementations should not transmit telemetry. A vectorizer may be heuristic rather than neural.
  */
 interface ISemanticSearchEngine {
     val pluginId: String get() = "plugin.semantic.tflite"
@@ -53,7 +53,7 @@ interface ISemanticSearchEngine {
     ): List<NearDuplicateCluster>
 
     /**
-     * Suggests conceptual tags and categories for a candidate based on on-device semantic projection.
+     * Suggests tags using local heuristics; callers must not present these as neural AI output.
      */
     suspend fun suggestTags(candidate: SemanticCandidate): List<AiSuggestedTag>
 
