@@ -72,6 +72,7 @@ private val SoftGold = Color(0xFFD4A95A)
 fun CloudScreen(
     viewModel: CloudViewModel,
     onGoogleDriveSignInRequested: () -> Unit,
+    onDriveIndexRequested: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -156,6 +157,40 @@ fun CloudScreen(
                             ),
                             modifier = Modifier.testTag("provider_chip_${provider.name.lowercase()}")
                         )
+                    }
+                }
+            }
+
+            if (
+                uiState.selectedProvider == CloudProviderType.GOOGLE_DRIVE &&
+                uiState.accounts[CloudProviderType.GOOGLE_DRIVE]?.isConnected == true
+            ) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().testTag("drive_search_index_card"),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("Drive Semantic Search", fontWeight = FontWeight.Bold, color = CosmicBlue)
+                            Text(
+                                "Index Drive file names and metadata, plus supported text files and Google Docs exports. Large or unsupported binary formats may need a dedicated extractor.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Button(
+                                onClick = onDriveIndexRequested,
+                                modifier = Modifier.fillMaxWidth().testTag("index_drive_for_search_button"),
+                                colors = ButtonDefaults.buttonColors(containerColor = BhagwaOrange)
+                            ) {
+                                Icon(Icons.Default.CloudSync, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Sync Drive Search Index")
+                            }
+                        }
                     }
                 }
             }
