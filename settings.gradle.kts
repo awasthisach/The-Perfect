@@ -22,7 +22,7 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "VVF Smart Manager"
+rootProject.name = "Drive Semantic Search"
 
 include(":app")
 
