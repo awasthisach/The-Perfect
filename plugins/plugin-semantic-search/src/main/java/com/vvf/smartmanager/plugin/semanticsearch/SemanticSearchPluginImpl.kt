@@ -8,19 +8,18 @@ import com.vvf.smartmanager.core.model.SemanticSearchOptions
 import com.vvf.smartmanager.core.model.SemanticSearchResult
 import com.vvf.smartmanager.core.plugin.spi.SemanticSearchSPI
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.sqrt
 
 /**
- * On-device hashed 128-d embeddings for lightweight semantic-style ranking.
- * (Deterministic hashing — not a TFLite neural net.)
+ * Deterministic 128-dimensional token projection for lightweight lexical similarity.
+ * This is a heuristic baseline, not a neural embedding model or TFLite implementation.
  */
 class SemanticSearchPluginImpl : SemanticSearchSPI {
 
     @Volatile
-    private var isModelDownloaded: Boolean = true
+    private var isEngineReady: Boolean = true
 
     private val embeddingDimension: Int = 128
     private val embeddingCache = ConcurrentHashMap<String, FloatArray>()
@@ -28,11 +27,9 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
     override fun isModelReady(): Boolean = isModelDownloaded
 
     override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean = withContext(Dispatchers.IO) {
-        for (i in 1..10) {
-            delay(40)
-            progressCallback(i / 10f)
-        }
-        isModelDownloaded = true
+        // This implementation ships as code and has no external model asset to download.
+        isEngineReady = true
+        progressCallback(1f)
         true
     }
 
