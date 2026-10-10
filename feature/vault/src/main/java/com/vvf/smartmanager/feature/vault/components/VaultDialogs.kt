@@ -71,6 +71,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private const val MAX_VAULT_IMPORT_BYTES = 512L * 1024L * 1024L
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VaultAddFileDialog(
