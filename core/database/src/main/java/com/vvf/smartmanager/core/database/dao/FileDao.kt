@@ -99,6 +99,19 @@ interface FileDao {
     @Query("UPDATE file_metadata SET isFavorite = :isFavorite WHERE path = :path")
     suspend fun setFavoriteStatusByPath(path: String, isFavorite: Boolean)
 
+    /** Clears only locally extracted full-content text for Drive binary/Office documents when consent is revoked. */
+    @Query("""
+        UPDATE file_metadata SET contentText = ''
+        WHERE path LIKE 'gdrive://%'
+          AND (
+            mimeType = 'application/pdf' OR mimeType LIKE 'image/%'
+            OR mimeType IN (:officeMimeTypes)
+            OR lower(name) LIKE '%.pdf' OR lower(name) LIKE '%.docx'
+            OR lower(name) LIKE '%.xlsx' OR lower(name) LIKE '%.pptx'
+          )
+    """)
+    suspend fun clearDriveFullContentText(officeMimeTypes: List<String>)
+
     @Query("DELETE FROM file_metadata WHERE path = :path")
     suspend fun deleteByPath(path: String)
 
