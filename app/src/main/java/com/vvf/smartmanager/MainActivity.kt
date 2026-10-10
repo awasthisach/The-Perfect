@@ -456,7 +456,7 @@ private fun VVFNavHost(
                             .build()
                             .toString()
                     }
-                    val offlineFile = item.offlineLocalPath?.let(::java.io.File)
+                    val offlineFile = item.offlineLocalPath?.let { java.io.File(it) }
                     if (item.path.startsWith("gdrive://") && item.isOfflinePinned && offlineFile?.isFile == true) {
                         runCatching {
                             val contentUri = FileProvider.getUriForFile(
