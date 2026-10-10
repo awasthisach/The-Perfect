@@ -1,35 +1,34 @@
-# Drive Semantic Search: verified implementation gap audit
+# Drive Semantic Search: verified implementation-gap audit
 
-This document is a code-level gap inventory against the requested v1 product plan. It intentionally does not mark the app production-ready.
+This audit describes the current working branch `fix/drive-semantic-search-product-alignment` in **The-Perfect** only. It does not declare production readiness.
 
-## Verified repository state
+## Implemented on the working branch
 
-- Android application module uses Kotlin and Jetpack Compose.
-- The application ID is currently `com.vvf.smartmanager`; changing it would invalidate OAuth and Firebase package registration unless backend/client configuration is updated in lockstep.
-- The app and Drive module minimum SDKs are now set to 26 on the working branch.
-- User-facing app identity and Gradle root project are aligned to **Drive Semantic Search** on the working branch.
-- `GoogleDriveAuth` now requests the full Drive scope and links Firebase Auth using the same Google ID token, checking normalized email equality and clearing mismatched Firebase sessions. Silent Drive token refresh is exposed only when a matching existing Google/Firebase session exists.
-- `GoogleDriveServiceImpl` now exposes bounded 20,000-file pagination, changes API cursor methods, full-list fallback on a failed changes cursor, and explicit move/star/create-folder methods with Drive ID validation. The new indexing policy defines batches of 50 and cursor-on-commit behavior, but it is not yet wired to a durable Room-backed WorkManager pipeline. The access token remains in memory.
-- `FileIndexingWorker` logs generic device-storage indexing and delegates to `FileIndexingRuntime`; this is not proof of the requested resumable Google Drive changes API indexer.
-- The current app manifest requests broad device-storage permissions for the existing file-manager functionality; the requested v1 product instead confines downloaded file bytes to app-private storage.
-- Existing `SemanticSearchUseCase` delegates to an on-device plugin; the required optional, consent-gated Cloudflare embedding client and hybrid cosine/BM25/metadata ranker have not been verified in the reviewed files.
-- The current vault/security module is a general cryptographic manager. The exact requested password-derived PBKDF2 (310,000 iterations) + AES-GCM vault round-trip contract has not been verified in the reviewed code.
-- Current README identifies the app as VVF Smart Manager and explicitly says it is not independently verified for public release.
+- Native Kotlin/Jetpack Compose app identity, minimum SDK 26, and no WebView wrapper.
+- Removed the embedded reusable debug keystore and hard-coded debug signing secrets; release signing is configured through environment-injected secrets.
+- Google Drive full-scope OAuth; Firebase Auth session is linked to the same normalized Google account; a Firebase ID-token accessor is available for future trusted backend calls.
+- In-memory Drive access-token clearing, silent refresh only for an existing matching Google/Firebase session, account-specific index clearing on sign-out, and automatic index enqueue after successful interactive sign-in.
+- Drive v3 paginated listing, changes API, bounded 20,000-item listing, change cursor handling, explicit move/star/folder methods with ID validation, and no Drive-delete method added by this feature.
+- A Room-backed `DriveIndexingWorker` that indexes metadata/text in batches of 50, stores rows in the existing SQLCipher database, rebuilds FTS, preserves cursor on failure, and reports the 20,000-item cap. Trashed/removed files are removed from the local index.
+- Room schema version 4 with migrations for extracted text, canonical Drive URL, and offline-pin metadata. Existing local rows are preserved by migrations.
+- Plain-text and native Google Workspace text export; bounded PDF/image extraction through the existing extraction/OCR pipeline and bounded DOCX/XLSX/PPTX text extraction, only after full-content consent.
+- Revocable full-content consent clears extracted PDF/image/Office text when turned off.
+- App-private offline copies with an 80-file / 200 MiB cap and oldest-first eviction.
+- JSON index import/export with size/count bounds, Drive ID and URL validation, account check when an account is known, and exclusion of tokens, API keys, and file bytes. Import now respects full-content consent.
+- Keyword/FTS fallback remains available when optional semantic ranking is not enabled; vault PIN derivation changes retain a legacy verification path for existing PINs.
+- Initial tests cover indexing policy, keyword fallback, vault PIN verification, Office extraction, database FTS and offline quota queries.
 
-## Production blockers — do not release until each is closed with tests
+## Remaining production blockers
 
-1. Finish sign-out wiring so the in-memory Drive token is cleared with Firebase and Google sessions; add token-expiry, account-mismatch, and silent-refresh tests. Never send a Drive access token to the embedding worker.
-2. Wire the new Drive changes/list APIs and batch/resume policy into a durable Room-backed WorkManager indexer; persist page/change cursors, show the 20,000-file incomplete warning, skip unchanged modifiedTime values, and test cancellation/failure resume.
-3. Implement on-device PDF/Office/plain-text extraction, optional-consent ML Kit OCR, Room persistence for metadata/text/vectors/cursor, and explicit app-private offline pinning with 200 MB/80-file cap and oldest-first eviction.
-4. Consent storage/UI and a local neural-search gate now exist on the working branch. Deploy and integrate a trusted proxy or worker-enforced Android App Check before any mobile cloud embedding request. The worker requires Origin allow-listing and Firebase ID-token auth; Android must not bypass either check. No API key belongs in the APK.
-5. Verify hybrid cosine + BM25 + metadata ranking and a working keyword/metadata fallback when embeddings are disabled or unavailable.
-6. Verify user-confirmed Move/Star/Pin/Suggest Folder flows, Drive ID validation, duplicate grouping, and SHA-256 only after file bytes are downloaded or pinned. Never delete Drive files.
-7. Verify password vault uses PBKDF2-HMAC-SHA256 with 310,000 iterations and AES-GCM, including wrong-password and encrypt/decrypt round-trip tests.
-8. Implement local-index JSON import/export that excludes access tokens, Firebase ID tokens, and API keys; test malformed/oversized imports.
-9. Added initial tests for keyword fallback, batch sizing/cursor resume, and vault PIN verification. Complete tests for hybrid ranking with real vector candidates, token expiry/account mismatch, duplicate grouping, file extraction, backup import/export, permissions, and user-critical flows. Run unit tests, lint, debug/release assembly, emulator/instrumented tests, and real-device OAuth/Drive verification.
-10. Replace the current broad local-storage permission footprint with least-privilege access appropriate to this Drive-only v1, after removing or isolating out-of-scope file-manager flows.
-11. Remove any committed reusable signing material and verify release signing/Google OAuth configuration using managed secrets and registered production fingerprints.
+1. **Real neural semantic search:** the currently wired `SemanticSearchPluginImpl` uses deterministic hashed token buckets; it is not a neural model. The Cloudflare worker at `https://drive-semantic-embed.awasthi-sach.workers.dev` must not be called directly from Android until a trusted backend proxy or worker-side Android App Check is implemented and verified. The Firebase ID token—not the Drive access token—must authenticate the backend. No API key may ship in the APK.
+2. **Full resumability:** the changes-feed continuation cursor is persisted after a successful pass, but the initial/full-list pass is re-read from the beginning after interruption; a durable per-page checkpoint and failure/restart tests are still needed.
+3. **OAuth configuration:** verify the actual package `com.vvf.smartmanager`, web client ID, Firebase project, and debug/release signing SHA fingerprints. These external project settings and interactive device sign-in cannot be proven by source inspection alone.
+4. **UI/product completeness:** Drive move/star/folder suggestion and review/confirmation flows, dedicated Dashboard/Search/Duplicates/Vault/Offline/Backup navigation, and duplicate keep/move workflows need acceptance tests. Existing legacy file-manager screens and broad storage permissions remain.
+5. **Security and reliability tests:** add worker tests for cancellation, retries, change-feed paging, removed/trashed files, full-list cap, and cursor persistence; test backup malformed/oversized data and consent revocation/import; test offline quota eviction failures and local-file integrity; test Room 1→4 migrations with existing data.
+6. **Ranking:** implement and test the requested actual hybrid ranking (real cosine vectors + BM25/FTS + metadata weights) once a safe, authenticated embedding source is available. Do not describe hash-token similarity as neural embeddings.
+7. **Vault acceptance:** verify the exact PBKDF2-HMAC-SHA256 310,000-iteration new-PIN contract and AES-GCM round-trip, wrong PIN, legacy PIN, and decoy PIN flows.
+8. **Release gates:** pass current-head unit tests, lint, debug/release assembly, license/security checks, SQLCipher instrumentation, emulator/device checks, and real Google OAuth/Drive acceptance. Configure release signing and Firebase files through CI secrets, not committed artifacts.
 
 ## Release rule
 
-A green CI workflow alone is not sufficient. This project must not be called production-ready until the functional, security, release-signing, and real-device gates above have passing evidence.
+Do not merge this draft or call the app production-ready until the blockers above have evidence-backed closure. A green CI workflow is necessary but not sufficient.
