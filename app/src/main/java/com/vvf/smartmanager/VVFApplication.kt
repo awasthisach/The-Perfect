@@ -68,6 +68,7 @@ class VVFApplication : Application(), Configuration.Provider {
         private const val SETTINGS_PREFS = "vvf_app_settings"
         private const val KEY_AUTO_INDEX_OCR = "auto_index_ocr"
         private const val KEY_OFFLINE_ONLY_MODE = "offline_only_mode"
+        private const val KEY_EMBEDDING_CONSENT = "embedding_consent_v1"
     }
 
     override val workManagerConfiguration: Configuration
@@ -129,6 +130,12 @@ class VVFApplication : Application(), Configuration.Provider {
 
     fun setOfflineOnlyModeEnabled(enabled: Boolean) {
         settingsPrefs.edit().putBoolean(KEY_OFFLINE_ONLY_MODE, enabled).apply()
+    }
+
+    fun isEmbeddingConsentEnabled(): Boolean = settingsPrefs.getBoolean(KEY_EMBEDDING_CONSENT, false)
+
+    fun setEmbeddingConsentEnabled(enabled: Boolean) {
+        settingsPrefs.edit().putBoolean(KEY_EMBEDDING_CONSENT, enabled).apply()
     }
 
     override fun onCreate() {
