@@ -5,6 +5,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vvf.smartmanager.core.model.CloudProviderType
+import com.vvf.smartmanager.core.model.DriveIndexStatus
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Entry composable for the Cloud tab: shows Grok-style Google login when Drive
@@ -18,9 +20,11 @@ fun CloudRoute(
     onGoogleDriveSignOutRequested: () -> Unit = {},
     onExportDriveIndexRequested: () -> Unit = {},
     onImportDriveIndexRequested: () -> Unit = {},
+    driveIndexStatus: StateFlow<DriveIndexStatus>,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val indexStatus by driveIndexStatus.collectAsStateWithLifecycle()
     val googleAccount = uiState.accounts[CloudProviderType.GOOGLE_DRIVE]
     val driveSelected = uiState.selectedProvider == CloudProviderType.GOOGLE_DRIVE
     val driveConnected = googleAccount?.isConnected == true
@@ -51,6 +55,7 @@ fun CloudRoute(
         },
         onExportDriveIndexRequested = onExportDriveIndexRequested,
         onImportDriveIndexRequested = onImportDriveIndexRequested,
+        driveIndexStatus = indexStatus,
         modifier = modifier
     )
 }
