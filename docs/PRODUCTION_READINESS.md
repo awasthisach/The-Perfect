@@ -1,6 +1,29 @@
 # VVF Smart Manager — Production Readiness
 
-Last updated: 2026-09-05 (post PR #73 merge + honest-worker pass)
+Last updated: 2026-10-10 (PR #128 migration audit; see current release gate below)
+
+## Current release gate — 2026-10-10
+
+**Release status: BLOCKED. A green unit-test/lint/debug-build workflow is not a production release approval.**
+
+Verified from GitHub Actions for the migration branch:
+- Unit tests, Android lint, debug APK assembly, and FOSSA analysis/test completed successfully on the last fully completed CI run before the vault-dialog cleanup.
+- The follow-up CI for the vault-dialog cleanup is running; do not assume its result before it completes.
+- SQLCipher compatibility instrumentation was **skipped**, not passed: the hosted runner could not boot the emulator without KVM. CPAS correctly reports production status `BLOCKED` until fresh instrumented evidence is recorded.
+- No signed release APK has been verified from production signing secrets, and no physical-device acceptance run is recorded.
+
+| Release gate | Current state | Evidence / action |
+|---|---|---|
+| Unit tests, lint, debug APK | Last completed run passed; latest code change pending CI | [Latest CI](https://github.com/awasthisach/The-Perfect/actions) |
+| SQLCipher instrumentation | **Blocked / skipped** | Requires a KVM-capable runner or verified physical-device test; never record a skip as PASS |
+| Google OAuth + Drive workflows | Not physically verified for this migration | Test sign-in/account matching, Changes sync, upload/move/star on a real Android device |
+| Neural semantic search | **Disabled fail-closed** | Native App Check authentication and embedding backend must be implemented and live-tested |
+| OpenAI provider | **Not integrated** | Worker currently uses Gemini; the Android app must never contain an OpenAI API key |
+| Vault | PIN-based | Free-form password lock is not implemented; verify file-source handling before release |
+| Cloud restore | Disabled/fail-closed | Must pass integrity, atomic staging, rollback, and clean-device recovery tests |
+| Signed production release | Not verified | Requires production keystore, Firebase config, FOSSA credential, and signed-artifact verification |
+
+Do not merge/promote this migration as production-ready until every release-blocking row has passing evidence. The CPAS workflow may finish green while its generated artifact says `BLOCKED`; inspect the artifact's `production_status.value`, not only the workflow conclusion.
 
 ## Goal
 
