@@ -213,6 +213,7 @@ fun VVFAppContent(
         TopLevelDestination.VAULT,
         TopLevelDestination.CLEANER,
         TopLevelDestination.SEARCH,
+        TopLevelDestination.OFFLINE,
         TopLevelDestination.CLOUD
     )
 
@@ -516,6 +517,9 @@ private fun VVFNavHost(
                 onImportDriveIndexRequested = onImportDriveIndexRequested,
                 driveIndexStatus = app.driveIndexStatus
             )
+        }
+        composable(TopLevelDestination.OFFLINE.route) {
+            OfflineFilesScreen(app = app)
         }
         composable(TopLevelDestination.PLUGINS.route) {
             val pluginsViewModel: PluginsViewModel = viewModel(
