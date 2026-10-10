@@ -93,6 +93,7 @@ private val SoftGold = Color(0xFFD4A95A)
 fun SearchScreen(
     viewModel: SearchViewModel,
     onOpenFile: ((FileItem) -> Unit)? = null,
+    onToggleOfflinePin: ((FileItem) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -423,7 +424,8 @@ fun SearchScreen(
                             },
                             onToggleFavorite = { viewModel.toggleFavorite(it) },
                             onManageTags = { viewModel.showTagDialog(it) },
-                            onShowDetails = { viewModel.showDetailsDialog(it) }
+                            onShowDetails = { viewModel.showDetailsDialog(it) },
+                            onToggleOfflinePin = onToggleOfflinePin
                         )
                     }
                 }
