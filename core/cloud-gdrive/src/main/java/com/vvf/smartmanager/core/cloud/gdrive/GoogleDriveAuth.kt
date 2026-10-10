@@ -150,13 +150,17 @@ class GoogleDriveAuth(
     }
 
     /** Firebase ID token for backend calls. Never substitute the Drive access token. */
-    suspend fun getFirebaseIdToken(): Result<String> = try {
-        val user = firebaseAuth.currentUser
-            ?: return Result.failure(IllegalStateException("Firebase session is not linked"))
-        val token = user.getIdToken(false).await().token
-        if (token.isNullOrBlank()) Result.failure(IllegalStateException("Firebase ID token unavailable"))
-        else Result.success(token)
-    } catch (e: Exception) { Result.failure(e) }
+    suspend fun getFirebaseIdToken(): Result<String> {
+        return try {
+            val user = firebaseAuth.currentUser
+                ?: return Result.failure(IllegalStateException("Firebase session is not linked"))
+            val token = user.getIdToken(false).await().token
+            if (token.isNullOrBlank()) Result.failure(IllegalStateException("Firebase ID token unavailable"))
+            else Result.success(token)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 
     private fun accessTokenForAccount(acct: android.accounts.Account?): Result<String> {
         if (acct == null) {
