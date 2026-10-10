@@ -357,6 +357,59 @@ class GoogleDriveServiceImpl(
             }
         }
 
+    override suspend fun extractTextContent(fileId: String, mimeType: String?): Result<String> =
+        withContext(Dispatchers.IO) {
+            try {
+                requireValidDriveId(fileId, "fileId")
+                val type = mimeType.orEmpty().lowercase()
+                val exportMime = when (type) {
+                    "application/vnd.google-apps.document",
+                    "application/vnd.google-apps.presentation" -> "text/plain"
+                    "application/vnd.google-apps.spreadsheet" -> "text/csv"
+                    else -> null
+                }
+                val isPlainText = type.startsWith("text/") ||
+                    type in setOf("application/json", "application/xml", "application/csv", "application/rtf")
+                if (exportMime == null && !isPlainText) {
+                    return@withContext Result.failure(
+                        UnsupportedOperationException("This file type needs a dedicated parser; binary content was not decoded as text.")
+                    )
+                }
+                val body = if (exportMime != null) {
+                    driveApi.exportTextFile(bearer(), fileId, exportMime)
+                } else {
+                    driveApi.downloadFile(bearer(), fileId)
+                }
+                body.use { response ->
+                    val maxBytes = 2 * 1024 * 1024
+                    val declaredLength = response.contentLength()
+                    if (declaredLength > maxBytes) {
+                        return@withContext Result.failure(IllegalArgumentException("Document text exceeds the 2 MiB indexing limit"))
+                    }
+                    val output = java.io.ByteArrayOutputStream()
+                    response.byteStream().use { input ->
+                        val buffer = ByteArray(8192)
+                        var total = 0
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            total += count
+                            if (total > maxBytes) {
+                                return@withContext Result.failure(IllegalArgumentException("Document text exceeds the 2 MiB indexing limit"))
+                            }
+                            output.write(buffer, 0, count)
+                        }
+                    }
+                    val text = output.toString(Charsets.UTF_8.name())
+                        .replace("\u0000", "")
+                        .take(250_000)
+                    Result.success(text)
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
     override suspend fun getStorageQuota(): Result<Pair<Long, Long>> = withContext(Dispatchers.IO) {
         try {
             val about = driveApi.about(bearer())
