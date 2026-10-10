@@ -2,7 +2,61 @@ schema_version: 1
 finding_lifecycle: [discovered, triaged, reproduced, root_cause_verified, repair_implemented, tested, ci_verified, closed]
 
 # No open critical/high findings. Residual risks for cloud E2E are documented on closed items.
-open_findings: []
+open_findings:
+  - id: PROD-008
+    severity: high
+    title: Native neural search and OpenAI provider are not integrated
+    status: discovered
+    notes: >
+      The native app intentionally keeps neural requests disabled because the deployed
+      embedding Worker does not yet verify Android Firebase App Check. The Android
+      plugin is deterministic token projection, not a neural model. The Worker currently
+      uses Gemini and has no OpenAI provider; adding OPENAI_API_KEY alone would not enable it.
+    residual_risk: high
+    last_updated: "2026-10-10"
+
+  - id: PROD-009
+    severity: high
+    title: Physical-device acceptance is missing for Drive-critical journeys
+    status: discovered
+    notes: >
+      OAuth account linking, Drive Changes sync, upload/move/star, large-file indexing,
+      offline eviction, and import/restore have not been verified end-to-end on a physical Android device.
+    residual_risk: high
+    last_updated: "2026-10-10"
+
+  - id: PROD-010
+    severity: high
+    title: SQLCipher instrumented compatibility evidence is stale
+    status: discovered
+    notes: >
+      Latest hosted CI could not boot the emulator because KVM is unavailable; the
+      SQLCipher instrumentation test was skipped, not passed. Run the hard gate on a
+      KVM-capable runner and record fresh evidence before release.
+    residual_risk: high
+    last_updated: "2026-10-10"
+
+  - id: PROD-011
+    severity: high
+    title: Vault file selection and recovery path need scoped-storage validation
+    status: discovered
+    notes: >
+      The add-file dialog currently accepts a filesystem path instead of using the
+      Android Storage Access Framework. Generated demo files were removed, but selecting
+      user files and exporting/restoring them through scoped storage still needs implementation
+      and device verification.
+    residual_risk: high
+    last_updated: "2026-10-10"
+
+  - id: PROD-012
+    severity: medium
+    title: Vault supports PIN rather than the requested free-form password
+    status: discovered
+    notes: >
+      Existing PBKDF2-SHA256 and AES-GCM protections remain in place, but the free-form
+      password lock requested for the migration is not implemented.
+    residual_risk: medium
+    last_updated: "2026-10-10"
 
 closed_findings:
   - id: PROD-001
