@@ -132,6 +132,11 @@ class DriveIndexingWorker(
         val unchanged = old != null &&
             old.modifiedDate == item.lastModified &&
             old.md5Hash == item.md5Hash
+        if (old?.offlinePinned == true && !unchanged) {
+            old.offlineLocalPath?.let { java.io.File(it).delete() }
+        }
+        val preserveOfflinePin = unchanged && old?.offlinePinned == true &&
+            old.offlineLocalPath?.let { java.io.File(it).isFile } == true
         val canExtract = isSupportedTextType(item.mimeType) ||
             (app.isDriveFullContentConsentEnabled() && isFullContentType(item))
         val content = when {
@@ -155,7 +160,11 @@ class DriveIndexingWorker(
                 tags = "google-drive",
                 md5Hash = item.md5Hash,
                 contentText = safeContent,
-                canonicalUri = item.canonicalUri
+                canonicalUri = item.canonicalUri,
+                offlinePinned = preserveOfflinePin,
+                offlineLocalPath = if (preserveOfflinePin) old?.offlineLocalPath else null,
+                offlinePinnedAt = if (preserveOfflinePin) old?.offlinePinnedAt else null,
+                offlineBytes = if (preserveOfflinePin) old?.offlineBytes ?: 0L else 0L
             )
         )
     }
