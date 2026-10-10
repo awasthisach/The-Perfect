@@ -5,7 +5,6 @@ import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import com.vvf.smartmanager.core.cloud.gdrive.DriveChangeDto
 import com.vvf.smartmanager.core.cloud.gdrive.DriveFileDto
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
@@ -78,7 +77,13 @@ class DriveIndexingWorker(
                         .filter { it.startsWith(DRIVE_PATH_PREFIX) && it !in livePaths }
                         .toList()
                     if (stalePaths.isNotEmpty()) {
-                        stalePaths.chunked(BATCH_SIZE).forEach { app.database.fileDao().deleteStaleByPaths(it) }
+                        stalePaths.chunked(BATCH_SIZE).forEach { batch ->
+                            batch.forEach { stalePath ->
+                                app.database.fileDao().getByPath(stalePath)?.offlineLocalPath
+                                    ?.let { java.io.File(it).delete() }
+                            }
+                            app.database.fileDao().deleteStaleByPaths(batch)
+                        }
                     }
                 }
             } else {
@@ -88,7 +93,10 @@ class DriveIndexingWorker(
                     if (isStopped) return@withContext Result.retry()
                     for (change in batch) {
                         if (change.removed) {
-                            app.database.fileDao().deleteByPath(DRIVE_PATH_PREFIX + change.fileId)
+                            val removedPath = DRIVE_PATH_PREFIX + change.fileId
+                            app.database.fileDao().getByPath(removedPath)?.offlineLocalPath
+                                ?.let { java.io.File(it).delete() }
+                            app.database.fileDao().deleteByPath(removedPath)
                         } else {
                             change.file?.let { dto -> upsertDriveFile(app, dto.toFileItem()) }
                         }
