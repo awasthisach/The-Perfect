@@ -73,6 +73,7 @@ fun CloudScreen(
     viewModel: CloudViewModel,
     onGoogleDriveSignInRequested: () -> Unit,
     onDriveIndexRequested: () -> Unit = {},
+    onGoogleDriveSignOutRequested: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -189,6 +190,12 @@ fun CloudScreen(
                                 Icon(Icons.Default.CloudSync, contentDescription = null)
                                 Spacer(Modifier.width(8.dp))
                                 Text("Sync Drive Search Index")
+                            }
+                            OutlinedButton(
+                                onClick = onGoogleDriveSignOutRequested,
+                                modifier = Modifier.fillMaxWidth().testTag("disconnect_google_drive_button")
+                            ) {
+                                Text("Disconnect Google Drive")
                             }
                         }
                     }
