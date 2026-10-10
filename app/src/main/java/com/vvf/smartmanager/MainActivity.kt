@@ -131,6 +131,14 @@ class MainActivity : FragmentActivity() {
                             pendingGoogleDriveSignInCallback = callback
                             googleDriveSignInLauncher.launch(googleDriveAuth.buildDriveSignInIntent())
                         }
+                    },
+                    onGoogleDriveSignOutRequested = {
+                        val app = application as VVFApplication
+                        lifecycleScope.launch {
+                            googleDriveAuth.signOut()
+                            runCatching { app.clearDriveIndexOnSignOut() }
+                            Toast.makeText(this@MainActivity, "Google Drive disconnected and local Drive index cleared", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 )
             }
@@ -140,7 +148,8 @@ class MainActivity : FragmentActivity() {
 
 @Composable
 fun VVFAppContent(
-    onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit
+    onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit,
+    onGoogleDriveSignOutRequested: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -217,7 +226,7 @@ fun VVFAppContent(
                         )
                     }
                 }
-                VVFNavHost(navController = navController, app = app, onGoogleDriveSignInRequested = onGoogleDriveSignInRequested, modifier = Modifier.fillMaxSize())
+                VVFNavHost(navController = navController, app = app, onGoogleDriveSignInRequested = onGoogleDriveSignInRequested, onGoogleDriveSignOutRequested = onGoogleDriveSignOutRequested, modifier = Modifier.fillMaxSize())
             }
         } else {
             Scaffold(
@@ -278,6 +287,7 @@ fun VVFAppContent(
                     navController = navController,
                     app = app,
                     onGoogleDriveSignInRequested = onGoogleDriveSignInRequested,
+                    onGoogleDriveSignOutRequested = onGoogleDriveSignOutRequested,
                     modifier = Modifier.fillMaxSize().padding(innerPadding)
                 )
             }
@@ -290,6 +300,7 @@ private fun VVFNavHost(
     navController: androidx.navigation.NavHostController,
     app: VVFApplication,
     onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit,
+    onGoogleDriveSignOutRequested: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     NavHost(
@@ -400,7 +411,8 @@ private fun VVFNavHost(
                 onDriveIndexRequested = {
                     app.enqueueDriveIndexing()
                     Toast.makeText(app, "Drive search indexing scheduled", Toast.LENGTH_SHORT).show()
-                }
+                },
+                onGoogleDriveSignOutRequested = onGoogleDriveSignOutRequested
             )
         }
         composable(TopLevelDestination.PLUGINS.route) {
