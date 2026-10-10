@@ -8,6 +8,9 @@ import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialException
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
@@ -30,6 +33,7 @@ class GoogleDriveAuth(
 ) {
 
     private val credentialManager = CredentialManager.create(context)
+    private val firebaseAuth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
 
     suspend fun requestGoogleIdToken(
         filterByAuthorizedAccounts: Boolean = false
@@ -84,6 +88,8 @@ class GoogleDriveAuth(
             if (data != null) {
                 try {
                     val account = GoogleSignIn.getSignedInAccountFromIntent(data).await()
+                    val linked = linkFirebaseAccount(account)
+                    if (linked.isFailure) return@withContext Result.failure(linked.exceptionOrNull()!!)
                     return@withContext accessTokenForAccount(account.account)
                 } catch (e: ApiException) {
                     return@withContext Result.failure(IllegalStateException(mapApiException(e), e))
@@ -113,13 +119,44 @@ class GoogleDriveAuth(
         withContext(Dispatchers.IO) {
             try {
                 val account = GoogleSignIn.getSignedInAccountFromIntent(data).await()
-                accessTokenForAccount(account.account)
+                val linked = linkFirebaseAccount(account)
+                if (linked.isFailure) Result.failure(linked.exceptionOrNull()!!)
+                else accessTokenForAccount(account.account)
             } catch (e: ApiException) {
                 Result.failure(IllegalStateException(mapApiException(e), e))
             } catch (e: Exception) {
                 Result.failure(e)
             }
         }
+
+    /** Link Firebase Auth to the exact Google account granted Drive access. */
+    private suspend fun linkFirebaseAccount(account: GoogleSignInAccount): Result<Unit> {
+        val googleEmail = account.email?.trim()?.lowercase()
+            ?: return Result.failure(IllegalStateException("Google did not return an account email"))
+        val googleIdToken = account.idToken?.takeIf { it.isNotBlank() }
+            ?: return Result.failure(IllegalStateException("Google ID token is missing; Firebase sign-in cannot proceed"))
+        return try {
+            val credential = GoogleAuthProvider.getCredential(googleIdToken, null)
+            val result = firebaseAuth.signInWithCredential(credential).await()
+            val firebaseEmail = result.user?.email?.trim()?.lowercase()
+            if (firebaseEmail.isNullOrBlank() || firebaseEmail != googleEmail) {
+                firebaseAuth.signOut()
+                Result.failure(IllegalStateException("Google Drive and Firebase accounts did not match; Firebase session cleared"))
+            } else Result.success(Unit)
+        } catch (e: Exception) {
+            firebaseAuth.signOut()
+            Result.failure(IllegalStateException("Firebase sign-in failed; no linked session was kept", e))
+        }
+    }
+
+    /** Firebase ID token for backend calls. Never substitute the Drive access token. */
+    suspend fun getFirebaseIdToken(): Result<String> = try {
+        val user = firebaseAuth.currentUser
+            ?: return Result.failure(IllegalStateException("Firebase session is not linked"))
+        val token = user.getIdToken(false).await().token
+        if (token.isNullOrBlank()) Result.failure(IllegalStateException("Firebase ID token unavailable"))
+        else Result.success(token)
+    } catch (e: Exception) { Result.failure(e) }
 
     private fun accessTokenForAccount(acct: android.accounts.Account?): Result<String> {
         if (acct == null) {
@@ -146,6 +183,7 @@ class GoogleDriveAuth(
     }
 
     suspend fun signOut() = withContext(Dispatchers.IO) {
+        firebaseAuth.signOut()
         try {
             val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
                 .requestEmail()
