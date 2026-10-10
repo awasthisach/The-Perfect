@@ -181,16 +181,22 @@ class DriveIndexingWorker(
         val directory = java.io.File(applicationContext.cacheDir, "drive-index-inputs").apply { mkdirs() }
         val temporary = java.io.File.createTempFile("drive_index_", ".$extension", directory)
         try {
-            val download = app.googleDriveService.downloadFile(id, temporary.absolutePath)
+            val download = app.googleDriveService.downloadFileBounded(id, temporary.absolutePath, MAX_BINARY_DOWNLOAD_BYTES.toLong())
             if (download.isFailure || temporary.length() !in 1..MAX_BINARY_DOWNLOAD_BYTES.toLong()) {
                 return old?.contentText?.takeIf { unchanged }.orEmpty()
             }
             val mime = item.mimeType.orEmpty().lowercase()
-            if (mime == DriveOfficeTextExtractor.DOCX ||
-                mime == DriveOfficeTextExtractor.XLSX ||
-                mime == DriveOfficeTextExtractor.PPTX
+            val officeMime = when (item.extension) {
+                "docx" -> DriveOfficeTextExtractor.DOCX
+                "xlsx" -> DriveOfficeTextExtractor.XLSX
+                "pptx" -> DriveOfficeTextExtractor.PPTX
+                else -> mime
+            }
+            if (officeMime == DriveOfficeTextExtractor.DOCX ||
+                officeMime == DriveOfficeTextExtractor.XLSX ||
+                officeMime == DriveOfficeTextExtractor.PPTX
             ) {
-                return runCatching { DriveOfficeTextExtractor.extract(temporary, mime) }
+                return runCatching { DriveOfficeTextExtractor.extract(temporary, officeMime) }
                     .getOrElse { old?.contentText?.takeIf { unchanged }.orEmpty() }
             }
             val localItem = item.copy(
