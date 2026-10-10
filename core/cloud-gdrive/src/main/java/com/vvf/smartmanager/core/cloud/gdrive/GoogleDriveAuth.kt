@@ -29,7 +29,8 @@ import kotlinx.coroutines.withContext
  */
 class GoogleDriveAuth(
     private val context: Context,
-    private val serverClientId: String
+    private val serverClientId: String,
+    private val driveService: GoogleDriveService? = null
 ) {
 
     private val credentialManager = CredentialManager.create(context)
@@ -206,6 +207,8 @@ class GoogleDriveAuth(
     }
 
     suspend fun signOut() = withContext(Dispatchers.IO) {
+        // Clear the in-memory Drive bearer before ending either identity session.
+        driveService?.setAccessToken(null)
         firebaseAuth.signOut()
         try {
             val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
