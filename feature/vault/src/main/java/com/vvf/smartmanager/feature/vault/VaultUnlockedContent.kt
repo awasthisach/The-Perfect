@@ -66,7 +66,6 @@ import com.vvf.smartmanager.feature.vault.components.VaultItemGridCard
 import com.vvf.smartmanager.feature.vault.components.VaultProcessingDialog
 import com.vvf.smartmanager.feature.vault.components.VaultSettingsDialog
 import com.vvf.smartmanager.feature.vault.components.VaultSetupDecoyDialog
-import java.io.File
 
 private enum class VaultDocumentAction { RESTORE, EXPORT_COPY }
 
