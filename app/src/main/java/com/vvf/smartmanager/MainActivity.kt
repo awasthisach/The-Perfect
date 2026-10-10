@@ -2,6 +2,8 @@ package com.vvf.smartmanager
 
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
@@ -355,7 +357,31 @@ private fun VVFNavHost(
                     aiIntelligenceUseCase = app.aiIntelligenceUseCase
                 )
             )
-            SearchScreen(viewModel = searchViewModel)
+            SearchScreen(
+                viewModel = searchViewModel,
+                onOpenFile = { item ->
+                    val driveUrl = item.canonicalUri?.takeIf { raw ->
+                        runCatching {
+                            val parsed = Uri.parse(raw)
+                            parsed.scheme == "https" && parsed.host in setOf("drive.google.com", "docs.google.com")
+                        }.getOrDefault(false)
+                    } ?: item.localFileId?.let { id ->
+                        Uri.parse("https://drive.google.com/open").buildUpon()
+                            .appendQueryParameter("id", id)
+                            .build()
+                            .toString()
+                    }
+                    if (item.path.startsWith("gdrive://") && !driveUrl.isNullOrBlank()) {
+                        runCatching {
+                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(driveUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        }.onFailure {
+                            Toast.makeText(this, "No app available to open this Drive file", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        Toast.makeText(this, "This result is not a Drive link", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            )
         }
         composable(TopLevelDestination.CLOUD.route) {
             val cloudViewModel: CloudViewModel = viewModel(
