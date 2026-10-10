@@ -50,6 +50,7 @@ import com.vvf.smartmanager.core.domain.SemanticSearchUseCase
 import com.vvf.smartmanager.core.domain.TagManagementUseCase
 import com.vvf.smartmanager.core.domain.VaultAuthUseCase
 import com.vvf.smartmanager.core.model.CloudProviderType
+import com.vvf.smartmanager.core.model.DriveIndexStatus
 import com.vvf.smartmanager.core.plugin.spi.ISemanticSearchEngine
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import com.vvf.smartmanager.plugin.clouddrivers.DropboxDriverImpl
@@ -63,6 +64,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import java.io.File
@@ -122,6 +126,38 @@ class VVFApplication : Application(), Configuration.Provider {
     var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val _driveIndexStatus = MutableStateFlow(DriveIndexStatus())
+    val driveIndexStatus: StateFlow<DriveIndexStatus> = _driveIndexStatus.asStateFlow()
+
+    fun publishDriveIndexStatus(status: String, indexedCount: Int, capped: Boolean, message: String) {
+        val updatedAt = System.currentTimeMillis()
+        _driveIndexStatus.value = DriveIndexStatus(
+            status = status,
+            indexedCount = indexedCount.coerceAtLeast(0),
+            capped = capped,
+            message = message.take(500),
+            updatedAt = updatedAt
+        )
+        getSharedPreferences("drive_search_index", MODE_PRIVATE).edit()
+            .putString("last_status", status)
+            .putInt("last_indexed_count", indexedCount.coerceAtLeast(0))
+            .putBoolean("listing_capped", capped)
+            .putString("last_message", message.take(500))
+            .putLong("last_updated_at", updatedAt)
+            .apply()
+    }
+
+    private fun restoreDriveIndexStatus() {
+        val prefs = getSharedPreferences("drive_search_index", MODE_PRIVATE)
+        _driveIndexStatus.value = DriveIndexStatus(
+            status = prefs.getString("last_status", "NOT_SYNCED") ?: "NOT_SYNCED",
+            indexedCount = prefs.getInt("last_indexed_count", 0),
+            capped = prefs.getBoolean("listing_capped", false),
+            message = prefs.getString("last_message", "").orEmpty(),
+            updatedAt = prefs.getLong("last_updated_at", 0L)
+        )
+    }
+
 
     private val settingsPrefs by lazy {
         getSharedPreferences(SETTINGS_PREFS, MODE_PRIVATE)
@@ -161,6 +197,7 @@ class VVFApplication : Application(), Configuration.Provider {
             database.searchFtsDao().rebuildFtsIndex()
         }
         getSharedPreferences("drive_search_index", MODE_PRIVATE).edit().clear().apply()
+        publishDriveIndexStatus("NOT_SYNCED", 0, false, "")
     }
 
     /** Prevents one Google account from seeing another account's cached Drive index. */
@@ -299,6 +336,7 @@ class VVFApplication : Application(), Configuration.Provider {
             searchRepository = searchRepository
         )
         googleDriveService = GoogleDriveServiceImpl(this)
+        restoreDriveIndexStatus()
         val cloudDrivers = mapOf(
             CloudProviderType.ONE_DRIVE to OneDriveDriverImpl(),
             CloudProviderType.DROPBOX to DropboxDriverImpl(),
