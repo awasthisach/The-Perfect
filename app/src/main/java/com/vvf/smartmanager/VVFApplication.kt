@@ -63,6 +63,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -144,6 +145,21 @@ class VVFApplication : Application(), Configuration.Provider {
             ExistingWorkPolicy.KEEP,
             request
         )
+    }
+
+    /** Cancels Drive work and erases account-specific local index data on sign-out. */
+    suspend fun clearDriveIndexOnSignOut() = withContext(Dispatchers.IO) {
+        runCatching {
+            WorkManager.getInstance(this@VVFApplication)
+                .cancelUniqueWork("drive_semantic_index_initial")
+                .result
+                .get()
+        }
+        if (::database.isInitialized) {
+            database.fileDao().deleteAllDriveIndexRows()
+            database.searchFtsDao().rebuildFtsIndex()
+        }
+        getSharedPreferences("drive_search_index", MODE_PRIVATE).edit().clear().apply()
     }
 
     fun isAutoIndexOcrEnabled(): Boolean = settingsPrefs.getBoolean(KEY_AUTO_INDEX_OCR, true)
