@@ -105,7 +105,7 @@ fun VaultAddFileDialog(
             selectionError = null
             importScope.launch {
                 val stagedResult = withContext(Dispatchers.IO) {
-                    runCatching {
+                    try {
                         val displayName = context.contentResolver.query(
                             uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
                         )?.use { cursor ->
@@ -143,6 +143,11 @@ fun VaultAddFileDialog(
                             stagingDir.delete()
                             throw error
                         }
+                        Result.success(destination)
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        Result.failure(error)
                     }
                 }
                 isImporting = false
