@@ -150,7 +150,8 @@ class DriveIndexingWorker(
                 isTrash = false,
                 tags = "google-drive",
                 md5Hash = item.md5Hash,
-                contentText = content
+                contentText = content,
+                canonicalUri = item.canonicalUri
             )
         )
     }
