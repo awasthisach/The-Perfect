@@ -103,7 +103,11 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        googleDriveAuth = GoogleDriveAuth(this, BuildConfig.GOOGLE_WEB_CLIENT_ID)
+        googleDriveAuth = GoogleDriveAuth(
+            this,
+            BuildConfig.GOOGLE_WEB_CLIENT_ID,
+            (application as VVFApplication).googleDriveService
+        )
         enableEdgeToEdge()
         setContent {
             VVFSmartManagerTheme {
