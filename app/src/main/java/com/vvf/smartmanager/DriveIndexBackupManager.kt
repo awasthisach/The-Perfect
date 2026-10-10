@@ -126,18 +126,19 @@ class DriveIndexBackupManager(private val context: Context) {
             app.database.fileDao().replaceDriveIndexRows(rows)
             app.database.searchFtsDao().rebuildFtsIndex()
             // Imported data is a local snapshot, not proof of a current remote changes cursor.
-            context.getSharedPreferences("drive_search_index", Context.MODE_PRIVATE)
-                .edit()
+            val prefs = context.getSharedPreferences("drive_search_index", Context.MODE_PRIVATE)
+            prefs.edit()
                 .apply {
                     if (currentEmail.isNullOrBlank() && backupEmail.isNotBlank()) putString("account_email", backupEmail)
                 }
                 .remove("changes_cursor")
-                .putString("last_status", "IMPORTED_LOCAL_SNAPSHOT")
-                .putInt("last_indexed_count", rows.size)
-                .putBoolean("listing_capped", false)
-                .putString("last_message", "Imported local index; run Drive sync to reconcile with the remote account")
-                .putLong("last_updated_at", System.currentTimeMillis())
                 .apply()
+            app.publishDriveIndexStatus(
+                "IMPORTED_LOCAL_SNAPSHOT",
+                rows.size,
+                false,
+                "Imported local index; run Drive sync to reconcile with the remote account"
+            )
             Result.success(rows.size)
         } catch (e: Exception) {
             Result.failure(e)
