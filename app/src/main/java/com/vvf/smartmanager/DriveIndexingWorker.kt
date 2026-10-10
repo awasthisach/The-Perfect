@@ -39,10 +39,11 @@ class DriveIndexingWorker(
         val prefs = applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val auth = GoogleDriveAuth(applicationContext, BuildConfig.GOOGLE_WEB_CLIENT_ID, app.googleDriveService)
         val token = auth.silentRefreshDriveAccessToken().getOrElse {
-            saveStatus(prefs, "SIGN_IN_REQUIRED", 0, false, it.message.orEmpty())
+            saveStatus(app, "SIGN_IN_REQUIRED", 0, false, it.message.orEmpty())
             return@withContext Result.failure(workDataOf("reason" to "Sign in to Google Drive again to resume indexing"))
         }
         app.googleDriveService.setAccessToken(token)
+        app.publishDriveIndexStatus("SYNCING", 0, false, "Preparing Drive index sync")
 
         try {
             val savedCursor = prefs.getString(KEY_CURSOR, null)
@@ -65,6 +66,7 @@ class DriveIndexingWorker(
                     }
                     app.database.searchFtsDao().rebuildFtsIndex()
                     setProgress(workDataOf("indexed_count" to indexed, "total_count" to files.size))
+                    app.publishDriveIndexStatus("SYNCING", indexed, fullListing.capped, "Indexed $indexed of ${files.size} Drive items")
                 }
 
                 // Remove stale local search rows only when the full Drive listing was complete.
@@ -94,6 +96,7 @@ class DriveIndexingWorker(
                     }
                     app.database.searchFtsDao().rebuildFtsIndex()
                     setProgress(workDataOf("indexed_count" to indexed))
+                    app.publishDriveIndexStatus("SYNCING", indexed, false, "Applied $indexed Drive changes")
                 }
             }
 
@@ -265,19 +268,13 @@ class DriveIndexingWorker(
     )
 
     private fun saveStatus(
-        prefs: android.content.SharedPreferences,
+        app: VVFApplication,
         status: String,
         count: Int,
         capped: Boolean,
         message: String
     ) {
-        prefs.edit()
-            .putString(KEY_STATUS, status)
-            .putInt(KEY_LAST_COUNT, count)
-            .putBoolean(KEY_CAPPED, capped)
-            .putString(KEY_MESSAGE, message.take(500))
-            .putLong(KEY_UPDATED_AT, System.currentTimeMillis())
-            .apply()
+        app.publishDriveIndexStatus(status, count, capped, message)
     }
 
     companion object {
