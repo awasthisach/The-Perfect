@@ -40,9 +40,10 @@ jobs:
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
       - name: Generate SQLCipher 4.5.4 compatibility fixture
+        timeout-minutes: 15
         run: |
           set -euo pipefail
-          curl -fsSL -o /tmp/sqlcipher.tgz https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz
+          curl -fsSL --connect-timeout 15 --max-time 120 --retry 3 --retry-all-errors -o /tmp/sqlcipher.tgz https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz
           tar -xzf /tmp/sqlcipher.tgz -C /tmp
           cd /tmp/sqlcipher-4.5.4
           ./configure --enable-tempstore=yes CFLAGS="-DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL" LDFLAGS="-lcrypto" --enable-fts5
