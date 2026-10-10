@@ -39,5 +39,7 @@ data class FileMetadataEntity(
     val md5Hash: String? = null, // For Level 2 duplicate detection
     val operationState: String = "IDLE", // To support DurableOperationState tests
     /** Extracted local/Drive text; never contains auth credentials. */
-    val contentText: String = ""
+    val contentText: String = "",
+    /** Canonical URL for cloud-backed entries; null for local filesystem entries. */
+    val canonicalUri: String? = null
 )
