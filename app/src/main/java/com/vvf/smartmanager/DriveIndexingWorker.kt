@@ -92,7 +92,7 @@ class DriveIndexingWorker(
                 for (batch in changes.changes.chunked(BATCH_SIZE)) {
                     if (isStopped) return@withContext Result.retry()
                     for (change in batch) {
-                        if (change.removed) {
+                        if (change.removed || change.file?.trashed == true) {
                             val removedPath = DRIVE_PATH_PREFIX + change.fileId
                             app.database.fileDao().getByPath(removedPath)?.offlineLocalPath
                                 ?.let { java.io.File(it).delete() }
