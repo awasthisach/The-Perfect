@@ -162,6 +162,17 @@ class VVFApplication : Application(), Configuration.Provider {
         getSharedPreferences("drive_search_index", MODE_PRIVATE).edit().clear().apply()
     }
 
+    /** Prevents one Google account from seeing another account's cached Drive index. */
+    suspend fun prepareDriveIndexForAccount(email: String) = withContext(Dispatchers.IO) {
+        val normalized = email.trim().lowercase()
+        require(normalized.isNotBlank()) { "A verified Google account email is required" }
+        val prefs = getSharedPreferences("drive_search_index", MODE_PRIVATE)
+        if (prefs.getString("account_email", null) != normalized) {
+            clearDriveIndexOnSignOut()
+            prefs.edit().putString("account_email", normalized).apply()
+        }
+    }
+
     fun isAutoIndexOcrEnabled(): Boolean = settingsPrefs.getBoolean(KEY_AUTO_INDEX_OCR, true)
 
     fun setAutoIndexOcrEnabled(enabled: Boolean) {
