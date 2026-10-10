@@ -241,7 +241,9 @@ class GoogleDriveServiceImpl(
         isDirectory = dto.mimeType == "application/vnd.google-apps.folder",
         mimeType = dto.mimeType,
         isFavorite = dto.starred,
-        md5Hash = dto.md5Checksum
+        md5Hash = dto.md5Checksum,
+        localFileId = dto.id,
+        canonicalUri = dto.webViewLink
     )
 
     private fun requireValidDriveId(value: String, label: String) {
