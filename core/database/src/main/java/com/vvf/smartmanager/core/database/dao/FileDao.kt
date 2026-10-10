@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
 import kotlinx.coroutines.flow.Flow
@@ -118,6 +119,16 @@ interface FileDao {
     /** Removes only the local index for a signed-out Drive account; never touches remote Drive files. */
     @Query("DELETE FROM file_metadata WHERE path LIKE 'gdrive://%'")
     suspend fun deleteAllDriveIndexRows()
+
+    @Query("SELECT * FROM file_metadata WHERE path LIKE 'gdrive://%' ORDER BY name ASC")
+    suspend fun getDriveIndexRows(): List<FileMetadataEntity>
+
+    /** Replaces only the local Drive index atomically; never performs remote Drive mutations. */
+    @Transaction
+    suspend fun replaceDriveIndexRows(rows: List<FileMetadataEntity>) {
+        deleteAllDriveIndexRows()
+        if (rows.isNotEmpty()) insertAll(rows)
+    }
 
     /**
      * Removes index rows whose paths are no longer present on primary storage.
