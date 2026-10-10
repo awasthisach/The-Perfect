@@ -138,6 +138,7 @@ class DriveIndexingWorker(
             canExtract -> extractDriveText(app, id, item, unchanged, old)
             else -> ""
         }
+        val safeContent = if (!app.isDriveFullContentConsentEnabled() && isFullContentType(item)) "" else content
         dao.insertOrUpdate(
             FileMetadataEntity(
                 path = path,
@@ -151,7 +152,7 @@ class DriveIndexingWorker(
                 isTrash = false,
                 tags = "google-drive",
                 md5Hash = item.md5Hash,
-                contentText = content,
+                contentText = safeContent,
                 canonicalUri = item.canonicalUri
             )
         )
