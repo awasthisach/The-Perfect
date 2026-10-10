@@ -84,6 +84,36 @@ class MainActivity : FragmentActivity() {
      */
     private var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
 
+    private val exportDriveIndexLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) lifecycleScope.launch {
+            DriveIndexBackupManager(this@MainActivity).export(uri).fold(
+                onSuccess = { count ->
+                    Toast.makeText(this@MainActivity, "Exported $count Drive index entries", Toast.LENGTH_LONG).show()
+                },
+                onFailure = { error ->
+                    Toast.makeText(this@MainActivity, "Index export failed: ${error.message ?: "unknown error"}", Toast.LENGTH_LONG).show()
+                }
+            )
+        }
+    }
+
+    private val importDriveIndexLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) lifecycleScope.launch {
+            DriveIndexBackupManager(this@MainActivity).import(uri).fold(
+                onSuccess = { count ->
+                    Toast.makeText(this@MainActivity, "Imported $count local index entries. Run Drive sync to reconcile.", Toast.LENGTH_LONG).show()
+                },
+                onFailure = { error ->
+                    Toast.makeText(this@MainActivity, "Index import failed: ${error.message ?: "unknown error"}", Toast.LENGTH_LONG).show()
+                }
+            )
+        }
+    }
+
     private val googleDriveSignInLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { activityResult ->
@@ -148,6 +178,12 @@ class MainActivity : FragmentActivity() {
                             runCatching { app.clearDriveIndexOnSignOut() }
                             Toast.makeText(this@MainActivity, "Google Drive disconnected and local Drive index cleared", Toast.LENGTH_SHORT).show()
                         }
+                    },
+                    onExportDriveIndexRequested = {
+                        exportDriveIndexLauncher.launch("drive-semantic-search-index.json")
+                    },
+                    onImportDriveIndexRequested = {
+                        importDriveIndexLauncher.launch(arrayOf("application/json", "text/json"))
                     }
                 )
             }
@@ -158,7 +194,9 @@ class MainActivity : FragmentActivity() {
 @Composable
 fun VVFAppContent(
     onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit,
-    onGoogleDriveSignOutRequested: () -> Unit = {}
+    onGoogleDriveSignOutRequested: () -> Unit = {},
+    onExportDriveIndexRequested: () -> Unit = {},
+    onImportDriveIndexRequested: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -235,7 +273,7 @@ fun VVFAppContent(
                         )
                     }
                 }
-                VVFNavHost(navController = navController, app = app, onGoogleDriveSignInRequested = onGoogleDriveSignInRequested, onGoogleDriveSignOutRequested = onGoogleDriveSignOutRequested, modifier = Modifier.fillMaxSize())
+                VVFNavHost(navController = navController, app = app, onGoogleDriveSignInRequested = onGoogleDriveSignInRequested, onGoogleDriveSignOutRequested = onGoogleDriveSignOutRequested, onExportDriveIndexRequested = onExportDriveIndexRequested, onImportDriveIndexRequested = onImportDriveIndexRequested, modifier = Modifier.fillMaxSize())
             }
         } else {
             Scaffold(
@@ -297,6 +335,8 @@ fun VVFAppContent(
                     app = app,
                     onGoogleDriveSignInRequested = onGoogleDriveSignInRequested,
                     onGoogleDriveSignOutRequested = onGoogleDriveSignOutRequested,
+                    onExportDriveIndexRequested = onExportDriveIndexRequested,
+                    onImportDriveIndexRequested = onImportDriveIndexRequested,
                     modifier = Modifier.fillMaxSize().padding(innerPadding)
                 )
             }
@@ -310,6 +350,8 @@ private fun VVFNavHost(
     app: VVFApplication,
     onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit,
     onGoogleDriveSignOutRequested: () -> Unit = {},
+    onExportDriveIndexRequested: () -> Unit = {},
+    onImportDriveIndexRequested: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     NavHost(
@@ -421,7 +463,9 @@ private fun VVFNavHost(
                     app.enqueueDriveIndexing()
                     Toast.makeText(app, "Drive search indexing scheduled", Toast.LENGTH_SHORT).show()
                 },
-                onGoogleDriveSignOutRequested = onGoogleDriveSignOutRequested
+                onGoogleDriveSignOutRequested = onGoogleDriveSignOutRequested,
+                onExportDriveIndexRequested = onExportDriveIndexRequested,
+                onImportDriveIndexRequested = onImportDriveIndexRequested
             )
         }
         composable(TopLevelDestination.PLUGINS.route) {
