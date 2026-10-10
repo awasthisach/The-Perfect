@@ -359,6 +359,44 @@ class GoogleDriveServiceImpl(
             }
         }
 
+    override suspend fun downloadFileBounded(
+        fileId: String,
+        destinationPath: String,
+        maxBytes: Long
+    ): Result<Boolean> = withContext(Dispatchers.IO) {
+        val destination = File(destinationPath)
+        try {
+            require(maxBytes in 1..(100L * 1024L * 1024L)) { "Download limit must be between 1 byte and 100 MiB" }
+            requireValidDriveId(fileId, "fileId")
+            val body = driveApi.downloadFile(bearer(), fileId)
+            body.use { response ->
+                if (response.contentLength() > maxBytes) {
+                    throw IllegalArgumentException("Drive file exceeds the configured download limit")
+                }
+                destination.parentFile?.mkdirs()
+                response.byteStream().use { input ->
+                    destination.outputStream().use { output ->
+                        val buffer = ByteArray(8192)
+                        var total = 0L
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            total += count
+                            if (total > maxBytes) {
+                                throw IllegalArgumentException("Drive response exceeded the configured download limit")
+                            }
+                            output.write(buffer, 0, count)
+                        }
+                    }
+                }
+            }
+            Result.success(true)
+        } catch (e: Exception) {
+            destination.delete()
+            Result.failure(e)
+        }
+    }
+
     override suspend fun extractTextContent(fileId: String, mimeType: String?): Result<String> =
         withContext(Dispatchers.IO) {
             try {
