@@ -29,6 +29,8 @@ data class FileMetadataEntity(
     val parentPath: String,
     val sizeBytes: Long,
     val mimeType: String,
+    /** Extracted local/Drive text; never contains auth credentials. */
+    val contentText: String = "",
     val isDirectory: Boolean,
     val modifiedDate: Long,
     val isFavorite: Boolean = false,
