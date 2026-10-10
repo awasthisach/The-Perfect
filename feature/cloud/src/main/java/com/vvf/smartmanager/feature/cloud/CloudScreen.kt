@@ -74,6 +74,8 @@ fun CloudScreen(
     onGoogleDriveSignInRequested: () -> Unit,
     onDriveIndexRequested: () -> Unit = {},
     onGoogleDriveSignOutRequested: () -> Unit = {},
+    onExportDriveIndexRequested: () -> Unit = {},
+    onImportDriveIndexRequested: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -196,6 +198,18 @@ fun CloudScreen(
                                 modifier = Modifier.fillMaxWidth().testTag("disconnect_google_drive_button")
                             ) {
                                 Text("Disconnect Google Drive")
+                            }
+                            OutlinedButton(
+                                onClick = onExportDriveIndexRequested,
+                                modifier = Modifier.fillMaxWidth().testTag("export_drive_index_button")
+                            ) {
+                                Text("Export Search Index JSON")
+                            }
+                            OutlinedButton(
+                                onClick = onImportDriveIndexRequested,
+                                modifier = Modifier.fillMaxWidth().testTag("import_drive_index_button")
+                            ) {
+                                Text("Import Search Index JSON")
                             }
                         }
                     }
