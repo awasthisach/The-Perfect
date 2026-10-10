@@ -37,6 +37,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -354,6 +355,7 @@ private fun VVFNavHost(
     onImportDriveIndexRequested: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val searchActionScope = rememberCoroutineScope()
     NavHost(
         navController = navController,
         startDestination = TopLevelDestination.EXPLORER.route,
@@ -421,6 +423,26 @@ private fun VVFNavHost(
             )
             SearchScreen(
                 viewModel = searchViewModel,
+                onToggleOfflinePin = { item ->
+                    searchActionScope.launch {
+                        DriveOfflineManager(app).toggle(item.path).fold(
+                            onSuccess = { pinned ->
+                                Toast.makeText(
+                                    app,
+                                    if (pinned) "File pinned for offline use" else "Offline pin removed",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            },
+                            onFailure = { error ->
+                                Toast.makeText(
+                                    app,
+                                    "Offline pin failed: ${error.message ?: "unknown error"}",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        )
+                    }
+                },
                 onOpenFile = { item ->
                     val driveUrl = item.canonicalUri?.takeIf { raw ->
                         runCatching {
