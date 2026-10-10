@@ -7,6 +7,7 @@ import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.PATCH
+import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
 import retrofit2.http.Streaming
@@ -35,6 +36,13 @@ interface DriveApi {
         @Query("includeRemoved") includeRemoved: Boolean = true,
         @Query("fields") fields: String = "nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,size,modifiedTime,parents,md5Checksum,starred,webViewLink))"
     ): DriveChangesResponse
+
+    @POST("files")
+    suspend fun createFolder(
+        @Header("Authorization") bearer: String,
+        @Body metadata: RequestBody,
+        @Query("fields") fields: String = "id,name,mimeType,parents,modifiedTime"
+    ): DriveFileDto
 
     @PATCH("files/{fileId}")
     suspend fun updateFile(
