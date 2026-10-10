@@ -373,12 +373,12 @@ private fun VVFNavHost(
                     }
                     if (item.path.startsWith("gdrive://") && !driveUrl.isNullOrBlank()) {
                         runCatching {
-                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(driveUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                            app.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(driveUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                         }.onFailure {
-                            Toast.makeText(this, "No app available to open this Drive file", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(app, "No app available to open this Drive file", Toast.LENGTH_SHORT).show()
                         }
                     } else {
-                        Toast.makeText(this, "This result is not a Drive link", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(app, "This result is not a Drive link", Toast.LENGTH_SHORT).show()
                     }
                 }
             )
