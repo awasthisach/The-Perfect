@@ -169,6 +169,19 @@ class GoogleDriveAuth(
         accessTokenForAccount(account.account)
     }
 
+    /** Returns the verified email shared by the existing Google and Firebase sessions. */
+    suspend fun getMatchingAccountEmail(): Result<String> = withContext(Dispatchers.IO) {
+        val account = GoogleSignIn.getLastSignedInAccount(context)
+            ?: return@withContext Result.failure(IllegalStateException("No existing Google account"))
+        val googleEmail = account.email?.trim()?.lowercase()
+            ?: return@withContext Result.failure(IllegalStateException("Google account email is unavailable"))
+        val firebaseEmail = firebaseAuth.currentUser?.email?.trim()?.lowercase()
+        if (firebaseEmail.isNullOrBlank() || firebaseEmail != googleEmail) {
+            return@withContext Result.failure(IllegalStateException("Google and Firebase accounts do not match"))
+        }
+        Result.success(googleEmail)
+    }
+
     /** Firebase ID token for backend calls. Never substitute the Drive access token. */
     suspend fun getFirebaseIdToken(): Result<String> {
         return try {
