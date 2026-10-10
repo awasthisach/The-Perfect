@@ -281,11 +281,6 @@ class DriveIndexingWorker(
         private const val TAG = "DriveIndexingWorker"
         private const val PREFS = "drive_search_index"
         private const val KEY_CURSOR = "changes_cursor"
-        private const val KEY_STATUS = "last_status"
-        private const val KEY_LAST_COUNT = "last_indexed_count"
-        private const val KEY_CAPPED = "listing_capped"
-        private const val KEY_MESSAGE = "last_message"
-        private const val KEY_UPDATED_AT = "last_updated_at"
         private const val BATCH_SIZE = 50
         private const val MAX_BINARY_DOWNLOAD_BYTES = 20 * 1024 * 1024
         private const val MAX_EXTRACTED_TEXT_CHARS = 250_000
