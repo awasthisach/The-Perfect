@@ -105,16 +105,7 @@ class GoogleDriveServiceImpl(
             val parent = folderId.ifBlank { "root" }
             val q = "'$parent' in parents and trashed = false"
             val response = driveApi.listFiles(bearer = bearer(), query = q)
-            val items = response.files.map { dto ->
-                FileItem(
-                    path = "gdrive://${dto.id.orEmpty()}",
-                    name = dto.name.orEmpty(),
-                    sizeBytes = dto.size?.toLongOrNull() ?: 0L,
-                    lastModified = parseDriveTime(dto.modifiedTime),
-                    isDirectory = dto.mimeType == "application/vnd.google-apps.folder",
-                    mimeType = dto.mimeType
-                )
-            }
+            val items = response.files.map(::toFileItem)
             currentAccount = currentAccount.copy(
                 isConnected = true,
                 lastSyncTimestamp = System.currentTimeMillis()
@@ -167,6 +158,43 @@ class GoogleDriveServiceImpl(
                 count++
             } while (count < maxPages)
             Result.success(DriveChangeSnapshot(all, next, newStart))
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
+    override suspend fun syncDriveSnapshot(startPageToken: String?): Result<DriveSyncSnapshot> = withContext(Dispatchers.IO) {
+        try {
+            if (startPageToken.isNullOrBlank()) {
+                // Capture cursor before listing so changes during the list can be replayed.
+                val initialCursor = driveApi.getStartPageToken(bearer()).startPageToken
+                val listing = listAllDriveFiles(DriveIndexingPolicy.MAX_FILES).getOrThrow()
+                Result.success(DriveSyncSnapshot(
+                    fullListing = listing,
+                    cursor = initialCursor,
+                    fullResyncRequired = true,
+                    capped = listing.capped
+                ))
+            } else {
+                val changesResult = getDriveChanges(startPageToken)
+                if (changesResult.isSuccess) {
+                    val changes = changesResult.getOrThrow()
+                    val nextCursor = changes.nextPageToken ?: changes.newStartPageToken ?: startPageToken
+                    Result.success(DriveSyncSnapshot(
+                        changes = changes,
+                        cursor = nextCursor,
+                        fullResyncRequired = false
+                    ))
+                } else {
+                    // Invalid/expired cursor: recover with a bounded full listing.
+                    val freshCursor = driveApi.getStartPageToken(bearer()).startPageToken
+                    val listing = listAllDriveFiles(DriveIndexingPolicy.MAX_FILES).getOrThrow()
+                    Result.success(DriveSyncSnapshot(
+                        fullListing = listing,
+                        cursor = freshCursor,
+                        fullResyncRequired = true,
+                        capped = listing.capped
+                    ))
+                }
+            }
         } catch (e: Exception) { Result.failure(e) }
     }
 
