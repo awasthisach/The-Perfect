@@ -13,9 +13,18 @@ interface GoogleDriveService {
     suspend fun listAllDriveFiles(maxFiles: Int = 20_000): Result<DriveIndexSnapshot> = Result.failure(UnsupportedOperationException("Drive listing is not implemented"))
     suspend fun getDriveChanges(startPageToken: String, maxPages: Int = 200): Result<DriveChangeSnapshot> = Result.failure(UnsupportedOperationException("Drive changes are not implemented"))
     suspend fun getDriveStartPageToken(): Result<String> = Result.failure(UnsupportedOperationException("Drive change cursor is not implemented"))
+    suspend fun syncDriveSnapshot(startPageToken: String?): Result<DriveSyncSnapshot> = Result.failure(UnsupportedOperationException("Drive sync is not implemented"))
     suspend fun moveFile(fileId: String, destinationFolderId: String): Result<Boolean> = Result.failure(UnsupportedOperationException("Drive move is not implemented"))
     suspend fun setStarred(fileId: String, starred: Boolean): Result<Boolean> = Result.failure(UnsupportedOperationException("Drive star is not implemented"))
     suspend fun createDriveFolder(name: String, parentFolderId: String = "root"): Result<String> = Result.failure(UnsupportedOperationException("Drive folder creation is not implemented"))
 }
 data class DriveIndexSnapshot(val files: List<FileItem>, val capped: Boolean, val nextPageToken: String?)
 data class DriveChangeSnapshot(val changes: List<DriveChangeDto>, val nextPageToken: String?, val newStartPageToken: String?)
+
+data class DriveSyncSnapshot(
+    val fullListing: DriveIndexSnapshot? = null,
+    val changes: DriveChangeSnapshot? = null,
+    val cursor: String,
+    val fullResyncRequired: Boolean,
+    val capped: Boolean = false
+)
