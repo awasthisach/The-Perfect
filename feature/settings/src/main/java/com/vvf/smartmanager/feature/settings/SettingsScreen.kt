@@ -58,6 +58,8 @@ fun SettingsScreen(
     onBiometricEnabledChange: ((Boolean) -> Unit)? = null,
     initialAutoIndexOcr: Boolean = true,
     onAutoIndexOcrChange: ((Boolean) -> Unit)? = null,
+    initialDriveFullContentConsent: Boolean = false,
+    onDriveFullContentConsentChange: ((Boolean) -> Unit)? = null,
     initialOfflineOnlyMode: Boolean = true,
     onOfflineOnlyModeChange: ((Boolean) -> Unit)? = null,
     initialEmbeddingConsent: Boolean = false,
@@ -66,6 +68,7 @@ fun SettingsScreen(
 ) {
     var biometricEnabled by remember(initialBiometricEnabled) { mutableStateOf(initialBiometricEnabled) }
     var autoIndexOcr by remember(initialAutoIndexOcr) { mutableStateOf(initialAutoIndexOcr) }
+    var driveFullContentConsent by remember(initialDriveFullContentConsent) { mutableStateOf(initialDriveFullContentConsent) }
     var offlineOnlyMode by remember(initialOfflineOnlyMode) { mutableStateOf(initialOfflineOnlyMode) }
     var embeddingConsent by remember(initialEmbeddingConsent) { mutableStateOf(initialEmbeddingConsent) }
     var showEmbeddingConsentDialog by remember { mutableStateOf(false) }
@@ -143,6 +146,17 @@ fun SettingsScreen(
                             onCheckedChange = {
                                 autoIndexOcr = it
                                 onAutoIndexOcrChange?.invoke(it)
+                            }
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+                        SettingToggleRow(
+                            icon = Icons.Default.Storage,
+                            title = "Full-content extraction for Drive",
+                            subtitle = "Opt in to download supported PDFs, images and Office Open XML files to private temporary storage for on-device extraction. Off by default.",
+                            isChecked = driveFullContentConsent,
+                            onCheckedChange = {
+                                driveFullContentConsent = it
+                                onDriveFullContentConsentChange?.invoke(it)
                             }
                         )
                         HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
