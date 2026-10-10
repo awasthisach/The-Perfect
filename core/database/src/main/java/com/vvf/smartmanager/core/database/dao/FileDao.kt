@@ -115,6 +115,10 @@ interface FileDao {
     @Query("DELETE FROM file_metadata WHERE path = :path")
     suspend fun deleteByPath(path: String)
 
+    /** Removes only the local index for a signed-out Drive account; never touches remote Drive files. */
+    @Query("DELETE FROM file_metadata WHERE path LIKE 'gdrive://%'")
+    suspend fun deleteAllDriveIndexRows()
+
     /**
      * Removes index rows whose paths are no longer present on primary storage.
      * Trash rows are intentionally preserved so recycle-bin metadata survives re-index.
