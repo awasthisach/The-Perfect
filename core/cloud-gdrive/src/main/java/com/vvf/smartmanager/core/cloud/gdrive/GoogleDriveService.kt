@@ -9,6 +9,8 @@ interface GoogleDriveService {
     suspend fun listDriveFiles(folderId: String = "root"): Result<List<FileItem>>
     suspend fun uploadFile(localFile: FileItem, remoteFolderId: String = "root"): Result<String>
     suspend fun downloadFile(fileId: String, destinationPath: String): Result<Boolean>
+    /** Returns bounded plain text for supported text files and Google Workspace exports. */
+    suspend fun extractTextContent(fileId: String, mimeType: String?): Result<String> = Result.failure(UnsupportedOperationException("Text extraction is not implemented"))
     suspend fun getStorageQuota(): Result<Pair<Long, Long>>
     suspend fun listAllDriveFiles(maxFiles: Int = 20_000): Result<DriveIndexSnapshot> = Result.failure(UnsupportedOperationException("Drive listing is not implemented"))
     suspend fun getDriveChanges(startPageToken: String, maxPages: Int = 200): Result<DriveChangeSnapshot> = Result.failure(UnsupportedOperationException("Drive changes are not implemented"))
