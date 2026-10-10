@@ -78,6 +78,15 @@ abstract class VVFDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `file_metadata` ADD COLUMN `offlinePinned` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `file_metadata` ADD COLUMN `offlineLocalPath` TEXT")
+                db.execSQL("ALTER TABLE `file_metadata` ADD COLUMN `offlinePinnedAt` INTEGER")
+                db.execSQL("ALTER TABLE `file_metadata` ADD COLUMN `offlineBytes` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         /** Builds an encrypted SQLCipher Room database using the decrypted Keystore passphrase. */
         fun buildEncryptedDatabase(context: Context, passphrase: ByteArray): VVFDatabase {
             val openHelperFactory = SupportOpenHelperFactory(passphrase)
@@ -88,7 +97,7 @@ abstract class VVFDatabase : RoomDatabase() {
                 DATABASE_NAME
             )
                 .openHelperFactory(openHelperFactory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
         }
 
