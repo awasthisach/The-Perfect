@@ -24,7 +24,7 @@ interface SearchFtsDao {
      */
     @Query("""
         SELECT * FROM file_metadata 
-        WHERE (name LIKE '%' || :query || '%' OR tags LIKE '%' || :query || '%') 
+        WHERE (name LIKE '%' || :query || '%' OR tags LIKE '%' || :query || '%' OR contentText LIKE '%' || :query || '%') 
         AND isTrash = 0 
         ORDER BY isDirectory DESC, name ASC
     """)
