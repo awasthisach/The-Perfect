@@ -198,7 +198,7 @@ fun VaultAddFileDialog(
             ) {
                 OutlinedButton(
                     onClick = { filePicker.launch(arrayOf("*/*")) },
-                    enabled = !isImporting,
+                    enabled = !isImporting && !isSubmitting,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(if (isImporting) "Importing selected file…" else "Choose file from device")
@@ -280,7 +280,7 @@ fun VaultAddFileDialog(
                         onEncryptFile(file, selectedCategory, notes, true)
                     }
                 },
-                enabled = !isImporting && filePath.isNotBlank() && File(filePath).isFile,
+                enabled = !isImporting && !isSubmitting && filePath.isNotBlank() && File(filePath).isFile,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = BhagwaOrange,
                     contentColor = Color.White
