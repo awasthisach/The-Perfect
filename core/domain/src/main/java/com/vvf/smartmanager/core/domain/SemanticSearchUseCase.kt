@@ -18,7 +18,8 @@ import kotlinx.coroutines.flow.first
 class SemanticSearchUseCase(
     private val semanticPlugin: ISemanticSearchEngine,
     private val searchRepository: SearchRepository,
-    @Suppress("unused") private val fileManagerRepository: FileManagerRepository
+    @Suppress("unused") private val fileManagerRepository: FileManagerRepository,
+    private val isEmbeddingConsentGranted: () -> Boolean = { false }
 ) {
     fun isPluginReady(): Boolean = runCatching { semanticPlugin.isModelReady() }.getOrDefault(false)
 
@@ -49,7 +50,7 @@ class SemanticSearchUseCase(
         }
 
         val semanticScores = try {
-            if (!semanticPlugin.isModelReady()) emptyList()
+            if (!isEmbeddingConsentGranted() || !semanticPlugin.isModelReady()) emptyList()
             else {
                 val recent = searchRepository.getRecentIndexedFiles(CANDIDATE_LIMIT)
                 if (recent.isEmpty()) emptyList()
