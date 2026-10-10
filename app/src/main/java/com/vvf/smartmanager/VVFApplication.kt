@@ -3,6 +3,11 @@ package com.vvf.smartmanager
 import android.app.Application
 import android.util.Log
 import androidx.work.Configuration
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import com.vvf.smartmanager.core.background.workers.FileIndexingOutcome
 import com.vvf.smartmanager.core.background.workers.FileIndexingRuntime
 import com.vvf.smartmanager.core.background.workers.CloudBackupBootstrap
@@ -118,6 +123,26 @@ class VVFApplication : Application(), Configuration.Provider {
 
     private val settingsPrefs by lazy {
         getSharedPreferences(SETTINGS_PREFS, MODE_PRIVATE)
+    }
+
+    /**
+     * Starts Drive indexing only after an interactive Drive sign-in succeeds.
+     * The access token is intentionally not placed in WorkManager input data.
+     */
+    fun enqueueDriveIndexing() {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .setRequiresBatteryNotLow(true)
+            .build()
+        val request = OneTimeWorkRequestBuilder<DriveIndexingWorker>()
+            .setConstraints(constraints)
+            .addTag("drive_semantic_index")
+            .build()
+        WorkManager.getInstance(this).enqueueUniqueWork(
+            "drive_semantic_index_initial",
+            ExistingWorkPolicy.KEEP,
+            request
+        )
     }
 
     fun isAutoIndexOcrEnabled(): Boolean = settingsPrefs.getBoolean(KEY_AUTO_INDEX_OCR, true)
