@@ -6,6 +6,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vvf.smartmanager.core.model.CloudProviderType
 import com.vvf.smartmanager.core.model.DriveIndexStatus
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -20,7 +21,7 @@ fun CloudRoute(
     onGoogleDriveSignOutRequested: () -> Unit = {},
     onExportDriveIndexRequested: () -> Unit = {},
     onImportDriveIndexRequested: () -> Unit = {},
-    driveIndexStatus: StateFlow<DriveIndexStatus>,
+    driveIndexStatus: StateFlow<DriveIndexStatus> = MutableStateFlow(DriveIndexStatus()),
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
