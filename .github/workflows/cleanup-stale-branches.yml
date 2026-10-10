@@ -1,34 +1,44 @@
-# Final consolidation workflow: main is the canonical branch.
+# Safe branch cleanup: never delete every non-main branch on ordinary pushes.
 name: Cleanup Stale Branches
 
 on:
   workflow_dispatch:
-  push:
-    branches: ["main"]
 
 permissions:
   contents: write
+  pull-requests: read
 
 jobs:
-  delete-stale:
-    name: Consolidate repository branches
+  delete-out-of-scope-branches:
+    name: Remove confirmed out-of-scope Drive migration branches
     runs-on: ubuntu-24.04
     steps:
-      - name: Delete every non-main branch after final main consolidation
+      - name: Delete only the four reviewed, out-of-scope branches
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          echo "Final branch consolidation for $REPOSITORY"
-          mapfile -t branches < <(
-            gh api --paginate "repos/${REPOSITORY}/branches?per_page=100" --jq '.[].name'
+          # These branches were created for the out-of-scope Drive Semantic Search migration.
+          # Never delete a branch that still backs an open PR.
+          targets=(
+            "feat/drive-semantic-search-production"
+            "feat/drive-semantic-search-production-final"
+            "feat/drive-semantic-search-production-v2"
+            "feat/drive-semantic-search-production-v3"
           )
-          for branch in "${branches[@]}"; do
-            if [ "$branch" = "main" ]; then
+          for branch in "${targets[@]}"; do
+            encoded="$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$branch")"
+            open_prs="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&per_page=100" --jq "[.[] | select(.head.ref == \"$branch\")] | length")"
+            if [ "$open_prs" != "0" ]; then
+              echo "Preserving $branch because it still backs an open PR."
               continue
             fi
-            echo "Deleting stale branch: $branch"
-            gh api --method DELETE "repos/${REPOSITORY}/git/refs/heads/${branch}"
+            if gh api "repos/${REPOSITORY}/branches/$encoded" >/dev/null 2>&1; then
+              echo "Deleting confirmed out-of-scope branch: $branch"
+              gh api --method DELETE "repos/${REPOSITORY}/git/refs/heads/$encoded"
+            else
+              echo "Already absent: $branch"
+            fi
           done
-          echo "Branch consolidation complete. main is the canonical branch."
+          echo "Cleanup finished. main and all non-target branches were preserved."
