@@ -16,6 +16,16 @@ object DriveIndexingPolicy {
         return items.take(maximum)
     }
 
+    /** Re-index new files and files whose Drive modifiedTime changed; unknown timestamps fail safe. */
+    fun changedOnly(
+        files: List<DriveFileDto>,
+        indexedModifiedTimes: Map<String, String>
+    ): List<DriveFileDto> = files.filter { file ->
+        val id = file.id?.takeIf { it.isNotBlank() }
+        val modified = file.modifiedTime?.takeIf { it.isNotBlank() }
+        id == null || modified == null || indexedModifiedTimes[id] != modified
+    }
+
     /** Resume the same page after failure; only adopt a new start cursor after all changes commit. */
     fun cursorAfterBatch(
         currentCursor: String,
