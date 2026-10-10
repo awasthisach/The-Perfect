@@ -61,6 +61,22 @@ abstract class VVFDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Adds extracted document text without discarding the user's existing local index.
+         * The FTS virtual table is rebuilt so pre-existing rows remain searchable.
+         */
+        val MIGRATION_2_3: Migration = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `file_metadata` ADD COLUMN `contentText` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("DROP TABLE IF EXISTS `file_fts`")
+                db.execSQL(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS `file_fts` USING FTS4(" +
+                        "`name`, `path`, `tags`, `mimeType`, `contentText`, content='file_metadata')"
+                )
+                db.execSQL("INSERT INTO `file_fts`(`file_fts`) VALUES('rebuild')")
+            }
+        }
+
         /** Builds an encrypted SQLCipher Room database using the decrypted Keystore passphrase. */
         fun buildEncryptedDatabase(context: Context, passphrase: ByteArray): VVFDatabase {
             val openHelperFactory = SupportOpenHelperFactory(passphrase)
@@ -71,7 +87,7 @@ abstract class VVFDatabase : RoomDatabase() {
                 DATABASE_NAME
             )
                 .openHelperFactory(openHelperFactory)
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
         }
 
