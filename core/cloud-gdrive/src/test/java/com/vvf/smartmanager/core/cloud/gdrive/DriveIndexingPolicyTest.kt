@@ -28,6 +28,14 @@ class DriveIndexingPolicyTest {
     }
 
     @Test
+    fun missingModifiedTimeNeverCountsAsUnchanged() {
+        assertTrue(DriveIndexingPolicy.isUnchanged(100L, 100L, null, null))
+        assertTrue(!DriveIndexingPolicy.isUnchanged(0L, 0L, null, null))
+        assertTrue(!DriveIndexingPolicy.isUnchanged(101L, 100L, "md5", "md5"))
+        assertTrue(!DriveIndexingPolicy.isUnchanged(100L, 100L, "new", "old"))
+    }
+
+    @Test
     fun failedBatchDoesNotAdvanceCursor() {
         assertEquals(
             "cursor-1",

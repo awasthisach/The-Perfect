@@ -58,10 +58,10 @@ interface FileDao {
     @Query("SELECT * FROM file_metadata WHERE parentPath = :parentPath AND isTrash = 0 ORDER BY isDirectory DESC, name ASC")
     fun getFilesByDirectory(parentPath: String): Flow<List<FileMetadataEntity>>
 
-    @Query("SELECT * FROM file_metadata WHERE isFavorite = 1 AND isTrash = 0 ORDER BY name ASC")
+    @Query("SELECT * FROM file_metadata WHERE isFavorite = 1 AND isTrash = 0 AND path NOT LIKE 'gdrive://%' ORDER BY name ASC")
     fun getFavorites(): Flow<List<FileMetadataEntity>>
 
-    @Query("SELECT * FROM file_metadata WHERE isTrash = 1 ORDER BY deletedTimestamp DESC, modifiedDate DESC")
+    @Query("SELECT * FROM file_metadata WHERE isTrash = 1 AND path NOT LIKE 'gdrive://%' ORDER BY deletedTimestamp DESC, modifiedDate DESC")
     fun getTrashFiles(): Flow<List<FileMetadataEntity>>
 
     @Query("SELECT * FROM file_metadata WHERE mimeType LIKE :mimeTypePrefix || '%' AND isTrash = 0 ORDER BY modifiedDate DESC")
@@ -70,19 +70,19 @@ interface FileDao {
     @Query("SELECT * FROM file_metadata WHERE isTrash = 0 ORDER BY modifiedDate DESC LIMIT :limit")
     fun getRecentFiles(limit: Int = 50): Flow<List<FileMetadataEntity>>
 
-    @Query("SELECT sizeBytes, COUNT(*) as count FROM file_metadata WHERE isDirectory = 0 AND isTrash = 0 AND sizeBytes > 0 GROUP BY sizeBytes HAVING count > 1 ORDER BY sizeBytes DESC")
+    @Query("SELECT sizeBytes, COUNT(*) as count FROM file_metadata WHERE isDirectory = 0 AND isTrash = 0 AND path NOT LIKE 'gdrive://%' AND sizeBytes > 0 GROUP BY sizeBytes HAVING count > 1 ORDER BY sizeBytes DESC")
     fun findPotentialDuplicateSizes(): Flow<List<DuplicateGroup>>
 
-    @Query("SELECT * FROM file_metadata WHERE sizeBytes = :sizeBytes AND isDirectory = 0 AND isTrash = 0")
+    @Query("SELECT * FROM file_metadata WHERE sizeBytes = :sizeBytes AND isDirectory = 0 AND isTrash = 0 AND path NOT LIKE 'gdrive://%'")
     suspend fun getFilesBySize(sizeBytes: Long): List<FileMetadataEntity>
 
-    @Query("SELECT md5Hash, COUNT(*) as count FROM file_metadata WHERE isDirectory = 0 AND isTrash = 0 AND md5Hash IS NOT NULL AND md5Hash != '' GROUP BY md5Hash HAVING count > 1 ORDER BY sizeBytes DESC")
+    @Query("SELECT md5Hash, COUNT(*) as count FROM file_metadata WHERE isDirectory = 0 AND isTrash = 0 AND path NOT LIKE 'gdrive://%' AND md5Hash IS NOT NULL AND md5Hash != '' GROUP BY md5Hash HAVING count > 1 ORDER BY sizeBytes DESC")
     fun findDuplicateHashes(): Flow<List<DuplicateHashGroup>>
 
-    @Query("SELECT * FROM file_metadata WHERE md5Hash = :hash AND isDirectory = 0 AND isTrash = 0")
+    @Query("SELECT * FROM file_metadata WHERE md5Hash = :hash AND isDirectory = 0 AND isTrash = 0 AND path NOT LIKE 'gdrive://%'")
     suspend fun getFilesByHash(hash: String): List<FileMetadataEntity>
 
-    @Query("SELECT * FROM file_metadata WHERE isDirectory = 0 AND (md5Hash IS NULL OR md5Hash = '') AND isTrash = 0")
+    @Query("SELECT * FROM file_metadata WHERE isDirectory = 0 AND (md5Hash IS NULL OR md5Hash = '') AND isTrash = 0 AND path NOT LIKE 'gdrive://%'")
     suspend fun getFilesNeedingHash(): List<FileMetadataEntity>
 
     @Query("UPDATE file_metadata SET md5Hash = :hash WHERE id = :id")
@@ -152,9 +152,9 @@ interface FileDao {
     @Query("DELETE FROM file_metadata WHERE isTrash = 1")
     suspend fun emptyTrash()
 
-    @Query("SELECT COUNT(*) FROM file_metadata WHERE isTrash = 0")
+    @Query("SELECT COUNT(*) FROM file_metadata WHERE isTrash = 0 AND path NOT LIKE 'gdrive://%'")
     suspend fun getTotalFileCount(): Int
 
-    @Query("SELECT SUM(sizeBytes) FROM file_metadata WHERE isTrash = 0")
+    @Query("SELECT SUM(sizeBytes) FROM file_metadata WHERE isTrash = 0 AND path NOT LIKE 'gdrive://%'")
     suspend fun getTotalStorageUsed(): Long?
 }

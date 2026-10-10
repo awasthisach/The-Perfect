@@ -17,9 +17,14 @@ import java.io.InputStream
 class DriveIndexBackupManager(private val context: Context) {
     suspend fun export(uri: Uri): Result<Int> = withContext(Dispatchers.IO) {
         try {
-            val rows = (context.applicationContext as VVFApplication).database.fileDao().getDriveIndexRows()
+            val app = context.applicationContext as VVFApplication
+            val fullContentConsent = app.isDriveFullContentConsentEnabled()
+            val rows = app.database.fileDao().getDriveIndexRows()
+            val exportText: (FileMetadataEntity) -> String = { row ->
+                if (fullContentConsent || !requiresFullContentConsent(row.mimeType, row.name)) row.contentText else ""
+            }
             require(rows.size <= MAX_FILES) { "Drive index exceeds the 20,000-file backup limit" }
-            require(rows.sumOf { it.contentText.length.toLong() } <= MAX_TOTAL_TEXT_CHARS) {
+            require(rows.sumOf { exportText(it).length.toLong() } <= MAX_TOTAL_TEXT_CHARS) {
                 "Extracted text exceeds the JSON backup safety limit; clear or reduce the index first"
             }
             val files = JSONArray()
@@ -36,7 +41,7 @@ class DriveIndexBackupManager(private val context: Context) {
                         .put("md5Hash", row.md5Hash ?: JSONObject.NULL)
                         .put("isDirectory", row.isDirectory)
                         .put("isFavorite", row.isFavorite)
-                        .put("contentText", row.contentText)
+                        .put("contentText", exportText(row))
                         .put("canonicalUri", row.canonicalUri ?: JSONObject.NULL)
                 )
             }

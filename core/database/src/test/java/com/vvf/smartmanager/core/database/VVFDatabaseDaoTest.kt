@@ -260,4 +260,34 @@ class VVFDatabaseDaoTest {
         )
     }
 
+    @Test
+    fun driveRowsDoNotPolluteLocalFavoritesDuplicatesOrStorageTotals() = runBlocking {
+        val local = FileMetadataEntity(
+            path = "/storage/emulated/0/Documents/local.pdf",
+            name = "local.pdf",
+            parentPath = "/storage/emulated/0/Documents",
+            sizeBytes = 100L,
+            mimeType = "application/pdf",
+            isDirectory = false,
+            modifiedDate = 100L,
+            isFavorite = true
+        )
+        val drive = FileMetadataEntity(
+            path = "gdrive://driveFile123",
+            name = "drive.pdf",
+            parentPath = "gdrive://root",
+            sizeBytes = 100L,
+            mimeType = "application/pdf",
+            isDirectory = false,
+            modifiedDate = 100L,
+            isFavorite = true
+        )
+        fileDao.insertOrUpdate(local)
+        fileDao.insertOrUpdate(drive)
+
+        assertEquals(listOf(local.path), fileDao.getFavorites().first().map { it.path })
+        assertTrue(fileDao.findPotentialDuplicateSizes().first().isEmpty())
+        assertEquals(1, fileDao.getTotalFileCount())
+        assertEquals(100L, fileDao.getTotalStorageUsed())
+    }
 }

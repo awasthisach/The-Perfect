@@ -26,6 +26,17 @@ object DriveIndexingPolicy {
         id == null || modified == null || indexedModifiedTimes[id] != modified
     }
 
+    /** A missing timestamp must never be treated as proof that indexed content is unchanged. */
+    fun isUnchanged(
+        currentModifiedTime: Long,
+        indexedModifiedTime: Long?,
+        currentMd5: String?,
+        indexedMd5: String?
+    ): Boolean =
+        currentModifiedTime > 0L &&
+            indexedModifiedTime == currentModifiedTime &&
+            currentMd5 == indexedMd5
+
     /** Resume the same page after failure; only adopt a new start cursor after all changes commit. */
     fun cursorAfterBatch(
         currentCursor: String,

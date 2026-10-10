@@ -140,9 +140,12 @@ class DriveIndexingWorker(
         val path = DRIVE_PATH_PREFIX + id
         val dao = app.database.fileDao()
         val old = dao.getByPath(path)
-        val unchanged = old != null &&
-            old.modifiedDate == item.lastModified &&
-            old.md5Hash == item.md5Hash
+        val unchanged = old != null && DriveIndexingPolicy.isUnchanged(
+            currentModifiedTime = item.lastModified,
+            indexedModifiedTime = old.modifiedDate,
+            currentMd5 = item.md5Hash,
+            indexedMd5 = old.md5Hash
+        )
         if (old?.offlinePinned == true && !unchanged) {
             old.offlineLocalPath?.let { java.io.File(it).delete() }
         }
