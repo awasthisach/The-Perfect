@@ -221,4 +221,43 @@ class VVFDatabaseDaoTest {
         assertEquals("meeting-notes.txt", fullText.single().name)
     }
 
+    @Test
+    fun offlinePinQuotaQueriesTrackPrivateBytesAndOldestFirstOrder() = runBlocking {
+        val older = FileMetadataEntity(
+            path = "gdrive://olderFile123",
+            name = "older.pdf",
+            parentPath = "gdrive://root",
+            sizeBytes = 150L,
+            mimeType = "application/pdf",
+            isDirectory = false,
+            modifiedDate = 100L,
+            offlinePinned = true,
+            offlineLocalPath = "/private/older.pdf",
+            offlinePinnedAt = 10L,
+            offlineBytes = 150L
+        )
+        val newer = FileMetadataEntity(
+            path = "gdrive://newerFile123",
+            name = "newer.txt",
+            parentPath = "gdrive://root",
+            sizeBytes = 150L,
+            mimeType = "text/plain",
+            isDirectory = false,
+            modifiedDate = 200L,
+            offlinePinned = true,
+            offlineLocalPath = "/private/newer.txt",
+            offlinePinnedAt = 20L,
+            offlineBytes = 150L
+        )
+        fileDao.insertOrUpdate(newer)
+        fileDao.insertOrUpdate(older)
+
+        assertEquals(2, fileDao.getOfflinePinnedCount())
+        assertEquals(300L, fileDao.getOfflinePinnedBytes())
+        assertEquals(
+            listOf("gdrive://olderFile123", "gdrive://newerFile123"),
+            fileDao.getOfflinePinnedDriveFiles().map { it.path }
+        )
+    }
+
 }
