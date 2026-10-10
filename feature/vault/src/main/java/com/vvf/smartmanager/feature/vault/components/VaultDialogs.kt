@@ -51,7 +51,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -68,7 +67,6 @@ fun VaultAddFileDialog(
     onDismiss: () -> Unit,
     onEncryptFile: (File, String, String, Boolean) -> Unit
 ) {
-    val context = LocalContext.current
     var filePath by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("Documents") }
     var notes by remember { mutableStateOf("") }
@@ -76,21 +74,6 @@ fun VaultAddFileDialog(
     var categoryDropdownExpanded by remember { mutableStateOf(false) }
 
     val categories = listOf("Images", "Videos", "Documents", "Audio", "Archives", "Other")
-
-    // Quick suggestion files from app's internal or storage cache
-    val sampleFiles = remember {
-        listOf(
-            File(context.filesDir, "personal_confidential.txt").apply {
-                if (!exists()) writeText("CONFIDENTIAL FINANCIAL & PERSONAL RECORDS\nStored in AES-256 Vault.")
-            },
-            File(context.filesDir, "medical_report_2026.pdf").apply {
-                if (!exists()) writeText("%PDF-1.4 Mock Medical Report for VVF Vault Test")
-            },
-            File(context.filesDir, "passport_scan.jpg").apply {
-                if (!exists()) writeText("MOCK_IMAGE_DATA_ENCRYPTED")
-            }
-        )
-    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -128,42 +111,11 @@ fun VaultAddFileDialog(
                         .testTag("vault_add_file_path_input")
                 )
 
-                // Quick suggestions
                 Text(
-                    text = "Or pick a file to encrypt:",
-                    style = MaterialTheme.typography.labelMedium,
+                    text = "Enter the full path of a real file. Demo/sample files are not created automatically.",
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    sampleFiles.forEach { file ->
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (filePath == file.absolutePath) BhagwaOrange.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceContainer
-                            ),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable {
-                                    filePath = file.absolutePath
-                                    selectedCategory = when (file.extension.lowercase()) {
-                                        "jpg", "png" -> "Images"
-                                        "pdf", "txt" -> "Documents"
-                                        else -> "Other"
-                                    }
-                                }
-                        ) {
-                            Text(
-                                text = file.name,
-                                style = MaterialTheme.typography.labelSmall,
-                                maxLines = 1,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)
-                            )
-                        }
-                    }
-                }
 
                 // Category Dropdown
                 ExposedDropdownMenuBox(
