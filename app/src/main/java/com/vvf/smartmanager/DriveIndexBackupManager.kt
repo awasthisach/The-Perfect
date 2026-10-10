@@ -78,6 +78,8 @@ class DriveIndexBackupManager(private val context: Context) {
                 ?: throw IllegalArgumentException("Backup is missing the files list")
             require(files.length() <= MAX_FILES) { "Backup exceeds the 20,000-file safety limit" }
 
+            val app = context.applicationContext as VVFApplication
+            val fullContentConsent = app.isDriveFullContentConsentEnabled()
             val rows = ArrayList<FileMetadataEntity>(files.length())
             var totalTextChars = 0L
             for (index in 0 until files.length()) {
@@ -117,12 +119,11 @@ class DriveIndexBackupManager(private val context: Context) {
                     isTrash = false,
                     tags = "google-drive",
                     md5Hash = md5,
-                    contentText = text,
+                    contentText = if (fullContentConsent || !requiresFullContentConsent(mime, name)) text else "",
                     canonicalUri = safeCanonical
                 )
             }
 
-            val app = context.applicationContext as VVFApplication
             app.database.fileDao().replaceDriveIndexRows(rows)
             DriveOfflineManager(context).clearAllLocalCopies()
             app.database.searchFtsDao().rebuildFtsIndex()
@@ -158,6 +159,19 @@ class DriveIndexBackupManager(private val context: Context) {
             output.write(buffer, 0, count)
         }
         return output.toByteArray()
+    }
+
+    private fun requiresFullContentConsent(mimeType: String, name: String): Boolean {
+        val mime = mimeType.lowercase()
+        val extension = name.substringAfterLast('.', "").lowercase()
+        return mime == "application/pdf" ||
+            mime.startsWith("image/") ||
+            mime in setOf(
+                DriveOfficeTextExtractor.DOCX,
+                DriveOfficeTextExtractor.XLSX,
+                DriveOfficeTextExtractor.PPTX
+            ) ||
+            extension in setOf("pdf", "jpg", "jpeg", "png", "webp", "bmp", "heic", "docx", "xlsx", "pptx")
     }
 
     private fun isValidDriveId(value: String): Boolean =
