@@ -149,6 +149,25 @@ class GoogleDriveAuth(
         }
     }
 
+    /**
+     * Refresh Drive access silently only when both an existing Google session and a matching
+     * Firebase session exist. This method never starts interactive account selection.
+     */
+    suspend fun silentRefreshDriveAccessToken(): Result<String> = withContext(Dispatchers.IO) {
+        val account = GoogleSignIn.getLastSignedInAccount(context)
+            ?: return@withContext Result.failure(IllegalStateException("No existing Google session; interactive sign-in required"))
+        val googleEmail = account.email?.trim()?.lowercase()
+        val firebaseEmail = firebaseAuth.currentUser?.email?.trim()?.lowercase()
+        if (googleEmail.isNullOrBlank() || firebaseEmail.isNullOrBlank() || googleEmail != firebaseEmail) {
+            firebaseAuth.signOut()
+            return@withContext Result.failure(IllegalStateException("Google and Firebase sessions do not match; sign in again"))
+        }
+        if (account.account == null) {
+            return@withContext Result.failure(IllegalStateException("Existing Google account has no token account"))
+        }
+        accessTokenForAccount(account.account)
+    }
+
     /** Firebase ID token for backend calls. Never substitute the Drive access token. */
     suspend fun getFirebaseIdToken(): Result<String> {
         return try {
