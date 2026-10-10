@@ -11,6 +11,7 @@ import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
 import kotlinx.coroutines.launch
 import android.os.Bundle
 import androidx.fragment.app.FragmentActivity
+import androidx.core.content.FileProvider
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -455,7 +456,32 @@ private fun VVFNavHost(
                             .build()
                             .toString()
                     }
-                    if (item.path.startsWith("gdrive://") && !driveUrl.isNullOrBlank()) {
+                    val offlineFile = item.offlineLocalPath?.let(::java.io.File)
+                    if (item.path.startsWith("gdrive://") && item.isOfflinePinned && offlineFile?.isFile == true) {
+                        runCatching {
+                            val contentUri = FileProvider.getUriForFile(
+                                app,
+                                "${BuildConfig.APPLICATION_ID}.fileprovider",
+                                offlineFile
+                            )
+                            val offlineMime = when (offlineFile.extension.lowercase()) {
+                                "pdf" -> "application/pdf"
+                                "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                                "txt", "csv", "md", "json", "xml" -> "text/plain"
+                                else -> item.mimeType?.takeIf { !it.startsWith("application/vnd.google-apps.") }
+                                    ?: "application/octet-stream"
+                            }
+                            app.startActivity(
+                                Intent(Intent.ACTION_VIEW)
+                                    .setDataAndType(contentUri, offlineMime)
+                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        }.onFailure {
+                            Toast.makeText(app, "Could not open the offline copy", Toast.LENGTH_SHORT).show()
+                        }
+                    } else if (item.path.startsWith("gdrive://") && !driveUrl.isNullOrBlank()) {
                         runCatching {
                             app.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(driveUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                         }.onFailure {
