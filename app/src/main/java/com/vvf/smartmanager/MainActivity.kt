@@ -96,9 +96,18 @@ class MainActivity : FragmentActivity() {
                 resultCode = activityResult.resultCode,
                 data = activityResult.data
             )
-            result.onSuccess { token ->
-                runCatching { app.googleDriveService.setAccessToken(token) }
-                runCatching { app.enqueueDriveIndexing() }
+            val token = result.getOrNull()
+            if (token != null) {
+                app.googleDriveService.setAccessToken(token)
+                val accountEmail = googleDriveAuth.getMatchingAccountEmail().getOrNull()
+                if (!accountEmail.isNullOrBlank()) {
+                    try {
+                        app.prepareDriveIndexForAccount(accountEmail)
+                        app.enqueueDriveIndexing()
+                    } catch (_: Exception) {
+                        // Authentication remains valid; a later manual sync can retry index setup.
+                    }
+                }
             }
             callback?.invoke(result)
         }
