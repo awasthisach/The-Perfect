@@ -16,6 +16,8 @@ fun CloudRoute(
     onGoogleDriveSignInRequested: () -> Unit,
     onDriveIndexRequested: () -> Unit = {},
     onGoogleDriveSignOutRequested: () -> Unit = {},
+    onExportDriveIndexRequested: () -> Unit = {},
+    onImportDriveIndexRequested: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -47,6 +49,8 @@ fun CloudRoute(
             onGoogleDriveSignOutRequested()
             viewModel.completeGoogleDriveSignOut()
         },
+        onExportDriveIndexRequested = onExportDriveIndexRequested,
+        onImportDriveIndexRequested = onImportDriveIndexRequested,
         modifier = modifier
     )
 }
