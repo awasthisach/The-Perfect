@@ -212,7 +212,8 @@ class VVFApplication : Application(), Configuration.Provider {
         semanticSearchUseCase = SemanticSearchUseCase(
             semanticPlugin = semanticSearchPlugin,
             searchRepository = searchRepository,
-            fileManagerRepository = fileManagerRepository
+            fileManagerRepository = fileManagerRepository,
+            isEmbeddingConsentGranted = { isEmbeddingConsentEnabled() }
         )
         aiIntelligenceUseCase = AiIntelligenceUseCase(
             semanticPlugin = semanticSearchPlugin,
