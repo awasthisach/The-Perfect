@@ -11,6 +11,7 @@ import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
 import com.vvf.smartmanager.core.model.FileItem
 import com.vvf.smartmanager.core.model.OcrOptions
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -138,6 +139,7 @@ class DriveIndexingWorker(
             canExtract -> extractDriveText(app, id, item, unchanged, old)
             else -> ""
         }
+        if (isStopped) throw CancellationException("Drive indexing cancelled")
         val safeContent = if (!app.isDriveFullContentConsentEnabled() && isFullContentType(item)) "" else content
         dao.insertOrUpdate(
             FileMetadataEntity(
