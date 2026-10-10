@@ -14,6 +14,20 @@ class DriveIndexingPolicyTest {
     }
 
     @Test
+    fun unchangedFilesAreSkippedButUnknownTimestampsAreReindexed() {
+        val files = listOf(
+            DriveFileDto(id = "same", modifiedTime = "2026-10-01T10:00:00Z"),
+            DriveFileDto(id = "changed", modifiedTime = "2026-10-02T10:00:00Z"),
+            DriveFileDto(id = "unknown", modifiedTime = null)
+        )
+        val changed = DriveIndexingPolicy.changedOnly(
+            files,
+            mapOf("same" to "2026-10-01T10:00:00Z", "changed" to "2026-10-01T10:00:00Z")
+        )
+        assertEquals(listOf("changed", "unknown"), changed.map { it.id })
+    }
+
+    @Test
     fun failedBatchDoesNotAdvanceCursor() {
         assertEquals(
             "cursor-1",
