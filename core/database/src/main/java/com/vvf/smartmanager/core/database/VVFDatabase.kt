@@ -19,7 +19,7 @@ import com.vvf.smartmanager.core.database.model.VaultJournalEntity
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 /**
- * High-performance, SQLCipher-encrypted Room Database for VVF Smart Manager.
+ * High-performance, SQLCipher-encrypted Room Database.
  */
 @Database(
     entities = [
@@ -29,7 +29,8 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         VaultJournalEntity::class,
         CloudSyncEntity::class
     ],
-    version = 2,
+    // 1→2: vault journal; 2→3: extracted text/canonical URI; 3→4: offline pin metadata.
+    version = 4,
     exportSchema = true
 )
 abstract class VVFDatabase : RoomDatabase() {
@@ -61,10 +62,7 @@ abstract class VVFDatabase : RoomDatabase() {
             }
         }
 
-        /**
-         * Adds extracted document text without discarding the user's existing local index.
-         * The FTS virtual table is rebuilt so pre-existing rows remain searchable.
-         */
+        /** Adds extracted text without discarding the user's existing local index. */
         val MIGRATION_2_3: Migration = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `file_metadata` ADD COLUMN `contentText` TEXT NOT NULL DEFAULT ''")
@@ -78,6 +76,7 @@ abstract class VVFDatabase : RoomDatabase() {
             }
         }
 
+        /** Adds offline pin metadata without discarding the user's existing index. */
         val MIGRATION_3_4: Migration = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `file_metadata` ADD COLUMN `offlinePinned` INTEGER NOT NULL DEFAULT 0")
@@ -87,10 +86,9 @@ abstract class VVFDatabase : RoomDatabase() {
             }
         }
 
-        /** Builds an encrypted SQLCipher Room database using the decrypted Keystore passphrase. */
+        /** Builds an encrypted SQLCipher Room database using the Keystore passphrase. */
         fun buildEncryptedDatabase(context: Context, passphrase: ByteArray): VVFDatabase {
             val openHelperFactory = SupportOpenHelperFactory(passphrase)
-
             return Room.databaseBuilder(
                 context.applicationContext,
                 VVFDatabase::class.java,
@@ -101,7 +99,7 @@ abstract class VVFDatabase : RoomDatabase() {
                 .build()
         }
 
-        /** In-memory database builder for tests. */
+        /** Builds an in-memory database for tests. */
         fun buildInMemoryDatabase(context: Context): VVFDatabase {
             return Room.inMemoryDatabaseBuilder(
                 context.applicationContext,
