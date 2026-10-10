@@ -96,6 +96,7 @@ class MainActivity : FragmentActivity() {
             )
             result.onSuccess { token ->
                 runCatching { app.googleDriveService.setAccessToken(token) }
+                runCatching { app.enqueueDriveIndexing() }
             }
             callback?.invoke(result)
         }
