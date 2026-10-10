@@ -197,4 +197,28 @@ class VVFDatabaseDaoTest {
         val updated = searchFtsDao.searchByTag("vvf_confidential").first()
         assertEquals(1, updated.size)
     }
+    @Test
+    fun extractedDriveDocumentTextIsSearchableByKeywordAndFts() = runBlocking {
+        val driveFile = FileMetadataEntity(
+            path = "gdrive://driveFile123",
+            name = "meeting-notes.txt",
+            parentPath = "gdrive://root",
+            sizeBytes = 42L,
+            mimeType = "text/plain",
+            isDirectory = false,
+            modifiedDate = 3000L,
+            contentText = "Procurement policy requires three independent quotations."
+        )
+        fileDao.insertOrUpdate(driveFile)
+        searchFtsDao.rebuildFtsIndex()
+
+        val fallback = searchFtsDao.searchFilesFallback("independent quotations").first()
+        assertEquals(1, fallback.size)
+        assertEquals("gdrive://driveFile123", fallback.single().path)
+
+        val fullText = searchFtsDao.searchFilesFts("procurement*").first()
+        assertEquals(1, fullText.size)
+        assertEquals("meeting-notes.txt", fullText.single().name)
+    }
+
 }
