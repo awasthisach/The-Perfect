@@ -44,4 +44,11 @@ data class FileMetadataEntity(
     val contentText: String = "",
     /** Canonical URL for cloud-backed entries; null for local filesystem entries. */
     val canonicalUri: String? = null
+    /** True only while a verified app-private offline copy exists. */
+    @ColumnInfo(defaultValue = "0")
+    val offlinePinned: Boolean = false,
+    val offlineLocalPath: String? = null,
+    val offlinePinnedAt: Long? = null,
+    @ColumnInfo(defaultValue = "0")
+    val offlineBytes: Long = 0L
 )
