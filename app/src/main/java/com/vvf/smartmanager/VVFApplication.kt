@@ -74,6 +74,7 @@ class VVFApplication : Application(), Configuration.Provider {
         private const val KEY_AUTO_INDEX_OCR = "auto_index_ocr"
         private const val KEY_OFFLINE_ONLY_MODE = "offline_only_mode"
         private const val KEY_EMBEDDING_CONSENT = "embedding_consent_v1"
+        private const val KEY_DRIVE_FULL_CONTENT_CONSENT = "drive_full_content_consent_v1"
     }
 
     override val workManagerConfiguration: Configuration
@@ -161,6 +162,14 @@ class VVFApplication : Application(), Configuration.Provider {
 
     fun setEmbeddingConsentEnabled(enabled: Boolean) {
         settingsPrefs.edit().putBoolean(KEY_EMBEDDING_CONSENT, enabled).apply()
+    }
+
+    /** Explicit opt-in for downloading supported Drive documents for local PDF/image/Office extraction. */
+    fun isDriveFullContentConsentEnabled(): Boolean =
+        settingsPrefs.getBoolean(KEY_DRIVE_FULL_CONTENT_CONSENT, false)
+
+    fun setDriveFullContentConsentEnabled(enabled: Boolean) {
+        settingsPrefs.edit().putBoolean(KEY_DRIVE_FULL_CONTENT_CONSENT, enabled).apply()
     }
 
     override fun onCreate() {
