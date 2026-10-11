@@ -232,10 +232,17 @@ jobs:
       - name: FOSSA test (advisory)
         id: fossa_test
         if: ${{ env.FOSSA_ENABLED == 'true' && success() }}
-        continue-on-error: true
         env:
           FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
-        run: fossa test --timeout 600
+        run: |
+          # FOSSA test is advisory: capture its result without making GitHub
+          # render an error annotation for an allowed advisory failure.
+          if fossa test --timeout 600; then
+            echo "test_outcome=success" >> "$GITHUB_OUTPUT"
+          else
+            echo "test_outcome=failure" >> "$GITHUB_OUTPUT"
+            echo "::warning::FOSSA test advisory failed; analyze gate remains PASS."
+          fi
       - name: Record FOSSA gate status
         if: ${{ always() }}
         run: |
@@ -244,7 +251,7 @@ jobs:
             exit 0
           fi
           ANALYZE="${{ steps.fossa_analyze.outcome }}"
-          TEST="${{ steps.fossa_test.outcome }}"
+          TEST="${{ steps.fossa_test.outputs.test_outcome }}"
           if [ "$ANALYZE" = "success" ]; then
             if [ "$TEST" = "success" ]; then
               echo '{"gate_id":"GATE-LICENSE-001","status":"PASS","reason":"fossa analyze + fossa test succeeded"}' > foss-status.json

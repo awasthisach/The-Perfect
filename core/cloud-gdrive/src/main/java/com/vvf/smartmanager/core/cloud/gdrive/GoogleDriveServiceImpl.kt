@@ -105,16 +105,7 @@ class GoogleDriveServiceImpl(
             val parent = folderId.ifBlank { "root" }
             val q = "'$parent' in parents and trashed = false"
             val response = driveApi.listFiles(bearer = bearer(), query = q)
-            val items = response.files.map { dto ->
-                FileItem(
-                    path = "gdrive://${dto.id.orEmpty()}",
-                    name = dto.name.orEmpty(),
-                    sizeBytes = dto.size?.toLongOrNull() ?: 0L,
-                    lastModified = parseDriveTime(dto.modifiedTime),
-                    isDirectory = dto.mimeType == "application/vnd.google-apps.folder",
-                    mimeType = dto.mimeType
-                )
-            }
+            val items = response.files.map(::toFileItem)
             currentAccount = currentAccount.copy(
                 isConnected = true,
                 lastSyncTimestamp = System.currentTimeMillis()
@@ -123,6 +114,140 @@ class GoogleDriveServiceImpl(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    override suspend fun listAllDriveFiles(maxFiles: Int): Result<DriveIndexSnapshot> = withContext(Dispatchers.IO) {
+        try {
+            require(maxFiles in 1..20_000) { "maxFiles must be between 1 and 20,000" }
+            val all = ArrayList<FileItem>()
+            var pageToken: String? = null
+            var next: String? = null
+            do {
+                val response = driveApi.listFiles(
+                    bearer = bearer(), query = "trashed = false",
+                    pageSize = minOf(1000, maxFiles - all.size).coerceAtLeast(1), pageToken = pageToken
+                )
+                all.addAll(response.files.map(::toFileItem))
+                next = response.nextPageToken
+                pageToken = next
+            } while (!next.isNullOrBlank() && all.size < maxFiles)
+            Result.success(DriveIndexSnapshot(all.take(maxFiles), !next.isNullOrBlank(), next))
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
+    override suspend fun getDriveStartPageToken(): Result<String> = withContext(Dispatchers.IO) {
+        runCatching { driveApi.getStartPageToken(bearer()).startPageToken }
+    }
+
+    override suspend fun getDriveChanges(startPageToken: String, maxPages: Int): Result<DriveChangeSnapshot> = withContext(Dispatchers.IO) {
+        try {
+            require(startPageToken.isNotBlank()) { "A saved Drive changes cursor is required" }
+            require(maxPages in 1..200) { "maxPages must be between 1 and 200" }
+            val all = ArrayList<DriveChangeDto>()
+            var page = startPageToken
+            var next: String? = null
+            var newStart: String? = null
+            var count = 0
+            do {
+                val response = driveApi.listChanges(bearer(), page, pageSize = 100)
+                all.addAll(response.changes)
+                next = response.nextPageToken
+                newStart = response.newStartPageToken ?: newStart
+                if (next.isNullOrBlank()) break
+                page = next
+                count++
+            } while (count < maxPages)
+            Result.success(DriveChangeSnapshot(all, next, newStart))
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
+    override suspend fun syncDriveSnapshot(startPageToken: String?): Result<DriveSyncSnapshot> = withContext(Dispatchers.IO) {
+        try {
+            if (startPageToken.isNullOrBlank()) {
+                // Capture cursor before listing so changes during the list can be replayed.
+                val initialCursor = driveApi.getStartPageToken(bearer()).startPageToken
+                val listing = listAllDriveFiles(DriveIndexingPolicy.MAX_FILES).getOrThrow()
+                Result.success(DriveSyncSnapshot(
+                    fullListing = listing,
+                    cursor = initialCursor,
+                    fullResyncRequired = true,
+                    capped = listing.capped
+                ))
+            } else {
+                val changesResult = getDriveChanges(startPageToken)
+                if (changesResult.isSuccess) {
+                    val changes = changesResult.getOrThrow()
+                    val nextCursor = changes.nextPageToken ?: changes.newStartPageToken ?: startPageToken
+                    Result.success(DriveSyncSnapshot(
+                        changes = changes,
+                        cursor = nextCursor,
+                        fullResyncRequired = false
+                    ))
+                } else {
+                    // Invalid/expired cursor: recover with a bounded full listing.
+                    val freshCursor = driveApi.getStartPageToken(bearer()).startPageToken
+                    val listing = listAllDriveFiles(DriveIndexingPolicy.MAX_FILES).getOrThrow()
+                    Result.success(DriveSyncSnapshot(
+                        fullListing = listing,
+                        cursor = freshCursor,
+                        fullResyncRequired = true,
+                        capped = listing.capped
+                    ))
+                }
+            }
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
+    override suspend fun moveFile(fileId: String, destinationFolderId: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            requireValidDriveId(fileId, "fileId")
+            require(destinationFolderId == "root" || looksLikeDriveId(destinationFolderId)) { "Invalid destination folder ID" }
+            val current = driveApi.getFile(bearer(), fileId)
+            driveApi.updateFile(
+                bearer(), fileId, "{}".toRequestBody("application/json; charset=UTF-8".toMediaType()),
+                addParents = destinationFolderId,
+                removeParents = current.parents.filter { it.isNotBlank() }.takeIf { it.isNotEmpty() }?.joinToString(",")
+            )
+            Result.success(true)
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
+    override suspend fun setStarred(fileId: String, starred: Boolean): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            requireValidDriveId(fileId, "fileId")
+            driveApi.updateFile(bearer(), fileId, """{"starred":$starred}""".toRequestBody("application/json; charset=UTF-8".toMediaType()))
+            Result.success(true)
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
+    override suspend fun createDriveFolder(name: String, parentFolderId: String): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val cleanName = name.trim()
+            require(cleanName.isNotEmpty() && cleanName.length <= 200) { "Folder name must contain 1–200 characters" }
+            require(parentFolderId == "root" || looksLikeDriveId(parentFolderId)) { "Invalid parent folder ID" }
+            val safeName = cleanName.replace("\\", "\\\\").replace("\"", "\\\"")
+            val safeParent = parentFolderId.replace("\\", "\\\\").replace("\"", "\\\"")
+            val json = """{"name":"$safeName","mimeType":"application/vnd.google-apps.folder","parents":["$safeParent"]}"""
+            val created = driveApi.createFolder(bearer(), json.toRequestBody("application/json; charset=UTF-8".toMediaType()))
+            Result.success(requireNotNull(created.id) { "Drive returned no folder ID" })
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
+    private fun toFileItem(dto: DriveFileDto): FileItem = FileItem(
+        path = "gdrive://${dto.id.orEmpty()}",
+        name = dto.name.orEmpty(),
+        sizeBytes = dto.size?.toLongOrNull() ?: 0L,
+        lastModified = parseDriveTime(dto.modifiedTime),
+        isDirectory = dto.mimeType == "application/vnd.google-apps.folder",
+        mimeType = dto.mimeType,
+        isFavorite = dto.starred,
+        md5Hash = dto.md5Checksum,
+        localFileId = dto.id,
+        canonicalUri = dto.webViewLink
+    )
+
+    private fun requireValidDriveId(value: String, label: String) {
+        require(looksLikeDriveId(value)) { "Invalid Drive $label" }
     }
 
     override suspend fun uploadFile(localFile: FileItem, remoteFolderId: String): Result<String> =
@@ -229,6 +354,108 @@ class GoogleDriveServiceImpl(
                     }
                 }
                 Result.success(true)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
+    override suspend fun downloadFileBounded(
+        fileId: String,
+        destinationPath: String,
+        maxBytes: Long,
+        mimeType: String?
+    ): Result<Boolean> = withContext(Dispatchers.IO) {
+        val destination = File(destinationPath)
+        try {
+            require(maxBytes in 1..(200L * 1024L * 1024L)) { "Download limit must be between 1 byte and 200 MiB" }
+            requireValidDriveId(fileId, "fileId")
+            val exportMime = when (mimeType?.lowercase()) {
+                "application/vnd.google-apps.document",
+                "application/vnd.google-apps.presentation" -> "application/pdf"
+                "application/vnd.google-apps.spreadsheet" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                else -> null
+            }
+            val body = if (exportMime != null) {
+                driveApi.exportTextFile(bearer(), fileId, exportMime)
+            } else {
+                driveApi.downloadFile(bearer(), fileId)
+            }
+            body.use { response ->
+                if (response.contentLength() > maxBytes) {
+                    throw IllegalArgumentException("Drive file exceeds the configured download limit")
+                }
+                destination.parentFile?.mkdirs()
+                response.byteStream().use { input ->
+                    destination.outputStream().use { output ->
+                        val buffer = ByteArray(8192)
+                        var total = 0L
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            total += count
+                            if (total > maxBytes) {
+                                throw IllegalArgumentException("Drive response exceeded the configured download limit")
+                            }
+                            output.write(buffer, 0, count)
+                        }
+                    }
+                }
+            }
+            Result.success(true)
+        } catch (e: Exception) {
+            destination.delete()
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun extractTextContent(fileId: String, mimeType: String?): Result<String> =
+        withContext(Dispatchers.IO) {
+            try {
+                requireValidDriveId(fileId, "fileId")
+                val type = mimeType.orEmpty().lowercase()
+                val exportMime = when (type) {
+                    "application/vnd.google-apps.document",
+                    "application/vnd.google-apps.presentation" -> "text/plain"
+                    "application/vnd.google-apps.spreadsheet" -> "text/csv"
+                    else -> null
+                }
+                val isPlainText = type.startsWith("text/") ||
+                    type in setOf("application/json", "application/xml", "application/csv", "application/rtf")
+                if (exportMime == null && !isPlainText) {
+                    return@withContext Result.failure(
+                        UnsupportedOperationException("This file type needs a dedicated parser; binary content was not decoded as text.")
+                    )
+                }
+                val body = if (exportMime != null) {
+                    driveApi.exportTextFile(bearer(), fileId, exportMime)
+                } else {
+                    driveApi.downloadFile(bearer(), fileId)
+                }
+                body.use { response ->
+                    val maxBytes = 2 * 1024 * 1024
+                    val declaredLength = response.contentLength()
+                    if (declaredLength > maxBytes) {
+                        return@withContext Result.failure(IllegalArgumentException("Document text exceeds the 2 MiB indexing limit"))
+                    }
+                    val output = java.io.ByteArrayOutputStream()
+                    response.byteStream().use { input ->
+                        val buffer = ByteArray(8192)
+                        var total = 0
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            total += count
+                            if (total > maxBytes) {
+                                return@withContext Result.failure(IllegalArgumentException("Document text exceeds the 2 MiB indexing limit"))
+                            }
+                            output.write(buffer, 0, count)
+                        }
+                    }
+                    val text = output.toString(Charsets.UTF_8.name())
+                        .replace("\u0000", "")
+                        .take(250_000)
+                    Result.success(text)
+                }
             } catch (e: Exception) {
                 Result.failure(e)
             }

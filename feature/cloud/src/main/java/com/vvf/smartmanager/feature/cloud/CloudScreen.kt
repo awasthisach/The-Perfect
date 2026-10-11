@@ -61,6 +61,7 @@ import com.vvf.smartmanager.core.common.FormatUtils
 import com.vvf.smartmanager.core.common.R as CommonR
 import com.vvf.smartmanager.core.model.CloudAccount
 import com.vvf.smartmanager.core.model.CloudProviderType
+import com.vvf.smartmanager.core.model.DriveIndexStatus
 
 private val BhagwaOrange = Color(0xFFF47B20)
 private val CosmicBlue = Color(0xFF102B52)
@@ -72,6 +73,11 @@ private val SoftGold = Color(0xFFD4A95A)
 fun CloudScreen(
     viewModel: CloudViewModel,
     onGoogleDriveSignInRequested: () -> Unit,
+    onDriveIndexRequested: () -> Unit = {},
+    onGoogleDriveSignOutRequested: () -> Unit = {},
+    onExportDriveIndexRequested: () -> Unit = {},
+    onImportDriveIndexRequested: () -> Unit = {},
+    driveIndexStatus: DriveIndexStatus = DriveIndexStatus(),
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -156,6 +162,82 @@ fun CloudScreen(
                             ),
                             modifier = Modifier.testTag("provider_chip_${provider.name.lowercase()}")
                         )
+                    }
+                }
+            }
+
+            if (
+                uiState.selectedProvider == CloudProviderType.GOOGLE_DRIVE &&
+                uiState.accounts[CloudProviderType.GOOGLE_DRIVE]?.isConnected == true
+            ) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().testTag("drive_search_index_card"),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("Drive Semantic Search", fontWeight = FontWeight.Bold, color = CosmicBlue)
+                            Text(
+                                "Index Drive file names and metadata, plus supported text files and Google Docs exports. Large or unsupported binary formats may need a dedicated extractor.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = when (driveIndexStatus.status) {
+                                    "SYNCING" -> "Indexing in progress: ${driveIndexStatus.indexedCount} item(s) processed"
+                                    "SYNCED" -> "Index synced: ${driveIndexStatus.indexedCount} item(s)"
+                                    "LIMIT_REACHED" -> "Incomplete index: Drive reached the 20,000-file safety limit"
+                                    "SIGN_IN_REQUIRED" -> "Sign in again to resume Drive indexing"
+                                    "RETRY_REQUIRED" -> "Drive indexing needs another attempt"
+                                    "IMPORTED_LOCAL_SNAPSHOT" -> "Local index imported; sync Drive to reconcile it"
+                                    else -> "Drive search index has not been synced yet"
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (driveIndexStatus.capped) MaterialTheme.colorScheme.error else CosmicBlue
+                            )
+                            if (driveIndexStatus.isRunning) {
+                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            }
+                            if (driveIndexStatus.message.isNotBlank()) {
+                                Text(
+                                    driveIndexStatus.message,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (driveIndexStatus.capped) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Button(
+                                onClick = onDriveIndexRequested,
+                                modifier = Modifier.fillMaxWidth().testTag("index_drive_for_search_button"),
+                                colors = ButtonDefaults.buttonColors(containerColor = BhagwaOrange)
+                            ) {
+                                Icon(Icons.Default.CloudSync, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Sync Drive Search Index")
+                            }
+                            OutlinedButton(
+                                onClick = onGoogleDriveSignOutRequested,
+                                modifier = Modifier.fillMaxWidth().testTag("disconnect_google_drive_button")
+                            ) {
+                                Text("Disconnect Google Drive")
+                            }
+                            OutlinedButton(
+                                onClick = onExportDriveIndexRequested,
+                                modifier = Modifier.fillMaxWidth().testTag("export_drive_index_button")
+                            ) {
+                                Text("Export Search Index JSON")
+                            }
+                            OutlinedButton(
+                                onClick = onImportDriveIndexRequested,
+                                modifier = Modifier.fillMaxWidth().testTag("import_drive_index_button")
+                            ) {
+                                Text("Import Search Index JSON")
+                            }
+                        }
                     }
                 }
             }

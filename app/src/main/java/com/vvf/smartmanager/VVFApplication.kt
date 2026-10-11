@@ -3,6 +3,11 @@ package com.vvf.smartmanager
 import android.app.Application
 import android.util.Log
 import androidx.work.Configuration
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import com.vvf.smartmanager.core.background.workers.FileIndexingOutcome
 import com.vvf.smartmanager.core.background.workers.FileIndexingRuntime
 import com.vvf.smartmanager.core.background.workers.CloudBackupBootstrap
@@ -45,6 +50,7 @@ import com.vvf.smartmanager.core.domain.SemanticSearchUseCase
 import com.vvf.smartmanager.core.domain.TagManagementUseCase
 import com.vvf.smartmanager.core.domain.VaultAuthUseCase
 import com.vvf.smartmanager.core.model.CloudProviderType
+import com.vvf.smartmanager.core.model.DriveIndexStatus
 import com.vvf.smartmanager.core.plugin.spi.ISemanticSearchEngine
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import com.vvf.smartmanager.plugin.clouddrivers.DropboxDriverImpl
@@ -58,6 +64,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -68,6 +78,8 @@ class VVFApplication : Application(), Configuration.Provider {
         private const val SETTINGS_PREFS = "vvf_app_settings"
         private const val KEY_AUTO_INDEX_OCR = "auto_index_ocr"
         private const val KEY_OFFLINE_ONLY_MODE = "offline_only_mode"
+        private const val KEY_EMBEDDING_CONSENT = "embedding_consent_v1"
+        private const val KEY_DRIVE_FULL_CONTENT_CONSENT = "drive_full_content_consent_v1"
     }
 
     override val workManagerConfiguration: Configuration
@@ -114,9 +126,91 @@ class VVFApplication : Application(), Configuration.Provider {
     var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val _driveIndexStatus = MutableStateFlow(DriveIndexStatus())
+    val driveIndexStatus: StateFlow<DriveIndexStatus> = _driveIndexStatus.asStateFlow()
+
+    fun publishDriveIndexStatus(status: String, indexedCount: Int, capped: Boolean, message: String) {
+        val updatedAt = System.currentTimeMillis()
+        _driveIndexStatus.value = DriveIndexStatus(
+            status = status,
+            indexedCount = indexedCount.coerceAtLeast(0),
+            capped = capped,
+            message = message.take(500),
+            updatedAt = updatedAt
+        )
+        getSharedPreferences("drive_search_index", MODE_PRIVATE).edit()
+            .putString("last_status", status)
+            .putInt("last_indexed_count", indexedCount.coerceAtLeast(0))
+            .putBoolean("listing_capped", capped)
+            .putString("last_message", message.take(500))
+            .putLong("last_updated_at", updatedAt)
+            .apply()
+    }
+
+    private fun restoreDriveIndexStatus() {
+        val prefs = getSharedPreferences("drive_search_index", MODE_PRIVATE)
+        _driveIndexStatus.value = DriveIndexStatus(
+            status = prefs.getString("last_status", "NOT_SYNCED") ?: "NOT_SYNCED",
+            indexedCount = prefs.getInt("last_indexed_count", 0),
+            capped = prefs.getBoolean("listing_capped", false),
+            message = prefs.getString("last_message", "").orEmpty(),
+            updatedAt = prefs.getLong("last_updated_at", 0L)
+        )
+    }
+
 
     private val settingsPrefs by lazy {
         getSharedPreferences(SETTINGS_PREFS, MODE_PRIVATE)
+    }
+
+    /**
+     * Starts Drive indexing only after an interactive Drive sign-in succeeds.
+     * The access token is intentionally not placed in WorkManager input data.
+     */
+    fun enqueueDriveIndexing() {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .setRequiresBatteryNotLow(true)
+            .build()
+        val request = OneTimeWorkRequestBuilder<DriveIndexingWorker>()
+            .setConstraints(constraints)
+            .addTag("drive_semantic_index")
+            .build()
+        WorkManager.getInstance(this).enqueueUniqueWork(
+            "drive_semantic_index_initial",
+            ExistingWorkPolicy.KEEP,
+            request
+        )
+    }
+
+    /** Cancels Drive work and erases account-specific local index data on sign-out. */
+    suspend fun clearDriveIndexOnSignOut() = withContext(Dispatchers.IO) {
+        runCatching {
+            WorkManager.getInstance(this@VVFApplication)
+                .cancelUniqueWork("drive_semantic_index_initial")
+                .result
+                .get()
+        }
+        DriveOfflineManager(this@VVFApplication).clearAllLocalCopies()
+        if (::database.isInitialized) {
+            // The opaque change cursor is account-scoped; never reuse it after sign-out/account switch.
+            database.cloudSyncDao().deleteByLocalPath("__drive_semantic_search_changes_cursor__")
+            database.fileDao().deleteAllDriveIndexRows()
+            database.searchFtsDao().rebuildFtsIndex()
+        }
+        getSharedPreferences("drive_search_index", MODE_PRIVATE).edit().clear().apply()
+        publishDriveIndexStatus("NOT_SYNCED", 0, false, "")
+    }
+
+    /** Prevents one Google account from seeing another account's cached Drive index. */
+    suspend fun prepareDriveIndexForAccount(email: String) = withContext(Dispatchers.IO) {
+        val normalized = email.trim().lowercase()
+        require(normalized.isNotBlank()) { "A verified Google account email is required" }
+        val prefs = getSharedPreferences("drive_search_index", MODE_PRIVATE)
+        if (prefs.getString("account_email", null) != normalized) {
+            clearDriveIndexOnSignOut()
+            prefs.edit().putString("account_email", normalized).apply()
+        }
     }
 
     fun isAutoIndexOcrEnabled(): Boolean = settingsPrefs.getBoolean(KEY_AUTO_INDEX_OCR, true)
@@ -129,6 +223,36 @@ class VVFApplication : Application(), Configuration.Provider {
 
     fun setOfflineOnlyModeEnabled(enabled: Boolean) {
         settingsPrefs.edit().putBoolean(KEY_OFFLINE_ONLY_MODE, enabled).apply()
+    }
+
+    fun isEmbeddingConsentEnabled(): Boolean = settingsPrefs.getBoolean(KEY_EMBEDDING_CONSENT, false)
+
+    fun setEmbeddingConsentEnabled(enabled: Boolean) {
+        settingsPrefs.edit().putBoolean(KEY_EMBEDDING_CONSENT, enabled).apply()
+    }
+
+    /** Explicit opt-in for downloading supported Drive documents for local PDF/image/Office extraction. */
+    fun isDriveFullContentConsentEnabled(): Boolean =
+        settingsPrefs.getBoolean(KEY_DRIVE_FULL_CONTENT_CONSENT, false)
+
+    fun setDriveFullContentConsentEnabled(enabled: Boolean) {
+        settingsPrefs.edit().putBoolean(KEY_DRIVE_FULL_CONTENT_CONSENT, enabled).apply()
+        if (!enabled && ::database.isInitialized) {
+            applicationScope.launch {
+                runCatching {
+                    database.fileDao().clearDriveFullContentText(
+                        listOf(
+                            DriveOfficeTextExtractor.DOCX,
+                            DriveOfficeTextExtractor.XLSX,
+                            DriveOfficeTextExtractor.PPTX
+                        )
+                    )
+                    database.searchFtsDao().rebuildFtsIndex()
+                }.onFailure { error ->
+                    Log.w(TAG, "Could not clear full-content Drive text after consent revocation", error)
+                }
+            }
+        }
     }
 
     override fun onCreate() {
@@ -205,7 +329,8 @@ class VVFApplication : Application(), Configuration.Provider {
         semanticSearchUseCase = SemanticSearchUseCase(
             semanticPlugin = semanticSearchPlugin,
             searchRepository = searchRepository,
-            fileManagerRepository = fileManagerRepository
+            fileManagerRepository = fileManagerRepository,
+            isEmbeddingConsentGranted = { isEmbeddingConsentEnabled() }
         )
         aiIntelligenceUseCase = AiIntelligenceUseCase(
             semanticPlugin = semanticSearchPlugin,
@@ -213,6 +338,7 @@ class VVFApplication : Application(), Configuration.Provider {
             searchRepository = searchRepository
         )
         googleDriveService = GoogleDriveServiceImpl(this)
+        restoreDriveIndexStatus()
         val cloudDrivers = mapOf(
             CloudProviderType.ONE_DRIVE to OneDriveDriverImpl(),
             CloudProviderType.DROPBOX to DropboxDriverImpl(),

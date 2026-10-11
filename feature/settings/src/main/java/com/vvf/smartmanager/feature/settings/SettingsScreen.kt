@@ -58,13 +58,20 @@ fun SettingsScreen(
     onBiometricEnabledChange: ((Boolean) -> Unit)? = null,
     initialAutoIndexOcr: Boolean = true,
     onAutoIndexOcrChange: ((Boolean) -> Unit)? = null,
+    initialDriveFullContentConsent: Boolean = false,
+    onDriveFullContentConsentChange: ((Boolean) -> Unit)? = null,
     initialOfflineOnlyMode: Boolean = true,
     onOfflineOnlyModeChange: ((Boolean) -> Unit)? = null,
+    initialEmbeddingConsent: Boolean = false,
+    onEmbeddingConsentChange: ((Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var biometricEnabled by remember(initialBiometricEnabled) { mutableStateOf(initialBiometricEnabled) }
     var autoIndexOcr by remember(initialAutoIndexOcr) { mutableStateOf(initialAutoIndexOcr) }
+    var driveFullContentConsent by remember(initialDriveFullContentConsent) { mutableStateOf(initialDriveFullContentConsent) }
     var offlineOnlyMode by remember(initialOfflineOnlyMode) { mutableStateOf(initialOfflineOnlyMode) }
+    var embeddingConsent by remember(initialEmbeddingConsent) { mutableStateOf(initialEmbeddingConsent) }
+    var showEmbeddingConsentDialog by remember { mutableStateOf(false) }
     var showLicensesDialog by remember { mutableStateOf(false) }
     var showArchitectureDialog by remember { mutableStateOf(false) }
 
@@ -96,7 +103,7 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
-                        Text("VVF Smart Manager", color = BhagwaOrange, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                        Text("Drive Semantic Search", color = BhagwaOrange, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
                         Text("Vishva Vijayaa Foundation", color = Color.White.copy(alpha = 0.9f), fontSize = 12.sp)
                     }
                 }
@@ -143,6 +150,17 @@ fun SettingsScreen(
                         )
                         HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
                         SettingToggleRow(
+                            icon = Icons.Default.Storage,
+                            title = "Full-content extraction for Drive",
+                            subtitle = "Opt in to download supported PDFs, images and Office Open XML files to private temporary storage for on-device extraction. Off by default.",
+                            isChecked = driveFullContentConsent,
+                            onCheckedChange = {
+                                driveFullContentConsent = it
+                                onDriveFullContentConsentChange?.invoke(it)
+                            }
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+                        SettingToggleRow(
                             icon = Icons.Default.CheckCircle,
                             title = "Strict Offline-First Core",
                             subtitle = "Core file management runs locally",
@@ -150,6 +168,26 @@ fun SettingsScreen(
                             onCheckedChange = {
                                 offlineOnlyMode = it
                                 onOfflineOnlyModeChange?.invoke(it)
+                            }
+                        )
+                    }
+                }
+            }
+            item {
+                Text("Neural Search Privacy", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Card(shape = RoundedCornerShape(14.dp)) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        SettingToggleRow(
+                            icon = Icons.Default.Security,
+                            title = "Optional neural embeddings",
+                            subtitle = if (embeddingConsent) "Consent recorded; cloud embedding remains unavailable until a trusted mobile proxy is configured." else "Off by default. No neural embedding content may be sent without your consent.",
+                            isChecked = embeddingConsent,
+                            onCheckedChange = { enabled ->
+                                if (enabled) showEmbeddingConsentDialog = true
+                                else {
+                                    embeddingConsent = false
+                                    onEmbeddingConsentChange?.invoke(false)
+                                }
                             }
                         )
                     }
@@ -167,6 +205,23 @@ fun SettingsScreen(
         }
     }
 
+    if (showEmbeddingConsentDialog) {
+        AlertDialog(
+            onDismissRequest = { showEmbeddingConsentDialog = false },
+            title = { Text("Allow optional neural embeddings?") },
+            text = { Text("Neural embeddings can process document text through the configured trusted backend to improve meaning-based search. This app will not call the embedding worker directly until a trusted mobile proxy or Android App Check is configured. You can turn consent off at any time. Keyword and metadata search remain available without consent.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    embeddingConsent = true
+                    showEmbeddingConsentDialog = false
+                    onEmbeddingConsentChange?.invoke(true)
+                }) { Text("I agree") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEmbeddingConsentDialog = false }) { Text("Not now") }
+            }
+        )
+    }
     if (showLicensesDialog) {
         AlertDialog(
             onDismissRequest = { showLicensesDialog = false },

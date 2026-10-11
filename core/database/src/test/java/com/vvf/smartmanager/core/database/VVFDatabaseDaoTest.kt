@@ -197,4 +197,122 @@ class VVFDatabaseDaoTest {
         val updated = searchFtsDao.searchByTag("vvf_confidential").first()
         assertEquals(1, updated.size)
     }
+    @Test
+    fun extractedDriveDocumentTextIsSearchableByKeywordAndFts() = runBlocking {
+        val driveFile = FileMetadataEntity(
+            path = "gdrive://driveFile123",
+            name = "meeting-notes.txt",
+            parentPath = "gdrive://root",
+            sizeBytes = 42L,
+            mimeType = "text/plain",
+            isDirectory = false,
+            modifiedDate = 3000L,
+            contentText = "Procurement policy requires three independent quotations."
+        )
+        fileDao.insertOrUpdate(driveFile)
+        searchFtsDao.rebuildFtsIndex()
+
+        val fallback = searchFtsDao.searchFilesFallback("independent quotations").first()
+        assertEquals(1, fallback.size)
+        assertEquals("gdrive://driveFile123", fallback.single().path)
+
+        val fullText = searchFtsDao.searchFilesFts("procurement*").first()
+        assertEquals(1, fullText.size)
+        assertEquals("meeting-notes.txt", fullText.single().name)
+    }
+
+    @Test
+    fun offlinePinQuotaQueriesTrackPrivateBytesAndOldestFirstOrder() = runBlocking {
+        val older = FileMetadataEntity(
+            path = "gdrive://olderFile123",
+            name = "older.pdf",
+            parentPath = "gdrive://root",
+            sizeBytes = 150L,
+            mimeType = "application/pdf",
+            isDirectory = false,
+            modifiedDate = 100L,
+            offlinePinned = true,
+            offlineLocalPath = "/private/older.pdf",
+            offlinePinnedAt = 10L,
+            offlineBytes = 150L
+        )
+        val newer = FileMetadataEntity(
+            path = "gdrive://newerFile123",
+            name = "newer.txt",
+            parentPath = "gdrive://root",
+            sizeBytes = 150L,
+            mimeType = "text/plain",
+            isDirectory = false,
+            modifiedDate = 200L,
+            offlinePinned = true,
+            offlineLocalPath = "/private/newer.txt",
+            offlinePinnedAt = 20L,
+            offlineBytes = 150L
+        )
+        fileDao.insertOrUpdate(newer)
+        fileDao.insertOrUpdate(older)
+
+        assertEquals(2, fileDao.getOfflinePinnedCount())
+        assertEquals(300L, fileDao.getOfflinePinnedBytes())
+        assertEquals(
+            listOf("gdrive://olderFile123", "gdrive://newerFile123"),
+            fileDao.getOfflinePinnedDriveFiles().map { it.path }
+        )
+    }
+
+    @Test
+    fun revokingFullContentConsentClearsImageTextEvenWhenMimeTypeIsGeneric() = runBlocking {
+        val scannedImage = FileMetadataEntity(
+            path = "gdrive://scanImage123",
+            name = "scan.jpg",
+            parentPath = "gdrive://root",
+            sizeBytes = 100L,
+            mimeType = "application/octet-stream",
+            isDirectory = false,
+            modifiedDate = 100L,
+            contentText = "private OCR text"
+        )
+        fileDao.insertOrUpdate(scannedImage)
+
+        fileDao.clearDriveFullContentText(
+            listOf(
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            )
+        )
+
+        assertEquals("", fileDao.getByPath(scannedImage.path)?.contentText)
+    }
+
+    @Test
+    fun driveRowsDoNotPolluteLocalFavoritesDuplicatesOrStorageTotals() = runBlocking {
+        val local = FileMetadataEntity(
+            path = "/storage/emulated/0/Documents/local.pdf",
+            name = "local.pdf",
+            parentPath = "/storage/emulated/0/Documents",
+            sizeBytes = 100L,
+            mimeType = "application/pdf",
+            isDirectory = false,
+            modifiedDate = 100L,
+            isFavorite = true
+        )
+        val drive = FileMetadataEntity(
+            path = "gdrive://driveFile123",
+            name = "drive.pdf",
+            parentPath = "gdrive://root",
+            sizeBytes = 100L,
+            mimeType = "application/pdf",
+            isDirectory = false,
+            modifiedDate = 100L,
+            isFavorite = true
+        )
+        fileDao.insertOrUpdate(local)
+        fileDao.insertOrUpdate(drive)
+
+        assertEquals(listOf(local.path), fileDao.getFavorites().first().map { it.path })
+        assertTrue(fileDao.findPotentialDuplicateSizes().first().isEmpty())
+        assertEquals(1, fileDao.getTotalFileCount())
+        assertEquals(100L, fileDao.getTotalStorageUsed())
+    }
 }

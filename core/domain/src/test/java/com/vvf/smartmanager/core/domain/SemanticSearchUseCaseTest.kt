@@ -12,6 +12,7 @@ import com.vvf.smartmanager.core.model.FileOperationProgress
 import com.vvf.smartmanager.core.model.FileSortOption
 import com.vvf.smartmanager.core.model.NearDuplicateCluster
 import com.vvf.smartmanager.core.model.SearchFilter
+import com.vvf.smartmanager.core.model.SearchMatchType
 import com.vvf.smartmanager.core.model.SearchResultItem
 import com.vvf.smartmanager.core.model.SemanticCandidate
 import com.vvf.smartmanager.core.model.SemanticSearchOptions
@@ -103,8 +104,8 @@ class SemanticSearchUseCaseTest {
         override suspend fun cleanJunkItems(selectedDuplicatePaths: List<String>, selectedJunkPaths: List<String>): Result<Long> = Result.success(0L)
     }
 
-    private class FakeSearchRepo : SearchRepository {
-        override fun searchFiles(query: String, filter: SearchFilter): Flow<List<SearchResultItem>> = flowOf()
+    private class FakeSearchRepo(var searchResults: List<SearchResultItem> = emptyList()) : SearchRepository {
+        override fun searchFiles(query: String, filter: SearchFilter): Flow<List<SearchResultItem>> = flowOf(searchResults)
         override fun getSearchHistory(): Flow<List<String>> = flowOf()
         override suspend fun saveSearchQuery(query: String) {}
         override suspend fun deleteSearchHistoryItem(query: String) {}
@@ -115,6 +116,51 @@ class SemanticSearchUseCaseTest {
         override fun getTotalIndexedCount(): Flow<Int> = flowOf(2)
         override suspend fun rebuildFtsIndex() {}
         override suspend fun getRecentIndexedFiles(limit: Int) = emptyList<FileItem>()
+    }
+
+    @Test
+    fun keywordResultsRemainAvailableWhenSemanticEngineIsDisabled() = runBlocking {
+        val file = FileItem(
+            path = "gdrive://drive-file-1",
+            name = "Annual Report.pdf",
+            sizeBytes = 100L,
+            lastModified = 1L,
+            isDirectory = false,
+            mimeType = "application/pdf"
+        )
+        val searchRepo = FakeSearchRepo(
+            listOf(SearchResultItem(file, SearchMatchType.FTS, "annual report revenue"))
+        )
+        val useCase = SemanticSearchUseCase(FakeSemanticEngine().apply { isReady = false }, searchRepo, FakeFileManagerRepo())
+
+        val results = useCase.searchSemantically("revenue")
+
+        assertEquals(1, results.size)
+        assertEquals(file.path, results.first().fileItem.path)
+        assertTrue(results.first().similarityScore > 0f)
+    }
+
+    @Test
+    fun semanticResultsAndKeywordResultsAreMergedWithoutDuplicates() = runBlocking {
+        val file = FileItem(
+            path = "gdrive://drive-file-2",
+            name = "Budget Plan.pdf",
+            sizeBytes = 100L,
+            lastModified = 1L,
+            isDirectory = false,
+            mimeType = "application/pdf"
+        )
+        val searchRepo = FakeSearchRepo(
+            listOf(SearchResultItem(file, SearchMatchType.FILENAME, "budget"))
+        )
+        val engine = FakeSemanticEngine()
+        val useCase = SemanticSearchUseCase(engine, searchRepo, FakeFileManagerRepo())
+
+        val results = useCase.searchSemantically("budget")
+
+        assertEquals(1, results.size)
+        assertEquals(file.path, results.first().fileItem.path)
+        assertTrue(results.first().similarityScore > 0f)
     }
 
     @Test

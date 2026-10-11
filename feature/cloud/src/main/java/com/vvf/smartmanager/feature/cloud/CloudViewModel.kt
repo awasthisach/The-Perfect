@@ -109,6 +109,27 @@ class CloudViewModel(
         }
     }
 
+    /** Updates UI state after Activity has cleared Google/Firebase sessions and local Drive index. */
+    fun completeGoogleDriveSignOut() {
+        googleDriveService.setAccessToken(null)
+        _uiState.update { state ->
+            val updated = state.accounts.toMutableMap()
+            updated[CloudProviderType.GOOGLE_DRIVE] = CloudAccount(
+                providerType = CloudProviderType.GOOGLE_DRIVE,
+                accountEmail = "",
+                displayName = "Google Drive",
+                isConnected = false,
+                usedBytes = 0L,
+                totalBytes = 0L
+            )
+            state.copy(
+                accounts = updated,
+                remoteFiles = if (state.selectedProvider == CloudProviderType.GOOGLE_DRIVE) emptyList() else state.remoteFiles,
+                statusMessage = "Google Drive disconnected. Its local search index was cleared."
+            )
+        }
+    }
+
     fun connectProvider(providerType: CloudProviderType) {
         if (providerType == CloudProviderType.GOOGLE_DRIVE) {
             _uiState.update { it.copy(statusMessage = "Use the Google Drive connect action to sign in.") }
