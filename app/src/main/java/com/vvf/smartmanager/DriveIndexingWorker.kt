@@ -7,6 +7,8 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.vvf.smartmanager.core.cloud.gdrive.DriveFileDto
 import com.vvf.smartmanager.core.cloud.gdrive.DriveIndexingPolicy
+import com.vvf.smartmanager.core.cloud.gdrive.DriveIndexSnapshot
+import com.vvf.smartmanager.core.cloud.gdrive.DriveSyncSnapshot
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
 import com.vvf.smartmanager.core.database.model.CloudSyncEntity
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
@@ -50,7 +52,21 @@ class DriveIndexingWorker(
             val cursorDao = app.database.cloudSyncDao()
             val savedCursor = cursorDao.getRecord(CURSOR_LOCAL_PATH, CURSOR_PROVIDER)?.remoteFileId
                 ?: prefs.getString(KEY_CURSOR, null)
-            val snapshot = app.googleDriveService.syncDriveSnapshot(savedCursor).getOrElse {
+            val resumePageToken = prefs.getString(KEY_FULL_LIST_PAGE, null)
+            val resumeCursor = prefs.getString(KEY_FULL_LIST_CURSOR, null)
+            val snapshotResult = if (!resumePageToken.isNullOrBlank() && !resumeCursor.isNullOrBlank()) {
+                app.googleDriveService.listDriveFilesPage(resumePageToken).map { page ->
+                    DriveSyncSnapshot(
+                        fullListing = DriveIndexSnapshot(page.files, capped = false, nextPageToken = page.nextPageToken),
+                        cursor = resumeCursor,
+                        fullResyncRequired = true,
+                        capped = false
+                    )
+                }
+            } else {
+                app.googleDriveService.syncDriveSnapshot(savedCursor)
+            }
+            val snapshot = snapshotResult.getOrElse {
                 saveStatus(app, "RETRY_REQUIRED", 0, false, "Drive sync failed. Retry or sign in again if requested.")
                 return@withContext if (runAttemptCount < 5) Result.retry()
                 else Result.failure(workDataOf("reason" to "Drive sync failed; sign in again or retry later"))
