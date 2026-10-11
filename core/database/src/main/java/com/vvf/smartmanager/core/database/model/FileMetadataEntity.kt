@@ -50,5 +50,8 @@ data class FileMetadataEntity(
     val offlineLocalPath: String? = null,
     val offlinePinnedAt: Long? = null,
     @ColumnInfo(defaultValue = "0")
-    val offlineBytes: Long = 0L
+    val offlineBytes: Long = 0L,
+    /** Internal marker used to safely reconcile a completed paged Drive listing. */
+    @ColumnInfo(defaultValue = "''")
+    val driveSyncGeneration: String = ""
 )
