@@ -15,6 +15,7 @@ import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -63,7 +64,7 @@ class GoogleDriveAuth(
             }
         } catch (e: GetCredentialException) {
             Result.failure(e)
-        } catch (e: Exception) {
+        } catch (e: CancellationException) { throw e } catch (e: Exception) {
             Result.failure(e)
         }
     }
@@ -94,7 +95,7 @@ class GoogleDriveAuth(
                     return@withContext accessTokenForAccount(account.account)
                 } catch (e: ApiException) {
                     return@withContext Result.failure(IllegalStateException(mapApiException(e), e))
-                } catch (e: Exception) {
+                } catch (e: CancellationException) { throw e } catch (e: Exception) {
                     // Fall through to resultCode handling
                     if (resultCode == Activity.RESULT_OK) {
                         return@withContext Result.failure(e)
@@ -125,7 +126,7 @@ class GoogleDriveAuth(
                 else accessTokenForAccount(account.account)
             } catch (e: ApiException) {
                 Result.failure(IllegalStateException(mapApiException(e), e))
-            } catch (e: Exception) {
+            } catch (e: CancellationException) { throw e } catch (e: Exception) {
                 Result.failure(e)
             }
         }
@@ -144,7 +145,7 @@ class GoogleDriveAuth(
                 firebaseAuth.signOut()
                 Result.failure(IllegalStateException("Google Drive and Firebase accounts did not match; Firebase session cleared"))
             } else Result.success(Unit)
-        } catch (e: Exception) {
+        } catch (e: CancellationException) { throw e } catch (e: Exception) {
             firebaseAuth.signOut()
             Result.failure(IllegalStateException("Firebase sign-in failed; no linked session was kept", e))
         }
@@ -190,7 +191,7 @@ class GoogleDriveAuth(
             val token = user.getIdToken(false).await().token
             if (token.isNullOrBlank()) Result.failure(IllegalStateException("Firebase ID token unavailable"))
             else Result.success(token)
-        } catch (e: Exception) {
+        } catch (e: CancellationException) { throw e } catch (e: Exception) {
             Result.failure(e)
         }
     }
@@ -214,7 +215,7 @@ class GoogleDriveAuth(
             } else {
                 Result.success(token)
             }
-        } catch (e: Exception) {
+        } catch (e: CancellationException) { throw e } catch (e: Exception) {
             Result.failure(e)
         }
     }
@@ -230,6 +231,8 @@ class GoogleDriveAuth(
                 .requestScopes(Scope(DRIVE_SCOPE))
                 .build()
             GoogleSignIn.getClient(context, gso).signOut().await()
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             // best-effort
         }
