@@ -106,7 +106,7 @@ class DriveIndexingWorker(
                         val stalePaths = app.database.fileDao().getIndexedPathSnapshot()
                             .asSequence()
                             .filter { it.path.startsWith(DRIVE_PATH_PREFIX) }
-                            .filter { row -> row.tags.split(',').none { it == "drive-sync:$fullListingRunId" } }
+                            .filter { it.driveSyncGeneration != fullListingRunId }
                             .map { it.path }
                             .toList()
                         stalePaths.chunked(BATCH_SIZE).forEach { batch ->
@@ -251,7 +251,8 @@ class DriveIndexingWorker(
                 modifiedDate = item.lastModified.coerceAtLeast(0L),
                 isFavorite = item.isFavorite,
                 isTrash = false,
-                tags = if (fullListingRunId == null) "google-drive" else "google-drive,drive-sync:$fullListingRunId",
+                tags = "google-drive",
+                driveSyncGeneration = fullListingRunId.orEmpty(),
                 md5Hash = item.md5Hash,
                 contentText = safeContent,
                 canonicalUri = item.canonicalUri,
