@@ -139,6 +139,10 @@ class DriveIndexingWorker(
                     "full_resync" to snapshot.fullResyncRequired
                 )
             )
+        } catch (e: CancellationException) {
+            // Coroutine cancellation is control flow, not a retryable indexing failure.
+            // Propagate it so WorkManager can mark the work as cancelled/stopped correctly.
+            throw e
         } catch (e: Exception) {
             // Never log bearer tokens or response headers.
             Log.w(TAG, "Drive indexing interrupted; cursor was not advanced")
