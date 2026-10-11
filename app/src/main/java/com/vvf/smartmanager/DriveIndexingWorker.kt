@@ -8,6 +8,7 @@ import androidx.work.workDataOf
 import com.vvf.smartmanager.core.cloud.gdrive.DriveFileDto
 import com.vvf.smartmanager.core.cloud.gdrive.DriveIndexingPolicy
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
+import com.vvf.smartmanager.core.database.model.CloudSyncEntity
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
 import com.vvf.smartmanager.core.model.FileItem
 import com.vvf.smartmanager.core.model.OcrOptions
@@ -46,7 +47,9 @@ class DriveIndexingWorker(
         app.publishDriveIndexStatus("SYNCING", 0, false, "Preparing Drive index sync")
 
         try {
-            val savedCursor = prefs.getString(KEY_CURSOR, null)
+            val cursorDao = app.database.cloudSyncDao()
+            val savedCursor = cursorDao.getRecord(CURSOR_LOCAL_PATH, CURSOR_PROVIDER)?.remoteFileId
+                ?: prefs.getString(KEY_CURSOR, null)
             val snapshot = app.googleDriveService.syncDriveSnapshot(savedCursor).getOrElse {
                 saveStatus(app, "RETRY_REQUIRED", 0, false, it.message.orEmpty())
                 return@withContext if (runAttemptCount < 5) Result.retry()
@@ -115,7 +118,18 @@ class DriveIndexingWorker(
                 // sync will retry a bounded full listing.
                 saveStatus(app, "LIMIT_REACHED", indexed, true, "Drive listing reached the 20,000-file safety cap; index may be incomplete")
             } else {
-                prefs.edit().putString(KEY_CURSOR, snapshot.cursor).apply()
+                // Persist the opaque Drive change cursor in Room only after the full sync succeeds.
+                // It is not an auth token and is never written to WorkManager input/output.
+                cursorDao.insertOrUpdate(
+                    CloudSyncEntity(
+                        localPath = CURSOR_LOCAL_PATH,
+                        remoteFileId = snapshot.cursor,
+                        provider = CURSOR_PROVIDER,
+                        status = "CURSOR",
+                        errorMessage = null
+                    )
+                )
+                prefs.edit().putString(KEY_CURSOR, snapshot.cursor).apply() // backward compatibility
                 saveStatus(app, "SYNCED", indexed, false, "")
             }
             Result.success(
@@ -293,6 +307,8 @@ class DriveIndexingWorker(
         private const val TAG = "DriveIndexingWorker"
         private const val PREFS = "drive_search_index"
         private const val KEY_CURSOR = "changes_cursor"
+        private const val CURSOR_LOCAL_PATH = "__drive_semantic_search_changes_cursor__"
+        private const val CURSOR_PROVIDER = "GDRIVE_INDEX_CURSOR"
         private const val BATCH_SIZE = 50
         private const val MAX_BINARY_DOWNLOAD_BYTES = 20 * 1024 * 1024
         private const val MAX_EXTRACTED_TEXT_CHARS = 250_000
