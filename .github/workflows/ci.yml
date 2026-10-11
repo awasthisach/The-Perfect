@@ -37,7 +37,10 @@ jobs:
           packages: ""
           accept-android-sdk-licenses: true
       - name: Install required Android SDK components
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+        # Keep the PR gate focused on deterministic compile/test/lint/build work.
+        # Emulator packages are installed only by weekly-instrumented.yml, the hard SQLCipher gate.
+        # The emulator step below is intentionally soft and records a skip when its image is absent.
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
       - name: Create local.properties
         run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
       - name: Generate SQLCipher 4.5.4 compatibility fixture
