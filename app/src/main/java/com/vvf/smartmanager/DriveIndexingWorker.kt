@@ -312,6 +312,9 @@ class DriveIndexingWorker(
         private const val TAG = "DriveIndexingWorker"
         private const val PREFS = "drive_search_index"
         private const val KEY_CURSOR = "changes_cursor"
+        private const val KEY_FULL_LIST_PAGE = "full_list_next_page_token"
+        private const val KEY_FULL_LIST_CURSOR = "full_list_changes_cursor"
+        private const val KEY_FULL_LIST_COUNT = "full_list_indexed_count"
         private const val CURSOR_LOCAL_PATH = "__drive_semantic_search_changes_cursor__"
         private const val CURSOR_PROVIDER = "GDRIVE_INDEX_CURSOR"
         private const val BATCH_SIZE = 50
