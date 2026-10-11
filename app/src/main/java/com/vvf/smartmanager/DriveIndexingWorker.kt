@@ -66,7 +66,15 @@ class DriveIndexingWorker(
             } else {
                 app.googleDriveService.syncDriveSnapshot(savedCursor)
             }
-            val snapshot = snapshotResult.getOrElse {
+            val snapshot = snapshotResult.getOrElse { failure ->
+                // A saved page token may already be expired when a worker is restarted.
+                // Discard that checkpoint so the next attempt captures a fresh cursor and lists from page one.
+                if (!resumePageToken.isNullOrBlank() &&
+                    failure is retrofit2.HttpException && failure.code() == 400
+                ) {
+                    prefs.edit().remove(KEY_FULL_LIST_PAGE).remove(KEY_FULL_LIST_CURSOR)
+                        .remove(KEY_FULL_LIST_COUNT).remove(KEY_FULL_LIST_RUN_ID).apply()
+                }
                 saveStatus(app, "RETRY_REQUIRED", 0, false, "Drive sync failed. Retry or sign in again if requested.")
                 return@withContext if (runAttemptCount < 5) Result.retry()
                 else Result.failure(workDataOf("reason" to "Drive sync failed; sign in again or retry later"))
