@@ -141,8 +141,9 @@ class DriveIndexingWorker(
             )
         } catch (e: Exception) {
             // Never log bearer tokens or response headers.
-            Log.w(TAG, "Drive indexing interrupted; cursor was not advanced", e)
-            saveStatus(app, "RETRY_REQUIRED", 0, false, e.message.orEmpty())
+            Log.w(TAG, "Drive indexing interrupted; cursor was not advanced")
+            // Exception messages may contain remote response details; keep them out of status and logs.
+            saveStatus(app, "RETRY_REQUIRED", 0, false, "Indexing failed. Retry or sign in again if requested.")
             if (runAttemptCount < 5) Result.retry()
             else Result.failure(workDataOf("reason" to "Drive indexing failed; last committed cursor was preserved"))
         }
