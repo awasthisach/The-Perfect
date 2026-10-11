@@ -89,13 +89,14 @@ class DriveIndexingWorker(
                 var page = fullListing
                 while (true) {
                     if (isStopped) throw CancellationException("Drive indexing cancelled")
+                    val currentPage = page ?: break
                     val remaining = DriveIndexingPolicy.MAX_FILES - indexed
                     if (remaining <= 0) {
                         listingCapped = true
                         prefs.edit().remove(KEY_FULL_LIST_PAGE).remove(KEY_FULL_LIST_CURSOR).remove(KEY_FULL_LIST_COUNT).remove(KEY_FULL_LIST_RUN_ID).apply()
                         break
                     }
-                    val files = page.files.take(remaining)
+                    val files = currentPage.files.take(remaining)
                     for (batch in files.chunked(BATCH_SIZE)) {
                         if (isStopped) throw CancellationException("Drive indexing cancelled")
                         for (item in batch) {
@@ -107,7 +108,7 @@ class DriveIndexingWorker(
                         setProgress(workDataOf("indexed_count" to indexed, "total_count" to DriveIndexingPolicy.MAX_FILES))
                         app.publishDriveIndexStatus("SYNCING", indexed, false, "Indexed $indexed Drive items")
                     }
-                    val nextToken = page.nextPageToken
+                    val nextToken = currentPage.nextPageToken
                     if (nextToken.isNullOrBlank()) {
                         // This pass completed. Rows not tagged by this run were not seen in the
                         // complete Drive listing, so remove only their local index/offline copies.
