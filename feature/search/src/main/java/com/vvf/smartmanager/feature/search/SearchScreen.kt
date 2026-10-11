@@ -134,7 +134,7 @@ fun SearchScreen(
                             .padding(end = 8.dp)
                     )
                     Text(
-                        text = "VVF Smart Search",
+                        text = "Drive Semantic Search",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
