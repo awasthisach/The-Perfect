@@ -138,7 +138,7 @@ class DriveIndexingWorker(
                         // A 400 on a resumed page discards only the listing checkpoint; the next
                         // attempt safely starts a fresh bounded listing and captures a new cursor.
                         if (failure is retrofit2.HttpException && failure.code() == 400) {
-                            prefs.edit().remove(KEY_FULL_LIST_PAGE).remove(KEY_FULL_LIST_CURSOR).remove(KEY_FULL_LIST_COUNT).apply()
+                            prefs.edit().remove(KEY_FULL_LIST_PAGE).remove(KEY_FULL_LIST_CURSOR).remove(KEY_FULL_LIST_COUNT).remove(KEY_FULL_LIST_RUN_ID).apply()
                         }
                         saveStatus(app, "RETRY_REQUIRED", indexed, false, "Drive indexing paused; retry will resume or safely restart the listing.")
                         return@withContext if (runAttemptCount < 5) Result.retry()
