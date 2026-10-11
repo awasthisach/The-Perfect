@@ -76,6 +76,8 @@ class DriveIndexingWorker(
             var listingCapped = snapshot.capped
             val fullListing = snapshot.fullListing
             if (fullListing != null) {
+                val fullListingRunId = prefs.getString(KEY_FULL_LIST_RUN_ID, null)
+                    ?: java.util.UUID.randomUUID().toString()
                 var page = fullListing
                 while (true) {
                     if (isStopped) throw CancellationException("Drive indexing cancelled")
@@ -90,7 +92,7 @@ class DriveIndexingWorker(
                         if (isStopped) throw CancellationException("Drive indexing cancelled")
                         for (item in batch) {
                             if (isStopped) throw CancellationException("Drive indexing cancelled")
-                            upsertDriveFile(app, item)
+                            upsertDriveFile(app, item, fullListingRunId)
                             indexed++
                         }
                         app.database.searchFtsDao().rebuildFtsIndex()
@@ -99,18 +101,36 @@ class DriveIndexingWorker(
                     }
                     val nextToken = page.nextPageToken
                     if (nextToken.isNullOrBlank()) {
-                        prefs.edit().remove(KEY_FULL_LIST_PAGE).remove(KEY_FULL_LIST_CURSOR).remove(KEY_FULL_LIST_COUNT).apply()
+                        // This pass completed. Rows not tagged by this run were not seen in the
+                        // complete Drive listing, so remove only their local index/offline copies.
+                        val stalePaths = app.database.fileDao().getIndexedPathSnapshot()
+                            .asSequence()
+                            .filter { it.path.startsWith(DRIVE_PATH_PREFIX) }
+                            .filter { row -> row.tags.split(',').none { it == "drive-sync:$fullListingRunId" } }
+                            .map { it.path }
+                            .toList()
+                        stalePaths.chunked(BATCH_SIZE).forEach { batch ->
+                            batch.forEach { stalePath ->
+                                app.database.fileDao().getByPath(stalePath)?.offlineLocalPath
+                                    ?.let { java.io.File(it).delete() }
+                            }
+                            app.database.fileDao().deleteStaleByPaths(batch)
+                        }
+                        prefs.edit().remove(KEY_FULL_LIST_PAGE).remove(KEY_FULL_LIST_CURSOR)
+                            .remove(KEY_FULL_LIST_COUNT).remove(KEY_FULL_LIST_RUN_ID).apply()
                         break
                     }
                     if (indexed >= DriveIndexingPolicy.MAX_FILES) {
                         listingCapped = true
-                        prefs.edit().remove(KEY_FULL_LIST_PAGE).remove(KEY_FULL_LIST_CURSOR).remove(KEY_FULL_LIST_COUNT).apply()
+                        prefs.edit().remove(KEY_FULL_LIST_PAGE).remove(KEY_FULL_LIST_CURSOR)
+                            .remove(KEY_FULL_LIST_COUNT).remove(KEY_FULL_LIST_RUN_ID).apply()
                         break
                     }
                     // Commit the page token only after all rows from this page are stored in Room.
                     prefs.edit()
                         .putString(KEY_FULL_LIST_CURSOR, snapshot.cursor)
                         .putString(KEY_FULL_LIST_PAGE, nextToken)
+                        .putString(KEY_FULL_LIST_RUN_ID, fullListingRunId)
                         .putInt(KEY_FULL_LIST_COUNT, indexed)
                         .apply()
                     val nextPage = app.googleDriveService.listDriveFilesPage(nextToken).getOrElse { failure ->
@@ -189,7 +209,11 @@ class DriveIndexingWorker(
         }
     }
 
-    private suspend fun upsertDriveFile(app: VVFApplication, item: FileItem) {
+    private suspend fun upsertDriveFile(
+        app: VVFApplication,
+        item: FileItem,
+        fullListingRunId: String? = null
+    ) {
         val id = item.localFileId?.takeIf { it.isNotBlank() }
             ?: item.path.removePrefix(DRIVE_PATH_PREFIX).takeIf { it.isNotBlank() }
             ?: return
@@ -227,7 +251,7 @@ class DriveIndexingWorker(
                 modifiedDate = item.lastModified.coerceAtLeast(0L),
                 isFavorite = item.isFavorite,
                 isTrash = false,
-                tags = "google-drive",
+                tags = if (fullListingRunId == null) "google-drive" else "google-drive,drive-sync:$fullListingRunId",
                 md5Hash = item.md5Hash,
                 contentText = safeContent,
                 canonicalUri = item.canonicalUri,
@@ -351,6 +375,7 @@ class DriveIndexingWorker(
         private const val KEY_FULL_LIST_PAGE = "full_list_next_page_token"
         private const val KEY_FULL_LIST_CURSOR = "full_list_changes_cursor"
         private const val KEY_FULL_LIST_COUNT = "full_list_indexed_count"
+        private const val KEY_FULL_LIST_RUN_ID = "full_list_run_id"
         private const val CURSOR_LOCAL_PATH = "__drive_semantic_search_changes_cursor__"
         private const val CURSOR_PROVIDER = "GDRIVE_INDEX_CURSOR"
         private const val BATCH_SIZE = 50
