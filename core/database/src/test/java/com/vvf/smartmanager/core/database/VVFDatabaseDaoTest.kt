@@ -74,6 +74,28 @@ class VVFDatabaseDaoTest {
     }
 
     @Test
+    fun driveSyncGenerationPersistsSeparatelyFromUserTags() = runBlocking {
+        val row = FileMetadataEntity(
+            path = "gdrive://drive-file-123",
+            name = "budget.xlsx",
+            parentPath = "gdrive://root",
+            sizeBytes = 1024L,
+            mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            isDirectory = false,
+            modifiedDate = 1000L,
+            tags = "google-drive",
+            driveSyncGeneration = "generation-42"
+        )
+        fileDao.insertOrUpdate(row)
+
+        val fetched = fileDao.getByPath(row.path)
+        assertEquals("generation-42", fetched?.driveSyncGeneration)
+        assertEquals("google-drive", fetched?.tags)
+        val snapshot = fileDao.getIndexedPathSnapshot().single { it.path == row.path }
+        assertEquals("generation-42", snapshot.driveSyncGeneration)
+    }
+
+    @Test
     fun testLevel1DuplicateDetection() = runBlocking {
         val file1 = FileMetadataEntity(
             path = "/storage/emulated/0/Download/image1.png",
