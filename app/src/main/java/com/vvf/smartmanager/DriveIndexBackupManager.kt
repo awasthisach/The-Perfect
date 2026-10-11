@@ -3,6 +3,7 @@ package com.vvf.smartmanager
 import android.content.Context
 import android.net.Uri
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -60,7 +61,7 @@ class DriveIndexBackupManager(private val context: Context) {
                 ?: throw IllegalArgumentException("Could not open the selected backup destination")
             output.use { it.write(bytes); it.flush() }
             Result.success(rows.size)
-        } catch (e: Exception) {
+        } catch (e: CancellationException) { throw e } catch (e: Exception) {
             Result.failure(e)
         }
     }
@@ -150,7 +151,7 @@ class DriveIndexBackupManager(private val context: Context) {
                 "Imported local index; run Drive sync to reconcile with the remote account"
             )
             Result.success(rows.size)
-        } catch (e: Exception) {
+        } catch (e: CancellationException) { throw e } catch (e: Exception) {
             Result.failure(e)
         }
     }
