@@ -72,39 +72,53 @@ class DriveIndexingWorker(
                 else Result.failure(workDataOf("reason" to "Drive sync failed; sign in again or retry later"))
             }
 
-            var indexed = 0
+            var indexed = prefs.getInt(KEY_FULL_LIST_COUNT, 0).takeIf { resumePageToken != null } ?: 0
+            var listingCapped = snapshot.capped
             val fullListing = snapshot.fullListing
             if (fullListing != null) {
-                val files = fullListing.files
-                for (batch in files.chunked(BATCH_SIZE)) {
+                var page = fullListing
+                while (true) {
                     if (isStopped) throw CancellationException("Drive indexing cancelled")
-                    for (item in batch) {
+                    val remaining = DriveIndexingPolicy.MAX_FILES - indexed
+                    if (remaining <= 0) {
+                        listingCapped = true
+                        prefs.edit().remove(KEY_FULL_LIST_PAGE).remove(KEY_FULL_LIST_CURSOR).remove(KEY_FULL_LIST_COUNT).apply()
+                        break
+                    }
+                    val files = page.files.take(remaining)
+                    for (batch in files.chunked(BATCH_SIZE)) {
                         if (isStopped) throw CancellationException("Drive indexing cancelled")
-                        upsertDriveFile(app, item)
-                        indexed++
-                    }
-                    app.database.searchFtsDao().rebuildFtsIndex()
-                    setProgress(workDataOf("indexed_count" to indexed, "total_count" to files.size))
-                    app.publishDriveIndexStatus("SYNCING", indexed, fullListing.capped, "Indexed $indexed of ${files.size} Drive items")
-                }
-
-                // Remove stale local search rows only when the full Drive listing was complete.
-                if (!fullListing.capped) {
-                    val livePaths = files.mapTo(HashSet(files.size)) { it.path }
-                    val stalePaths = app.database.fileDao().getIndexedPathSnapshot()
-                        .asSequence()
-                        .map { it.path }
-                        .filter { it.startsWith(DRIVE_PATH_PREFIX) && it !in livePaths }
-                        .toList()
-                    if (stalePaths.isNotEmpty()) {
-                        stalePaths.chunked(BATCH_SIZE).forEach { batch ->
-                            batch.forEach { stalePath ->
-                                app.database.fileDao().getByPath(stalePath)?.offlineLocalPath
-                                    ?.let { java.io.File(it).delete() }
-                            }
-                            app.database.fileDao().deleteStaleByPaths(batch)
+                        for (item in batch) {
+                            if (isStopped) throw CancellationException("Drive indexing cancelled")
+                            upsertDriveFile(app, item)
+                            indexed++
                         }
+                        app.database.searchFtsDao().rebuildFtsIndex()
+                        setProgress(workDataOf("indexed_count" to indexed, "total_count" to DriveIndexingPolicy.MAX_FILES))
+                        app.publishDriveIndexStatus("SYNCING", indexed, false, "Indexed $indexed Drive items")
                     }
+                    val nextToken = page.nextPageToken
+                    if (nextToken.isNullOrBlank()) {
+                        prefs.edit().remove(KEY_FULL_LIST_PAGE).remove(KEY_FULL_LIST_CURSOR).remove(KEY_FULL_LIST_COUNT).apply()
+                        break
+                    }
+                    if (indexed >= DriveIndexingPolicy.MAX_FILES) {
+                        listingCapped = true
+                        prefs.edit().remove(KEY_FULL_LIST_PAGE).remove(KEY_FULL_LIST_CURSOR).remove(KEY_FULL_LIST_COUNT).apply()
+                        break
+                    }
+                    // Commit the page token only after all rows from this page are stored in Room.
+                    prefs.edit()
+                        .putString(KEY_FULL_LIST_CURSOR, snapshot.cursor)
+                        .putString(KEY_FULL_LIST_PAGE, nextToken)
+                        .putInt(KEY_FULL_LIST_COUNT, indexed)
+                        .apply()
+                    val nextPage = app.googleDriveService.listDriveFilesPage(nextToken).getOrElse {
+                        saveStatus(app, "RETRY_REQUIRED", indexed, false, "Drive indexing paused; the last committed page can be resumed.")
+                        return@withContext if (runAttemptCount < 5) Result.retry()
+                        else Result.failure(workDataOf("reason" to "Drive indexing paused; retry to resume the saved page"))
+                    }
+                    page = DriveIndexSnapshot(nextPage.files, capped = false, nextPageToken = nextPage.nextPageToken)
                 }
             } else {
                 val changes = snapshot.changes
@@ -128,7 +142,7 @@ class DriveIndexingWorker(
                 }
             }
 
-            if (snapshot.capped) {
+            if (snapshot.capped || listingCapped) {
                 // Do not commit a cursor after a capped full listing: that would silently skip
                 // files beyond the cap. The status is visible to diagnostics and the next manual
                 // sync will retry a bounded full listing.
@@ -151,7 +165,7 @@ class DriveIndexingWorker(
             Result.success(
                 workDataOf(
                     "indexed_count" to indexed,
-                    "capped" to snapshot.capped,
+                    "capped" to (snapshot.capped || listingCapped),
                     "full_resync" to snapshot.fullResyncRequired
                 )
             )
