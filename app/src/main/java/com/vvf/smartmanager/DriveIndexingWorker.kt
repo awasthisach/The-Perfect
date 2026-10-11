@@ -40,7 +40,7 @@ class DriveIndexingWorker(
         val prefs = applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val auth = GoogleDriveAuth(applicationContext, BuildConfig.GOOGLE_WEB_CLIENT_ID, app.googleDriveService)
         val token = auth.silentRefreshDriveAccessToken().getOrElse {
-            saveStatus(app, "SIGN_IN_REQUIRED", 0, false, it.message.orEmpty())
+            saveStatus(app, "SIGN_IN_REQUIRED", 0, false, "Google Drive sign-in is required to continue indexing.")
             return@withContext Result.failure(workDataOf("reason" to "Sign in to Google Drive again to resume indexing"))
         }
         app.googleDriveService.setAccessToken(token)
@@ -51,7 +51,7 @@ class DriveIndexingWorker(
             val savedCursor = cursorDao.getRecord(CURSOR_LOCAL_PATH, CURSOR_PROVIDER)?.remoteFileId
                 ?: prefs.getString(KEY_CURSOR, null)
             val snapshot = app.googleDriveService.syncDriveSnapshot(savedCursor).getOrElse {
-                saveStatus(app, "RETRY_REQUIRED", 0, false, it.message.orEmpty())
+                saveStatus(app, "RETRY_REQUIRED", 0, false, "Drive sync failed. Retry or sign in again if requested.")
                 return@withContext if (runAttemptCount < 5) Result.retry()
                 else Result.failure(workDataOf("reason" to "Drive sync failed; sign in again or retry later"))
             }
