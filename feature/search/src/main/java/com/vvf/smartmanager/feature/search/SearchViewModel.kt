@@ -19,6 +19,7 @@ import com.vvf.smartmanager.core.model.SearchFilter
 import com.vvf.smartmanager.core.model.SemanticSearchOptions
 import com.vvf.smartmanager.core.model.SemanticSearchResult
 import com.vvf.smartmanager.core.model.SizeFilter
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -97,7 +98,9 @@ class SearchViewModel(
                     )
                 )
                 _semanticResults.value = results
-            } catch (_: Throwable) {
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
                 _semanticResults.value = emptyList()
             }
         }
