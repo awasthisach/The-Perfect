@@ -193,6 +193,8 @@ class VVFApplication : Application(), Configuration.Provider {
         }
         DriveOfflineManager(this@VVFApplication).clearAllLocalCopies()
         if (::database.isInitialized) {
+            // The opaque change cursor is account-scoped; never reuse it after sign-out/account switch.
+            database.cloudSyncDao().deleteByLocalPath("__drive_semantic_search_changes_cursor__")
             database.fileDao().deleteAllDriveIndexRows()
             database.searchFtsDao().rebuildFtsIndex()
         }
