@@ -4,6 +4,7 @@ import android.content.Context
 import com.vvf.smartmanager.core.model.CloudAccount
 import com.vvf.smartmanager.core.model.CloudProviderType
 import com.vvf.smartmanager.core.model.FileItem
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -94,7 +95,7 @@ class GoogleDriveServiceImpl(
                 lastSyncTimestamp = System.currentTimeMillis()
             )
             Result.success(true)
-        } catch (e: Exception) {
+        } catch (e: CancellationException) { throw e } catch (e: Exception) {
             currentAccount = currentAccount.copy(isConnected = false)
             Result.failure(e)
         }
@@ -111,7 +112,7 @@ class GoogleDriveServiceImpl(
                 lastSyncTimestamp = System.currentTimeMillis()
             )
             Result.success(items)
-        } catch (e: Exception) {
+        } catch (e: CancellationException) { throw e } catch (e: Exception) {
             Result.failure(e)
         }
     }
@@ -132,7 +133,7 @@ class GoogleDriveServiceImpl(
                 pageToken = next
             } while (!next.isNullOrBlank() && all.size < maxFiles)
             Result.success(DriveIndexSnapshot(all.take(maxFiles), !next.isNullOrBlank(), next))
-        } catch (e: Exception) { Result.failure(e) }
+        } catch (e: CancellationException) { throw e } catch (e: Exception) { Result.failure(e) }
     }
 
     override suspend fun getDriveStartPageToken(): Result<String> = withContext(Dispatchers.IO) {
@@ -158,7 +159,7 @@ class GoogleDriveServiceImpl(
                 count++
             } while (count < maxPages)
             Result.success(DriveChangeSnapshot(all, next, newStart))
-        } catch (e: Exception) { Result.failure(e) }
+        } catch (e: CancellationException) { throw e } catch (e: Exception) { Result.failure(e) }
     }
 
     override suspend fun syncDriveSnapshot(startPageToken: String?): Result<DriveSyncSnapshot> = withContext(Dispatchers.IO) {
@@ -195,7 +196,7 @@ class GoogleDriveServiceImpl(
                     ))
                 }
             }
-        } catch (e: Exception) { Result.failure(e) }
+        } catch (e: CancellationException) { throw e } catch (e: Exception) { Result.failure(e) }
     }
 
     override suspend fun moveFile(fileId: String, destinationFolderId: String): Result<Boolean> = withContext(Dispatchers.IO) {
@@ -209,7 +210,7 @@ class GoogleDriveServiceImpl(
                 removeParents = current.parents.filter { it.isNotBlank() }.takeIf { it.isNotEmpty() }?.joinToString(",")
             )
             Result.success(true)
-        } catch (e: Exception) { Result.failure(e) }
+        } catch (e: CancellationException) { throw e } catch (e: Exception) { Result.failure(e) }
     }
 
     override suspend fun setStarred(fileId: String, starred: Boolean): Result<Boolean> = withContext(Dispatchers.IO) {
@@ -217,7 +218,7 @@ class GoogleDriveServiceImpl(
             requireValidDriveId(fileId, "fileId")
             driveApi.updateFile(bearer(), fileId, """{"starred":$starred}""".toRequestBody("application/json; charset=UTF-8".toMediaType()))
             Result.success(true)
-        } catch (e: Exception) { Result.failure(e) }
+        } catch (e: CancellationException) { throw e } catch (e: Exception) { Result.failure(e) }
     }
 
     override suspend fun createDriveFolder(name: String, parentFolderId: String): Result<String> = withContext(Dispatchers.IO) {
@@ -230,7 +231,7 @@ class GoogleDriveServiceImpl(
             val json = """{"name":"$safeName","mimeType":"application/vnd.google-apps.folder","parents":["$safeParent"]}"""
             val created = driveApi.createFolder(bearer(), json.toRequestBody("application/json; charset=UTF-8".toMediaType()))
             Result.success(requireNotNull(created.id) { "Drive returned no folder ID" })
-        } catch (e: Exception) { Result.failure(e) }
+        } catch (e: CancellationException) { throw e } catch (e: Exception) { Result.failure(e) }
     }
 
     private fun toFileItem(dto: DriveFileDto): FileItem = FileItem(
@@ -296,7 +297,7 @@ class GoogleDriveServiceImpl(
 
                     val uploaded = try {
                         DriveUploadResponseParser.parse(bodyText)
-                    } catch (e: Exception) {
+                    } catch (e: CancellationException) { throw e } catch (e: Exception) {
                         return@withContext Result.failure(
                             IllegalStateException("Drive upload returned invalid JSON response", e)
                         )
@@ -337,7 +338,7 @@ class GoogleDriveServiceImpl(
                     )
                     Result.success(id)
                 }
-            } catch (e: Exception) {
+            } catch (e: CancellationException) { throw e } catch (e: Exception) {
                 Result.failure(e)
             }
         }
@@ -354,7 +355,7 @@ class GoogleDriveServiceImpl(
                     }
                 }
                 Result.success(true)
-            } catch (e: Exception) {
+            } catch (e: CancellationException) { throw e } catch (e: Exception) {
                 Result.failure(e)
             }
         }
@@ -402,7 +403,7 @@ class GoogleDriveServiceImpl(
                 }
             }
             Result.success(true)
-        } catch (e: Exception) {
+        } catch (e: CancellationException) { throw e } catch (e: Exception) {
             destination.delete()
             Result.failure(e)
         }
@@ -456,7 +457,7 @@ class GoogleDriveServiceImpl(
                         .take(250_000)
                     Result.success(text)
                 }
-            } catch (e: Exception) {
+            } catch (e: CancellationException) { throw e } catch (e: Exception) {
                 Result.failure(e)
             }
         }
@@ -472,7 +473,7 @@ class GoogleDriveServiceImpl(
                 totalBytes = limit
             )
             Result.success(Pair(usage, limit))
-        } catch (e: Exception) {
+        } catch (e: CancellationException) { throw e } catch (e: Exception) {
             Result.failure(e)
         }
     }
