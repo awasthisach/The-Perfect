@@ -9,6 +9,7 @@ import com.vvf.smartmanager.core.model.SemanticCandidate
 import com.vvf.smartmanager.core.model.SemanticSearchOptions
 import com.vvf.smartmanager.core.model.SemanticSearchResult
 import com.vvf.smartmanager.core.plugin.spi.ISemanticSearchEngine
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 
 /**
@@ -34,9 +35,13 @@ class SemanticSearchUseCase(
         if (cleanQuery.isBlank()) return emptyList()
 
         // Local keyword/metadata results are the reliability baseline and remain available offline.
-        val lexical = runCatching {
+        val lexical = try {
             searchRepository.searchFiles(cleanQuery, SearchFilter()).first()
-        }.getOrDefault(emptyList())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            emptyList()
+        }
 
         val lexicalScores = lexical.associate { result ->
             val score = when (result.matchType) {
@@ -64,6 +69,8 @@ class SemanticSearchUseCase(
                     semanticPlugin.searchSimilar(cleanQuery, candidates, options)
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             emptyList()
         }
