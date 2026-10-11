@@ -6,6 +6,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.vvf.smartmanager.core.cloud.gdrive.DriveFileDto
+import com.vvf.smartmanager.core.cloud.gdrive.DriveIndexingPolicy
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
 import com.vvf.smartmanager.core.model.FileItem
