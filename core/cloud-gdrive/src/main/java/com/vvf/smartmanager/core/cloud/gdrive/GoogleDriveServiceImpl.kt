@@ -156,7 +156,13 @@ class GoogleDriveServiceImpl(
     }
 
     override suspend fun getDriveStartPageToken(): Result<String> = withContext(Dispatchers.IO) {
-        runCatching { driveApi.getStartPageToken(bearer()).startPageToken }
+        try {
+            Result.success(driveApi.getStartPageToken(bearer()).startPageToken)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 
     override suspend fun getDriveChanges(startPageToken: String, maxPages: Int): Result<DriveChangeSnapshot> = withContext(Dispatchers.IO) {
