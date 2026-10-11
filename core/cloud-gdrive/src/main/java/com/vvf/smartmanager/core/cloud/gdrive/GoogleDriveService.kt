@@ -14,6 +14,7 @@ interface GoogleDriveService {
     suspend fun extractTextContent(fileId: String, mimeType: String?): Result<String> = Result.failure(UnsupportedOperationException("Text extraction is not implemented"))
     suspend fun getStorageQuota(): Result<Pair<Long, Long>>
     suspend fun listAllDriveFiles(maxFiles: Int = 20_000): Result<DriveIndexSnapshot> = Result.failure(UnsupportedOperationException("Drive listing is not implemented"))
+    suspend fun listDriveFilesPage(pageToken: String? = null, pageSize: Int = 1000): Result<DriveIndexPage> = Result.failure(UnsupportedOperationException("Paged Drive listing is not implemented"))
     suspend fun getDriveChanges(startPageToken: String, maxPages: Int = 200): Result<DriveChangeSnapshot> = Result.failure(UnsupportedOperationException("Drive changes are not implemented"))
     suspend fun getDriveStartPageToken(): Result<String> = Result.failure(UnsupportedOperationException("Drive change cursor is not implemented"))
     suspend fun syncDriveSnapshot(startPageToken: String?): Result<DriveSyncSnapshot> = Result.failure(UnsupportedOperationException("Drive sync is not implemented"))
@@ -22,6 +23,7 @@ interface GoogleDriveService {
     suspend fun createDriveFolder(name: String, parentFolderId: String = "root"): Result<String> = Result.failure(UnsupportedOperationException("Drive folder creation is not implemented"))
 }
 data class DriveIndexSnapshot(val files: List<FileItem>, val capped: Boolean, val nextPageToken: String?)
+data class DriveIndexPage(val files: List<FileItem>, val nextPageToken: String?)
 data class DriveChangeSnapshot(val changes: List<DriveChangeDto>, val nextPageToken: String?, val newStartPageToken: String?)
 
 data class DriveSyncSnapshot(
