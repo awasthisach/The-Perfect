@@ -61,9 +61,9 @@ class DriveIndexingWorker(
             if (fullListing != null) {
                 val files = fullListing.files
                 for (batch in files.chunked(BATCH_SIZE)) {
-                    if (isStopped) return@withContext Result.retry()
+                    if (isStopped) throw CancellationException("Drive indexing cancelled")
                     for (item in batch) {
-                        if (isStopped) return@withContext Result.retry()
+                        if (isStopped) throw CancellationException("Drive indexing cancelled")
                         upsertDriveFile(app, item)
                         indexed++
                     }
@@ -94,7 +94,7 @@ class DriveIndexingWorker(
                 val changes = snapshot.changes
                     ?: return@withContext Result.failure(workDataOf("reason" to "Drive returned neither a full listing nor changes"))
                 for (batch in changes.changes.chunked(BATCH_SIZE)) {
-                    if (isStopped) return@withContext Result.retry()
+                    if (isStopped) throw CancellationException("Drive indexing cancelled")
                     for (change in batch) {
                         if (change.removed || change.file?.trashed == true) {
                             val removedPath = DRIVE_PATH_PREFIX + change.fileId
