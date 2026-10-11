@@ -186,12 +186,12 @@ class GoogleDriveServiceImpl(
             if (startPageToken.isNullOrBlank()) {
                 // Capture cursor before listing so changes during the list can be replayed.
                 val initialCursor = driveApi.getStartPageToken(bearer()).startPageToken
-                val listing = listAllDriveFiles(DriveIndexingPolicy.MAX_FILES).getOrThrow()
+                val page = listDriveFilesPage(pageToken = null, pageSize = 1000).getOrThrow()
                 Result.success(DriveSyncSnapshot(
-                    fullListing = listing,
+                    fullListing = DriveIndexSnapshot(page.files, capped = false, nextPageToken = page.nextPageToken),
                     cursor = initialCursor,
                     fullResyncRequired = true,
-                    capped = listing.capped
+                    capped = false
                 ))
             } else {
                 val changesResult = getDriveChanges(startPageToken)
@@ -206,12 +206,12 @@ class GoogleDriveServiceImpl(
                 } else {
                     // Invalid/expired cursor: recover with a bounded full listing.
                     val freshCursor = driveApi.getStartPageToken(bearer()).startPageToken
-                    val listing = listAllDriveFiles(DriveIndexingPolicy.MAX_FILES).getOrThrow()
+                    val page = listDriveFilesPage(pageToken = null, pageSize = 1000).getOrThrow()
                     Result.success(DriveSyncSnapshot(
-                        fullListing = listing,
+                        fullListing = DriveIndexSnapshot(page.files, capped = false, nextPageToken = page.nextPageToken),
                         cursor = freshCursor,
                         fullResyncRequired = true,
-                        capped = listing.capped
+                        capped = false
                     ))
                 }
             }
