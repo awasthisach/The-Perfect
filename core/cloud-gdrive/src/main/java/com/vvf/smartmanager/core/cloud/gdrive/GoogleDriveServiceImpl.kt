@@ -136,6 +136,25 @@ class GoogleDriveServiceImpl(
         } catch (e: CancellationException) { throw e } catch (e: Exception) { Result.failure(e) }
     }
 
+    override suspend fun listDriveFilesPage(pageToken: String?, pageSize: Int): Result<DriveIndexPage> = withContext(Dispatchers.IO) {
+        try {
+            require(pageSize in 1..1000) { "pageSize must be between 1 and 1,000" }
+            val response = driveApi.listFiles(
+                bearer = bearer(),
+                query = "trashed = false",
+                pageSize = pageSize,
+                pageToken = pageToken
+            )
+            currentAccount = currentAccount.copy(
+                isConnected = true,
+                lastSyncTimestamp = System.currentTimeMillis()
+            )
+            Result.success(DriveIndexPage(response.files.map(::toFileItem), response.nextPageToken))
+        } catch (e: CancellationException) { throw e } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     override suspend fun getDriveStartPageToken(): Result<String> = withContext(Dispatchers.IO) {
         runCatching { driveApi.getStartPageToken(bearer()).startPageToken }
     }
