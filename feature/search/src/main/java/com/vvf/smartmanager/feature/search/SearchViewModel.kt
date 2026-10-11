@@ -54,7 +54,9 @@ class SearchViewModel(
     private val _snackbarMessage = MutableStateFlow<String?>(null)
     private val _isSearching = MutableStateFlow(false)
     private val _semanticResults = MutableStateFlow<List<SemanticSearchResult>>(emptyList())
-    private val _isSemanticEnabled = MutableStateFlow(true)
+    // Neural ranking is unavailable until authenticated provider + explicit consent are implemented.
+    // Default off prevents accidental embedding calls or implying neural search is active.
+    private val _isSemanticEnabled = MutableStateFlow(false)
     private val _semanticSimilarityThreshold = MutableStateFlow(0.80f)
 
     private val _searchHistory = searchHistoryUseCase.getHistory()
