@@ -64,6 +64,9 @@ class SemanticSearchUseCase(
                         SemanticCandidate(file, buildString {
                             append(file.name)
                             if (file.tags.isNotEmpty()) append(" ").append(file.tags.joinToString(" "))
+                            // Include extracted document text; the consent gate above ensures this
+                            // is only handed to a semantic provider after the user opts in.
+                            if (file.indexedText.isNotBlank()) append(" ").append(file.indexedText.take(MAX_CANDIDATE_TEXT_CHARS))
                         })
                     }
                     semanticPlugin.searchSimilar(cleanQuery, candidates, options)
@@ -108,5 +111,6 @@ class SemanticSearchUseCase(
 
     companion object {
         private const val CANDIDATE_LIMIT = 400
+        private const val MAX_CANDIDATE_TEXT_CHARS = 4_000
     }
 }

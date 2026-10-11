@@ -165,7 +165,8 @@ class OfflineSearchRepository(
                 canonicalUri = entity.canonicalUri,
                 isOfflinePinned = entity.offlinePinned,
                 offlineLocalPath = entity.offlineLocalPath,
-                tags = tagList
+                tags = tagList,
+                indexedText = entity.contentText.take(4_000)
             )
         }
     }

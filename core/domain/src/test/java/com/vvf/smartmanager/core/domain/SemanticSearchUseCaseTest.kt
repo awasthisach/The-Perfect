@@ -31,6 +31,7 @@ class SemanticSearchUseCaseTest {
 
     private class FakeSemanticEngine : ISemanticSearchEngine {
         var isReady = true
+        var capturedCandidates: List<SemanticCandidate> = emptyList()
         override fun isModelReady(): Boolean = isReady
         override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean {
             isReady = true
@@ -47,6 +48,7 @@ class SemanticSearchUseCaseTest {
             candidates: List<SemanticCandidate>,
             options: SemanticSearchOptions
         ): List<SemanticSearchResult> {
+            capturedCandidates = candidates
             return candidates.map {
                 SemanticSearchResult(it.fileItem, 0.88f, "Semantic match for $query")
             }
@@ -104,7 +106,10 @@ class SemanticSearchUseCaseTest {
         override suspend fun cleanJunkItems(selectedDuplicatePaths: List<String>, selectedJunkPaths: List<String>): Result<Long> = Result.success(0L)
     }
 
-    private class FakeSearchRepo(var searchResults: List<SearchResultItem> = emptyList()) : SearchRepository {
+    private class FakeSearchRepo(
+        var searchResults: List<SearchResultItem> = emptyList(),
+        var recentIndexedFiles: List<FileItem> = emptyList()
+    ) : SearchRepository {
         override fun searchFiles(query: String, filter: SearchFilter): Flow<List<SearchResultItem>> = flowOf(searchResults)
         override fun getSearchHistory(): Flow<List<String>> = flowOf()
         override suspend fun saveSearchQuery(query: String) {}
@@ -115,7 +120,7 @@ class SemanticSearchUseCaseTest {
         override suspend fun removeTagFromFile(path: String, tag: String): Result<Boolean> = Result.success(true)
         override fun getTotalIndexedCount(): Flow<Int> = flowOf(2)
         override suspend fun rebuildFtsIndex() {}
-        override suspend fun getRecentIndexedFiles(limit: Int) = emptyList<FileItem>()
+        override suspend fun getRecentIndexedFiles(limit: Int) = recentIndexedFiles.take(limit)
     }
 
     @Test
@@ -161,6 +166,33 @@ class SemanticSearchUseCaseTest {
         assertEquals(1, results.size)
         assertEquals(file.path, results.first().fileItem.path)
         assertTrue(results.first().similarityScore > 0f)
+    }
+
+
+    @Test
+    fun consentedSemanticCandidatesIncludeExtractedDocumentText() = runBlocking {
+        val file = FileItem(
+            path = "gdrive://drive-file-content",
+            name = "meeting-notes.txt",
+            sizeBytes = 300L,
+            lastModified = 1L,
+            isDirectory = false,
+            mimeType = "text/plain",
+            indexedText = "The board approved a renewable energy solar farm project."
+        )
+        val engine = FakeSemanticEngine()
+        val searchRepo = FakeSearchRepo(recentIndexedFiles = listOf(file))
+        val useCase = SemanticSearchUseCase(
+            engine,
+            searchRepo,
+            FakeFileManagerRepo(),
+            isEmbeddingConsentGranted = { true }
+        )
+
+        useCase.searchSemantically("clean energy")
+
+        assertEquals(1, engine.capturedCandidates.size)
+        assertTrue(engine.capturedCandidates.single().text.contains("renewable energy solar farm"))
     }
 
     @Test
