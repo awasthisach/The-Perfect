@@ -34,6 +34,7 @@ data class FilePathSnapshot(
     val deletedTimestamp: Long?,
     val tags: String,
     val md5Hash: String?,
+    val driveSyncGeneration: String,
     val operationState: String
 )
 
@@ -52,7 +53,7 @@ interface FileDao {
     @Query("SELECT * FROM file_metadata WHERE path = :path LIMIT 1")
     suspend fun getByPath(path: String): FileMetadataEntity?
 
-    @Query("SELECT path, id, isFavorite, isTrash, originalPath, deletedTimestamp, tags, md5Hash, operationState FROM file_metadata")
+    @Query("SELECT path, id, isFavorite, isTrash, originalPath, deletedTimestamp, tags, md5Hash, driveSyncGeneration, operationState FROM file_metadata")
     suspend fun getIndexedPathSnapshot(): List<FilePathSnapshot>
 
     @Query("SELECT * FROM file_metadata WHERE parentPath = :parentPath AND isTrash = 0 ORDER BY isDirectory DESC, name ASC")
