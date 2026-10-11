@@ -3,6 +3,7 @@ package com.vvf.smartmanager
 import android.content.Context
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -86,7 +87,7 @@ class DriveOfflineManager(private val context: Context) {
             }
             dao.setOfflinePin(item.path, true, destination.absolutePath, System.currentTimeMillis(), actualBytes)
             Result.success(true)
-        } catch (e: Exception) {
+        } catch (e: CancellationException) { throw e } catch (e: Exception) {
             finalFile?.delete()
             Result.failure(e)
         } finally {
