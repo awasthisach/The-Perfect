@@ -84,7 +84,7 @@ class DriveIndexingWorker(
                     val remaining = DriveIndexingPolicy.MAX_FILES - indexed
                     if (remaining <= 0) {
                         listingCapped = true
-                        prefs.edit().remove(KEY_FULL_LIST_PAGE).remove(KEY_FULL_LIST_CURSOR).remove(KEY_FULL_LIST_COUNT).apply()
+                        prefs.edit().remove(KEY_FULL_LIST_PAGE).remove(KEY_FULL_LIST_CURSOR).remove(KEY_FULL_LIST_COUNT).remove(KEY_FULL_LIST_RUN_ID).apply()
                         break
                     }
                     val files = page.files.take(remaining)
