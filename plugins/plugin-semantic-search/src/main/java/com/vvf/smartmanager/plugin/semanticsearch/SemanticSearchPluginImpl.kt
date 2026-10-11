@@ -8,19 +8,19 @@ import com.vvf.smartmanager.core.model.SemanticSearchOptions
 import com.vvf.smartmanager.core.model.SemanticSearchResult
 import com.vvf.smartmanager.core.plugin.spi.SemanticSearchSPI
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.sqrt
 
 /**
- * On-device hashed 128-d embeddings for lightweight semantic-style ranking.
- * (Deterministic hashing — not a TFLite neural net.)
+ * Temporary deterministic hash-vector implementation retained for compatibility only.
+ * It is not a neural embedding model. Semantic ranking and similarity-based duplicate grouping
+ * fail closed until a real, authenticated embedding provider is integrated.
  */
 class SemanticSearchPluginImpl : SemanticSearchSPI {
 
     @Volatile
-    private var isModelDownloaded: Boolean = true
+    private var isModelDownloaded: Boolean = false
 
     private val embeddingDimension: Int = 128
     private val embeddingCache = ConcurrentHashMap<String, FloatArray>()
@@ -28,12 +28,10 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
     override fun isModelReady(): Boolean = isModelDownloaded
 
     override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean = withContext(Dispatchers.IO) {
-        for (i in 1..10) {
-            delay(40)
-            progressCallback(i / 10f)
-        }
-        isModelDownloaded = true
-        true
+        // No neural model is bundled or safely available from the current app configuration.
+        // Never simulate a successful model download or advertise hash vectors as neural embeddings.
+        isModelDownloaded = false
+        false
     }
 
     override suspend fun generateEmbedding(text: String): FloatArray = withContext(Dispatchers.Default) {
@@ -113,7 +111,7 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
         candidates: List<SemanticCandidate>,
         options: SemanticSearchOptions
     ): List<SemanticSearchResult> = withContext(Dispatchers.Default) {
-        if (query.isBlank() || candidates.isEmpty()) {
+        if (!isModelReady() || query.isBlank() || candidates.isEmpty()) {
             return@withContext emptyList()
         }
 
@@ -151,7 +149,7 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
         candidates: List<SemanticCandidate>,
         similarityThreshold: Float
     ): List<NearDuplicateCluster> = withContext(Dispatchers.Default) {
-        if (candidates.size < 2) return@withContext emptyList()
+        if (!isModelReady() || candidates.size < 2) return@withContext emptyList()
 
         val validThreshold = similarityThreshold.coerceIn(0.70f, 0.95f)
 
