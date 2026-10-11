@@ -113,10 +113,16 @@ class DriveIndexingWorker(
                         .putString(KEY_FULL_LIST_PAGE, nextToken)
                         .putInt(KEY_FULL_LIST_COUNT, indexed)
                         .apply()
-                    val nextPage = app.googleDriveService.listDriveFilesPage(nextToken).getOrElse {
-                        saveStatus(app, "RETRY_REQUIRED", indexed, false, "Drive indexing paused; the last committed page can be resumed.")
+                    val nextPage = app.googleDriveService.listDriveFilesPage(nextToken).getOrElse { failure ->
+                        // Drive page tokens can expire or become invalid after corpus changes.
+                        // A 400 on a resumed page discards only the listing checkpoint; the next
+                        // attempt safely starts a fresh bounded listing and captures a new cursor.
+                        if (failure is retrofit2.HttpException && failure.code() == 400) {
+                            prefs.edit().remove(KEY_FULL_LIST_PAGE).remove(KEY_FULL_LIST_CURSOR).remove(KEY_FULL_LIST_COUNT).apply()
+                        }
+                        saveStatus(app, "RETRY_REQUIRED", indexed, false, "Drive indexing paused; retry will resume or safely restart the listing.")
                         return@withContext if (runAttemptCount < 5) Result.retry()
-                        else Result.failure(workDataOf("reason" to "Drive indexing paused; retry to resume the saved page"))
+                        else Result.failure(workDataOf("reason" to "Drive indexing paused; retry to resume or restart the listing"))
                     }
                     page = DriveIndexSnapshot(nextPage.files, capped = false, nextPageToken = nextPage.nextPageToken)
                 }
