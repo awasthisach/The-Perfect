@@ -57,12 +57,17 @@ class DriveOfflineManager(private val context: Context) {
 
             val currentCount = dao.getOfflinePinnedCount()
             val currentBytes = dao.getOfflinePinnedBytes()
+            val existingPins = dao.getOfflinePinnedDriveFiles()
+            val existingTargetPin = existingPins.firstOrNull { it.path == item.path }
             val evictionCandidates = mutableListOf<FileMetadataEntity>()
-            var projectedCount = currentCount
-            var projectedBytes = currentBytes
+            // Replacing an already pinned file reuses its quota; never select the target
+            // itself for eviction after its replacement has been committed.
+            var projectedCount = (currentCount - if (existingTargetPin != null) 1 else 0).coerceAtLeast(0)
+            var projectedBytes = (currentBytes - (existingTargetPin?.offlineBytes ?: 0L)).coerceAtLeast(0L)
             // Plan evictions without touching existing offline copies. A failed download,
             // rename, or new pin must not destroy files the user already pinned.
-            for (oldPin in dao.getOfflinePinnedDriveFiles()) {
+            for (oldPin in existingPins) {
+                if (oldPin.path == item.path) continue
                 if (projectedCount < MAX_OFFLINE_FILES &&
                     projectedBytes + actualBytes <= MAX_OFFLINE_BYTES
                 ) break
