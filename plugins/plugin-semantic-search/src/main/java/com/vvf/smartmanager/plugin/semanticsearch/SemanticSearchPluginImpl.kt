@@ -11,9 +11,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Temporary deterministic hash-vector implementation retained for compatibility only.
- * It is not a neural embedding model. Semantic ranking and similarity-based duplicate grouping
- * fail closed until a real, authenticated embedding provider is integrated.
+ * Fail-closed semantic search adapter. No real neural provider is configured in this build.
+ * Search, duplicate clustering, and AI-tag suggestions must not fabricate model output.
  */
 class SemanticSearchPluginImpl : SemanticSearchSPI {
 
@@ -144,70 +143,11 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
         clusters.sortedByDescending { it.averageSimilarity }
     }
 
-    override suspend fun suggestTags(candidate: SemanticCandidate): List<AiSuggestedTag> = withContext(Dispatchers.Default) {
-        val cleanText = candidate.textContent.lowercase()
-        val tags = mutableListOf<AiSuggestedTag>()
-
-        val conceptDefinitions = mapOf(
-            "invoice" to Pair("Finance", 0.95f),
-            "bill" to Pair("Finance", 0.92f),
-            "receipt" to Pair("Finance", 0.94f),
-            "tax" to Pair("Finance", 0.90f),
-            "gst" to Pair("Finance", 0.91f),
-            "medical" to Pair("Health", 0.96f),
-            "prescription" to Pair("Health", 0.95f),
-            "hospital" to Pair("Health", 0.93f),
-            "report" to Pair("Documents", 0.82f),
-            "contract" to Pair("Legal", 0.96f),
-            "agreement" to Pair("Legal", 0.94f),
-            "nda" to Pair("Legal", 0.95f),
-            "affidavit" to Pair("Legal", 0.93f),
-            "resume" to Pair("Career", 0.95f),
-            "cv" to Pair("Career", 0.94f),
-            "certificate" to Pair("Education", 0.92f),
-            "degree" to Pair("Education", 0.90f),
-            "ticket" to Pair("Travel", 0.94f),
-            "flight" to Pair("Travel", 0.93f),
-            "train" to Pair("Travel", 0.92f),
-            "hotel" to Pair("Travel", 0.90f),
-            "photo" to Pair("Media", 0.85f),
-            "screenshot" to Pair("Media", 0.88f),
-            "id" to Pair("Identity", 0.89f),
-            "aadhaar" to Pair("Identity", 0.97f),
-            "pan" to Pair("Identity", 0.97f),
-            "passport" to Pair("Identity", 0.98f),
-            "urgent" to Pair("Priority", 0.85f),
-            "official" to Pair("Work", 0.82f)
-        )
-
-        for ((keyword, categoryConfidence) in conceptDefinitions) {
-            if (cleanText.contains(keyword)) {
-                tags.add(
-                    AiSuggestedTag(
-                        tagName = keyword,
-                        confidenceScore = categoryConfidence.second,
-                        category = categoryConfidence.first
-                    )
-                )
-            }
+    override suspend fun suggestTags(candidate: SemanticCandidate): List<AiSuggestedTag> =
+        withContext(Dispatchers.Default) {
+            // Handwritten keyword rules with invented confidence scores are not AI output.
+            // Return no model suggestions until a real provider is authenticated and configured.
+            emptyList()
         }
 
-        if (tags.isEmpty()) {
-            val ext = candidate.fileItem.extension
-            when (ext) {
-                "pdf", "doc", "docx" -> tags.add(AiSuggestedTag("document", 0.80f, "General"))
-                "jpg", "png", "jpeg", "webp" -> tags.add(AiSuggestedTag("photo", 0.80f, "Media"))
-                "mp4", "mkv" -> tags.add(AiSuggestedTag("video", 0.80f, "Media"))
-                "mp3", "wav" -> tags.add(AiSuggestedTag("audio", 0.80f, "Media"))
-                "apk" -> tags.add(AiSuggestedTag("installer", 0.85f, "System"))
-                "zip", "rar" -> tags.add(AiSuggestedTag("archive", 0.80f, "System"))
-            }
-        }
-
-        tags.sortedByDescending { it.confidenceScore }.distinctBy { it.tagName }.take(6)
-    }
-
-    private fun extractMatchedConcept(query: String, text: String): String {
-        return "Semantic Match (${query.take(20)})"
-    }
 }
