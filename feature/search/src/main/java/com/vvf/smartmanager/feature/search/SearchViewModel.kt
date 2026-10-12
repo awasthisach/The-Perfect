@@ -84,7 +84,15 @@ class SearchViewModel(
         }
 
     private fun triggerSemanticSearch(query: String, threshold: Float = _semanticSimilarityThreshold.value) {
-        if (query.isBlank() || semanticSearchUseCase == null || !_isSemanticEnabled.value) {
+        if (
+            query.isBlank() ||
+            semanticSearchUseCase == null ||
+            !_isSemanticEnabled.value ||
+            !semanticSearchUseCase.isPluginReady()
+        ) {
+            // The use case deliberately retains lexical results as a fallback. Do not pass those
+            // fallback rows through the semantic-results channel, where the UI would mislabel
+            // ordinary keyword matches as neural matches.
             _semanticResults.value = emptyList()
             return
         }
