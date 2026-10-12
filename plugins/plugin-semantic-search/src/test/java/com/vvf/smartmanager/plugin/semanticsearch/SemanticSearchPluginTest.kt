@@ -60,4 +60,22 @@ class SemanticSearchPluginTest {
         )
         assertTrue(plugin.findNearDuplicates(candidates, similarityThreshold = 0.80f).isEmpty())
     }
+
+    @Test
+    fun unavailableModelDoesNotFabricateAiTagSuggestions() = runBlocking {
+        val plugin = SemanticSearchPluginImpl()
+        val candidate = SemanticCandidate(
+            fileItem = FileItem(
+                path = "/docs/invoice.pdf",
+                name = "invoice.pdf",
+                sizeBytes = 1024L,
+                lastModified = 0L,
+                isDirectory = false,
+                mimeType = "application/pdf"
+            ),
+            textContent = "invoice tax payment receipt"
+        )
+
+        assertTrue("Heuristic labels must not be represented as model output", plugin.suggestTags(candidate).isEmpty())
+    }
 }
