@@ -19,7 +19,7 @@ permissions:
 
 concurrency:
   group: weekly-instrumented
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   instrumented-hard:
