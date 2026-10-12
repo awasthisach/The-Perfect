@@ -130,7 +130,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$ANDROID_AVD_HOME"
           export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH"
-          echo "no" | avdmanager create avd --force --name vvf-release-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2"
+          echo "no" | avdmanager create avd --force --name vvf-release-api35 --package "system-images;android-35;google_apis;x86_64"
           adb start-server
           emulator -avd vvf-release-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel off -no-metrics -wipe-data > "$RUNNER_TEMP/release-emulator.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/release-emulator.pid"
