@@ -119,7 +119,7 @@ jobs:
           ./configure --enable-tempstore=yes --enable-fts5 CFLAGS="-DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL" LDFLAGS="-lcrypto"
           make -j"$(nproc)"
           mkdir -p "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets"
-          printf '%s\\n' "PRAGMA key = 'vvf-sqlcipher-compatibility-test';" "CREATE TABLE compatibility_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL);" "INSERT INTO compatibility_test (id, value) VALUES (1, 'legacy-4.5.4');" ".quit" | ./sqlcipher "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
+          printf '%s\n' "PRAGMA key = 'vvf-sqlcipher-compatibility-test';" "CREATE TABLE compatibility_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL);" "INSERT INTO compatibility_test (id, value) VALUES (1, 'legacy-4.5.4');" ".quit" | ./sqlcipher "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
           test -s "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
 
       - name: Start Android emulator (hard release gate)
@@ -136,11 +136,11 @@ jobs:
           echo $! > "$RUNNER_TEMP/release-emulator.pid"
           timeout 180 adb wait-for-device
           for _ in $(seq 1 60); do
-            boot_completed="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\\r' || true)"
+            boot_completed="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
             if [ "$boot_completed" = "1" ]; then break; fi
             sleep 5
           done
-          test "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\\r')" = "1"
+          test "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1"
           adb devices
 
       - name: SQLCipher compatibility instrumentation (hard release gate)
