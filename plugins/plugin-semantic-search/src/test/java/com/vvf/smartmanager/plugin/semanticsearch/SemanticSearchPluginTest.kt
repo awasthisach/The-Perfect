@@ -4,11 +4,22 @@ import com.vvf.smartmanager.core.model.FileItem
 import com.vvf.smartmanager.core.model.SemanticCandidate
 import com.vvf.smartmanager.core.model.SemanticSearchOptions
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SemanticSearchPluginTest {
+
+    @Test
+    fun cosineSimilarityNormalizesVectorsAndHandlesInvalidInputs() {
+        val plugin = SemanticSearchPluginImpl()
+        assertEquals(1f, plugin.computeCosineSimilarity(floatArrayOf(3f, 4f), floatArrayOf(6f, 8f)), 0.0001f)
+        assertEquals(0f, plugin.computeCosineSimilarity(floatArrayOf(1f, 0f), floatArrayOf(0f, 1f)), 0.0001f)
+        assertEquals(0f, plugin.computeCosineSimilarity(floatArrayOf(0f, 0f), floatArrayOf(1f, 1f)), 0.0001f)
+        assertEquals(0f, plugin.computeCosineSimilarity(floatArrayOf(1f), floatArrayOf(1f, 2f)), 0.0001f)
+        assertEquals(0f, plugin.computeCosineSimilarity(floatArrayOf(Float.NaN), floatArrayOf(1f)), 0.0001f)
+    }
 
     @Test
     fun semanticSearchAndSimilarityClusteringFailClosedWithoutRealModel() = runBlocking {
