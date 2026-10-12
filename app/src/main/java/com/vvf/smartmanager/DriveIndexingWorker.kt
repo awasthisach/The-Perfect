@@ -269,7 +269,8 @@ class DriveIndexingWorker(
                 offlinePinnedAt = if (preserveOfflinePin) old?.offlinePinnedAt else null,
                 offlineBytes = if (preserveOfflinePin) old?.offlineBytes ?: 0L else 0L
             )
-        )        if (old?.offlinePinned == true && !unchanged) {
+        )
+        if (old?.offlinePinned == true && !unchanged) {
             old.offlineLocalPath?.let { java.io.File(it).delete() }
         }
     }
