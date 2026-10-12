@@ -55,17 +55,24 @@ class DriveOfflineManager(private val context: Context) {
                 return@withContext Result.failure(IllegalArgumentException("File is empty or exceeds the 200 MiB offline limit"))
             }
 
-            var currentCount = dao.getOfflinePinnedCount()
-            var currentBytes = dao.getOfflinePinnedBytes()
-            val oldestFirst = dao.getOfflinePinnedDriveFiles()
-            for (oldPin in oldestFirst) {
-                if (currentCount < MAX_OFFLINE_FILES && currentBytes + actualBytes <= MAX_OFFLINE_BYTES) break
-                oldPin.offlineLocalPath?.let { File(it).delete() }
-                dao.setOfflinePin(oldPin.path, false, null, null, 0L)
-                currentCount = (currentCount - 1).coerceAtLeast(0)
-                currentBytes = (currentBytes - oldPin.offlineBytes).coerceAtLeast(0L)
+            val currentCount = dao.getOfflinePinnedCount()
+            val currentBytes = dao.getOfflinePinnedBytes()
+            val evictionCandidates = mutableListOf<FileMetadataEntity>()
+            var projectedCount = currentCount
+            var projectedBytes = currentBytes
+            // Plan evictions without touching existing offline copies. A failed download,
+            // rename, or new pin must not destroy files the user already pinned.
+            for (oldPin in dao.getOfflinePinnedDriveFiles()) {
+                if (projectedCount < MAX_OFFLINE_FILES &&
+                    projectedBytes + actualBytes <= MAX_OFFLINE_BYTES
+                ) break
+                evictionCandidates += oldPin
+                projectedCount = (projectedCount - 1).coerceAtLeast(0)
+                projectedBytes = (projectedBytes - oldPin.offlineBytes).coerceAtLeast(0L)
             }
-            if (currentCount >= MAX_OFFLINE_FILES || currentBytes + actualBytes > MAX_OFFLINE_BYTES) {
+            if (projectedCount >= MAX_OFFLINE_FILES ||
+                projectedBytes + actualBytes > MAX_OFFLINE_BYTES
+            ) {
                 return@withContext Result.failure(IllegalStateException("Offline quota is full; remove a pinned file and retry"))
             }
 
@@ -86,6 +93,12 @@ class DriveOfflineManager(private val context: Context) {
                 staging.delete()
             }
             dao.setOfflinePin(item.path, true, destination.absolutePath, System.currentTimeMillis(), actualBytes)
+
+            // Evict only after the new download is complete and its database pin is recorded.
+            evictionCandidates.forEach { oldPin ->
+                dao.setOfflinePin(oldPin.path, false, null, null, 0L)
+                oldPin.offlineLocalPath?.let { File(it).delete() }
+            }
             Result.success(true)
         } catch (e: CancellationException) { throw e } catch (e: Exception) {
             finalFile?.delete()
