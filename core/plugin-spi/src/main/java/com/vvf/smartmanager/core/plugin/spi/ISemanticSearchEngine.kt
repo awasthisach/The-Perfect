@@ -8,22 +8,26 @@ import com.vvf.smartmanager.core.model.SemanticSearchOptions
 import com.vvf.smartmanager.core.model.SemanticSearchResult
 
 /**
- * Standard SPI contract for On-Device AI Semantic Search Engine plugin.
- * Guarantees zero cloud telemetry, 100% on-device vector embedding and similarity scoring.
+ * SPI contract for a semantic-search provider.
+ *
+ * Implementations must accurately disclose whether inference is on-device or remote.
+ * Callers must enforce explicit consent before sending document text to any remote provider.
+ * This interface alone does not imply that a neural model is installed or ready.
  */
 interface ISemanticSearchEngine {
-    val pluginId: String get() = "plugin.semantic.tflite"
-    val displayName: String get() = "TFLite On-Device Semantic AI Search"
+    val pluginId: String get() = "plugin.semantic"
+    val displayName: String get() = "Semantic Search Provider"
     val version: String get() = "1.0.0"
     val isEnabled: Boolean get() = true
 
     /**
-     * Checks if the lightweight on-device TFLite model is downloaded and initialized.
+     * Returns true only when this implementation can produce genuine embeddings.
+     * A placeholder, hash vector, or lexical fallback must return false.
      */
     fun isModelReady(): Boolean
 
     /**
-     * Downloads/initializes the lightweight embedding model.
+     * Prepares the provider if supported. Must return false when no real model/provider is ready.
      * @param progressCallback Progress report from 0.0f to 1.0f.
      */
     suspend fun downloadModel(progressCallback: (Float) -> Unit = {}): Boolean
