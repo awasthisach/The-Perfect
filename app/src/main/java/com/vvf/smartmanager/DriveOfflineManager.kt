@@ -42,6 +42,7 @@ class DriveOfflineManager(private val context: Context) {
         val directory = File(app.filesDir, "drive-offline").apply { mkdirs() }
         val staging = File.createTempFile("drive_pin_", ".staging", directory)
         var finalFile: File? = null
+        var pinCommitted = false
         try {
             val downloaded = app.googleDriveService.downloadFileBounded(
                 id,
@@ -98,6 +99,7 @@ class DriveOfflineManager(private val context: Context) {
                 staging.delete()
             }
             dao.setOfflinePin(item.path, true, destination.absolutePath, System.currentTimeMillis(), actualBytes)
+            pinCommitted = true
 
             // Evict only after the new download is complete and its database pin is recorded.
             evictionCandidates.forEach { oldPin ->
@@ -106,7 +108,8 @@ class DriveOfflineManager(private val context: Context) {
             }
             Result.success(true)
         } catch (e: CancellationException) { throw e } catch (e: Exception) {
-            finalFile?.delete()
+            // Once Room points at the committed pin, preserve its file even if later eviction fails.
+            if (!pinCommitted) finalFile?.delete()
             Result.failure(e)
         } finally {
             staging.delete()
