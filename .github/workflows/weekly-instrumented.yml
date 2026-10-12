@@ -3,6 +3,13 @@ name: Weekly Instrumented Hard Gate
 # Hard (non-advisory) SQLCipher instrumented run — compensates for PR/main
 # emulator continue-on-error skips on the primary CI job.
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "core/database/**"
+      - "core/database-compat/**"
+      - ".github/workflows/weekly-instrumented.yml"
+      - ".github/workflows/release.yml"
   schedule:
     - cron: "0 3 * * 1"
   workflow_dispatch:
