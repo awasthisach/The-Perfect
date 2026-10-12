@@ -67,11 +67,22 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
 
     override fun computeCosineSimilarity(vectorA: FloatArray, vectorB: FloatArray): Float {
         if (vectorA.size != vectorB.size || vectorA.isEmpty()) return 0f
-        var dotProduct = 0f
+        var dotProduct = 0.0
+        var normA = 0.0
+        var normB = 0.0
         for (i in vectorA.indices) {
-            dotProduct += vectorA[i] * vectorB[i]
+            val a = vectorA[i].toDouble()
+            val b = vectorB[i].toDouble()
+            if (!a.isFinite() || !b.isFinite()) return 0f
+            dotProduct += a * b
+            normA += a * a
+            normB += b * b
         }
-        return dotProduct.coerceIn(0f, 1f)
+        if (normA <= 0.0 || normB <= 0.0) return 0f
+        // Ranking thresholds are expressed on a non-negative 0..1 similarity scale.
+        return (dotProduct / (kotlin.math.sqrt(normA) * kotlin.math.sqrt(normB)))
+            .toFloat()
+            .coerceIn(0f, 1f)
     }
 
     override suspend fun findNearDuplicates(
