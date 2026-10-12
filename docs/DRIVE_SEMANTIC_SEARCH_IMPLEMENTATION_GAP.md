@@ -22,14 +22,24 @@ This audit describes the current working branch `fix/drive-semantic-search-produ
 
 ## Remaining production blockers
 
-1. **Real neural semantic search:** the legacy `SemanticSearchPluginImpl` uses deterministic hashed token buckets; it is not a neural model. The plugin now reports the model as unavailable; semantic ranking and similarity-based duplicate grouping return no results until a real provider is integrated. Local FTS, keyword, and metadata search remain the active fallback. The Cloudflare worker at `https://drive-semantic-embed.awasthi-sach.workers.dev` must not be called directly from Android until a trusted backend proxy or worker-side Android App Check is implemented and verified. The Firebase ID token—not the Drive access token—must authenticate the backend. No API key may ship in the APK.
+1. **Real neural semantic search:** the previous `SemanticSearchPluginImpl` used deterministic hashed token buckets; that implementation has been removed. The plugin reports the model as unavailable, returns no synthetic embedding vectors, and fails closed for semantic ranking/duplicate grouping until a genuine provider is integrated. Local FTS, keyword, and metadata search remain the active fallback. The live worker health endpoint was verified to return `ok=true`, model `gemini-embedding-2`, version `3`, dimension `768`; this does not verify `/embed` POST authorization or prove mobile requests work. The Cloudflare worker at `https://drive-semantic-embed.awasthi-sach.workers.dev` must not be called directly from Android until a trusted backend proxy or worker-side Android App Check is implemented and deployed. The Firebase ID token—not the Drive access token—must authenticate the backend. No API key may ship in the APK.
 2. **Resumability verification:** per-page full-list checkpoints are implemented, but automated tests still need to simulate interruption before/after page commit, invalid/expired page tokens, cap handling, and cursor persistence. Verify schema 4→5 migration against an existing encrypted database.
 3. **OAuth configuration:** verify the actual package `com.vvf.smartmanager`, web client ID, Firebase project, and debug/release signing SHA fingerprints. These external project settings and interactive device sign-in cannot be proven by source inspection alone.
 4. **UI/product completeness:** Drive move/star/folder suggestion and review/confirmation flows, dedicated Dashboard/Search/Duplicates/Vault/Offline/Backup navigation, and duplicate keep/move workflows need acceptance tests. Existing legacy file-manager screens and broad storage permissions remain.
 5. **Security and reliability tests:** add worker tests for cancellation, retries, change-feed paging, removed/trashed files, full-list cap, and cursor persistence; test backup malformed/oversized data and consent revocation/import; test offline quota eviction failures and local-file integrity; test Room 1→5 migrations with existing data.
 6. **Ranking:** implement and test the requested actual hybrid ranking (real cosine vectors + BM25/FTS + metadata weights) once a safe, authenticated embedding source is available. Do not describe hash-token similarity as neural embeddings.
 7. **Vault acceptance:** verify the exact PBKDF2-HMAC-SHA256 310,000-iteration new-PIN contract and AES-GCM round-trip, wrong PIN, legacy PIN, and decoy PIN flows.
-8. **Release gates:** pass current-head unit tests, lint, debug/release assembly, license/security checks, SQLCipher instrumentation, emulator/device checks, and real Google OAuth/Drive acceptance. Configure release signing and Firebase files through CI secrets, not committed artifacts.
+8. **Release gates:** current-head unit tests, lint, debug assembly, FOSSA/license checks, CodeQL, and CPAS checks passed. The dedicated hard SQLCipher 4.5.4 compatibility instrumentation test also passed on an API 35 emulator after fixing AVD creation and granting the ephemeral GitHub runner access to `/dev/kvm`. The normal PR CI's emulator step still soft-skips instrumentation when its separate emulator setup does not boot; the dedicated hard workflow is the verified database gate. Release signing, production Firebase configuration, release assembly, real-device checks, and live Google OAuth/Drive acceptance remain unverified. Configure release signing and Firebase files through CI secrets, not committed artifacts.
+
+## Verified CI evidence (2026-10-12)
+
+- Current code head at verification: `937e5d2ba181bfbc478b49e201659983efa0bcbd`.
+- VVF Smart Manager CI & Quality Gate: success (unit tests, Android lint, debug APK assembly, license compliance).
+- CodeQL: success.
+- CPAS Production Gate: success.
+- Weekly Instrumented Hard Gate: success. SQLCipher 4.5.4 fixture generation succeeded, the API 35 emulator booted after KVM permission correction, and the SQLCipher compatibility instrumentation test ran and passed (1 test).
+- The ordinary PR CI still marks SQLCipher instrumentation as skipped when its own soft-gated emulator does not boot; it is not counted as an instrumentation pass.
+- Current build warnings: the manifest declares a WorkManager initializer removal without a matching declaration; Android packaging reports some native libraries could not be stripped. These are warnings, not build failures.
 
 ## Release rule
 
