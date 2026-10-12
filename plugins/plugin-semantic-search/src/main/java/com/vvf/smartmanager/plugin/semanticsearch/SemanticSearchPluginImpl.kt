@@ -9,8 +9,6 @@ import com.vvf.smartmanager.core.model.SemanticSearchResult
 import com.vvf.smartmanager.core.plugin.spi.SemanticSearchSPI
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.util.concurrent.ConcurrentHashMap
-import kotlin.math.sqrt
 
 /**
  * Temporary deterministic hash-vector implementation retained for compatibility only.
@@ -22,9 +20,6 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
     @Volatile
     private var isModelDownloaded: Boolean = false
 
-    private val embeddingDimension: Int = 128
-    private val embeddingCache = ConcurrentHashMap<String, FloatArray>()
-
     override fun isModelReady(): Boolean = isModelDownloaded
 
     override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean = withContext(Dispatchers.IO) {
@@ -35,75 +30,9 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
     }
 
     override suspend fun generateEmbedding(text: String): FloatArray = withContext(Dispatchers.Default) {
-        val cleanText = text.lowercase().trim()
-        if (cleanText.isEmpty()) {
-            return@withContext FloatArray(embeddingDimension) { 0f }
-        }
-
-        embeddingCache[cleanText]?.let { return@withContext it }
-
-        val vector = FloatArray(embeddingDimension) { 0f }
-        val tokens = cleanText.split(Regex("[^\\p{L}\\p{Nd}]+")).filter { it.length >= 2 }
-
-        if (tokens.isEmpty()) {
-            return@withContext vector
-        }
-
-        for (token in tokens) {
-            val tokenHash = token.hashCode()
-            val primaryBucket = safeBucket(tokenHash)
-            val secondaryBucket = safeBucket(tokenHash * 31)
-
-            vector[primaryBucket] += 1.0f
-            vector[secondaryBucket] += 0.5f
-
-            when {
-                token in listOf("invoice", "bill", "receipt", "payment", "tax", "gst", "challan") -> {
-                    vector[10 % embeddingDimension] += 2.0f
-                    vector[11 % embeddingDimension] += 1.5f
-                }
-                token in listOf("medical", "hospital", "doctor", "prescription", "lab", "health", "report") -> {
-                    vector[20 % embeddingDimension] += 2.0f
-                    vector[21 % embeddingDimension] += 1.5f
-                }
-                token in listOf("contract", "agreement", "nda", "legal", "deed", "affidavit", "signature") -> {
-                    vector[30 % embeddingDimension] += 2.0f
-                    vector[31 % embeddingDimension] += 1.5f
-                }
-                token in listOf("resume", "cv", "job", "career", "certificate", "marksheet", "degree") -> {
-                    vector[40 % embeddingDimension] += 2.0f
-                    vector[41 % embeddingDimension] += 1.5f
-                }
-                token in listOf("photo", "camera", "image", "screenshot", "picture", "wallpaper") -> {
-                    vector[50 % embeddingDimension] += 2.0f
-                    vector[51 % embeddingDimension] += 1.5f
-                }
-                token in listOf("travel", "ticket", "boarding", "flight", "train", "hotel", "itinerary") -> {
-                    vector[60 % embeddingDimension] += 2.0f
-                    vector[61 % embeddingDimension] += 1.5f
-                }
-            }
-        }
-
-        var sumSquares = 0.0
-        for (v in vector) {
-            sumSquares += (v * v)
-        }
-        val norm = sqrt(sumSquares).toFloat()
-        if (norm > 0f) {
-            for (i in vector.indices) {
-                vector[i] = vector[i] / norm
-            }
-        }
-
-        embeddingCache[cleanText] = vector
-        vector
-    }
-
-    /** Fold away the sign bit so Int.MIN_VALUE / negative remainders never index the vector. */
-    private fun safeBucket(hash: Int): Int {
-        val normalized = hash and Int.MAX_VALUE
-        return normalized % embeddingDimension
+        // No real neural model is configured. Returning a zero-length vector prevents callers
+        // from mistaking deterministic token hashes or handcrafted category buckets for embeddings.
+        FloatArray(0)
     }
 
     override suspend fun searchSimilar(
