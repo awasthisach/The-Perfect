@@ -216,7 +216,7 @@ fun SearchScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "100% Offline Core Search (FTS4 + Tags + Metadata)",
+                        text = "Local search active • Neural search unavailable until secure provider is configured",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.sp
