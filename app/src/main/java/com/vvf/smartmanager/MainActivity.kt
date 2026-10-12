@@ -75,7 +75,7 @@ import com.vvf.smartmanager.ui.theme.BhagwaOrange
 import com.vvf.smartmanager.ui.theme.CosmicBlue
 import com.vvf.smartmanager.ui.theme.VVFSmartManagerTheme
 
-/** Single-Activity Entry Point for VVF Smart Manager. */
+/** Single-Activity entry point for Drive Semantic Search. */
 class MainActivity : FragmentActivity() {
     private lateinit var googleDriveAuth: GoogleDriveAuth
 
@@ -206,7 +206,7 @@ fun VVFAppContent(
 
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry?.destination?.route ?: TopLevelDestination.EXPLORER.route
+    val currentRoute = navBackStackEntry?.destination?.route ?: TopLevelDestination.SEARCH.route
 
     val destinations = listOf(
         TopLevelDestination.EXPLORER,
@@ -360,7 +360,7 @@ private fun VVFNavHost(
     val searchActionScope = rememberCoroutineScope()
     NavHost(
         navController = navController,
-        startDestination = TopLevelDestination.EXPLORER.route,
+        startDestination = TopLevelDestination.SEARCH.route,
         enterTransition = { fadeIn(animationSpec = tween(250)) + slideInHorizontally(animationSpec = tween(250), initialOffsetX = { it / 4 }) },
         exitTransition = { fadeOut(animationSpec = tween(200)) + slideOutHorizontally(animationSpec = tween(200), targetOffsetX = { -it / 4 }) },
         popEnterTransition = { fadeIn(animationSpec = tween(250)) + slideInHorizontally(animationSpec = tween(250), initialOffsetX = { -it / 4 }) },
