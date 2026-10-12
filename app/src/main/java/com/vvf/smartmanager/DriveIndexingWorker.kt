@@ -235,9 +235,8 @@ class DriveIndexingWorker(
             currentMd5 = item.md5Hash,
             indexedMd5 = old.md5Hash
         )
-        if (old?.offlinePinned == true && !unchanged) {
-            old.offlineLocalPath?.let { java.io.File(it).delete() }
-        }
+        // Keep the old pinned copy intact until extraction and the new Room row commit succeed.
+        // Cancellation or a transient Drive failure must not leave a pinned row pointing to a missing file.
         val preserveOfflinePin = unchanged && old?.offlinePinned == true &&
             old.offlineLocalPath?.let { java.io.File(it).isFile } == true
         val canExtract = isSupportedTextType(item.mimeType) ||
@@ -270,7 +269,9 @@ class DriveIndexingWorker(
                 offlinePinnedAt = if (preserveOfflinePin) old?.offlinePinnedAt else null,
                 offlineBytes = if (preserveOfflinePin) old?.offlineBytes ?: 0L else 0L
             )
-        )
+        )        if (old?.offlinePinned == true && !unchanged) {
+            old.offlineLocalPath?.let { java.io.File(it).delete() }
+        }
     }
 
     private suspend fun extractDriveText(
