@@ -21,7 +21,7 @@ Android-native Google Drive search app built with Kotlin, Jetpack Compose, Mater
 - **Security:** Android Keystore, AES-GCM vault encryption, protected database passphrase
 - **Background work:** AndroidX WorkManager for bounded Drive indexing
 - **Text extraction:** plain text and native Google Workspace exports; bounded PDF/image and DOCX/XLSX/PPTX extraction when the user opts in
-- **Search:** Room FTS4/substring/metadata fallback. The currently wired deterministic hash-token similarity plugin is **not a neural embedding model**.
+- **Search:** Room FTS4/substring/metadata fallback. Neural semantic ranking is currently unavailable and fails closed; synthetic hash-vector generation has been removed. A real authenticated embedding provider is still required.
 - **Cloud:** Google Drive REST integration, paginated file listing/changes feed, user-authorized move/star/folder APIs
 - **Offline copies:** app-private storage with a 200 MiB / 80-file cap and oldest-first eviction
 - **Index backup:** user-selected JSON import/export, with credentials and local file bytes excluded
@@ -71,11 +71,11 @@ Use the Gradle wrapper rather than a system Gradle installation:
 
 The main release blockers are:
 
-1. A trusted mobile embedding proxy or worker-side Android App Check is not deployed. The app must not call the Cloudflare embedding worker directly or spoof an allowed Origin. The current deterministic hash-token plugin is not a neural model, so true neural semantic ranking remains unavailable.
+1. A trusted mobile embedding proxy or worker-side Android App Check is not deployed. The app must not call the Cloudflare embedding worker directly or spoof an allowed Origin. Synthetic hash vectors have been removed; true neural semantic ranking remains unavailable until a real provider is securely integrated. The live worker health endpoint reports model `gemini-embedding-2`, version `3`, dimension `768`, but this alone does not verify authenticated `/embed` requests from Android.
 2. Google OAuth/Firebase configuration and the new Gradle-managed debug/release signing fingerprints must be verified in the actual Google Cloud/Firebase project.
 3. Drive move/star/folder suggestion and confirmation flows, product-specific navigation, duplicate review, and vault/offline/backup UX need full end-to-end acceptance testing. Legacy file-manager functionality remains in the app.
 4. Initial/full-list indexing now checkpoints the next Drive page token only after the current page is committed to Room, resumes the saved page after interruption, and uses an internal Room generation marker to remove stale rows only after a complete listing. Expired page tokens trigger a safe restart. These restart/cursor paths still need dedicated automated and device tests.
-5. Run and retain passing unit, lint, debug/release build, emulator/instrumented, SQLCipher migration, and real-device Google OAuth/Drive evidence.
+5. **Verified on 2026-10-12:** current-head unit tests, Android lint, debug APK assembly, FOSSA/license compliance, CodeQL, CPAS, and the dedicated hard SQLCipher 4.5.4 compatibility instrumentation test passed. The hard instrumentation run booted an API 35 emulator after the workflow corrected AVD creation and granted the ephemeral runner access to `/dev/kvm`. The normal PR CI still soft-skips its own SQLCipher test when its separate emulator setup does not boot. Production release signing/assembly, Room migration and indexing restart tests, real-device Google OAuth/Drive acceptance, and neural provider integration remain unverified.
 
 A green CI workflow alone does not establish production readiness. See the implementation-gap audit and mobile embedding authentication requirements below.
 
