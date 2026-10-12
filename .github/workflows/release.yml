@@ -38,7 +38,7 @@ jobs:
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
 
       - name: Install Android SDK components
-        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
 
       - name: CPAS structural + semantic verification (hard fail)
         run: |
@@ -108,10 +108,61 @@ jobs:
               raise SystemExit("google-services.json contains no Firebase client configuration")
           PY
 
-      - name: Record instrumented DB evidence policy
+      - name: Generate SQLCipher 4.5.4 compatibility fixture
         run: |
-          echo "::notice::Unit tests and lint are hard on this release job."
-          echo "::warning::SQLCipher connectedAndroidTest remains a weekly/self-hosted KVM hard gate — not soft-passed here."
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev tcl-dev zlib1g-dev
+          curl -fsSL -o /tmp/sqlcipher.tgz https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz
+          tar -xzf /tmp/sqlcipher.tgz -C /tmp
+          cd /tmp/sqlcipher-4.5.4
+          ./configure --enable-tempstore=yes --enable-fts5 CFLAGS="-DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL" LDFLAGS="-lcrypto"
+          make -j"$(nproc)"
+          mkdir -p "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets"
+          printf '%s\\n' "PRAGMA key = 'vvf-sqlcipher-compatibility-test';" "CREATE TABLE compatibility_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL);" "INSERT INTO compatibility_test (id, value) VALUES (1, 'legacy-4.5.4');" ".quit" | ./sqlcipher "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
+          test -s "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
+
+      - name: Start Android emulator (hard release gate)
+        timeout-minutes: 15
+        env:
+          ANDROID_AVD_HOME: ${{ runner.temp }}/release-avd
+        run: |
+          set -euo pipefail
+          mkdir -p "$ANDROID_AVD_HOME"
+          export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH"
+          echo "no" | avdmanager create avd --force --name vvf-release-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2"
+          adb start-server
+          emulator -avd vvf-release-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel off -no-metrics -wipe-data > "$RUNNER_TEMP/release-emulator.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/release-emulator.pid"
+          timeout 180 adb wait-for-device
+          for _ in $(seq 1 60); do
+            boot_completed="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\\r' || true)"
+            if [ "$boot_completed" = "1" ]; then break; fi
+            sleep 5
+          done
+          test "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\\r')" = "1"
+          adb devices
+
+      - name: SQLCipher compatibility instrumentation (hard release gate)
+        timeout-minutes: 20
+        run: ./gradlew --no-daemon :core:database-compat:connectedDebugAndroidTest --stacktrace
+
+      - name: Stop release emulator
+        if: always()
+        run: |
+          adb emu kill || true
+          if [ -f "$RUNNER_TEMP/release-emulator.pid" ]; then kill "$(cat "$RUNNER_TEMP/release-emulator.pid")" 2>/dev/null || true; fi
+
+      - name: Upload release emulator diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: release-emulator-diagnostics
+          path: |
+            ${{ runner.temp }}/release-emulator.log
+            **/build/reports/androidTests/**
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Unit tests (release hard gate)
         run: ./gradlew --no-daemon testDebugUnitTest --stacktrace
