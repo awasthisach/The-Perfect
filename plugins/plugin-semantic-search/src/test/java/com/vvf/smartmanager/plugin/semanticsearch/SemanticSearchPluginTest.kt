@@ -39,6 +39,7 @@ class SemanticSearchPluginTest {
 
         assertFalse("Hash vectors must not be advertised as a neural model", plugin.isModelReady())
         assertFalse("A fake download must not report success", plugin.downloadModel { })
+        assertTrue("Unconfigured provider must not emit synthetic vectors", plugin.generateEmbedding("invoice tax").isEmpty())
         assertTrue(
             plugin.searchSimilar(
                 query = "invoice tax",
