@@ -66,11 +66,14 @@ class SemanticEmbeddingIndexWorker(
                 SemanticCandidate(item, content)
             }
 
-            plugin.indexCandidates(candidates)
+            val generatedCount = plugin.indexCandidates(candidates)
             if (!app.isEmbeddingConsentEnabled()) return Result.success()
 
             if (page.size == PAGE_SIZE) {
-                enqueueNextPage(afterId = page.last().id)
+                enqueueNextPage(
+                    afterId = page.last().id,
+                    delaySeconds = if (generatedCount > 0) PAGE_DELAY_SECONDS else 0L
+                )
             }
             Result.success()
         } catch (cancelled: CancellationException) {
@@ -88,18 +91,18 @@ class SemanticEmbeddingIndexWorker(
         }
     }
 
-    private fun enqueueNextPage(afterId: Long) {
+    private fun enqueueNextPage(afterId: Long, delaySeconds: Long) {
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .setRequiresBatteryNotLow(true)
             .build()
-        val request = OneTimeWorkRequestBuilder<SemanticEmbeddingIndexWorker>()
+        val requestBuilder = OneTimeWorkRequestBuilder<SemanticEmbeddingIndexWorker>()
             .setInputData(workDataOf(KEY_AFTER_ID to afterId))
             .setConstraints(constraints)
-            .setInitialDelay(PAGE_DELAY_SECONDS, TimeUnit.SECONDS)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .addTag(WORK_TAG)
-            .build()
+        if (delaySeconds > 0L) requestBuilder.setInitialDelay(delaySeconds, TimeUnit.SECONDS)
+        val request = requestBuilder.build()
         WorkManager.getInstance(applicationContext).enqueueUniqueWork(
             "$UNIQUE_WORK_PREFIX$afterId",
             ExistingWorkPolicy.KEEP,
