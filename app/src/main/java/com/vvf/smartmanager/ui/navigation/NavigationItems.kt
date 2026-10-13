@@ -66,7 +66,7 @@ enum class TopLevelDestination(
         route = "cloud",
         selectedIcon = Icons.Filled.Cloud,
         unselectedIcon = Icons.Outlined.Cloud,
-        title = "Backup",
+        title = "Drive",
         testTag = "nav_item_cloud"
     ),
     OFFLINE(
