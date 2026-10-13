@@ -227,6 +227,10 @@ class SemanticSearchPluginImpl(
             }
         }
         val output = safeCandidates.toMutableList()
+        val fullContentPaths = safeCandidates.asSequence()
+            .filter { isFullContentFile(it.fileItem) }
+            .map { it.fileItem.path }
+            .toSet()
         val lookupRequests = safeCandidates.mapNotNull { candidate ->
             if (candidate.embedding?.size == CloudflareEmbeddingClient.EMBEDDING_DIMENSION) return@mapNotNull null
             val text = candidate.textContent.take(CloudflareEmbeddingClient.MAX_TEXT_CHARS)
@@ -298,12 +302,19 @@ class SemanticSearchPluginImpl(
             }
             // Commit each completed remote batch so a later retry resumes from persisted vectors.
             if (recordsToPersist.isNotEmpty()) {
+                ensureConsent()
+                if (fullContentConsentAtStart && !isFullContentConsentGranted() &&
+                    recordsToPersist.any { it.filePath in fullContentPaths }
+                ) throw CancellationException("Full-content consent revoked")
                 vectorStore?.putAll(recordsToPersist)
                 recordsToPersist.clear()
             }
         }
         recordsToPersist.chunked(CloudflareEmbeddingClient.MAX_TEXTS).forEach { batch ->
             ensureConsent()
+            if (fullContentConsentAtStart && !isFullContentConsentGranted() &&
+                batch.any { it.filePath in fullContentPaths }
+            ) throw CancellationException("Full-content consent revoked")
             vectorStore?.putAll(batch)
         }
         if (fullContentConsentAtStart && !isFullContentConsentGranted() &&
