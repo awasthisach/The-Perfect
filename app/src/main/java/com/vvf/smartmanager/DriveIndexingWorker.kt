@@ -257,6 +257,11 @@ class DriveIndexingWorker(
         }
         if (isStopped) throw CancellationException("Drive indexing cancelled")
         val safeContent = if (!app.isDriveFullContentConsentEnabled() && isFullContentType(item)) "" else content
+        // A sync must not overwrite user-created tags with the internal Drive marker.
+        val preservedTags = old?.tags.orEmpty().split(',')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        val syncedTags = (preservedTags + "google-drive").distinct().joinToString(",")
         dao.insertOrUpdate(
             FileMetadataEntity(
                 path = path,
@@ -268,7 +273,7 @@ class DriveIndexingWorker(
                 modifiedDate = item.lastModified.coerceAtLeast(0L),
                 isFavorite = item.isFavorite,
                 isTrash = false,
-                tags = "google-drive",
+                tags = syncedTags,
                 driveSyncGeneration = fullListingRunId.orEmpty(),
                 md5Hash = item.md5Hash,
                 contentText = safeContent,
