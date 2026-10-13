@@ -3,6 +3,7 @@ package com.vvf.smartmanager
 import android.app.Application
 import android.util.Log
 import androidx.work.Configuration
+import dagger.hilt.android.HiltAndroidApp
 import com.vvf.smartmanager.core.background.workers.FileIndexingOutcome
 import com.vvf.smartmanager.core.background.workers.FileIndexingRuntime
 import com.vvf.smartmanager.core.background.workers.CloudBackupBootstrap
@@ -61,6 +62,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.io.File
 
+@HiltAndroidApp
 class VVFApplication : Application(), Configuration.Provider {
 
     companion object {
