@@ -3,6 +3,7 @@ package com.vvf.smartmanager
 import com.vvf.smartmanager.core.database.dao.SemanticEmbeddingDao
 import com.vvf.smartmanager.core.database.model.SemanticEmbeddingEntity
 import com.vvf.smartmanager.plugin.semanticsearch.CloudflareEmbeddingClient
+import com.vvf.smartmanager.plugin.semanticsearch.EmbeddingVectorLookup
 import com.vvf.smartmanager.plugin.semanticsearch.EmbeddingVectorRecord
 import com.vvf.smartmanager.plugin.semanticsearch.EmbeddingVectorStore
 import java.nio.ByteBuffer
@@ -17,20 +18,23 @@ class RoomEmbeddingVectorStore(
         filePath: String,
         contentHash: String,
         modelVersion: String
-    ): FloatArray? {
-        val row = dao.getByPath(filePath) ?: return null
-        if (row.contentHash != contentHash || row.modelVersion != modelVersion) return null
-        if (row.vector.size != VECTOR_BYTES) {
-            dao.deleteByPath(filePath)
-            return null
+    ): FloatArray? = decode(
+        dao.getByPath(filePath),
+        expectedHash = contentHash,
+        expectedModelVersion = modelVersion
+    )
+
+    override suspend fun getMany(requests: List<EmbeddingVectorLookup>): Map<String, FloatArray> {
+        if (requests.isEmpty()) return emptyMap()
+        val byPath = requests.associateBy { it.filePath }
+        val vectors = LinkedHashMap<String, FloatArray>()
+        requests.map { it.filePath }.distinct().chunked(SQLITE_BIND_BATCH_SIZE).forEach { paths ->
+            dao.getByPaths(paths).forEach { row ->
+                val request = byPath[row.filePath] ?: return@forEach
+                decode(row, request.contentHash, request.modelVersion)?.let { vectors[row.filePath] = it }
+            }
         }
-        val vector = FloatArray(CloudflareEmbeddingClient.EMBEDDING_DIMENSION)
-        ByteBuffer.wrap(row.vector).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().get(vector)
-        if (vector.any { !it.isFinite() }) {
-            dao.deleteByPath(filePath)
-            return null
-        }
-        return vector
+        return vectors
     }
 
     override suspend fun put(
@@ -50,6 +54,26 @@ class RoomEmbeddingVectorStore(
 
     override suspend fun clear() {
         dao.deleteAll()
+    }
+
+    private suspend fun decode(
+        row: SemanticEmbeddingEntity?,
+        expectedHash: String,
+        expectedModelVersion: String
+    ): FloatArray? {
+        row ?: return null
+        if (row.contentHash != expectedHash || row.modelVersion != expectedModelVersion) return null
+        if (row.vector.size != VECTOR_BYTES) {
+            dao.deleteByPath(row.filePath)
+            return null
+        }
+        val vector = FloatArray(CloudflareEmbeddingClient.EMBEDDING_DIMENSION)
+        ByteBuffer.wrap(row.vector).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().get(vector)
+        if (vector.any { !it.isFinite() }) {
+            dao.deleteByPath(row.filePath)
+            return null
+        }
+        return vector
     }
 
     private fun toEntity(
@@ -76,5 +100,6 @@ class RoomEmbeddingVectorStore(
 
     companion object {
         private const val VECTOR_BYTES = CloudflareEmbeddingClient.EMBEDDING_DIMENSION * Float.SIZE_BYTES
+        private const val SQLITE_BIND_BATCH_SIZE = 200
     }
 }
