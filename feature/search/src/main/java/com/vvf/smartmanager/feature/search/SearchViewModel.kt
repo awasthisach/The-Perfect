@@ -72,6 +72,7 @@ class SearchViewModel(
         .distinctUntilChanged()
         .flatMapLatest { (query, filter, threshold) ->
             if (query.isBlank() && filter.isDefault) {
+                semanticSearchJob?.cancel()
                 _isSearching.value = false
                 _semanticResults.value = emptyList()
                 flowOf(emptyList())
