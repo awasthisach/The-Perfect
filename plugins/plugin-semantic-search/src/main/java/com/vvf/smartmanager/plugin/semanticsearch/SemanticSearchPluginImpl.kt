@@ -139,14 +139,15 @@ class SemanticSearchPluginImpl(
 
             for (i in embedded.indices) {
                 val base = embedded[i]
-                if (base.embedding == null || base.fileItem.path in visited) continue
+                val baseVector = base.embedding ?: continue
+                if (base.fileItem.path in visited) continue
                 val similar = mutableListOf<FileItem>()
                 var sum = 0f
                 for (j in i + 1 until embedded.size) {
                     val other = embedded[j]
                     val vector = other.embedding ?: continue
                     if (other.fileItem.path in visited) continue
-                    val score = computeCosineSimilarity(base.embedding, vector)
+                    val score = computeCosineSimilarity(baseVector, vector)
                     if (score >= threshold) {
                         similar.add(other.fileItem)
                         sum += score
