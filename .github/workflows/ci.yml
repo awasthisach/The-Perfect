@@ -210,13 +210,14 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - name: Record missing FOSSA credential
+      - name: Block missing FOSSA credential
         if: ${{ env.FOSSA_ENABLED != 'true' }}
         run: |
           cat > foss-status.json <<'EOF'
-          {"gate_id":"GATE-LICENSE-001","status":"BLOCKED","reason":"GH_FOSSA secret is not configured","policy":"CI records BLOCKED; release promotion requires FOSSA PASS"}
+          {"gate_id":"GATE-LICENSE-001","status":"BLOCKED","reason":"GH_FOSSA secret is not configured"}
           EOF
-          echo "::warning::GH_FOSSA missing — GATE-LICENSE-001 BLOCKED for release."
+          echo "::error::GH_FOSSA missing — license compliance cannot be verified; CI is blocked."
+          exit 1
       - name: Install FOSSA CLI
         if: ${{ env.FOSSA_ENABLED == 'true' }}
         run: |
