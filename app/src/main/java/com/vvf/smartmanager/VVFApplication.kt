@@ -193,6 +193,10 @@ class VVFApplication : Application(), Configuration.Provider {
                 .cancelUniqueWork("drive_semantic_index_initial")
                 .result
                 .get()
+            WorkManager.getInstance(this@VVFApplication)
+                .cancelAllWorkByTag(SemanticEmbeddingIndexWorker.WORK_TAG)
+                .result
+                .get()
         }
         DriveOfflineManager(this@VVFApplication).clearAllLocalCopies()
         if (::database.isInitialized) {
@@ -233,12 +237,26 @@ class VVFApplication : Application(), Configuration.Provider {
 
     fun setEmbeddingConsentEnabled(enabled: Boolean) {
         settingsPrefs.edit().putBoolean(KEY_EMBEDDING_CONSENT, enabled).apply()
-        if (!enabled) {
+        if (enabled) {
+            enqueueSemanticEmbeddingIndexing()
+        } else {
+            WorkManager.getInstance(this).cancelAllWorkByTag(SemanticEmbeddingIndexWorker.WORK_TAG)
             (semanticSearchPlugin as? SemanticSearchPluginImpl)?.clearCachedEmbeddings()
             if (::database.isInitialized) {
                 applicationScope.launch { runCatching { database.semanticEmbeddingDao().deleteAll() } }
             }
         }
+    }
+
+    /** Starts bounded background vector generation only when consent and Firebase sign-in are active. */
+    fun enqueueSemanticEmbeddingIndexing() {
+        if (!isEmbeddingConsentEnabled() || !::database.isInitialized || !::semanticSearchPlugin.isInitialized) return
+        if (!semanticSearchPlugin.isModelReady()) return
+        WorkManager.getInstance(this).enqueueUniqueWork(
+            SemanticEmbeddingIndexWorker.INITIAL_UNIQUE_WORK,
+            ExistingWorkPolicy.KEEP,
+            SemanticEmbeddingIndexWorker.initialRequest()
+        )
     }
 
     /** Explicit opt-in for downloading supported Drive documents for local PDF/image/Office extraction. */
