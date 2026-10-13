@@ -167,6 +167,31 @@ async function rateLimit(uid: string, env: Env): Promise<boolean> {
   return response.ok;
 }
 
+
+async function callGeminiWithRetry(env: Env, model: string, requests: unknown[]): Promise<Response> {
+  let response: Response | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:batchEmbedContents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
+        body: JSON.stringify({ requests })
+      });
+    } catch {
+      if (attempt === 2) throw new Error("embedding_upstream_unavailable");
+      await new Promise((resolve) => setTimeout(resolve, 150 * (2 ** attempt)));
+      continue;
+    }
+    if (response.ok || ![429, 500, 502, 503].includes(response.status)) return response;
+    if (attempt < 2) {
+      await response.body?.cancel();
+      await new Promise((resolve) => setTimeout(resolve, 150 * (2 ** attempt)));
+    }
+  }
+  if (!response) throw new Error("embedding_upstream_unavailable");
+  return response;
+}
+
 export class UserRateLimiter {
   constructor(private readonly state: DurableObjectState) {}
 
@@ -269,11 +294,7 @@ export default {
 
     let upstream: Response;
     try {
-      upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:batchEmbedContents`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
-        body: JSON.stringify({ requests })
-      });
+      upstream = await callGeminiWithRetry(env, model, requests);
     } catch {
       return json({ error: "embedding_upstream_unavailable" }, 502, cors);
     }
