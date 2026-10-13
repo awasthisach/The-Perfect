@@ -51,6 +51,17 @@ class VVFDatabaseDaoTest {
     @Test
     fun semanticVectorsPersistInEncryptedRoomTableAndCanBeCleared() = runBlocking {
         val dao = database.semanticEmbeddingDao()
+        fileDao.insertOrUpdate(
+            FileMetadataEntity(
+                path = "gdrive://semantic-file-1",
+                name = "semantic-file.txt",
+                parentPath = "gdrive://root",
+                sizeBytes = 12L,
+                mimeType = "text/plain",
+                isDirectory = false,
+                modifiedDate = 1234L
+            )
+        )
         val vector = byteArrayOf(0, 0, 0, 0, 1, 0, 0, 0)
         dao.upsert(
             SemanticEmbeddingEntity(
