@@ -52,6 +52,7 @@ class SemanticSearchPluginImpl(
         if (!isEmbeddingConsentGranted() || !client.hasSignedInUser()) return@withContext false
         progressCallback(0f)
         val ready = client.healthCheck()
+        ensureConsent()
         progressCallback(if (ready) 1f else 0f)
         ready
     }
@@ -62,6 +63,7 @@ class SemanticSearchPluginImpl(
         val key = cacheKey(cleanText)
         cached(key)?.let { return@withContext it }
         try {
+            ensureConsent()
             val vector = client.embed(listOf(cleanText), "document").single()
             ensureConsent()
             cache(key, vector)
@@ -80,6 +82,7 @@ class SemanticSearchPluginImpl(
     ): List<SemanticSearchResult> = withContext(Dispatchers.IO) {
         if (!isModelReady() || query.isBlank() || candidates.isEmpty()) return@withContext emptyList()
         try {
+            ensureConsent()
             val queryVector = client.embed(listOf(query.take(500)), "query").single()
             val embedded = embedCandidates(candidates, embedMissing = candidates.size <= ON_DEMAND_CANDIDATE_LIMIT).candidates
             ensureConsent()
