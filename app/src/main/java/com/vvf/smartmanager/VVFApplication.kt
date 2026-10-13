@@ -265,7 +265,7 @@ class VVFApplication : Application(), Configuration.Provider {
         super.onCreate()
         // App Check protects native calls to the custom embedding worker. Do not initialize
         // Firebase SDKs in JVM unit-test environments that intentionally omit google-services.json.
-        if (FirebaseApp.getApps(this).isNotEmpty()) {
+        if (!CryptoSecurityManager.isJvmUnitTestEnvironment(this) && FirebaseApp.getApps(this).isNotEmpty()) {
             FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
                 PlayIntegrityAppCheckProviderFactory.getInstance()
             )
