@@ -22,7 +22,8 @@ private data class EmbeddingBatchResult(val candidates: List<SemanticCandidate>,
 class SemanticSearchPluginImpl(
     private val client: CloudflareEmbeddingClient = CloudflareEmbeddingClient(),
     private val vectorStore: EmbeddingVectorStore? = null,
-    private val isEmbeddingConsentGranted: () -> Boolean = { false }
+    private val isEmbeddingConsentGranted: () -> Boolean = { false },
+    private val isFullContentConsentGranted: () -> Boolean = { false }
 ) : SemanticSearchSPI {
 
     private val vectorCache = object : LinkedHashMap<String, FloatArray>(CACHE_SIZE, 0.75f, true) {
@@ -205,8 +206,26 @@ class SemanticSearchPluginImpl(
         embedMissing: Boolean = true
     ): EmbeddingBatchResult {
         ensureConsent()
-        val output = candidates.toMutableList()
-        val lookupRequests = candidates.mapNotNull { candidate ->
+        // A search may have loaded rows just before full-content consent was revoked. Sanitize
+        // those candidates here as well as in the background worker, immediately before embedding.
+        val safeCandidates = candidates.map { candidate ->
+            if (isFullContentConsentGranted() || !isFullContentFile(candidate.fileItem)) {
+                candidate
+            } else {
+                val safeText = buildString {
+                    append(candidate.fileItem.name)
+                    if (candidate.fileItem.tags.isNotEmpty()) {
+                        append(' ').append(candidate.fileItem.tags.joinToString(" "))
+                    }
+                }.take(CloudflareEmbeddingClient.MAX_TEXT_CHARS)
+                candidate.copy(
+                    fileItem = candidate.fileItem.copy(indexedText = ""),
+                    textContent = safeText
+                )
+            }
+        }
+        val output = safeCandidates.toMutableList()
+        val lookupRequests = safeCandidates.mapNotNull { candidate ->
             if (candidate.embedding?.size == CloudflareEmbeddingClient.EMBEDDING_DIMENSION) return@mapNotNull null
             val text = candidate.textContent.take(CloudflareEmbeddingClient.MAX_TEXT_CHARS)
             if (text.isBlank()) return@mapNotNull null
@@ -220,7 +239,7 @@ class SemanticSearchPluginImpl(
         val pendingPaths = mutableListOf<String>()
         val recordsToPersist = mutableListOf<EmbeddingVectorRecord>()
 
-        candidates.forEachIndexed { index, candidate ->
+        safeCandidates.forEachIndexed { index, candidate ->
             val supplied = candidate.embedding?.takeIf { it.size == CloudflareEmbeddingClient.EMBEDDING_DIMENSION }
             if (supplied != null) {
                 output[index] = candidate.copy(embedding = supplied)
@@ -286,6 +305,17 @@ class SemanticSearchPluginImpl(
         if (!isEmbeddingConsentGranted()) {
             throw CancellationException("Embedding consent revoked")
         }
+    }
+
+    private fun isFullContentFile(file: FileItem): Boolean {
+        val mime = file.mimeType.orEmpty().lowercase()
+        val extension = file.name.substringAfterLast('.', "").lowercase()
+        return mime == "application/pdf" ||
+            mime.startsWith("image/") ||
+            mime in setOf("application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation") ||
+            extension in setOf("pdf", "jpg", "jpeg", "png", "webp", "bmp", "heic", "docx", "xlsx", "pptx")
     }
 
     private fun batchIndicesByPayload(texts: List<String>): List<List<Int>> {
