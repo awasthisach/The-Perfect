@@ -3,6 +3,9 @@ package com.vvf.smartmanager.plugin.semanticsearch
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.tasks.await
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Response
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -13,6 +16,9 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /**
  * Authenticated client for the existing Cloudflare embedding worker.
@@ -37,7 +43,7 @@ class CloudflareEmbeddingClient(
     suspend fun healthCheck(): Boolean = withContext(Dispatchers.IO) {
         val request = Request.Builder().url(baseUrl.trimEnd('/') + "/").get().build()
         try {
-            http.newCall(request).execute().use { response ->
+            execute(request).use { response ->
                 if (!response.isSuccessful) return@withContext false
                 val payload = response.body?.string()?.let(::JSONObject) ?: return@withContext false
                 payload.optBoolean("ok") &&
@@ -102,6 +108,21 @@ class CloudflareEmbeddingClient(
                 }
             }
         }
+    }
+
+
+    private suspend fun execute(request: Request): Response = suspendCancellableCoroutine { continuation ->
+        val call = http.newCall(request)
+        continuation.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, error: IOException) {
+                if (continuation.isActive) continuation.resumeWithException(error)
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                continuation.resume(response) { _, value, _ -> value.close() }
+            }
+        })
     }
 
     companion object {
