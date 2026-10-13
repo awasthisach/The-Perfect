@@ -231,7 +231,7 @@ class SemanticSearchPluginImpl(
             }
         }
 
-        pendingTexts.indices.chunked(CloudflareEmbeddingClient.MAX_TEXTS).forEach { chunk ->
+        batchIndicesByPayload(pendingTexts).forEach { chunk ->
             val vectors = client.embed(chunk.map { pendingTexts[it] }, "document")
             chunk.forEachIndexed { localIndex, sourceIndex ->
                 val vector = vectors[localIndex]
@@ -259,6 +259,27 @@ class SemanticSearchPluginImpl(
         return EmbeddingBatchResult(output, pendingTexts.size)
     }
 
+    private fun batchIndicesByPayload(texts: List<String>): List<List<Int>> {
+        val batches = mutableListOf<List<Int>>()
+        var current = mutableListOf<Int>()
+        var currentBytes = 128
+        texts.forEachIndexed { index, text ->
+            val itemBytes = text.toByteArray(Charsets.UTF_8).size + 64
+            if (current.isNotEmpty() &&
+                (current.size >= CloudflareEmbeddingClient.MAX_TEXTS ||
+                    currentBytes + itemBytes > CloudflareEmbeddingClient.MAX_REQUEST_BYTES)
+            ) {
+                batches.add(current)
+                current = mutableListOf()
+                currentBytes = 128
+            }
+            current.add(index)
+            currentBytes += itemBytes
+        }
+        if (current.isNotEmpty()) batches.add(current)
+        return batches
+    }
+
     private fun cacheKey(text: String): String =
         MessageDigest.getInstance("SHA-256")
             .digest(text.toByteArray(Charsets.UTF_8))
@@ -273,6 +294,6 @@ class SemanticSearchPluginImpl(
     companion object {
         private const val CACHE_SIZE = 512
         private const val MODEL_VERSION = "gemini-embedding-2:3:768"
-        private const val ON_DEMAND_CANDIDATE_LIMIT = 400
+        private const val ON_DEMAND_CANDIDATE_LIMIT = 32
     }
 }
