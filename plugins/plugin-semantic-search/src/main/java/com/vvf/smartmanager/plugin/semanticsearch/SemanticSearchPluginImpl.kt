@@ -206,10 +206,11 @@ class SemanticSearchPluginImpl(
         embedMissing: Boolean = true
     ): EmbeddingBatchResult {
         ensureConsent()
+        val fullContentConsentAtStart = isFullContentConsentGranted()
         // A search may have loaded rows just before full-content consent was revoked. Sanitize
         // those candidates here as well as in the background worker, immediately before embedding.
         val safeCandidates = candidates.map { candidate ->
-            if (isFullContentConsentGranted() || !isFullContentFile(candidate.fileItem)) {
+            if (fullContentConsentAtStart || !isFullContentFile(candidate.fileItem)) {
                 candidate
             } else {
                 val safeText = buildString {
@@ -273,8 +274,14 @@ class SemanticSearchPluginImpl(
 
         batchIndicesByPayload(pendingTexts).forEach { chunk ->
             ensureConsent()
+            if (fullContentConsentAtStart && !isFullContentConsentGranted() &&
+                chunk.any { sourceIndex -> isFullContentFile(safeCandidates[pendingIndices[sourceIndex]].fileItem) }
+            ) throw CancellationException("Full-content consent revoked")
             val vectors = client.embed(chunk.map { pendingTexts[it] }, "document")
             ensureConsent()
+            if (fullContentConsentAtStart && !isFullContentConsentGranted() &&
+                chunk.any { sourceIndex -> isFullContentFile(safeCandidates[pendingIndices[sourceIndex]].fileItem) }
+            ) throw CancellationException("Full-content consent revoked")
             chunk.forEachIndexed { localIndex, sourceIndex ->
                 val vector = vectors[localIndex]
                 val key = pendingKeys[sourceIndex]
@@ -299,6 +306,9 @@ class SemanticSearchPluginImpl(
             ensureConsent()
             vectorStore?.putAll(batch)
         }
+        if (fullContentConsentAtStart && !isFullContentConsentGranted() &&
+            safeCandidates.any { isFullContentFile(it.fileItem) }
+        ) throw CancellationException("Full-content consent revoked")
         return EmbeddingBatchResult(output, pendingTexts.size)
     }
 
