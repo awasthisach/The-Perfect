@@ -42,6 +42,12 @@ class GoogleDriveServiceImplTest {
     }
 
     @Test
+    fun getFileSha256_withoutToken_fails() = runBlocking {
+        val result = service.getFileSha256("drive-file-id")
+        assertTrue(result.isFailure)
+    }
+
+    @Test
     fun getStorageQuota_withoutToken_fails() = runBlocking {
         val result = service.getStorageQuota()
         assertTrue(result.isFailure)
