@@ -16,6 +16,7 @@ class SemanticSearchPluginTest {
         val plugin = SemanticSearchPluginImpl()
         assertEquals(1f, plugin.computeCosineSimilarity(floatArrayOf(3f, 4f), floatArrayOf(6f, 8f)), 0.0001f)
         assertEquals(0f, plugin.computeCosineSimilarity(floatArrayOf(1f, 0f), floatArrayOf(0f, 1f)), 0.0001f)
+        assertEquals(-1f, plugin.computeCosineSimilarity(floatArrayOf(1f, 0f), floatArrayOf(-1f, 0f)), 0.0001f)
         assertEquals(0f, plugin.computeCosineSimilarity(floatArrayOf(0f, 0f), floatArrayOf(1f, 1f)), 0.0001f)
         assertEquals(0f, plugin.computeCosineSimilarity(floatArrayOf(1f), floatArrayOf(1f, 2f)), 0.0001f)
         assertEquals(0f, plugin.computeCosineSimilarity(floatArrayOf(Float.NaN), floatArrayOf(1f)), 0.0001f)
