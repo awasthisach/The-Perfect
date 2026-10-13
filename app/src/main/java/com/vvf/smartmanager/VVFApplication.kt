@@ -420,7 +420,8 @@ class VVFApplication : Application(), Configuration.Provider {
         val embeddingVectorStore = RoomEmbeddingVectorStore(database.semanticEmbeddingDao())
         semanticSearchPlugin = SemanticSearchPluginImpl(
             vectorStore = embeddingVectorStore,
-            isEmbeddingConsentGranted = { isEmbeddingConsentEnabled() }
+            isEmbeddingConsentGranted = { isEmbeddingConsentEnabled() },
+            isFullContentConsentGranted = { isDriveFullContentConsentEnabled() }
         )
         // Reconcile privacy preferences before any background embedding job can upload stored text.
         val neuralConsentAtStartup = isEmbeddingConsentEnabled()
