@@ -214,10 +214,16 @@ class CloudSyncUseCase(
         }
         _syncState.value = CloudSyncStatus.DOWNLOADING
         val suppliedChecksum = backupInfo.checksumSha256?.takeIf(::isSha256)
-        val persistedChecksum = if (suppliedChecksum == null) {
-            cloudSyncDao?.getRecordByRemoteId(backupInfo.backupId, CloudProviderType.GOOGLE_DRIVE.name)
-                ?.checksumSha256?.takeIf(::isSha256)
-        } else null
+        val persistedChecksum = try {
+            if (suppliedChecksum == null) {
+                cloudSyncDao?.getRecordByRemoteId(backupInfo.backupId, CloudProviderType.GOOGLE_DRIVE.name)
+                    ?.checksumSha256?.takeIf(::isSha256)
+            } else null
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            _syncState.value = CloudSyncStatus.ERROR
+            return Result.failure(error)
+        }
         val trustedChecksum = suppliedChecksum ?: persistedChecksum
         return pipeline.restore(backupInfo.backupId, trustedChecksum).fold(
             onSuccess = { result: RestoreResult ->
