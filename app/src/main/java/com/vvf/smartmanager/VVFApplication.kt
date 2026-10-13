@@ -294,7 +294,9 @@ class VVFApplication : Application(), Configuration.Provider {
             // discard cached/persisted vectors, then rebuild only from the reduced local corpus.
             (semanticSearchPlugin as? SemanticSearchPluginImpl)?.cancelPendingEmbeddingRequests()
             (semanticSearchPlugin as? SemanticSearchPluginImpl)?.clearCachedEmbeddings()
-            applicationScope.launch {
+            val previousClearJob = embeddingClearJob
+            embeddingClearJob = applicationScope.launch {
+                previousClearJob?.join()
                 runCatching {
                     WorkManager.getInstance(this@VVFApplication)
                         .cancelAllWorkByTag(SemanticEmbeddingIndexWorker.WORK_TAG)
