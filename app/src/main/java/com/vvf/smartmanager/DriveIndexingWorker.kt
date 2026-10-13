@@ -73,7 +73,10 @@ class DriveIndexingWorker(
                     failure is retrofit2.HttpException && failure.code() == 400
                 ) {
                     prefs.edit().remove(KEY_FULL_LIST_PAGE).remove(KEY_FULL_LIST_CURSOR)
-                        .remove(KEY_FULL_LIST_COUNT).remove(KEY_FULL_LIST_RUN_ID).apply()
+                        .remove(KEY_FULL_LIST_COUNT).remove(KEY_FULL_LIST_RUN_ID).remove(KEY_CURSOR).apply()
+                    // A partial full listing cannot fall back to the old changes cursor: the
+                    // next attempt must capture a fresh cursor and restart listing from page one.
+                    cursorDao.deleteByLocalPath(CURSOR_LOCAL_PATH)
                 }
                 saveStatus(app, "RETRY_REQUIRED", 0, false, "Drive sync failed. Retry or sign in again if requested.")
                 return@withContext if (runAttemptCount < 5) Result.retry()
@@ -147,7 +150,10 @@ class DriveIndexingWorker(
                         // A 400 on a resumed page discards only the listing checkpoint; the next
                         // attempt safely starts a fresh bounded listing and captures a new cursor.
                         if (failure is retrofit2.HttpException && failure.code() == 400) {
-                            prefs.edit().remove(KEY_FULL_LIST_PAGE).remove(KEY_FULL_LIST_CURSOR).remove(KEY_FULL_LIST_COUNT).remove(KEY_FULL_LIST_RUN_ID).apply()
+                            prefs.edit().remove(KEY_FULL_LIST_PAGE).remove(KEY_FULL_LIST_CURSOR)
+                                .remove(KEY_FULL_LIST_COUNT).remove(KEY_FULL_LIST_RUN_ID).remove(KEY_CURSOR).apply()
+                            // Do not continue with a stale cursor after discarding a partial full listing.
+                            cursorDao.deleteByLocalPath(CURSOR_LOCAL_PATH)
                         }
                         saveStatus(app, "RETRY_REQUIRED", indexed, false, "Drive indexing paused; retry will resume or safely restart the listing.")
                         return@withContext if (runAttemptCount < 5) Result.retry()
