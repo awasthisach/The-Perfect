@@ -21,4 +21,4 @@ new_sqlite_classes = ["UserRateLimiter"]
 
 # Set these as Cloudflare Worker secrets; never commit values:
 # npx wrangler secret put GEMINI_API_KEY
-# Optional: npx wrangler secret put FIREBASE_APP_ID
+# Required for native Android App Check verification: npx wrangler secret put FIREBASE_APP_ID
