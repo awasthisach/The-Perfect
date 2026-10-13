@@ -171,6 +171,32 @@ class OfflineSearchRepository(
         }
     }
 
+    override suspend fun getRecentDriveIndexedFiles(limit: Int): List<FileItem> = withContext(Dispatchers.IO) {
+        val entities = fileDao.getRecentDriveFiles(limit.coerceIn(1, 2_000)).first()
+        entities.map { entity ->
+            val tagList = entity.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            FileItem(
+                path = entity.path,
+                name = entity.name,
+                sizeBytes = entity.sizeBytes,
+                lastModified = entity.modifiedDate,
+                isDirectory = entity.isDirectory,
+                mimeType = entity.mimeType,
+                isFavorite = entity.isFavorite,
+                isTrash = entity.isTrash,
+                originalPath = entity.originalPath,
+                deletedTimestamp = entity.deletedTimestamp,
+                md5Hash = entity.md5Hash,
+                localFileId = entity.path.removePrefix("gdrive://"),
+                canonicalUri = entity.canonicalUri,
+                isOfflinePinned = entity.offlinePinned,
+                offlineLocalPath = entity.offlineLocalPath,
+                tags = tagList,
+                indexedText = entity.contentText.take(4_000)
+            )
+        }
+    }
+
     override fun searchFiles(query: String, filter: SearchFilter): Flow<List<SearchResultItem>> = flow {
         val trimmedQuery = query.trim().take(500)
         val entitiesFlow = when {
