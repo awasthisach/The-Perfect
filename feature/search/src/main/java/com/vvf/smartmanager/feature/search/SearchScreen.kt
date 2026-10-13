@@ -95,6 +95,7 @@ fun SearchScreen(
     viewModel: SearchViewModel,
     onOpenFile: ((FileItem) -> Unit)? = null,
     onToggleOfflinePin: ((FileItem) -> Unit)? = null,
+    onToggleDriveStar: ((FileItem) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -440,7 +441,13 @@ fun SearchScreen(
                                 viewModel.onExecuteSearch(uiState.searchQuery)
                                 onOpenFile?.invoke(item)
                             },
-                            onToggleFavorite = { viewModel.toggleFavorite(it) },
+                            onToggleFavorite = { item ->
+                                if (item.path.startsWith("gdrive://") && onToggleDriveStar != null) {
+                                    onToggleDriveStar.invoke(item)
+                                } else {
+                                    viewModel.toggleFavorite(item)
+                                }
+                            },
                             onManageTags = { viewModel.showTagDialog(it) },
                             onShowDetails = { viewModel.showDetailsDialog(it) },
                             onToggleOfflinePin = onToggleOfflinePin

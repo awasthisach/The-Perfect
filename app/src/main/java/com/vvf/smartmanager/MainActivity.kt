@@ -425,6 +425,29 @@ private fun VVFNavHost(
             )
             SearchScreen(
                 viewModel = searchViewModel,
+                onToggleDriveStar = { item ->
+                    val fileId = item.localFileId
+                        ?: item.path.removePrefix("gdrive://").takeIf { it.isNotBlank() }
+                    if (fileId.isNullOrBlank()) {
+                        Toast.makeText(app, "Could not identify this Drive file", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val desiredStarred = !item.isFavorite
+                        searchActionScope.launch {
+                            app.googleDriveService.setStarred(fileId, desiredStarred).fold(
+                                onSuccess = { updated ->
+                                    if (updated) {
+                                        searchViewModel.toggleFavorite(item)
+                                    } else {
+                                        Toast.makeText(app, "Google Drive did not confirm the star change", Toast.LENGTH_LONG).show()
+                                    }
+                                },
+                                onFailure = {
+                                    Toast.makeText(app, "Could not update the Google Drive star. Check connection and permissions.", Toast.LENGTH_LONG).show()
+                                }
+                            )
+                        }
+                    }
+                },
                 onToggleOfflinePin = { item ->
                     searchActionScope.launch {
                         DriveOfflineManager(app).toggle(item.path).fold(
