@@ -18,6 +18,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: embedding-worker-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   worker-build:
     runs-on: ubuntu-latest
