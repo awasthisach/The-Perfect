@@ -62,7 +62,10 @@ class SemanticSearchPluginImpl(
         val key = cacheKey(cleanText)
         cached(key)?.let { return@withContext it }
         try {
-            client.embed(listOf(cleanText), "document").single().also { cache(key, it) }
+            val vector = client.embed(listOf(cleanText), "document").single()
+            ensureConsent()
+            cache(key, vector)
+            vector
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
