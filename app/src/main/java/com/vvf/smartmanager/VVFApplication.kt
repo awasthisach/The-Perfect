@@ -2,6 +2,9 @@ package com.vvf.smartmanager
 
 import android.app.Application
 import android.util.Log
+import com.google.firebase.FirebaseApp
+import com.google.firebase.appcheck.FirebaseAppCheck
+import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import androidx.work.Configuration
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
@@ -257,6 +260,13 @@ class VVFApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        // App Check protects native calls to the custom embedding worker. Do not initialize
+        // Firebase SDKs in JVM unit-test environments that intentionally omit google-services.json.
+        if (FirebaseApp.getApps(this).isNotEmpty()) {
+            FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
+                PlayIntegrityAppCheckProviderFactory.getInstance()
+            )
+        }
         cryptoSecurityManager = CryptoSecurityManager(this)
 
         val jvmUnitTest = CryptoSecurityManager.isJvmUnitTestEnvironment(this)
