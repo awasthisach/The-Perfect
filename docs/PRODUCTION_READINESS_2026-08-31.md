@@ -29,7 +29,7 @@ The modular Clean Architecture intent is real, but the source does not support c
 | PROD-006 | High | Fresh build verification is unavailable in the audit sandbox. | Open; CI required |
 | PROD-007 | Medium | `MANAGE_EXTERNAL_STORAGE` and broad media permissions increase Play/privacy exposure. | Open |
 | PROD-008 | Medium | `The-Perfect-main/` duplicates the repository source tree and creates maintenance ambiguity. | Open |
-| PROD-009 | Medium | Supply-chain pinning must be checked across every workflow and installer, not inferred from one workflow. | **Partial: the inspected `ci.yml` and `release.yml` pin the listed GitHub Actions to SHAs; the release workflow still downloads the FOSSA installer via a mutable `master` URL. Audit every workflow and external download before closing.** |
+| PROD-009 | Medium | Supply-chain pinning must be checked across every workflow and installer, not inferred from one workflow. | **Partial remediation on red-team branch: the release workflow now installs FOSSA CLI v3.17.16 from a versioned GitHub Release and verifies the published SHA-256 checksum. All workflows and external downloads still require a repository-wide audit before this gate can close.** |
 | PROD-010 | Medium | Temporary encrypted backup artifacts require strict lifecycle management. | Improved on hardening branch |
 | PROD-011 | Medium | Existing audit documentation contains stale package/SDK/CI claims. | Superseded by this document |
 
@@ -39,7 +39,7 @@ The modular Clean Architecture intent is real, but the source does not support c
 
 - Removed the embedded shared debug-keystore bytes and hard-coded password/alias from `app/build.gradle.kts`; Android Gradle's standard local debug keystore is now used.
 - This does not purge historical commits. Consider the former key compromised; review the Google OAuth Android client fingerprints and replace the exposed signing identity where it is registered.
-- Cloud restore, durable provider IDs, storage permission review and complete workflow supply-chain audit remain open.
+- Cloud restore, durable provider IDs, storage permission review and complete workflow supply-chain audit remain open. The release workflow now pins FOSSA CLI v3.17.16 and verifies its published SHA-256 checksum; this is partial supply-chain hardening, not a completed full audit.
 
 
 - Release signing now requires explicit `KEYSTORE_PATH`, `STORE_PASSWORD`, and `KEY_PASSWORD`; no debug fallback is permitted.
