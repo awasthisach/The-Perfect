@@ -17,6 +17,8 @@ import java.util.LinkedHashMap
  * Remote neural embedding adapter. Document text leaves the device only after explicit consent.
  * The Cloudflare worker validates Firebase Auth and App Check; no provider key is stored here.
  */
+private data class EmbeddingBatchResult(val candidates: List<SemanticCandidate>, val generatedCount: Int)
+
 class SemanticSearchPluginImpl(
     private val client: CloudflareEmbeddingClient = CloudflareEmbeddingClient(),
     private val vectorStore: EmbeddingVectorStore? = null,
@@ -76,7 +78,7 @@ class SemanticSearchPluginImpl(
         if (!isModelReady() || query.isBlank() || candidates.isEmpty()) return@withContext emptyList()
         try {
             val queryVector = client.embed(listOf(query.take(500)), "query").single()
-            val embedded = embedCandidates(candidates, embedMissing = candidates.size <= ON_DEMAND_CANDIDATE_LIMIT)
+            val embedded = embedCandidates(candidates, embedMissing = candidates.size <= ON_DEMAND_CANDIDATE_LIMIT).candidates
             embedded.mapNotNull { candidate ->
                 val vector = candidate.embedding ?: return@mapNotNull null
                 val score = computeCosineSimilarity(queryVector, vector)
@@ -176,15 +178,13 @@ class SemanticSearchPluginImpl(
      */
     suspend fun indexCandidates(candidates: List<SemanticCandidate>): Int {
         if (!isModelReady() || candidates.isEmpty()) return 0
-        return embedCandidates(candidates, embedMissing = true).count {
-            it.embedding?.size == CloudflareEmbeddingClient.EMBEDDING_DIMENSION
-        }
+        return embedCandidates(candidates, embedMissing = true).generatedCount
     }
 
     private suspend fun embedCandidates(
         candidates: List<SemanticCandidate>,
         embedMissing: Boolean = true
-    ): List<SemanticCandidate> {
+    ): EmbeddingBatchResult {
         val output = candidates.toMutableList()
         val lookupRequests = candidates.mapNotNull { candidate ->
             if (candidate.embedding?.size == CloudflareEmbeddingClient.EMBEDDING_DIMENSION) return@mapNotNull null
@@ -256,7 +256,7 @@ class SemanticSearchPluginImpl(
         recordsToPersist.chunked(CloudflareEmbeddingClient.MAX_TEXTS).forEach { batch ->
             vectorStore?.putAll(batch)
         }
-        return output
+        return EmbeddingBatchResult(output, pendingTexts.size)
     }
 
     private fun cacheKey(text: String): String =
