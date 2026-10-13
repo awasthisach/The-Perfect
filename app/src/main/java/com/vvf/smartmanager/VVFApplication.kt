@@ -257,7 +257,9 @@ class VVFApplication : Application(), Configuration.Provider {
 
     /** Starts bounded background vector generation only when consent and Firebase sign-in are active. */
     fun enqueueSemanticEmbeddingIndexing() {
-        if (!isEmbeddingConsentEnabled() || !::database.isInitialized || !::semanticSearchPlugin.isInitialized) return
+        if (CryptoSecurityManager.isJvmUnitTestEnvironment(this) ||
+            !isEmbeddingConsentEnabled() || !::database.isInitialized || !::semanticSearchPlugin.isInitialized
+        ) return
         if (!semanticSearchPlugin.isModelReady()) return
         WorkManager.getInstance(this).enqueueUniqueWork(
             SemanticEmbeddingIndexWorker.INITIAL_UNIQUE_WORK,
@@ -375,13 +377,15 @@ class VVFApplication : Application(), Configuration.Provider {
         // Consent defaults off; remove any vectors left by an earlier version or interrupted revocation.
         if (!isEmbeddingConsentEnabled()) {
             embeddingClearJob = applicationScope.launch {
-                runCatching {
-                    WorkManager.getInstance(this@VVFApplication)
-                        .cancelAllWorkByTag(SemanticEmbeddingIndexWorker.WORK_TAG)
-                    embeddingVectorStore.clear()
+                if (!jvmUnitTest) {
+                    runCatching {
+                        WorkManager.getInstance(this@VVFApplication)
+                            .cancelAllWorkByTag(SemanticEmbeddingIndexWorker.WORK_TAG)
+                    }
                 }
+                runCatching { embeddingVectorStore.clear() }
             }
-        } else {
+        } else if (!jvmUnitTest) {
             // Resume bounded background indexing after process death if consent and sign-in remain active.
             enqueueSemanticEmbeddingIndexing()
         }
