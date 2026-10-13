@@ -33,12 +33,14 @@ class CloudSyncUseCaseTest {
     val temp = TemporaryFolder()
 
     private class FakeDriveService(
-        private val uploadResult: Result<String> = Result.success("drive-file-id")
+        private val uploadResult: Result<String> = Result.success("drive-file-id"),
+        private val checksumResult: Result<String> = Result.failure(UnsupportedOperationException("no remote checksum configured"))
     ) : GoogleDriveService {
         override suspend fun authenticate(): Result<Boolean> = Result.success(true)
         override suspend fun listDriveFiles(folderId: String): Result<List<FileItem>> = Result.success(emptyList())
         override suspend fun uploadFile(localFile: FileItem, remoteFolderId: String): Result<String> = uploadResult
         override suspend fun downloadFile(fileId: String, destinationPath: String): Result<Boolean> = Result.success(true)
+        override suspend fun getFileSha256(fileId: String): Result<String> = checksumResult
         override suspend fun getStorageQuota(): Result<Pair<Long, Long>> = Result.success(0L to 1L)
     }
 
@@ -173,6 +175,45 @@ class CloudSyncUseCaseTest {
         assertEquals(CloudSyncStatus.ERROR, useCase.syncState.value)
         assertEquals("sync identity persistence failed", result.exceptionOrNull()?.message)
         assertEquals(CloudSyncStatus.ERROR, useCase.syncQueue.value.first().status)
+    }
+
+    @Test
+    fun cleanDeviceRestoreRecoversChecksumFromDriveMetadata() = runBlocking {
+        val checksum = "b".repeat(64)
+        val info = CloudBackupInfo("remote-clean-device", 1L, "backup.vvfbak", 10L)
+        var observedChecksum: String? = null
+        val pipeline = FailClosedRestorePipeline(
+            workingDir = temp.newFolder("restore-clean-device"),
+            downloader = object : BackupDownloader {
+                override suspend fun download(remoteBackupId: String) = Result.success(
+                    DownloadedArtifact(temp.newFile("clean-art"), info, checksum)
+                )
+            },
+            verifier = object : BackupVerifier {
+                override suspend fun verify(artifact: DownloadedArtifact, expectedChecksum: String?): Result<VerifiedArtifact> {
+                    observedChecksum = expectedChecksum
+                    return Result.success(VerifiedArtifact(artifact.file, info, checksum))
+                }
+            },
+            decryptor = object : BackupDecryptor {
+                override suspend fun decrypt(verifiedArtifact: VerifiedArtifact, stagingDir: File) =
+                    Result.success(DecryptedBackup(stagingDir, temp.newFile("clean-db"), temp.newFolder("clean-vault"), info, 1L))
+            },
+            applier = object : RestoreApplier {
+                override suspend fun prepare() = Result.success(RestoreSnapshot("clean-snapshot", 1L, temp.newFile("clean-sdb"), temp.newFolder("clean-sv")))
+                override suspend fun apply(decryptedBackup: DecryptedBackup) = Result.success(AppliedRestore(true, 1, 0, "restored"))
+                override suspend fun rollback(snapshot: RestoreSnapshot) = Result.success(Unit)
+            }
+        )
+        val useCase = CloudSyncUseCase(
+            FakeDriveService(checksumResult = Result.success(checksum)),
+            restorePipeline = pipeline
+        )
+
+        val result = useCase.restoreCloudBackup(info)
+
+        assertTrue(result.isSuccess)
+        assertEquals(checksum, observedChecksum)
     }
 
     @Test
