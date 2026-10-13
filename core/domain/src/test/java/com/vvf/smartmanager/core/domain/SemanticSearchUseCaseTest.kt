@@ -217,7 +217,7 @@ class SemanticSearchUseCaseTest {
         useCase.searchSemantically("clean energy")
 
         assertEquals(1, engine.capturedCandidates.size)
-        assertTrue(engine.capturedCandidates.single().text.contains("renewable energy solar farm"))
+        assertTrue(engine.capturedCandidates.single().textContent.contains("renewable energy solar farm"))
     }
 
     @Test
