@@ -186,6 +186,14 @@ class SemanticSearchPluginImpl(
         embedMissing: Boolean = true
     ): List<SemanticCandidate> {
         val output = candidates.toMutableList()
+        val lookupRequests = candidates.mapNotNull { candidate ->
+            if (candidate.embedding?.size == CloudflareEmbeddingClient.EMBEDDING_DIMENSION) return@mapNotNull null
+            val text = candidate.textContent.take(CloudflareEmbeddingClient.MAX_TEXT_CHARS)
+            if (text.isBlank()) return@mapNotNull null
+            val key = cacheKey(text)
+            if (cached(key) != null) null else EmbeddingVectorLookup(candidate.fileItem.path, key, MODEL_VERSION)
+        }
+        val persistedByPath = vectorStore?.getMany(lookupRequests).orEmpty()
         val pendingIndices = mutableListOf<Int>()
         val pendingTexts = mutableListOf<String>()
         val pendingKeys = mutableListOf<String>()
@@ -209,7 +217,7 @@ class SemanticSearchPluginImpl(
                         )
                     }
                 } else {
-                    val persisted = vectorStore?.get(candidate.fileItem.path, key, MODEL_VERSION)
+                    val persisted = persistedByPath[candidate.fileItem.path]
                     if (persisted != null && persisted.size == CloudflareEmbeddingClient.EMBEDDING_DIMENSION) {
                         cache(key, persisted)
                         output[index] = candidate.copy(embedding = persisted)
