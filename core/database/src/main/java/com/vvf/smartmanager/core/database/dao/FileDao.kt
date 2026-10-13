@@ -72,8 +72,11 @@ interface FileDao {
     fun getRecentFiles(limit: Int = 50): Flow<List<FileMetadataEntity>>
 
     /** Stable keyset page for consented background semantic indexing. */
-    @Query("SELECT * FROM file_metadata WHERE id > :afterId AND isDirectory = 0 AND isTrash = 0 ORDER BY id ASC LIMIT :limit")
+    @Query("SELECT * FROM file_metadata WHERE id > :afterId AND path LIKE 'gdrive://%' AND isDirectory = 0 AND isTrash = 0 ORDER BY id ASC LIMIT :limit")
     suspend fun getSemanticIndexPage(afterId: Long, limit: Int): List<FileMetadataEntity>
+
+    @Query("SELECT * FROM file_metadata WHERE path LIKE 'gdrive://%' AND isDirectory = 0 AND isTrash = 0 ORDER BY modifiedDate DESC LIMIT :limit")
+    fun getRecentDriveFiles(limit: Int): Flow<List<FileMetadataEntity>>
 
     @Query("SELECT sizeBytes, COUNT(*) as count FROM file_metadata WHERE isDirectory = 0 AND isTrash = 0 AND path NOT LIKE 'gdrive://%' AND sizeBytes > 0 GROUP BY sizeBytes HAVING count > 1 ORDER BY sizeBytes DESC")
     fun findPotentialDuplicateSizes(): Flow<List<DuplicateGroup>>
