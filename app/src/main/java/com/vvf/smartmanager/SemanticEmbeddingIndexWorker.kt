@@ -41,7 +41,7 @@ class SemanticEmbeddingIndexWorker(
             if (!app.isEmbeddingConsentEnabled()) return Result.success()
 
             val candidates = page.map { row ->
-                val tags = row.tags.split(',').map(String::trim).filter(String::isNotEmpty)
+                val tags = row.tags.split(',').map { it.trim() }.filter { it.isNotEmpty() }
                 val item = FileItem(
                     path = row.path,
                     name = row.name,
