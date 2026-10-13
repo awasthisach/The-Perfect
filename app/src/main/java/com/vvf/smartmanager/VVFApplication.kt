@@ -199,6 +199,7 @@ class VVFApplication : Application(), Configuration.Provider {
             // The opaque change cursor is account-scoped; never reuse it after sign-out/account switch.
             database.cloudSyncDao().deleteByLocalPath("__drive_semantic_search_changes_cursor__")
             database.fileDao().deleteAllDriveIndexRows()
+            database.semanticEmbeddingDao().deleteAll()
             database.searchFtsDao().rebuildFtsIndex()
         }
         getSharedPreferences("drive_search_index", MODE_PRIVATE).edit().clear().apply()
@@ -234,6 +235,9 @@ class VVFApplication : Application(), Configuration.Provider {
         settingsPrefs.edit().putBoolean(KEY_EMBEDDING_CONSENT, enabled).apply()
         if (!enabled) {
             (semanticSearchPlugin as? SemanticSearchPluginImpl)?.clearCachedEmbeddings()
+            if (::database.isInitialized) {
+                applicationScope.launch { runCatching { database.semanticEmbeddingDao().deleteAll() } }
+            }
         }
     }
 
@@ -338,9 +342,15 @@ class VVFApplication : Application(), Configuration.Provider {
             searchRepository = searchRepository,
             indexOcrTextUseCase = indexOcrTextUseCase
         )
+        val embeddingVectorStore = RoomEmbeddingVectorStore(database.semanticEmbeddingDao())
         semanticSearchPlugin = SemanticSearchPluginImpl(
+            vectorStore = embeddingVectorStore,
             isEmbeddingConsentGranted = { isEmbeddingConsentEnabled() }
         )
+        // Consent defaults off; remove any vectors left by an earlier version or interrupted revocation.
+        if (!isEmbeddingConsentEnabled()) {
+            applicationScope.launch { runCatching { embeddingVectorStore.clear() } }
+        }
         semanticSearchUseCase = SemanticSearchUseCase(
             semanticPlugin = semanticSearchPlugin,
             searchRepository = searchRepository,
