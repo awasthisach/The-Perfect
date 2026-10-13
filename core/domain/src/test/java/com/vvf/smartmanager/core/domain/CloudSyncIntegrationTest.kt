@@ -1,12 +1,16 @@
 package com.vvf.smartmanager.core.domain
 
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
+import com.vvf.smartmanager.core.database.dao.CloudSyncDao
+import com.vvf.smartmanager.core.database.model.CloudSyncEntity
 import com.vvf.smartmanager.core.domain.backup.ArchiveArtifact
 import com.vvf.smartmanager.core.domain.backup.ArchiveService
 import com.vvf.smartmanager.core.model.CloudBackupInfo
 import com.vvf.smartmanager.core.model.CloudProviderType
 import com.vvf.smartmanager.core.model.CloudSyncStatus
 import com.vvf.smartmanager.core.model.FileItem
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -51,7 +55,11 @@ class CloudSyncIntegrationTest {
         whenever(archive.createArchive(includeVault = false, includeDatabase = true)).thenReturn(
             Result.success(artifact(artifactFile))
         )
-        val useCase = CloudSyncUseCase(drive, archiveService = archive)
+        val useCase = CloudSyncUseCase(
+            drive,
+            archiveService = archive,
+            cloudSyncDao = RecordingCloudSyncDao()
+        )
 
         val result = useCase.createCloudBackup(CloudProviderType.GOOGLE_DRIVE)
         val request = server.takeRequest(2, TimeUnit.SECONDS)
@@ -73,7 +81,11 @@ class CloudSyncIntegrationTest {
         whenever(archive.createArchive(includeVault = false, includeDatabase = true)).thenReturn(
             Result.success(artifact(artifactFile))
         )
-        val useCase = CloudSyncUseCase(drive, archiveService = archive)
+        val useCase = CloudSyncUseCase(
+            drive,
+            archiveService = archive,
+            cloudSyncDao = RecordingCloudSyncDao()
+        )
 
         val result = useCase.createCloudBackup(CloudProviderType.GOOGLE_DRIVE)
 
@@ -132,6 +144,38 @@ class CloudSyncIntegrationTest {
         assertFalse(item?.isDirectory ?: true)
         assertEquals("application/octet-stream", item?.mimeType)
         assertTrue((item?.path ?: "").isNotEmpty())
+    }
+
+    /** Test persistence adapter: successful uploads must exercise the durable-ID contract. */
+    private class RecordingCloudSyncDao : CloudSyncDao {
+        private val records = mutableMapOf<Pair<String, String>, CloudSyncEntity>()
+
+        override suspend fun insertOrUpdate(record: CloudSyncEntity): Long {
+            val key = record.localPath to record.provider
+            val saved = record.copy(id = record.id.takeIf { it != 0L } ?: 1L)
+            records[key] = saved
+            return saved.id
+        }
+
+        override suspend fun update(record: CloudSyncEntity) {
+            records[record.localPath to record.provider] = record
+        }
+
+        override suspend fun getRecord(localPath: String, provider: String): CloudSyncEntity? =
+            records[localPath to provider]
+
+        override suspend fun getRecordByRemoteId(remoteFileId: String, provider: String): CloudSyncEntity? =
+            records.values.firstOrNull { it.remoteFileId == remoteFileId && it.provider == provider }
+
+        override fun getRecordsByProvider(provider: String): Flow<List<CloudSyncEntity>> =
+            kotlinx.coroutines.flow.flowOf(records.values.filter { it.provider == provider })
+
+        override suspend fun getRecordsByStatus(status: String): List<CloudSyncEntity> =
+            records.values.filter { it.status == status }
+
+        override suspend fun deleteByLocalPath(localPath: String) {
+            records.keys.removeAll { it.first == localPath }
+        }
     }
 
     private fun artifact(file: File) = ArchiveArtifact(
