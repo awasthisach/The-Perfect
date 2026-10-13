@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.LinkedHashMap
 
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class SearchViewModel(
@@ -166,7 +167,7 @@ class SearchViewModel(
         val mergedByPath = LinkedHashMap<String, com.vvf.smartmanager.core.model.SearchResultItem>()
         results.forEach { mergedByPath[it.fileItem.path] = it }
         semanticAsResults.forEach { mergedByPath.putIfAbsent(it.fileItem.path, it) }
-        val mergedResults = if (_isSemanticEnabled.value && semanticScoreByPath.isNotEmpty()) {
+        val mergedResults = if (isSemanticOn && semanticScoreByPath.isNotEmpty()) {
             mergedByPath.values.sortedWith(
                 compareByDescending<com.vvf.smartmanager.core.model.SearchResultItem> { result ->
                     semanticScoreByPath[result.fileItem.path] ?: lexicalFallbackScore(result.matchType)
