@@ -55,7 +55,7 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
                     SemanticSearchResult(
                         fileItem = candidate.fileItem,
                         similarityScore = score,
-                        matchedConcept = extractMatchedConcept(query, candidate.textContent)
+                        matchedConcept = null
                     )
                 )
             }
