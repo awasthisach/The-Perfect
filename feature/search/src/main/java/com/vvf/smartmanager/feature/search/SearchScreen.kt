@@ -50,6 +50,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -207,7 +208,7 @@ fun SearchScreen(
                         .testTag("search_input_field")
                 )
 
-                // Subtitle badge row
+                // Local search is the baseline; neural ranking is an explicit second opt-in.
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -215,11 +216,28 @@ fun SearchScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "Local search always available • Optional neural ranking requires consent and a verified backend",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Local search always available",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp
+                        )
+                        Text(
+                            text = if (uiState.isSemanticEnabled) {
+                                "Neural ranking on"
+                            } else {
+                                "Neural ranking requires privacy consent and sign-in"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp
+                        )
+                    }
+                    Switch(
+                        checked = uiState.isSemanticEnabled,
+                        onCheckedChange = { enabled -> viewModel.setSemanticEnabled(enabled) },
+                        modifier = Modifier.testTag("semantic_search_toggle")
                     )
                 }
             }
