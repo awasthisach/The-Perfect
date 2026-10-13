@@ -122,7 +122,7 @@ class SemanticSearchPluginImpl(
     ): List<NearDuplicateCluster> = withContext(Dispatchers.IO) {
         if (!isModelReady() || candidates.size < 2) return@withContext emptyList()
         try {
-            val embedded = embedCandidates(candidates, embedMissing = candidates.size <= ON_DEMAND_CANDIDATE_LIMIT)
+            val embedded = embedCandidates(candidates, embedMissing = candidates.size <= ON_DEMAND_CANDIDATE_LIMIT).candidates
             val visited = mutableSetOf<String>()
             val clusters = mutableListOf<NearDuplicateCluster>()
             val threshold = similarityThreshold.coerceIn(0.70f, 0.95f)
