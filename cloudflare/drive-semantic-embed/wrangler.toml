@@ -1,0 +1,24 @@
+name = "drive-semantic-embed"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+[vars]
+ALLOWED_ORIGIN = "https://awasthisach.github.io"
+EMBEDDING_MODEL = "gemini-embedding-2"
+EMBEDDING_VERSION = "3"
+EMBEDDING_DIMENSION = "768"
+FIREBASE_PROJECT_ID = "thevvforg"
+FIREBASE_PROJECT_NUMBER = "1058219630435"
+
+[[durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "UserRateLimiter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["UserRateLimiter"]
+
+# Set these as Cloudflare Worker secrets; never commit values:
+# npx wrangler secret put GEMINI_API_KEY
+# Optional: npx wrangler secret put FIREBASE_APP_ID
