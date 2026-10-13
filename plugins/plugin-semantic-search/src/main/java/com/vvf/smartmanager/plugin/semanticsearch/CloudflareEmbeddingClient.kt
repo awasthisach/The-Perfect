@@ -26,6 +26,8 @@ import kotlin.coroutines.resumeWithException
  * The client deliberately sends no browser Origin header. The worker must be deployed with
  * its mobile App Check verification path before this client can successfully call /embed.
  */
+class EmbeddingServiceException(val statusCode: Int) : IOException("Embedding service rejected request (HTTP $statusCode)")
+
 class CloudflareEmbeddingClient(
     private val baseUrl: String = WORKER_BASE_URL,
     private val firebaseAuthProvider: () -> FirebaseAuth = { FirebaseAuth.getInstance() },
@@ -86,7 +88,7 @@ class CloudflareEmbeddingClient(
             val responseText = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 // Never include tokens or document text in exceptions/logs.
-                throw IOException("Embedding service rejected request (HTTP ${response.code})")
+                throw EmbeddingServiceException(response.code)
             }
             val payload = JSONObject(responseText)
             if (payload.optString("model") != EXPECTED_MODEL ||
