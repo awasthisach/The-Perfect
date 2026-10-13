@@ -29,6 +29,13 @@ interface DriveApi {
         @Query("pageSize") pageSize: Int = 100
     ): DriveFileListResponse
 
+    @GET("files/{fileId}")
+    suspend fun getFileMetadata(
+        @Header("Authorization") bearer: String,
+        @Path("fileId") fileId: String,
+        @Query("fields") fields: String = "id,appProperties,md5Checksum,size"
+    ): DriveFileDto
+
     @Streaming
     @GET("files/{fileId}")
     suspend fun downloadFile(
@@ -71,7 +78,8 @@ data class DriveFileDto(
     @Json(name = "size") val size: String? = null,
     @Json(name = "modifiedTime") val modifiedTime: String? = null,
     @Json(name = "parents") val parents: List<String> = emptyList(),
-    @Json(name = "md5Checksum") val md5Checksum: String? = null
+    @Json(name = "md5Checksum") val md5Checksum: String? = null,
+    @Json(name = "appProperties") val appProperties: Map<String, String> = emptyMap()
 )
 
 data class DriveAboutResponse(
