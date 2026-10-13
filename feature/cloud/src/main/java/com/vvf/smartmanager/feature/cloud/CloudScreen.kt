@@ -101,7 +101,7 @@ fun CloudScreen(
                             modifier = Modifier.size(34.dp).padding(end = 8.dp)
                         )
                         Column {
-                            Text("Cloud Manager", fontWeight = FontWeight.Bold, color = BhagwaOrange)
+                            Text("Google Drive", fontWeight = FontWeight.Bold, color = BhagwaOrange)
                             Text(
                                 "॥ विजया ददाति विजयम् ॥",
                                 style = MaterialTheme.typography.labelSmall,
@@ -135,7 +135,7 @@ fun CloudScreen(
                     color = CosmicBlue
                 )
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(CloudProviderType.values().toList()) { provider ->
+                    items(listOf(CloudProviderType.GOOGLE_DRIVE)) { provider ->
                         val account = uiState.accounts[provider]
                         val isConnected = account?.isConnected == true
                         val isSelected = uiState.selectedProvider == provider
