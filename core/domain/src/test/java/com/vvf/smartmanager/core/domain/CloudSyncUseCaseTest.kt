@@ -225,4 +225,5 @@ class CloudSyncUseCaseTest {
         assertTrue(result.isSuccess)
         assertEquals(checksum, observedChecksum)
         assertEquals(CloudSyncStatus.SUCCESS, useCase.syncState.value)
-    }}
+    }
+}
