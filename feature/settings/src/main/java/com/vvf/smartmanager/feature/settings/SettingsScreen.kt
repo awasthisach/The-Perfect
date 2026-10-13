@@ -180,7 +180,7 @@ fun SettingsScreen(
                         SettingToggleRow(
                             icon = Icons.Default.Security,
                             title = "Optional neural embeddings",
-                            subtitle = if (embeddingConsent) "Consent recorded; cloud embedding remains unavailable until a trusted mobile proxy is configured." else "Off by default. No neural embedding content may be sent without your consent.",
+                            subtitle = if (embeddingConsent) "Consent recorded; neural search stays unavailable until the authenticated Android Worker is deployed and verified." else "Off by default. No neural embedding content may be sent without your consent.",
                             isChecked = embeddingConsent,
                             onCheckedChange = { enabled ->
                                 if (enabled) showEmbeddingConsentDialog = true
@@ -209,7 +209,7 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showEmbeddingConsentDialog = false },
             title = { Text("Allow optional neural embeddings?") },
-            text = { Text("Neural embeddings can process document text through the configured trusted backend to improve meaning-based search. This app will not call the embedding worker directly until a trusted mobile proxy or Android App Check is configured. You can turn consent off at any time. Keyword and metadata search remain available without consent.") },
+            text = { Text("If enabled, search queries and extracted text from candidate Drive files may be sent over HTTPS to the Cloudflare embedding Worker and Google Gemini to create meaning-based vectors. The app sends a Firebase ID token and Android App Check token, never your Drive access token or a Gemini API key. This is cloud processing, not on-device-only search. Neural requests remain blocked unless the authenticated Worker is deployed and verified. You can revoke consent at any time; local keyword, full-text, and metadata search remain available without it.") },
             confirmButton = {
                 TextButton(onClick = {
                     embeddingConsent = true
