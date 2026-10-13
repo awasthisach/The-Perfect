@@ -197,6 +197,9 @@ class DriveIndexingWorker(
                 prefs.edit().putString(KEY_CURSOR, snapshot.cursor).apply() // backward compatibility
                 saveStatus(app, "SYNCED", indexed, false, "")
             }
+            // Once the indexed corpus is committed, consented semantic vectors can be generated
+            // in resumable background batches without racing the Drive page checkpoints.
+            app.enqueueSemanticEmbeddingIndexing()
             Result.success(
                 workDataOf(
                     "indexed_count" to indexed,
