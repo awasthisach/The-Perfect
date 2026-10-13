@@ -27,8 +27,18 @@ class SemanticSearchPluginImpl(
             size > CACHE_SIZE
     }
 
-    override fun isModelReady(): Boolean =
-        isEmbeddingConsentGranted() && client.hasSignedInUser()
+    override fun isModelReady(): Boolean {
+        if (!isEmbeddingConsentGranted()) {
+            clearCachedEmbeddings()
+            return false
+        }
+        return client.hasSignedInUser()
+    }
+
+    /** Immediately drop in-memory vectors when the user revokes neural-search consent. */
+    fun clearCachedEmbeddings() {
+        synchronized(vectorCache) { vectorCache.clear() }
+    }
 
     override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean = withContext(Dispatchers.IO) {
         if (!isEmbeddingConsentGranted() || !client.hasSignedInUser()) return@withContext false
