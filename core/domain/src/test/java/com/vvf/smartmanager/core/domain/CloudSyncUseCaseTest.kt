@@ -176,18 +176,32 @@ class CloudSyncUseCaseTest {
     }
 
     @Test
-    fun restoreUsesInjectedFailClosedPipeline() = runBlocking {
-        val info = CloudBackupInfo("remote-1", 1L, "backup.vvfbak", 10L, checksumSha256 = "abc")
+    fun restoreRecoversTrustedChecksumFromDurableRemoteIdRecord() = runBlocking {
+        val checksum = "a".repeat(64)
+        val info = CloudBackupInfo("remote-1", 1L, "backup.vvfbak", 10L)
+        val dao = RecordingCloudSyncDao()
+        dao.insertOrUpdate(
+            CloudSyncEntity(
+                localPath = "backup://backup.vvfbak",
+                remoteFileId = "remote-1",
+                provider = CloudProviderType.GOOGLE_DRIVE.name,
+                status = "SYNCED",
+                checksumSha256 = checksum
+            )
+        )
+        var observedChecksum: String? = null
         val pipeline = FailClosedRestorePipeline(
             workingDir = temp.newFolder("restore-work"),
             downloader = object : BackupDownloader {
                 override suspend fun download(remoteBackupId: String) = Result.success(
-                    DownloadedArtifact(temp.newFile("art"), info, "abc")
+                    DownloadedArtifact(temp.newFile("art"), info, checksum)
                 )
             },
             verifier = object : BackupVerifier {
-                override suspend fun verify(artifact: DownloadedArtifact, expectedChecksum: String?) =
-                    Result.success(VerifiedArtifact(artifact.file, info, "abc"))
+                override suspend fun verify(artifact: DownloadedArtifact, expectedChecksum: String?): Result<VerifiedArtifact> {
+                    observedChecksum = expectedChecksum
+                    return Result.success(VerifiedArtifact(artifact.file, info, checksum))
+                }
             },
             decryptor = object : BackupDecryptor {
                 override suspend fun decrypt(verifiedArtifact: VerifiedArtifact, stagingDir: File) =
@@ -204,11 +218,11 @@ class CloudSyncUseCaseTest {
                 override suspend fun rollback(snapshot: RestoreSnapshot) = Result.success(Unit)
             }
         )
-        val useCase = CloudSyncUseCase(FakeDriveService(), restorePipeline = pipeline)
+        val useCase = CloudSyncUseCase(FakeDriveService(), restorePipeline = pipeline, cloudSyncDao = dao)
 
         val result = useCase.restoreCloudBackup(info)
 
         assertTrue(result.isSuccess)
+        assertEquals(checksum, observedChecksum)
         assertEquals(CloudSyncStatus.SUCCESS, useCase.syncState.value)
-    }
-}
+    }}
