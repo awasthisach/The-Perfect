@@ -20,31 +20,48 @@ class GoogleDriveBackupDownloader(
         if (!downloadDir.exists() && !downloadDir.mkdirs()) {
             return Result.failure(VerificationFailedException("Unable to create download directory"))
         }
-        val dest = File(downloadDir, "backup-$remoteBackupId.vvfbak")
-        return driveService.downloadFile(remoteBackupId, dest.absolutePath).fold(
-            onSuccess = { ok ->
-                if (!ok || !dest.isFile || dest.length() == 0L) {
-                    Result.failure(VerificationFailedException("Download produced no artifact"))
-                } else {
-                    val checksum = sha256(dest)
-                    Result.success(
-                        DownloadedArtifact(
-                            file = dest,
-                            backupInfo = CloudBackupInfo(
-                                backupId = remoteBackupId,
-                                timestamp = dest.lastModified(),
-                                backupName = dest.name,
-                                backupSizeBytes = dest.length(),
+        // Never interpolate an untrusted provider ID into a filesystem path.
+        val dest = File(downloadDir, "backup-${sha256Text(remoteBackupId)}.vvfbak")
+        if (dest.exists() && !dest.delete()) {
+            return Result.failure(VerificationFailedException("Unable to clear stale backup download"))
+        }
+        return try {
+            driveService.downloadFile(remoteBackupId, dest.absolutePath).fold(
+                onSuccess = { ok ->
+                    if (!ok || !dest.isFile || dest.length() == 0L) {
+                        dest.delete()
+                        Result.failure(VerificationFailedException("Download produced no artifact"))
+                    } else {
+                        val checksum = sha256(dest)
+                        Result.success(
+                            DownloadedArtifact(
+                                file = dest,
+                                backupInfo = CloudBackupInfo(
+                                    backupId = remoteBackupId,
+                                    timestamp = dest.lastModified(),
+                                    backupName = dest.name,
+                                    backupSizeBytes = dest.length(),
+                                    checksumSha256 = checksum
+                                ),
                                 checksumSha256 = checksum
-                            ),
-                            checksumSha256 = checksum
+                            )
                         )
-                    )
+                    }
+                },
+                onFailure = { error ->
+                    dest.delete()
+                    Result.failure(error)
                 }
-            },
-            onFailure = { Result.failure(it) }
-        )
+            )
+        } catch (error: Throwable) {
+            dest.delete()
+            throw error
+        }
     }
+
+    private fun sha256Text(value: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it) }
 
     private fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
