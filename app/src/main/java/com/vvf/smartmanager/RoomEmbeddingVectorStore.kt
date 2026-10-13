@@ -3,6 +3,7 @@ package com.vvf.smartmanager
 import com.vvf.smartmanager.core.database.dao.SemanticEmbeddingDao
 import com.vvf.smartmanager.core.database.model.SemanticEmbeddingEntity
 import com.vvf.smartmanager.plugin.semanticsearch.CloudflareEmbeddingClient
+import com.vvf.smartmanager.plugin.semanticsearch.EmbeddingVectorRecord
 import com.vvf.smartmanager.plugin.semanticsearch.EmbeddingVectorStore
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -38,6 +39,25 @@ class RoomEmbeddingVectorStore(
         modelVersion: String,
         vector: FloatArray
     ) {
+        dao.upsert(toEntity(filePath, contentHash, modelVersion, vector))
+    }
+
+    override suspend fun putAll(records: List<EmbeddingVectorRecord>) {
+        if (records.isNotEmpty()) dao.upsertAll(records.map { record ->
+            toEntity(record.filePath, record.contentHash, record.modelVersion, record.vector)
+        })
+    }
+
+    override suspend fun clear() {
+        dao.deleteAll()
+    }
+
+    private fun toEntity(
+        filePath: String,
+        contentHash: String,
+        modelVersion: String,
+        vector: FloatArray
+    ): SemanticEmbeddingEntity {
         require(vector.size == CloudflareEmbeddingClient.EMBEDDING_DIMENSION) {
             "Unexpected semantic vector dimension"
         }
@@ -46,18 +66,12 @@ class RoomEmbeddingVectorStore(
             .order(ByteOrder.LITTLE_ENDIAN)
             .also { buffer -> buffer.asFloatBuffer().put(vector) }
             .array()
-        dao.upsert(
-            SemanticEmbeddingEntity(
-                filePath = filePath,
-                contentHash = contentHash,
-                modelVersion = modelVersion,
-                vector = bytes
-            )
+        return SemanticEmbeddingEntity(
+            filePath = filePath,
+            contentHash = contentHash,
+            modelVersion = modelVersion,
+            vector = bytes
         )
-    }
-
-    override suspend fun clear() {
-        dao.deleteAll()
     }
 
     companion object {
