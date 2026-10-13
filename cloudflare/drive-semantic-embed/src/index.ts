@@ -126,6 +126,37 @@ async function verifyAppCheck(request: Request, env: Env): Promise<boolean> {
   return claims !== null;
 }
 
+
+async function readLimitedBody(request: Request, limit: number): Promise<string | null> {
+  const declaredLength = Number(request.headers.get("Content-Length"));
+  if (Number.isFinite(declaredLength) && declaredLength > limit) return null;
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > limit) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder("utf-8", { fatal: true }).decode(merged);
+}
+
 async function rateLimit(uid: string, env: Env): Promise<boolean> {
   const id = env.RATE_LIMITER.idFromName(uid);
   const response = await env.RATE_LIMITER.get(id).fetch("https://rate-limit.internal/check", {
@@ -189,17 +220,19 @@ export default {
     if (origin && origin !== env.ALLOWED_ORIGIN) return json({ error: "origin_not_allowed" }, 403, cors);
     const uid = await authenticateFirebase(request, env);
     if (!uid) return json({ error: "unauthorized" }, 401, cors);
+    // Rate-limit authenticated identities before App Check/JWKS fetches and body parsing.
+    if (!(await rateLimit(uid, env))) return json({ error: "rate_limited" }, 429, cors);
     if (!origin && !(await verifyAppCheck(request, env))) {
       return json({ error: "app_check_required" }, 403, cors);
     }
 
-    let rawBody: string;
+    let rawBody: string | null;
     try {
-      rawBody = await request.text();
+      rawBody = await readLimitedBody(request, MAX_BODY_BYTES);
     } catch {
       return json({ error: "invalid_body" }, 400, cors);
     }
-    if (new TextEncoder().encode(rawBody).length > MAX_BODY_BYTES) return json({ error: "body_too_large" }, 413, cors);
+    if (rawBody === null) return json({ error: "body_too_large" }, 413, cors);
 
     let body: { texts?: unknown; mode?: unknown; version?: unknown };
     try {
@@ -217,8 +250,6 @@ export default {
     if (!mode) return json({ error: "invalid_mode" }, 400, cors);
     const version = String(body.version ?? env.EMBEDDING_VERSION ?? "3");
     if (version !== "2" && version !== "3") return json({ error: "invalid_version" }, 400, cors);
-    if (!(await rateLimit(uid, env))) return json({ error: "rate_limited" }, 429, cors);
-
     const model = env.EMBEDDING_MODEL || "gemini-embedding-2";
     const dimension = Number(env.EMBEDDING_DIMENSION || 768);
     if (!env.GEMINI_API_KEY || !env.FIREBASE_PROJECT_ID || !Number.isInteger(dimension) || dimension !== 768) {
