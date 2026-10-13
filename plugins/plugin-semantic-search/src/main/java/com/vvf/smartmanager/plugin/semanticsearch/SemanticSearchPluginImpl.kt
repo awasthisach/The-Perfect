@@ -38,6 +38,11 @@ class SemanticSearchPluginImpl(
         return client.hasSignedInUser()
     }
 
+    /** Abort active remote calls before clearing vectors when consent is revoked. */
+    fun cancelPendingEmbeddingRequests() {
+        client.cancelPendingRequests()
+    }
+
     /** Immediately drop in-memory vectors when the user revokes neural-search consent. */
     fun clearCachedEmbeddings() {
         synchronized(vectorCache) { vectorCache.clear() }
