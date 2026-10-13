@@ -144,6 +144,7 @@ dependencies {
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
   implementation(libs.firebase.appcheck.recaptcha)
+  implementation(libs.firebase.appcheck.playintegrity)
   implementation(libs.hiltAndroidRuntime)
   implementation("com.google.dagger:dagger:2.60.1")
   implementation(libs.kotlinx.coroutines.android)
