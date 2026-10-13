@@ -117,7 +117,7 @@ class SemanticSearchPluginImpl(
         if (normA <= 0.0 || normB <= 0.0) return 0f
         return (dotProduct / (kotlin.math.sqrt(normA) * kotlin.math.sqrt(normB)))
             .toFloat()
-            .coerceIn(0f, 1f)
+            .coerceIn(-1f, 1f)
     }
 
     override suspend fun findNearDuplicates(
