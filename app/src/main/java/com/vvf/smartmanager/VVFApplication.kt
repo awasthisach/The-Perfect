@@ -243,10 +243,18 @@ class VVFApplication : Application(), Configuration.Provider {
         } else {
             (semanticSearchPlugin as? SemanticSearchPluginImpl)?.clearCachedEmbeddings()
             embeddingClearJob = applicationScope.launch {
+                // Work cancellation and persistent-vector deletion are independent privacy
+                // actions: a WorkManager failure must never skip the database cleanup.
                 runCatching {
                     WorkManager.getInstance(this@VVFApplication)
                         .cancelAllWorkByTag(SemanticEmbeddingIndexWorker.WORK_TAG)
+                }.onFailure { error ->
+                    Log.w(TAG, "Could not cancel semantic indexing after consent revocation", error)
+                }
+                runCatching {
                     if (::database.isInitialized) database.semanticEmbeddingDao().deleteAll()
+                }.onFailure { error ->
+                    Log.e(TAG, "Could not clear persisted embeddings after consent revocation", error)
                 }
             }
         }
