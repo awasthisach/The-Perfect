@@ -185,6 +185,7 @@ class SemanticSearchPluginImpl(
         candidates: List<SemanticCandidate>,
         embedMissing: Boolean = true
     ): EmbeddingBatchResult {
+        ensureConsent()
         val output = candidates.toMutableList()
         val lookupRequests = candidates.mapNotNull { candidate ->
             if (candidate.embedding?.size == CloudflareEmbeddingClient.EMBEDDING_DIMENSION) return@mapNotNull null
@@ -232,7 +233,9 @@ class SemanticSearchPluginImpl(
         }
 
         batchIndicesByPayload(pendingTexts).forEach { chunk ->
+            ensureConsent()
             val vectors = client.embed(chunk.map { pendingTexts[it] }, "document")
+            ensureConsent()
             chunk.forEachIndexed { localIndex, sourceIndex ->
                 val vector = vectors[localIndex]
                 val key = pendingKeys[sourceIndex]
@@ -254,9 +257,16 @@ class SemanticSearchPluginImpl(
             }
         }
         recordsToPersist.chunked(CloudflareEmbeddingClient.MAX_TEXTS).forEach { batch ->
+            ensureConsent()
             vectorStore?.putAll(batch)
         }
         return EmbeddingBatchResult(output, pendingTexts.size)
+    }
+
+    private fun ensureConsent() {
+        if (!isEmbeddingConsentGranted()) {
+            throw CancellationException("Embedding consent revoked")
+        }
     }
 
     private fun batchIndicesByPayload(texts: List<String>): List<List<Int>> {
