@@ -146,6 +146,7 @@ class SearchViewModel(
         val snackbar = params[11] as String?
         val indexedCount = params[12] as Int
         val semanticHits = @Suppress("UNCHECKED_CAST") (params[13] as List<SemanticSearchResult>)
+            .filter { it.matchedConcept == "Neural embedding match" }
         val searching = params[14] as Boolean
 
         val ftsPaths = results.mapTo(mutableSetOf()) { it.fileItem.path }
