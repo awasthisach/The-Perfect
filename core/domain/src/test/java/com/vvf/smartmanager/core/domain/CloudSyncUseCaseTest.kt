@@ -59,6 +59,9 @@ class CloudSyncUseCaseTest {
         override suspend fun getRecord(localPath: String, provider: String): CloudSyncEntity? =
             records[localPath to provider]
 
+        override suspend fun getRecordByRemoteId(remoteFileId: String, provider: String): CloudSyncEntity? =
+            records.values.firstOrNull { it.remoteFileId == remoteFileId && it.provider == provider }
+
         override fun getRecordsByProvider(provider: String): Flow<List<CloudSyncEntity>> =
             kotlinx.coroutines.flow.flowOf(records.values.filter { it.provider == provider })
 
@@ -76,6 +79,7 @@ class CloudSyncUseCaseTest {
 
         override suspend fun update(record: CloudSyncEntity) = Unit
         override suspend fun getRecord(localPath: String, provider: String): CloudSyncEntity? = null
+        override suspend fun getRecordByRemoteId(remoteFileId: String, provider: String): CloudSyncEntity? = null
         override fun getRecordsByProvider(provider: String): Flow<List<CloudSyncEntity>> = emptyFlow()
         override suspend fun getRecordsByStatus(status: String): List<CloudSyncEntity> = emptyList()
         override suspend fun deleteByLocalPath(localPath: String) = Unit
