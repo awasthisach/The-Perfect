@@ -72,3 +72,9 @@ This repository is under active production hardening and is **not yet independen
 - [Security Whitepaper](docs/SECURITY_WHITEPAPER.md)
 
 Cloud restore remains intentionally fail-closed until download, integrity verification, atomic staging, rollback, and recovery tests are complete.
+
+## Security remediation in review
+
+The red-team hardening branch removes the embedded, shared debug keystore bytes and hard-coded debug-keystore password/alias from `app/build.gradle.kts`, restoring Android Gradle's standard local debug signing configuration. This source change does **not** erase the exposed key from Git history or rotate external OAuth settings. Before release, remove the exposed SHA-1 fingerprint from any Google OAuth Android client where it is no longer required, register only the intended current signing certificate fingerprints, and verify sign-in on a physical device. Treat the historical debug key as compromised.
+
+Cloud restore integrity/atomic rollback, durable remote provider IDs, storage-permission policy review, indexing reconciliation, and independent device/OAuth acceptance remain release blockers until implemented and evidenced by tests.
