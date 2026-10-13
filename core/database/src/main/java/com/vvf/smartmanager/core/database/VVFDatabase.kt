@@ -108,7 +108,8 @@ abstract class VVFDatabase : RoomDatabase() {
                         `modelVersion` TEXT NOT NULL,
                         `vector` BLOB NOT NULL,
                         `updatedAt` INTEGER NOT NULL,
-                        PRIMARY KEY(`filePath`)
+                        PRIMARY KEY(`filePath`),
+                        FOREIGN KEY(`filePath`) REFERENCES `file_metadata`(`path`) ON UPDATE NO ACTION ON DELETE CASCADE
                     )
                     """.trimIndent()
                 )
