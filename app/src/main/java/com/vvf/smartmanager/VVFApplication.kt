@@ -368,6 +368,9 @@ class VVFApplication : Application(), Configuration.Provider {
         // Consent defaults off; remove any vectors left by an earlier version or interrupted revocation.
         if (!isEmbeddingConsentEnabled()) {
             applicationScope.launch { runCatching { embeddingVectorStore.clear() } }
+        } else {
+            // Resume bounded background indexing after process death if consent and sign-in remain active.
+            enqueueSemanticEmbeddingIndexing()
         }
         semanticSearchUseCase = SemanticSearchUseCase(
             semanticPlugin = semanticSearchPlugin,
