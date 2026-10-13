@@ -208,13 +208,13 @@ fun VVFAppContent(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: TopLevelDestination.SEARCH.route
 
+    // Keep the primary navigation focused on the Drive Semantic Search product.
+    // Legacy local-file-manager screens remain unlinked until they are redesigned for Drive.
     val destinations = listOf(
-        TopLevelDestination.EXPLORER,
-        TopLevelDestination.VAULT,
-        TopLevelDestination.CLEANER,
         TopLevelDestination.SEARCH,
+        TopLevelDestination.CLOUD,
         TopLevelDestination.OFFLINE,
-        TopLevelDestination.CLOUD
+        TopLevelDestination.SETTINGS
     )
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize().testTag("vvf_main_container")) {
