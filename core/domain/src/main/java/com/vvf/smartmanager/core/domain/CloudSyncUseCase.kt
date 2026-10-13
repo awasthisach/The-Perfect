@@ -6,6 +6,7 @@ import com.vvf.smartmanager.core.database.model.CloudSyncEntity
 import com.vvf.smartmanager.core.domain.backup.ArchiveService
 import com.vvf.smartmanager.core.domain.cloud.DurableUploadContract
 import com.vvf.smartmanager.core.domain.restore.RestorePipeline
+import com.vvf.smartmanager.core.domain.restore.ChecksumMismatchException
 import com.vvf.smartmanager.core.domain.restore.RestoreResult
 import com.vvf.smartmanager.core.model.CloudAccount
 import com.vvf.smartmanager.core.model.CloudBackupInfo
@@ -215,16 +216,20 @@ class CloudSyncUseCase(
         _syncState.value = CloudSyncStatus.DOWNLOADING
         val suppliedChecksum = backupInfo.checksumSha256?.takeIf(::isSha256)
         val persistedChecksum = try {
-            if (suppliedChecksum == null) {
-                cloudSyncDao?.getRecordByRemoteId(backupInfo.backupId, CloudProviderType.GOOGLE_DRIVE.name)
-                    ?.checksumSha256?.takeIf(::isSha256)
-            } else null
+            cloudSyncDao?.getRecordByRemoteId(backupInfo.backupId, CloudProviderType.GOOGLE_DRIVE.name)
+                ?.checksumSha256?.takeIf(::isSha256)
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
             _syncState.value = CloudSyncStatus.ERROR
             return Result.failure(error)
         }
-        val trustedChecksum = suppliedChecksum ?: persistedChecksum
+        if (suppliedChecksum != null && persistedChecksum != null &&
+            !suppliedChecksum.equals(persistedChecksum, ignoreCase = true)
+        ) {
+            _syncState.value = CloudSyncStatus.ERROR
+            return Result.failure(ChecksumMismatchException(persistedChecksum, suppliedChecksum))
+        }
+        val trustedChecksum = persistedChecksum ?: suppliedChecksum
         return pipeline.restore(backupInfo.backupId, trustedChecksum).fold(
             onSuccess = { result: RestoreResult ->
                 if (result.success) {
