@@ -176,7 +176,7 @@ class GoogleDriveServiceImpl(
                     val uploaded = try {
                         DriveUploadResponseParser.parse(bodyText)
                     } catch (e: Exception) {
-            if (e is CancellationException) throw e
+                        if (e is CancellationException) throw e
                         return@withContext Result.failure(
                             IllegalStateException("Drive upload returned invalid JSON response", e)
                         )
@@ -229,7 +229,7 @@ class GoogleDriveServiceImpl(
                     Result.success(id)
                 }
             } catch (e: Exception) {
-            if (e is CancellationException) throw e
+                if (e is CancellationException) throw e
                 Result.failure(e)
             }
         }
@@ -247,7 +247,7 @@ class GoogleDriveServiceImpl(
                 }
                 Result.success(true)
             } catch (e: Exception) {
-            if (e is CancellationException) throw e
+                if (e is CancellationException) throw e
                 Result.failure(e)
             }
         }
