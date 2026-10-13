@@ -42,6 +42,34 @@ class CloudSyncUseCaseTest {
         override suspend fun getStorageQuota(): Result<Pair<Long, Long>> = Result.success(0L to 1L)
     }
 
+    private class RecordingCloudSyncDao : CloudSyncDao {
+        private val records = mutableMapOf<Pair<String, String>, CloudSyncEntity>()
+
+        override suspend fun insertOrUpdate(record: CloudSyncEntity): Long {
+            val key = record.localPath to record.provider
+            val saved = record.copy(id = record.id.takeIf { it != 0L } ?: 1L)
+            records[key] = saved
+            return saved.id
+        }
+
+        override suspend fun update(record: CloudSyncEntity) {
+            records[record.localPath to record.provider] = record
+        }
+
+        override suspend fun getRecord(localPath: String, provider: String): CloudSyncEntity? =
+            records[localPath to provider]
+
+        override fun getRecordsByProvider(provider: String): Flow<List<CloudSyncEntity>> =
+            kotlinx.coroutines.flow.flowOf(records.values.filter { it.provider == provider })
+
+        override suspend fun getRecordsByStatus(status: String): List<CloudSyncEntity> =
+            records.values.filter { it.status == status }
+
+        override suspend fun deleteByLocalPath(localPath: String) {
+            records.keys.removeAll { it.first == localPath }
+        }
+    }
+
     private class FailingCloudSyncDao : CloudSyncDao {
         override suspend fun insertOrUpdate(record: CloudSyncEntity): Long =
             throw IllegalStateException("sync identity persistence failed")
@@ -78,13 +106,28 @@ class CloudSyncUseCaseTest {
 
     @Test
     fun fileSyncUsesDriveUploadResult() = runBlocking {
-        val useCase = CloudSyncUseCase(FakeDriveService(Result.success("remote-123")))
+        val useCase = CloudSyncUseCase(
+            FakeDriveService(Result.success("remote-123")),
+            cloudSyncDao = RecordingCloudSyncDao()
+        )
 
         val result = useCase.syncFileToCloud(sampleFile)
 
         assertTrue(result.isSuccess)
         assertEquals("remote-123", result.getOrThrow().remotePath)
         assertEquals(CloudSyncStatus.SUCCESS, useCase.syncState.value)
+    }
+
+
+    @Test
+    fun fileSyncFailsClosedWhenDurableIdentityStoreIsMissing() = runBlocking {
+        val useCase = CloudSyncUseCase(FakeDriveService(Result.success("remote-123")))
+
+        val result = useCase.syncFileToCloud(sampleFile)
+
+        assertFalse(result.isSuccess)
+        assertEquals(CloudSyncStatus.ERROR, useCase.syncState.value)
+        assertTrue(result.exceptionOrNull()?.message?.contains("CloudSyncDao is not configured") == true)
     }
 
     @Test
