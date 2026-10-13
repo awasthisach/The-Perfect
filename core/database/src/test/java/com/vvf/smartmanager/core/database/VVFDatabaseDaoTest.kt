@@ -7,10 +7,12 @@ import com.vvf.smartmanager.core.database.dao.SearchFtsDao
 import com.vvf.smartmanager.core.database.dao.VaultDao
 import com.vvf.smartmanager.core.database.model.CloudSyncEntity
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
+import com.vvf.smartmanager.core.database.model.SemanticEmbeddingEntity
 import com.vvf.smartmanager.core.database.model.VaultItemEntity
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -43,6 +45,32 @@ class VVFDatabaseDaoTest {
     @After
     fun tearDown() {
         database.close()
+    }
+
+
+    @Test
+    fun semanticVectorsPersistInEncryptedRoomTableAndCanBeCleared() = runBlocking {
+        val dao = database.semanticEmbeddingDao()
+        val vector = byteArrayOf(0, 0, 0, 0, 1, 0, 0, 0)
+        dao.upsert(
+            SemanticEmbeddingEntity(
+                filePath = "gdrive://semantic-file-1",
+                contentHash = "sha256-content-hash",
+                modelVersion = "gemini-embedding-2:3:768",
+                vector = vector,
+                updatedAt = 1234L
+            )
+        )
+
+        val fetched = dao.getByPath("gdrive://semantic-file-1")
+        assertNotNull(fetched)
+        assertEquals("sha256-content-hash", fetched?.contentHash)
+        assertEquals("gemini-embedding-2:3:768", fetched?.modelVersion)
+        assertArrayEquals(vector, fetched?.vector)
+        assertEquals(1, dao.count())
+
+        dao.deleteAll()
+        assertEquals(0, dao.count())
     }
 
     @Test
