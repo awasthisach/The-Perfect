@@ -237,7 +237,10 @@ jobs:
         if: ${{ env.FOSSA_ENABLED == 'true' }}
         env:
           FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
-        run: fossa analyze --project "The-Perfect" --revision "${{ github.sha }}"
+          # FOSSA's Gradle dependency init script is not configuration-cache compatible.
+          # Disable the cache for this scan only; regular CI builds keep it enabled.
+          GRADLE_OPTS: -Dorg.gradle.configuration-cache=false
+        run: fossa analyze --revision "${{ github.sha }}"
       - name: FOSSA test (advisory)
         id: fossa_test
         if: ${{ env.FOSSA_ENABLED == 'true' && success() }}
