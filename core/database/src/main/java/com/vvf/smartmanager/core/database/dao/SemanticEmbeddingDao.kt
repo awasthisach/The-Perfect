@@ -11,6 +11,9 @@ interface SemanticEmbeddingDao {
     @Query("SELECT * FROM semantic_embeddings WHERE filePath = :filePath LIMIT 1")
     suspend fun getByPath(filePath: String): SemanticEmbeddingEntity?
 
+    @Query("SELECT * FROM semantic_embeddings WHERE filePath IN (:filePaths)")
+    suspend fun getByPaths(filePaths: List<String>): List<SemanticEmbeddingEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: SemanticEmbeddingEntity)
 
