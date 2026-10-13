@@ -216,7 +216,7 @@ fun SearchScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Local search active • Neural search unavailable until secure provider is configured",
+                        text = "Local search always available • Optional neural ranking requires consent and a verified backend",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.sp
