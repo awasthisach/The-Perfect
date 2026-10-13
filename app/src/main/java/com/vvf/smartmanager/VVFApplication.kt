@@ -219,6 +219,14 @@ class VVFApplication : Application(), Configuration.Provider {
         }
     }
 
+    /** Removes abandoned private extraction inputs left by a process death after consent is revoked. */
+    private fun clearDriveIndexTemporaryInputs(): Boolean {
+        val directory = File(cacheDir, "drive-index-inputs")
+        if (!directory.exists()) return true
+        val files = directory.listFiles() ?: return false
+        return files.all { file -> !file.exists() || file.deleteRecursively() }
+    }
+
     fun isAutoIndexOcrEnabled(): Boolean = settingsPrefs.getBoolean(KEY_AUTO_INDEX_OCR, true)
 
     fun setAutoIndexOcrEnabled(enabled: Boolean) {
@@ -312,6 +320,9 @@ class VVFApplication : Application(), Configuration.Provider {
                         )
                     )
                     database.searchFtsDao().rebuildFtsIndex()
+                    check(clearDriveIndexTemporaryInputs()) {
+                        "Could not remove temporary Drive extraction inputs after consent revocation"
+                    }
                 }.onFailure { error ->
                     Log.e(TAG, "Could not clear full-content Drive text after consent revocation", error)
                 }
@@ -433,6 +444,9 @@ class VVFApplication : Application(), Configuration.Provider {
                             )
                         )
                         database.searchFtsDao().rebuildFtsIndex()
+                        check(clearDriveIndexTemporaryInputs()) {
+                            "Could not remove temporary Drive extraction inputs during startup privacy reconciliation"
+                        }
                     }.onFailure { error ->
                         textClearSucceeded = false
                         Log.e(TAG, "Could not reconcile revoked full-content consent at startup", error)
