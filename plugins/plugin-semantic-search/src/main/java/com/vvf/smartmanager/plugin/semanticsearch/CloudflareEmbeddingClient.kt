@@ -22,8 +22,8 @@ import kotlinx.coroutines.withContext
  */
 class CloudflareEmbeddingClient(
     private val baseUrl: String = WORKER_BASE_URL,
-    private val firebaseAuth: FirebaseAuth = FirebaseAuth.getInstance(),
-    private val appCheck: FirebaseAppCheck = FirebaseAppCheck.getInstance(),
+    private val firebaseAuthProvider: () -> FirebaseAuth = { FirebaseAuth.getInstance() },
+    private val appCheckProvider: () -> FirebaseAppCheck = { FirebaseAppCheck.getInstance() },
     private val http: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(35, TimeUnit.SECONDS)
@@ -32,7 +32,7 @@ class CloudflareEmbeddingClient(
 ) {
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
-    fun hasSignedInUser(): Boolean = firebaseAuth.currentUser != null
+    fun hasSignedInUser(): Boolean = runCatching { firebaseAuthProvider().currentUser != null }.getOrDefault(false)
 
     suspend fun healthCheck(): Boolean = withContext(Dispatchers.IO) {
         val request = Request.Builder().url(baseUrl.trimEnd('/') + "/").get().build()
@@ -55,10 +55,11 @@ class CloudflareEmbeddingClient(
         require(mode == "query" || mode == "document") { "Unsupported embedding mode" }
         require(texts.all { it.isNotBlank() && it.length <= MAX_TEXT_CHARS }) { "Embedding text is empty or too long" }
 
-        val user = firebaseAuth.currentUser ?: throw IOException("Sign in to Google Drive before using neural search")
+        val user = runCatching { firebaseAuthProvider().currentUser }.getOrNull()
+            ?: throw IOException("Sign in to Google Drive before using neural search")
         val idToken = user.getIdToken(false).await().token
             ?.takeIf { it.isNotBlank() } ?: throw IOException("Firebase authentication token is unavailable")
-        val appCheckToken = appCheck.getAppCheckToken(false).await().token
+        val appCheckToken = appCheckProvider().getAppCheckToken(false).await().token
             .takeIf { it.isNotBlank() } ?: throw IOException("App authenticity verification is unavailable")
 
         val body = JSONObject()
