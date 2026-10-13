@@ -62,6 +62,8 @@ class CloudflareEmbeddingClient(
         require(texts.isNotEmpty() && texts.size <= MAX_TEXTS) { "Embedding batch must contain 1–$MAX_TEXTS texts" }
         require(mode == "query" || mode == "document") { "Unsupported embedding mode" }
         require(texts.all { it.isNotBlank() && it.length <= MAX_TEXT_CHARS }) { "Embedding text is empty or too long" }
+        val estimatedBodyBytes = texts.sumOf { it.toByteArray(Charsets.UTF_8).size + JSON_TEXT_OVERHEAD_BYTES } + JSON_BODY_OVERHEAD_BYTES
+        require(estimatedBodyBytes <= MAX_REQUEST_BYTES) { "Embedding batch payload is too large" }
 
         val user = runCatching { firebaseAuthProvider().currentUser }.getOrNull()
             ?: throw IOException("Sign in to Google Drive before using neural search")
@@ -134,5 +136,8 @@ class CloudflareEmbeddingClient(
         const val EMBEDDING_DIMENSION = 768
         const val MAX_TEXTS = 32
         const val MAX_TEXT_CHARS = 8_000
+        const val MAX_REQUEST_BYTES = 220_000
+        private const val JSON_TEXT_OVERHEAD_BYTES = 64
+        private const val JSON_BODY_OVERHEAD_BYTES = 128
     }
 }
