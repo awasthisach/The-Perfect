@@ -42,6 +42,11 @@ class SemanticEmbeddingIndexWorker(
 
             val candidates = page.map { row ->
                 val tags = row.tags.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+                // The page may have been read just before consent was revoked. Re-check the
+                // live preference so stale in-memory rows cannot upload extracted full content.
+                val safeIndexedText = if (
+                    !app.isDriveFullContentConsentEnabled() && isFullContentRow(row.mimeType, row.name)
+                ) "" else row.contentText.take(MAX_INDEXED_TEXT_CHARS)
                 val item = FileItem(
                     path = row.path,
                     name = row.name,
@@ -56,7 +61,7 @@ class SemanticEmbeddingIndexWorker(
                     md5Hash = row.md5Hash,
                     tags = tags,
                     canonicalUri = row.canonicalUri,
-                    indexedText = row.contentText.take(MAX_INDEXED_TEXT_CHARS)
+                    indexedText = safeIndexedText
                 )
                 val content = buildString {
                     append(item.name)
@@ -108,6 +113,15 @@ class SemanticEmbeddingIndexWorker(
             ExistingWorkPolicy.KEEP,
             request
         )
+    }
+
+    private fun isFullContentRow(mimeType: String?, name: String): Boolean {
+        val mime = mimeType.orEmpty().lowercase()
+        val extension = name.substringAfterLast('.', "").lowercase()
+        return mime == "application/pdf" ||
+            mime.startsWith("image/") ||
+            mime in setOf(DriveOfficeTextExtractor.DOCX, DriveOfficeTextExtractor.XLSX, DriveOfficeTextExtractor.PPTX) ||
+            extension in setOf("pdf", "jpg", "jpeg", "png", "webp", "bmp", "heic", "docx", "xlsx", "pptx")
     }
 
     companion object {
