@@ -150,7 +150,7 @@ class SearchViewModel(
             .filter { it.matchedConcept == "Neural embedding match" }
         val searching = params[14] as Boolean
 
-        val ftsPaths = results.mapTo(mutableSetOf()) { it.fileItem.path }
+        val semanticScoreByPath = semanticHits.associate { it.fileItem.path to it.similarityScore }
         val semanticAsResults = semanticHits.map { hit ->
             val pct = (hit.similarityScore * 100f).toInt().coerceIn(0, 100)
             val concept = hit.matchedConcept?.let { " · $it" } ?: ""
@@ -160,9 +160,20 @@ class SearchViewModel(
                 matchedSnippet = "Semantic match $pct%$concept"
             )
         }
-        val mergedResults = buildList {
-            addAll(semanticAsResults.filter { it.fileItem.path !in ftsPaths })
-            addAll(results)
+        // Merge by stable Drive path first, then rank the combined list. Previously all
+        // semantic-only hits were prepended, so weak semantic matches always beat strong
+        // filename/FTS matches and semantic scores never re-ranked files already in FTS.
+        val mergedByPath = LinkedHashMap<String, com.vvf.smartmanager.core.model.SearchResultItem>()
+        results.forEach { mergedByPath[it.fileItem.path] = it }
+        semanticAsResults.forEach { mergedByPath.putIfAbsent(it.fileItem.path, it) }
+        val mergedResults = if (_isSemanticEnabled.value && semanticScoreByPath.isNotEmpty()) {
+            mergedByPath.values.sortedWith(
+                compareByDescending<com.vvf.smartmanager.core.model.SearchResultItem> { result ->
+                    semanticScoreByPath[result.fileItem.path] ?: lexicalFallbackScore(result.matchType)
+                }.thenBy { it.fileItem.name.lowercase() }
+            )
+        } else {
+            mergedByPath.values.toList()
         }
 
         SearchUiState(
@@ -187,6 +198,18 @@ class SearchViewModel(
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = SearchUiState()
     )
+
+    private fun lexicalFallbackScore(matchType: com.vvf.smartmanager.core.model.SearchMatchType): Float {
+        val lexicalScore = when (matchType) {
+            com.vvf.smartmanager.core.model.SearchMatchType.FILENAME -> 0.95f
+            com.vvf.smartmanager.core.model.SearchMatchType.FTS -> 0.85f
+            com.vvf.smartmanager.core.model.SearchMatchType.TAG -> 0.72f
+            com.vvf.smartmanager.core.model.SearchMatchType.METADATA -> 0.55f
+            com.vvf.smartmanager.core.model.SearchMatchType.SEMANTIC -> 0.50f
+        }
+        // Keep the fallback scale comparable to SemanticSearchUseCase's lexical-only path.
+        return (0.80f * lexicalScore + 0.20f * 0.50f).coerceIn(0f, 1f)
+    }
 
     fun onQueryChanged(newQuery: String) {
         _searchQuery.value = newQuery.take(500)
