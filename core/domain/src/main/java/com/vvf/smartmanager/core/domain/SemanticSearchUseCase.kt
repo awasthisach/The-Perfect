@@ -57,7 +57,7 @@ class SemanticSearchUseCase(
         val semanticScores = try {
             if (!isEmbeddingConsentGranted() || !semanticPlugin.isModelReady()) emptyList()
             else {
-                val recent = searchRepository.getRecentIndexedFiles(CANDIDATE_LIMIT)
+                val recent = searchRepository.getRecentDriveIndexedFiles(CANDIDATE_LIMIT)
                 if (recent.isEmpty()) emptyList()
                 else {
                     val candidates = recent.map { file ->
