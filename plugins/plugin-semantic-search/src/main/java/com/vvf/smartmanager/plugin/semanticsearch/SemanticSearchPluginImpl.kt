@@ -76,7 +76,7 @@ class SemanticSearchPluginImpl(
         if (!isModelReady() || query.isBlank() || candidates.isEmpty()) return@withContext emptyList()
         try {
             val queryVector = client.embed(listOf(query.take(500)), "query").single()
-            val embedded = embedCandidates(candidates)
+            val embedded = embedCandidates(candidates, embedMissing = candidates.size <= ON_DEMAND_CANDIDATE_LIMIT)
             embedded.mapNotNull { candidate ->
                 val vector = candidate.embedding ?: return@mapNotNull null
                 val score = computeCosineSimilarity(queryVector, vector)
@@ -120,7 +120,7 @@ class SemanticSearchPluginImpl(
     ): List<NearDuplicateCluster> = withContext(Dispatchers.IO) {
         if (!isModelReady() || candidates.size < 2) return@withContext emptyList()
         try {
-            val embedded = embedCandidates(candidates)
+            val embedded = embedCandidates(candidates, embedMissing = candidates.size <= ON_DEMAND_CANDIDATE_LIMIT)
             val visited = mutableSetOf<String>()
             val clusters = mutableListOf<NearDuplicateCluster>()
             val threshold = similarityThreshold.coerceIn(0.70f, 0.95f)
@@ -170,12 +170,27 @@ class SemanticSearchPluginImpl(
             emptyList()
         }
 
-    private suspend fun embedCandidates(candidates: List<SemanticCandidate>): List<SemanticCandidate> {
+    /**
+     * Background indexing entry point. Call only from a consent-gated WorkManager job.
+     * It persists each completed batch in the encrypted Room-backed vector store.
+     */
+    suspend fun indexCandidates(candidates: List<SemanticCandidate>): Int {
+        if (!isModelReady() || candidates.isEmpty()) return 0
+        return embedCandidates(candidates, embedMissing = true).count {
+            it.embedding?.size == CloudflareEmbeddingClient.EMBEDDING_DIMENSION
+        }
+    }
+
+    private suspend fun embedCandidates(
+        candidates: List<SemanticCandidate>,
+        embedMissing: Boolean = true
+    ): List<SemanticCandidate> {
         val output = candidates.toMutableList()
         val pendingIndices = mutableListOf<Int>()
         val pendingTexts = mutableListOf<String>()
         val pendingKeys = mutableListOf<String>()
         val pendingPaths = mutableListOf<String>()
+        val recordsToPersist = mutableListOf<EmbeddingVectorRecord>()
 
         candidates.forEachIndexed { index, candidate ->
             val supplied = candidate.embedding?.takeIf { it.size == CloudflareEmbeddingClient.EMBEDDING_DIMENSION }
@@ -188,12 +203,17 @@ class SemanticSearchPluginImpl(
                 val inMemory = cached(key)
                 if (inMemory != null) {
                     output[index] = candidate.copy(embedding = inMemory)
+                    if (vectorStore != null) {
+                        recordsToPersist.add(
+                            EmbeddingVectorRecord(candidate.fileItem.path, key, MODEL_VERSION, inMemory)
+                        )
+                    }
                 } else {
                     val persisted = vectorStore?.get(candidate.fileItem.path, key, MODEL_VERSION)
                     if (persisted != null && persisted.size == CloudflareEmbeddingClient.EMBEDDING_DIMENSION) {
                         cache(key, persisted)
                         output[index] = candidate.copy(embedding = persisted)
-                    } else {
+                    } else if (embedMissing) {
                         pendingIndices.add(index)
                         pendingTexts.add(text)
                         pendingKeys.add(key)
@@ -205,13 +225,12 @@ class SemanticSearchPluginImpl(
 
         pendingTexts.indices.chunked(CloudflareEmbeddingClient.MAX_TEXTS).forEach { chunk ->
             val vectors = client.embed(chunk.map { pendingTexts[it] }, "document")
-            val persistedRecords = mutableListOf<EmbeddingVectorRecord>()
             chunk.forEachIndexed { localIndex, sourceIndex ->
                 val vector = vectors[localIndex]
                 val key = pendingKeys[sourceIndex]
                 cache(key, vector)
                 output[pendingIndices[sourceIndex]] = output[pendingIndices[sourceIndex]].copy(embedding = vector)
-                persistedRecords.add(
+                recordsToPersist.add(
                     EmbeddingVectorRecord(
                         filePath = pendingPaths[sourceIndex],
                         contentHash = key,
@@ -220,7 +239,9 @@ class SemanticSearchPluginImpl(
                     )
                 )
             }
-            vectorStore?.putAll(persistedRecords)
+        }
+        recordsToPersist.chunked(CloudflareEmbeddingClient.MAX_TEXTS).forEach { batch ->
+            vectorStore?.putAll(batch)
         }
         return output
     }
@@ -239,5 +260,6 @@ class SemanticSearchPluginImpl(
     companion object {
         private const val CACHE_SIZE = 512
         private const val MODEL_VERSION = "gemini-embedding-2:3:768"
+        private const val ON_DEMAND_CANDIDATE_LIMIT = 400
     }
 }
