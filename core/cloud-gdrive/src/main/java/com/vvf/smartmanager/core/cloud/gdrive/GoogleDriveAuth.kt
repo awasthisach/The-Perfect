@@ -12,6 +12,7 @@ import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -56,6 +57,8 @@ class GoogleDriveAuth(
             } else {
                 Result.success(token)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: GetCredentialException) {
             Result.failure(e)
         } catch (e: Exception) {
@@ -87,6 +90,8 @@ class GoogleDriveAuth(
                     return@withContext accessTokenForAccount(account.account)
                 } catch (e: ApiException) {
                     return@withContext Result.failure(IllegalStateException(mapApiException(e), e))
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     // Fall through to resultCode handling
                     if (resultCode == Activity.RESULT_OK) {
@@ -114,6 +119,8 @@ class GoogleDriveAuth(
             try {
                 val account = GoogleSignIn.getSignedInAccountFromIntent(data).await()
                 accessTokenForAccount(account.account)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: ApiException) {
                 Result.failure(IllegalStateException(mapApiException(e), e))
             } catch (e: Exception) {
@@ -140,6 +147,8 @@ class GoogleDriveAuth(
             } else {
                 Result.success(token)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -153,6 +162,8 @@ class GoogleDriveAuth(
                 .requestScopes(Scope(DRIVE_FILE_SCOPE))
                 .build()
             GoogleSignIn.getClient(context, gso).signOut().await()
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             // best-effort
         }
