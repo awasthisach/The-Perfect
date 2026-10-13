@@ -19,6 +19,7 @@ import java.util.LinkedHashMap
  */
 class SemanticSearchPluginImpl(
     private val client: CloudflareEmbeddingClient = CloudflareEmbeddingClient(),
+    private val vectorStore: EmbeddingVectorStore? = null,
     private val isEmbeddingConsentGranted: () -> Boolean = { false }
 ) : SemanticSearchSPI {
 
@@ -38,6 +39,11 @@ class SemanticSearchPluginImpl(
     /** Immediately drop in-memory vectors when the user revokes neural-search consent. */
     fun clearCachedEmbeddings() {
         synchronized(vectorCache) { vectorCache.clear() }
+    }
+
+    /** Remove persistent vectors when consent is revoked or the linked account is cleared. */
+    suspend fun clearPersistedEmbeddings() {
+        vectorStore?.clear()
     }
 
     override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean = withContext(Dispatchers.IO) {
@@ -169,6 +175,7 @@ class SemanticSearchPluginImpl(
         val pendingIndices = mutableListOf<Int>()
         val pendingTexts = mutableListOf<String>()
         val pendingKeys = mutableListOf<String>()
+        val pendingPaths = mutableListOf<String>()
 
         candidates.forEachIndexed { index, candidate ->
             val supplied = candidate.embedding?.takeIf { it.size == CloudflareEmbeddingClient.EMBEDDING_DIMENSION }
@@ -176,25 +183,44 @@ class SemanticSearchPluginImpl(
                 output[index] = candidate.copy(embedding = supplied)
             } else {
                 val text = candidate.textContent.take(CloudflareEmbeddingClient.MAX_TEXT_CHARS)
+                if (text.isBlank()) return@forEachIndexed
                 val key = cacheKey(text)
-                val existing = cached(key)
-                if (existing != null) {
-                    output[index] = candidate.copy(embedding = existing)
-                } else if (text.isNotBlank()) {
-                    pendingIndices.add(index)
-                    pendingTexts.add(text)
-                    pendingKeys.add(key)
+                val inMemory = cached(key)
+                if (inMemory != null) {
+                    output[index] = candidate.copy(embedding = inMemory)
+                } else {
+                    val persisted = vectorStore?.get(candidate.fileItem.path, key, MODEL_VERSION)
+                    if (persisted != null && persisted.size == CloudflareEmbeddingClient.EMBEDDING_DIMENSION) {
+                        cache(key, persisted)
+                        output[index] = candidate.copy(embedding = persisted)
+                    } else {
+                        pendingIndices.add(index)
+                        pendingTexts.add(text)
+                        pendingKeys.add(key)
+                        pendingPaths.add(candidate.fileItem.path)
+                    }
                 }
             }
         }
 
         pendingTexts.indices.chunked(CloudflareEmbeddingClient.MAX_TEXTS).forEach { chunk ->
             val vectors = client.embed(chunk.map { pendingTexts[it] }, "document")
+            val persistedRecords = mutableListOf<EmbeddingVectorRecord>()
             chunk.forEachIndexed { localIndex, sourceIndex ->
                 val vector = vectors[localIndex]
-                cache(pendingKeys[sourceIndex], vector)
+                val key = pendingKeys[sourceIndex]
+                cache(key, vector)
                 output[pendingIndices[sourceIndex]] = output[pendingIndices[sourceIndex]].copy(embedding = vector)
+                persistedRecords.add(
+                    EmbeddingVectorRecord(
+                        filePath = pendingPaths[sourceIndex],
+                        contentHash = key,
+                        modelVersion = MODEL_VERSION,
+                        vector = vector
+                    )
+                )
             }
+            vectorStore?.putAll(persistedRecords)
         }
         return output
     }
@@ -212,5 +238,6 @@ class SemanticSearchPluginImpl(
 
     companion object {
         private const val CACHE_SIZE = 512
+        private const val MODEL_VERSION = "gemini-embedding-2:3:768"
     }
 }
