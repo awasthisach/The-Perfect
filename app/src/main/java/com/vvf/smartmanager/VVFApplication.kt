@@ -252,7 +252,9 @@ class VVFApplication : Application(), Configuration.Provider {
             // Stop in-flight document/query uploads immediately, not merely future WorkManager jobs.
             (semanticSearchPlugin as? SemanticSearchPluginImpl)?.cancelPendingEmbeddingRequests()
             (semanticSearchPlugin as? SemanticSearchPluginImpl)?.clearCachedEmbeddings()
+            val previousClearJob = embeddingClearJob
             embeddingClearJob = applicationScope.launch {
+                previousClearJob?.join()
                 // Work cancellation and persistent-vector deletion are independent privacy
                 // actions: a WorkManager failure must never skip the database cleanup.
                 runCatching {
