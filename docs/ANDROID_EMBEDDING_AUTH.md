@@ -33,4 +33,4 @@ Do not spoof an allowed `Origin` header to bypass the deployed worker's current 
 4. The request uses the Firebase ID token, never the Drive access token.
 5. No API key is present in source, resources, BuildConfig, APK, logs, backups, or exported index.
 6. Embedding timeout/401/403/5xx leaves local keyword and metadata search operational.
-7. Consent revocation prevents future embedding requests and clears the in-memory vector cache. The current implementation does not persist a vector index to disk.
+7. Consent revocation cancels background embedding work, prevents future requests, clears the in-memory cache, and deletes persisted vectors from the encrypted SQLCipher Room table.
