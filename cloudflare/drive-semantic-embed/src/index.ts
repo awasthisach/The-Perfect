@@ -45,6 +45,28 @@ function decodeJsonPart<T>(part: string): T {
   return JSON.parse(new TextDecoder().decode(decodeBase64Url(part))) as T;
 }
 
+
+const jwksCache = new Map<string, { expiresAt: number; keys: JsonWebKey[] }>();
+
+async function getJwks(url: string, forceRefresh = false): Promise<JsonWebKey[] | null> {
+  const cached = jwksCache.get(url);
+  if (!forceRefresh && cached && cached.expiresAt > Date.now()) return cached.keys;
+  try {
+    const response = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!response.ok) return null;
+    const keys = (await response.json() as { keys?: JsonWebKey[] }).keys;
+    if (!Array.isArray(keys) || keys.length === 0) return null;
+    const cacheControl = response.headers.get("Cache-Control") ?? "";
+    const maxAgeMatch = cacheControl.match(/max-age=(\\d+)/i);
+    const serverMaxAge = maxAgeMatch ? Number(maxAgeMatch[1]) : 300;
+    const ttlMs = Math.min(21_600, Math.max(60, serverMaxAge)) * 1000;
+    jwksCache.set(url, { keys, expiresAt: Date.now() + ttlMs });
+    return keys;
+  } catch {
+    return null;
+  }
+}
+
 async function verifyJwt(
   token: string,
   jwksUrl: string,
@@ -58,10 +80,14 @@ async function verifyJwt(
     const header = decodeJsonPart<{ alg?: string; kid?: string; typ?: string }>(parts[0]);
     if (header.alg !== "RS256" || !header.kid || (header.typ && header.typ !== "JWT")) return null;
 
-    const response = await fetch(jwksUrl, { headers: { Accept: "application/json" } });
-    if (!response.ok) return null;
-    const keys = (await response.json() as { keys?: JsonWebKey[] }).keys ?? [];
-    const jwk = keys.find((key) => (key as JsonWebKey & { kid?: string }).kid === header.kid);
+    let keys = await getJwks(jwksUrl);
+    if (!keys) return null;
+    let jwk = keys.find((key) => (key as JsonWebKey & { kid?: string }).kid === header.kid);
+    if (!jwk) {
+      // Refresh once when Google rotates signing keys.
+      keys = await getJwks(jwksUrl, true);
+      jwk = keys?.find((key) => (key as JsonWebKey & { kid?: string }).kid === header.kid);
+    }
     if (!jwk) return null;
 
     const publicKey = await crypto.subtle.importKey(
