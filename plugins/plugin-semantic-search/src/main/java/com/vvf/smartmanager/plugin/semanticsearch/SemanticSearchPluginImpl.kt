@@ -7,61 +7,76 @@ import com.vvf.smartmanager.core.model.SemanticCandidate
 import com.vvf.smartmanager.core.model.SemanticSearchOptions
 import com.vvf.smartmanager.core.model.SemanticSearchResult
 import com.vvf.smartmanager.core.plugin.spi.SemanticSearchSPI
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.security.MessageDigest
+import java.util.LinkedHashMap
 
 /**
- * Fail-closed semantic search adapter. No real neural provider is configured in this build.
- * Search, duplicate clustering, and AI-tag suggestions must not fabricate model output.
+ * Remote neural embedding adapter. Document text leaves the device only after explicit consent.
+ * The Cloudflare worker validates Firebase Auth and App Check; no provider key is stored here.
  */
-class SemanticSearchPluginImpl : SemanticSearchSPI {
+class SemanticSearchPluginImpl(
+    private val client: CloudflareEmbeddingClient = CloudflareEmbeddingClient(),
+    private val isEmbeddingConsentGranted: () -> Boolean = { false }
+) : SemanticSearchSPI {
 
-    @Volatile
-    private var isModelDownloaded: Boolean = false
-
-    override fun isModelReady(): Boolean = isModelDownloaded
-
-    override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean = withContext(Dispatchers.IO) {
-        // No neural model is bundled or safely available from the current app configuration.
-        // Never simulate a successful model download or advertise hash vectors as neural embeddings.
-        isModelDownloaded = false
-        false
+    private val vectorCache = object : LinkedHashMap<String, FloatArray>(CACHE_SIZE, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, FloatArray>?): Boolean =
+            size > CACHE_SIZE
     }
 
-    override suspend fun generateEmbedding(text: String): FloatArray = withContext(Dispatchers.Default) {
-        // No real neural model is configured. Returning a zero-length vector prevents callers
-        // from mistaking deterministic token hashes or handcrafted category buckets for embeddings.
-        FloatArray(0)
+    override fun isModelReady(): Boolean =
+        isEmbeddingConsentGranted() && client.hasSignedInUser()
+
+    override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean = withContext(Dispatchers.IO) {
+        if (!isEmbeddingConsentGranted() || !client.hasSignedInUser()) return@withContext false
+        progressCallback(0f)
+        val ready = client.healthCheck()
+        progressCallback(if (ready) 1f else 0f)
+        ready
+    }
+
+    override suspend fun generateEmbedding(text: String): FloatArray = withContext(Dispatchers.IO) {
+        if (!isModelReady() || text.isBlank()) return@withContext FloatArray(0)
+        val cleanText = text.take(CloudflareEmbeddingClient.MAX_TEXT_CHARS)
+        val key = cacheKey(cleanText)
+        cached(key)?.let { return@withContext it }
+        try {
+            client.embed(listOf(cleanText), "document").single().also { cache(key, it) }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            FloatArray(0)
+        }
     }
 
     override suspend fun searchSimilar(
         query: String,
         candidates: List<SemanticCandidate>,
         options: SemanticSearchOptions
-    ): List<SemanticSearchResult> = withContext(Dispatchers.Default) {
-        if (!isModelReady() || query.isBlank() || candidates.isEmpty()) {
-            return@withContext emptyList()
-        }
-
-        val queryEmbedding = generateEmbedding(query)
-        val results = mutableListOf<SemanticSearchResult>()
-
-        for (candidate in candidates) {
-            val candidateEmbedding = candidate.embedding ?: generateEmbedding(candidate.textContent)
-            val score = computeCosineSimilarity(queryEmbedding, candidateEmbedding)
-
-            if (score >= options.similarityThreshold) {
-                results.add(
-                    SemanticSearchResult(
-                        fileItem = candidate.fileItem,
-                        similarityScore = score,
-                        matchedConcept = null
-                    )
+    ): List<SemanticSearchResult> = withContext(Dispatchers.IO) {
+        if (!isModelReady() || query.isBlank() || candidates.isEmpty()) return@withContext emptyList()
+        try {
+            val queryVector = client.embed(listOf(query.take(500)), "query").single()
+            val embedded = embedCandidates(candidates)
+            embedded.mapNotNull { candidate ->
+                val vector = candidate.embedding ?: return@mapNotNull null
+                val score = computeCosineSimilarity(queryVector, vector)
+                if (score < options.similarityThreshold.coerceIn(0f, 1f)) null
+                else SemanticSearchResult(
+                    fileItem = candidate.fileItem,
+                    similarityScore = score,
+                    matchedConcept = "Neural embedding match"
                 )
-            }
+            }.sortedByDescending { it.similarityScore }.take(options.maxResults.coerceIn(1, 200))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Hybrid use case retains local FTS/metadata results when remote inference fails.
+            emptyList()
         }
-
-        results.sortedByDescending { it.similarityScore }.take(options.maxResults)
     }
 
     override fun computeCosineSimilarity(vectorA: FloatArray, vectorB: FloatArray): Float {
@@ -78,7 +93,6 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
             normB += b * b
         }
         if (normA <= 0.0 || normB <= 0.0) return 0f
-        // Ranking thresholds are expressed on a non-negative 0..1 similarity scale.
         return (dotProduct / (kotlin.math.sqrt(normA) * kotlin.math.sqrt(normB)))
             .toFloat()
             .coerceIn(0f, 1f)
@@ -87,67 +101,106 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
     override suspend fun findNearDuplicates(
         candidates: List<SemanticCandidate>,
         similarityThreshold: Float
-    ): List<NearDuplicateCluster> = withContext(Dispatchers.Default) {
+    ): List<NearDuplicateCluster> = withContext(Dispatchers.IO) {
         if (!isModelReady() || candidates.size < 2) return@withContext emptyList()
+        try {
+            val embedded = embedCandidates(candidates)
+            val visited = mutableSetOf<String>()
+            val clusters = mutableListOf<NearDuplicateCluster>()
+            val threshold = similarityThreshold.coerceIn(0.70f, 0.95f)
 
-        val validThreshold = similarityThreshold.coerceIn(0.70f, 0.95f)
-
-        val candidateWithEmbeddings = candidates.map { candidate ->
-            val emb = candidate.embedding ?: generateEmbedding(candidate.textContent)
-            candidate.copy(embedding = emb)
-        }
-
-        val visited = mutableSetOf<String>()
-        val clusters = mutableListOf<NearDuplicateCluster>()
-
-        for (i in candidateWithEmbeddings.indices) {
-            val base = candidateWithEmbeddings[i]
-            if (visited.contains(base.fileItem.path)) continue
-
-            val baseEmb = base.embedding ?: continue
-            val similarFiles = mutableListOf<FileItem>()
-            var similaritySum = 0f
-
-            for (j in (i + 1) until candidateWithEmbeddings.size) {
-                val target = candidateWithEmbeddings[j]
-                if (visited.contains(target.fileItem.path)) continue
-
-                val targetEmb = target.embedding ?: continue
-                val score = computeCosineSimilarity(baseEmb, targetEmb)
-
-                if (score >= validThreshold) {
-                    similarFiles.add(target.fileItem)
-                    similaritySum += score
-                    visited.add(target.fileItem.path)
+            for (i in embedded.indices) {
+                val base = embedded[i]
+                if (base.embedding == null || base.fileItem.path in visited) continue
+                val similar = mutableListOf<FileItem>()
+                var sum = 0f
+                for (j in i + 1 until embedded.size) {
+                    val other = embedded[j]
+                    val vector = other.embedding ?: continue
+                    if (other.fileItem.path in visited) continue
+                    val score = computeCosineSimilarity(base.embedding, vector)
+                    if (score >= threshold) {
+                        similar.add(other.fileItem)
+                        sum += score
+                        visited.add(other.fileItem.path)
+                    }
+                }
+                if (similar.isNotEmpty()) {
+                    visited.add(base.fileItem.path)
+                    val all = (listOf(base.fileItem) + similar).sortedBy { it.lastModified }
+                    clusters.add(
+                        NearDuplicateCluster(
+                            id = "cluster_${cacheKey(base.fileItem.path).take(16)}",
+                            baseFile = all.first(),
+                            similarFiles = all.drop(1),
+                            averageSimilarity = sum / similar.size,
+                            selectedPaths = emptySet()
+                        )
+                    )
                 }
             }
-
-            if (similarFiles.isNotEmpty()) {
-                visited.add(base.fileItem.path)
-                val avgScore = similaritySum / similarFiles.size
-                val allSorted = (listOf(base.fileItem) + similarFiles).sortedBy { it.lastModified }
-                val defaultSelected = emptySet<String>()
-
-                clusters.add(
-                    NearDuplicateCluster(
-                        id = "cluster_${base.fileItem.path.hashCode()}",
-                        baseFile = allSorted.first(),
-                        similarFiles = allSorted.drop(1),
-                        averageSimilarity = avgScore,
-                        selectedPaths = defaultSelected
-                    )
-                )
-            }
+            clusters.sortedByDescending { it.averageSimilarity }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            emptyList()
         }
-
-        clusters.sortedByDescending { it.averageSimilarity }
     }
 
     override suspend fun suggestTags(candidate: SemanticCandidate): List<AiSuggestedTag> =
         withContext(Dispatchers.Default) {
-            // Handwritten keyword rules with invented confidence scores are not AI output.
-            // Return no model suggestions until a real provider is authenticated and configured.
+            // Tag generation is intentionally unavailable until a separately evaluated model
+            // contract is implemented; don't label heuristics as AI output.
             emptyList()
         }
 
+    private suspend fun embedCandidates(candidates: List<SemanticCandidate>): List<SemanticCandidate> {
+        val output = candidates.toMutableList()
+        val pendingIndices = mutableListOf<Int>()
+        val pendingTexts = mutableListOf<String>()
+        val pendingKeys = mutableListOf<String>()
+
+        candidates.forEachIndexed { index, candidate ->
+            val supplied = candidate.embedding?.takeIf { it.size == CloudflareEmbeddingClient.EMBEDDING_DIMENSION }
+            if (supplied != null) {
+                output[index] = candidate.copy(embedding = supplied)
+            } else {
+                val text = candidate.textContent.take(CloudflareEmbeddingClient.MAX_TEXT_CHARS)
+                val key = cacheKey(text)
+                val existing = cached(key)
+                if (existing != null) {
+                    output[index] = candidate.copy(embedding = existing)
+                } else if (text.isNotBlank()) {
+                    pendingIndices.add(index)
+                    pendingTexts.add(text)
+                    pendingKeys.add(key)
+                }
+            }
+        }
+
+        pendingTexts.indices.chunked(CloudflareEmbeddingClient.MAX_TEXTS).forEach { chunk ->
+            val vectors = client.embed(chunk.map { pendingTexts[it] }, "document")
+            chunk.forEachIndexed { localIndex, sourceIndex ->
+                val vector = vectors[localIndex]
+                cache(pendingKeys[sourceIndex], vector)
+                output[pendingIndices[sourceIndex]] = output[pendingIndices[sourceIndex]].copy(embedding = vector)
+            }
+        }
+        return output
+    }
+
+    private fun cacheKey(text: String): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(text.toByteArray(Charsets.UTF_8))
+            .joinToString("") { byte -> "%02x".format(byte) }
+
+    private fun cached(key: String): FloatArray? = synchronized(vectorCache) { vectorCache[key]?.copyOf() }
+
+    private fun cache(key: String, vector: FloatArray) {
+        synchronized(vectorCache) { vectorCache[key] = vector.copyOf() }
+    }
+
+    companion object {
+        private const val CACHE_SIZE = 256
+    }
 }
