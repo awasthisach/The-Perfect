@@ -12,6 +12,8 @@ import okhttp3.MultipartBody
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
@@ -138,9 +140,13 @@ class GoogleDriveServiceImpl(
                 }
 
                 val parent = resolveFolderId(remoteFolderId)
-                val safeName = file.name.replace("\\", "\\\\").replace("\"", "\\\"")
                 val localSha256 = calculateSha256(file)
-                val metadataJson = """{"name":"$safeName","parents":["$parent"],"appProperties":{"vvfSha256":"$localSha256"}}"""
+                // Serialize metadata as JSON; filenames and folder IDs may contain control characters.
+                val metadataJson = JSONObject()
+                    .put("name", file.name)
+                    .put("parents", JSONArray().put(parent))
+                    .put("appProperties", JSONObject().put("vvfSha256", localSha256))
+                    .toString()
                 val mediaType = (localFile.mimeType?.takeIf { it.isNotBlank() } ?: "application/octet-stream")
                     .toMediaType()
 
