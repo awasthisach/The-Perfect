@@ -20,6 +20,7 @@ import com.vvf.smartmanager.core.model.SemanticSearchOptions
 import com.vvf.smartmanager.core.model.SemanticSearchResult
 import com.vvf.smartmanager.core.model.SizeFilter
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -55,9 +56,9 @@ class SearchViewModel(
     private val _snackbarMessage = MutableStateFlow<String?>(null)
     private val _isSearching = MutableStateFlow(false)
     private val _semanticResults = MutableStateFlow<List<SemanticSearchResult>>(emptyList())
-    // Neural ranking is unavailable until authenticated provider + explicit consent are implemented.
-    // Default off prevents accidental embedding calls or implying neural search is active.
+    // Neural ranking is always opt-in in the search UI and also requires Settings consent.
     private val _isSemanticEnabled = MutableStateFlow(false)
+    private var semanticSearchJob: Job? = null
     private val _semanticSimilarityThreshold = MutableStateFlow(0.80f)
 
     private val _searchHistory = searchHistoryUseCase.getHistory()
@@ -84,19 +85,19 @@ class SearchViewModel(
         }
 
     private fun triggerSemanticSearch(query: String, threshold: Float = _semanticSimilarityThreshold.value) {
-        if (
-            query.isBlank() ||
-            semanticSearchUseCase == null ||
-            !_isSemanticEnabled.value ||
-            !semanticSearchUseCase.isPluginReady()
-        ) {
-            // The use case deliberately retains lexical results as a fallback. Do not pass those
-            // fallback rows through the semantic-results channel, where the UI would mislabel
-            // ordinary keyword matches as neural matches.
+        semanticSearchJob?.cancel()
+        if (query.isBlank() || semanticSearchUseCase == null || !_isSemanticEnabled.value) {
+            // Never label ordinary keyword fallback rows as neural matches.
             _semanticResults.value = emptyList()
             return
         }
-        viewModelScope.launch {
+        if (!semanticSearchUseCase.isPluginReady()) {
+            // Consent may have been revoked or the linked Firebase session may have ended.
+            _isSemanticEnabled.value = false
+            _semanticResults.value = emptyList()
+            return
+        }
+        semanticSearchJob = viewModelScope.launch {
             try {
                 val results = semanticSearchUseCase.searchSemantically(
                     query = query,
@@ -208,12 +209,20 @@ class SearchViewModel(
     }
 
     fun setSemanticEnabled(enabled: Boolean) {
-        _isSemanticEnabled.value = enabled
         if (!enabled) {
+            semanticSearchJob?.cancel()
+            _isSemanticEnabled.value = false
             _semanticResults.value = emptyList()
-        } else if (_searchQuery.value.isNotBlank()) {
-            triggerSemanticSearch(_searchQuery.value)
+            return
         }
+        if (semanticSearchUseCase?.isPluginReady() != true) {
+            _isSemanticEnabled.value = false
+            _semanticResults.value = emptyList()
+            _snackbarMessage.value = "Enable Neural Search Privacy consent and sign in before using neural ranking."
+            return
+        }
+        _isSemanticEnabled.value = true
+        if (_searchQuery.value.isNotBlank()) triggerSemanticSearch(_searchQuery.value)
     }
 
     fun onHistoryItemClicked(historyQuery: String) {
