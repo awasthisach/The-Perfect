@@ -38,9 +38,6 @@ fun CloudRoute(
                 viewModel.beginGoogleDriveSignIn()
                 onGoogleDriveSignInRequested()
             },
-            onSkipToProviders = {
-                viewModel.selectProvider(CloudProviderType.ONE_DRIVE)
-            },
             modifier = modifier
         )
         return
