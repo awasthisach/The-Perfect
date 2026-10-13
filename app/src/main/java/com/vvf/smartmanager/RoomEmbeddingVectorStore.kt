@@ -29,8 +29,8 @@ class RoomEmbeddingVectorStore(
         val byPath = requests.associateBy { it.filePath }
         val vectors = LinkedHashMap<String, FloatArray>()
         requests.map { it.filePath }.distinct().chunked(SQLITE_BIND_BATCH_SIZE).forEach { paths ->
-            dao.getByPaths(paths).forEach { row ->
-                val request = byPath[row.filePath] ?: return@forEach
+            dao.getByPaths(paths).forEach rowLoop@{ row ->
+                val request = byPath[row.filePath] ?: return@rowLoop
                 decode(row, request.contentHash, request.modelVersion)?.let { vectors[row.filePath] = it }
             }
         }
