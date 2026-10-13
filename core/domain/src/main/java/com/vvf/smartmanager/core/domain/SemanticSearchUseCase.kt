@@ -110,7 +110,7 @@ class SemanticSearchUseCase(
         if (file.tags.isNotEmpty() || file.mimeType != null) 0.5f else 0.25f
 
     companion object {
-        private const val CANDIDATE_LIMIT = 5_000
+        private const val CANDIDATE_LIMIT = 2_000
         private const val MAX_CANDIDATE_TEXT_CHARS = 4_000
     }
 }
