@@ -12,9 +12,6 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.vvf.smartmanager.core.background.workers.FileIndexingOutcome
-import com.vvf.smartmanager.core.background.workers.FileIndexingRuntime
-import com.vvf.smartmanager.core.background.workers.CloudBackupBootstrap
-import com.vvf.smartmanager.core.background.workers.JunkScanBootstrap
 import com.vvf.smartmanager.core.background.BackgroundSyncManager
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveServiceImpl
@@ -447,23 +444,10 @@ class VVFApplication : Application(), Configuration.Provider {
             },
             cloudSyncDao = database.cloudSyncDao()
         )
+        // Drive Semantic Search indexes only the signed-in user's Drive corpus. Do not
+        // silently start legacy whole-device file indexing, junk scans, or cloud backups.
         backgroundSyncManager = BackgroundSyncManager(this)
-        FileIndexingRuntime.configure { indexPrimaryStorageForSearch() }
-        CloudBackupBootstrap.wire(cloudSyncUseCase)
-        JunkScanBootstrap.wire(junkCleanerUseCase)
         OcrBatchBootstrap.wire(database, ocrPlugin, ocrIndexingService)
-        val bgExceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
-            Log.e(TAG, "Background sync scheduling failed safely", throwable)
-        }
-        applicationScope.launch(bgExceptionHandler) {
-            try {
-                backgroundSyncManager.schedulePeriodicIndexing(intervalHours = 6L)
-                backgroundSyncManager.triggerImmediateIndexing()
-                backgroundSyncManager.schedulePeriodicJunkScan(intervalHours = 12L)
-            } catch (e: Throwable) {
-                Log.e(TAG, "Background sync scheduling failed", e)
-            }
-        }
     }
 
     private suspend fun indexPrimaryStorageForSearch(): FileIndexingOutcome {
