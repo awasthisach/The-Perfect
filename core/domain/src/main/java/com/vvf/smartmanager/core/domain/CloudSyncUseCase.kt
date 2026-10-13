@@ -168,7 +168,8 @@ class CloudSyncUseCase(
                                     localPath = "backup://${artifact.backupInfo.backupName}",
                                     remoteId = durableId,
                                     provider = providerType.name,
-                                    status = "SYNCED"
+                                    status = "SYNCED",
+                                    checksumSha256 = artifact.backupInfo.checksumSha256
                                 )
                                 _syncState.value = CloudSyncStatus.SUCCESS
                                 Result.success(artifact.backupInfo.copy(backupId = durableId))
@@ -212,7 +213,13 @@ class CloudSyncUseCase(
             return Result.failure(IllegalArgumentException("Backup id is blank; refusing restore"))
         }
         _syncState.value = CloudSyncStatus.DOWNLOADING
-        return pipeline.restore(backupInfo.backupId, backupInfo.checksumSha256).fold(
+        val suppliedChecksum = backupInfo.checksumSha256?.takeIf(::isSha256)
+        val persistedChecksum = if (suppliedChecksum == null) {
+            cloudSyncDao?.getRecordByRemoteId(backupInfo.backupId, CloudProviderType.GOOGLE_DRIVE.name)
+                ?.checksumSha256?.takeIf(::isSha256)
+        } else null
+        val trustedChecksum = suppliedChecksum ?: persistedChecksum
+        return pipeline.restore(backupInfo.backupId, trustedChecksum).fold(
             onSuccess = { result: RestoreResult ->
                 if (result.success) {
                     _syncState.value = CloudSyncStatus.SUCCESS
@@ -253,7 +260,8 @@ class CloudSyncUseCase(
                 localPath = fileItem.path,
                 remoteId = remoteId,
                 provider = providerType.name,
-                status = "SYNCED"
+                status = "SYNCED",
+                checksumSha256 = calculateSha256IfFile(fileItem.path)
             )
             val syncItem = CloudSyncItem(
                 id = itemId,
@@ -275,7 +283,8 @@ class CloudSyncUseCase(
                     remoteId = existing?.remoteFileId,
                     provider = providerType.name,
                     status = "ERROR",
-                    errorMessage = error.message
+                    errorMessage = error.message,
+                    checksumSha256 = existing?.checksumSha256
                 )
             }
             val failed = CloudSyncItem(
@@ -293,12 +302,30 @@ class CloudSyncUseCase(
         }
     }
 
+    private fun isSha256(value: String): Boolean = value.matches(Regex("^[a-fA-F0-9]{64}$"))
+
+    private fun calculateSha256IfFile(path: String): String? {
+        val file = java.io.File(path)
+        if (!file.isFile) return null
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(8192)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
     private suspend fun persistSyncRecord(
         localPath: String,
         remoteId: String?,
         provider: String,
         status: String,
-        errorMessage: String? = null
+        errorMessage: String? = null,
+        checksumSha256: String? = null
     ) {
         val dao = cloudSyncDao ?: throw IllegalStateException(
             "Durable cloud sync unavailable: CloudSyncDao is not configured; refusing to report success without persisted remote identity"
@@ -312,7 +339,8 @@ class CloudSyncUseCase(
                 provider = provider,
                 status = status,
                 lastSyncedAt = System.currentTimeMillis(),
-                errorMessage = errorMessage
+                errorMessage = errorMessage,
+                checksumSha256 = checksumSha256
             )
         )
     }
