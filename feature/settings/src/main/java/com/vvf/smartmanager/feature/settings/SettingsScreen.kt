@@ -209,7 +209,7 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showEmbeddingConsentDialog = false },
             title = { Text("Allow optional neural embeddings?") },
-            text = { Text("If enabled, search queries and extracted text from candidate Drive files may be sent over HTTPS to the Cloudflare embedding Worker and Google Gemini to create meaning-based vectors. The app sends a Firebase ID token and Android App Check token, never your Drive access token or a Gemini API key. This is cloud processing, not on-device-only search. Neural requests remain blocked unless the authenticated Worker is deployed and verified. You can revoke consent at any time; local keyword, full-text, and metadata search remain available without it.") },
+            text = { Text("If enabled, search queries and extracted text from indexed candidate files (including Drive files, when indexed) may be sent over HTTPS to the Cloudflare embedding Worker and Google Gemini to create meaning-based vectors. The app sends a Firebase ID token and Android App Check token, never your Drive access token or a Gemini API key. This is cloud processing, not on-device-only search. Neural requests remain blocked unless the authenticated Worker is deployed and verified. You can revoke consent at any time; local keyword, full-text, and metadata search remain available without it.") },
             confirmButton = {
                 TextButton(onClick = {
                     embeddingConsent = true
