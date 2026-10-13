@@ -257,16 +257,15 @@ jobs:
           fi
           ANALYZE="${{ steps.fossa_analyze.outcome }}"
           TEST="${{ steps.fossa_test.outcome }}"
-          if [ "$ANALYZE" = "success" ]; then
-            if [ "$TEST" = "success" ]; then
-              echo '{"gate_id":"GATE-LICENSE-001","status":"PASS","reason":"fossa analyze + fossa test succeeded"}' > foss-status.json
-            else
-              echo '{"gate_id":"GATE-LICENSE-001","status":"PASS","reason":"fossa analyze succeeded; fossa test advisory fail (outdated dependencies)"}' > foss-status.json
-              echo "::warning::FOSSA test advisory fail; analyze gate remains PASS."
-            fi
-          else
+          if [ "$ANALYZE" = "success" ] && [ "$TEST" = "success" ]; then
+            echo '{"gate_id":"GATE-LICENSE-001","status":"PASS","reason":"fossa analyze and fossa test both succeeded"}' > foss-status.json
+          elif [ "$ANALYZE" != "success" ]; then
             echo '{"gate_id":"GATE-LICENSE-001","status":"BLOCKED","reason":"FOSSA analyze failed"}' > foss-status.json
             echo "::error::FOSSA analyze failed; license gate is BLOCKED."
+            exit 1
+          else
+            echo '{"gate_id":"GATE-LICENSE-001","status":"BLOCKED","reason":"FOSSA test reported findings; issue details require a full-access FOSSA API key and findings must be triaged"}' > foss-status.json
+            echo "::error::FOSSA test reported findings; release gate is BLOCKED until findings are visible and triaged."
             exit 1
           fi
       - name: Upload FOSSA gate status
