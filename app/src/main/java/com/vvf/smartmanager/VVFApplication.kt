@@ -399,19 +399,52 @@ class VVFApplication : Application(), Configuration.Provider {
             vectorStore = embeddingVectorStore,
             isEmbeddingConsentGranted = { isEmbeddingConsentEnabled() }
         )
-        // Consent defaults off; remove any vectors left by an earlier version or interrupted revocation.
-        if (!isEmbeddingConsentEnabled()) {
+        // Reconcile privacy preferences before any background embedding job can upload stored text.
+        val neuralConsentAtStartup = isEmbeddingConsentEnabled()
+        val fullContentConsentAtStartup = isDriveFullContentConsentEnabled()
+        if (!neuralConsentAtStartup || !fullContentConsentAtStartup) {
             embeddingClearJob = applicationScope.launch {
                 if (!jvmUnitTest) {
                     runCatching {
                         WorkManager.getInstance(this@VVFApplication)
                             .cancelAllWorkByTag(SemanticEmbeddingIndexWorker.WORK_TAG)
+                    }.onFailure { error ->
+                        Log.w(TAG, "Could not cancel stale semantic indexing during privacy reconciliation", error)
                     }
                 }
-                runCatching { embeddingVectorStore.clear() }
+                var textClearSucceeded = true
+                if (!fullContentConsentAtStartup) {
+                    runCatching {
+                        database.fileDao().clearDriveFullContentText(
+                            listOf(
+                                DriveOfficeTextExtractor.DOCX,
+                                DriveOfficeTextExtractor.XLSX,
+                                DriveOfficeTextExtractor.PPTX
+                            )
+                        )
+                        database.searchFtsDao().rebuildFtsIndex()
+                    }.onFailure { error ->
+                        textClearSucceeded = false
+                        Log.e(TAG, "Could not reconcile revoked full-content consent at startup", error)
+                    }
+                }
+                var vectorsClearSucceeded = true
+                if (!neuralConsentAtStartup || !fullContentConsentAtStartup) {
+                    runCatching { embeddingVectorStore.clear() }.onFailure { error ->
+                        vectorsClearSucceeded = false
+                        Log.e(TAG, "Could not reconcile stale neural vectors at startup", error)
+                    }
+                }
+                // If neural consent is still enabled, rebuild only after old extracted text and
+                // its vectors have been removed. The worker re-checks full-content consent too.
+                if (textClearSucceeded && vectorsClearSucceeded &&
+                    isEmbeddingConsentEnabled() && !jvmUnitTest
+                ) {
+                    enqueueSemanticEmbeddingIndexing()
+                }
             }
         } else if (!jvmUnitTest) {
-            // Resume bounded background indexing after process death if consent and sign-in remain active.
+            // Resume bounded background indexing after process death if both consent settings remain active.
             enqueueSemanticEmbeddingIndexing()
         }
         semanticSearchUseCase = SemanticSearchUseCase(
