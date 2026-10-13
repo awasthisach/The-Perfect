@@ -10,7 +10,6 @@ import com.vvf.smartmanager.core.model.CloudProviderType
 import com.vvf.smartmanager.core.model.CloudSyncStatus
 import com.vvf.smartmanager.core.model.FileItem
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -133,7 +132,11 @@ class CloudSyncIntegrationTest {
         whenever(archive.createArchive(includeVault = false, includeDatabase = true)).thenReturn(
             Result.success(artifact(artifactFile))
         )
-        val useCase = CloudSyncUseCase(drive, archiveService = archive)
+        val useCase = CloudSyncUseCase(
+            drive,
+            archiveService = archive,
+            cloudSyncDao = RecordingCloudSyncDao()
+        )
 
         val result = useCase.createCloudBackup(CloudProviderType.GOOGLE_DRIVE)
 
