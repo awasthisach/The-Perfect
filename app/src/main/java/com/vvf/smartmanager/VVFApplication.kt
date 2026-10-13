@@ -264,6 +264,14 @@ class VVFApplication : Application(), Configuration.Provider {
 
     /** Starts bounded background vector generation only when consent and Firebase sign-in are active. */
     fun enqueueSemanticEmbeddingIndexing() {
+        // Never let a sync completion race privacy cleanup and queue stale extracted text.
+        if (embeddingClearJob?.isActive == true) {
+            applicationScope.launch {
+                while (embeddingClearJob?.isActive == true) embeddingClearJob?.join()
+                enqueueSemanticEmbeddingIndexing()
+            }
+            return
+        }
         if (CryptoSecurityManager.isJvmUnitTestEnvironment(this) ||
             !isEmbeddingConsentEnabled() || !::database.isInitialized || !::semanticSearchPlugin.isInitialized
         ) return
