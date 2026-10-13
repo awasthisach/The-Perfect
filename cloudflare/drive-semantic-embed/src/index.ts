@@ -57,7 +57,7 @@ async function getJwks(url: string, forceRefresh = false): Promise<JsonWebKey[] 
     const keys = (await response.json() as { keys?: JsonWebKey[] }).keys;
     if (!Array.isArray(keys) || keys.length === 0) return null;
     const cacheControl = response.headers.get("Cache-Control") ?? "";
-    const maxAgeMatch = cacheControl.match(/max-age=(\\d+)/i);
+    const maxAgeMatch = cacheControl.match(/max-age=(\d+)/i);
     const serverMaxAge = maxAgeMatch ? Number(maxAgeMatch[1]) : 300;
     const ttlMs = Math.min(21_600, Math.max(60, serverMaxAge)) * 1000;
     jwksCache.set(url, { keys, expiresAt: Date.now() + ttlMs });
