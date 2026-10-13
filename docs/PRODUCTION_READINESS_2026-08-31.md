@@ -23,7 +23,7 @@ The modular Clean Architecture intent is real, but the source does not support c
 |---|---|---|---|
 | PROD-001 | Critical | A reusable debug keystore and credentials were embedded in Gradle source, enabling shared debug signing. | **Source remediation on red-team branch: embedded bytes/password/alias removed; Android default debug signing restored. Historical Git objects and Google OAuth SHA configuration still require review/rotation.** |
 | PROD-002 | Critical | Cloud restore must be verified end-to-end, including production wiring and real backup recovery. | **Implementation exists (`FailClosedRestorePipeline`: download → checksum verification → isolated decrypt/staging → snapshot/apply/rollback) with unit tests. Production composition-root wiring, concrete provider adapters, clean-device recovery drill and durable rollback evidence are not yet verified.** |
-| PROD-003 | High | Cloud upload must return and persist a durable provider ID. | **The current `CloudSyncUseCase` consumes `uploaded.remoteId`, rejects blank IDs via `DurableUploadContract`, and persists mappings in `CloudSyncDao`. Verify the actual SPI declaration and each real provider adapter/round-trip; the old Boolean-only claim is stale relative to the current call sites.** |
+| PROD-003 | High | Cloud upload must return and persist a durable provider ID. | **Code hardening added on the red-team branch: blank IDs are rejected; missing DAO now fails closed rather than reporting success; backup SHA-256 is persisted in `CloudSyncEntity` with a Room 2→3 migration and can be recovered by provider ID for restore. Production Google Drive/provider round-trip, migration from real v2 SQLCipher databases, process-death recovery, and each plugin adapter still require CI/device evidence.** |
 | PROD-004 | High | Manual dependency graph is concentrated in `VVFApplication` and ViewModel factories. | Open |
 | PROD-005 | High | CI previously produced a debug-signed release artifact. | **Fixed on hardening branch** |
 | PROD-006 | High | Fresh build verification is unavailable in the audit sandbox. | Open; CI required |
@@ -39,7 +39,7 @@ The modular Clean Architecture intent is real, but the source does not support c
 
 - Removed the embedded shared debug-keystore bytes and hard-coded password/alias from `app/build.gradle.kts`; Android Gradle's standard local debug keystore is now used.
 - This does not purge historical commits. Consider the former key compromised; review the Google OAuth Android client fingerprints and replace the exposed signing identity where it is registered.
-- Cloud restore, durable provider IDs, storage permission review and complete workflow supply-chain audit remain open. The release workflow now pins FOSSA CLI v3.17.16 and verifies its published SHA-256 checksum; this is partial supply-chain hardening, not a completed full audit.
+- Cloud restore, durable provider IDs, storage permission review and complete workflow supply-chain audit remain open pending verification. The red-team branch now requires trusted SHA-256 checksums, re-hashes downloaded restore bytes, cleans downloaded artifacts, persists backup checksums through a Room 2→3 migration, and fails closed when durable ID persistence is unavailable. The release workflow now pins FOSSA CLI v3.17.16 and verifies its published SHA-256 checksum; this is partial supply-chain hardening, not a completed full audit.
 
 
 - Release signing now requires explicit `KEYSTORE_PATH`, `STORE_PASSWORD`, and `KEY_PASSWORD`; no debug fallback is permitted.
