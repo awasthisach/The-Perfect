@@ -211,6 +211,6 @@ class SemanticSearchPluginImpl(
     }
 
     companion object {
-        private const val CACHE_SIZE = 256
+        private const val CACHE_SIZE = 512
     }
 }
