@@ -3,6 +3,8 @@ package com.vvf.smartmanager
 import android.app.Activity
 import android.content.Intent
 import androidx.activity.result.contract.ActivityResultContracts
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 import androidx.lifecycle.lifecycleScope
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
 import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
@@ -72,8 +74,9 @@ import com.vvf.smartmanager.ui.theme.CosmicBlue
 import com.vvf.smartmanager.ui.theme.VVFSmartManagerTheme
 
 /** Single-Activity Entry Point for VVF Smart Manager. */
+@AndroidEntryPoint
 class MainActivity : FragmentActivity() {
-    private lateinit var googleDriveAuth: GoogleDriveAuth
+    @Inject lateinit var googleDriveAuth: GoogleDriveAuth
 
     /**
      * Activity-scoped OAuth completion handler (not Application-held), so config changes
@@ -103,7 +106,6 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        googleDriveAuth = GoogleDriveAuth(this, BuildConfig.GOOGLE_WEB_CLIENT_ID)
         enableEdgeToEdge()
         setContent {
             VVFSmartManagerTheme {
