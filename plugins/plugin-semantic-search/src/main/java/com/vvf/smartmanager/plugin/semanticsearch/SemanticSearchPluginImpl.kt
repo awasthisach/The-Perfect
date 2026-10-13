@@ -220,7 +220,8 @@ class SemanticSearchPluginImpl(
                 }.take(CloudflareEmbeddingClient.MAX_TEXT_CHARS)
                 candidate.copy(
                     fileItem = candidate.fileItem.copy(indexedText = ""),
-                    textContent = safeText
+                    textContent = safeText,
+                    embedding = null
                 )
             }
         }
