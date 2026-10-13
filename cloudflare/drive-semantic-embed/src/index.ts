@@ -78,7 +78,7 @@ async function verifyJwt(
     const parts = token.split(".");
     if (parts.length !== 3) return null;
     const header = decodeJsonPart<{ alg?: string; kid?: string; typ?: string }>(parts[0]);
-    if (header.alg !== "RS256" || !header.kid || (header.typ && header.typ !== "JWT")) return null;
+    if (header.alg !== "RS256" || header.typ !== "JWT" || !header.kid) return null;
 
     let keys = await getJwks(jwksUrl);
     if (!keys) return null;
