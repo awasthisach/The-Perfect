@@ -223,13 +223,30 @@ class CloudSyncUseCase(
             _syncState.value = CloudSyncStatus.ERROR
             return Result.failure(error)
         }
-        if (suppliedChecksum != null && persistedChecksum != null &&
-            !suppliedChecksum.equals(persistedChecksum, ignoreCase = true)
-        ) {
+        val remoteChecksum = if (persistedChecksum == null) {
+            try {
+                googleDriveService.getFileSha256(backupInfo.backupId).getOrElse { error ->
+                    if (error is CancellationException) throw error
+                    _syncState.value = CloudSyncStatus.ERROR
+                    return Result.failure(error)
+                }.takeIf(::isSha256)
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                _syncState.value = CloudSyncStatus.ERROR
+                return Result.failure(error)
+            }
+        } else null
+        val trustedChecksum = persistedChecksum ?: remoteChecksum
+        if (trustedChecksum == null) {
             _syncState.value = CloudSyncStatus.ERROR
-            return Result.failure(ChecksumMismatchException(persistedChecksum, suppliedChecksum))
+            return Result.failure(
+                IllegalStateException("No trusted SHA-256 is available locally or in Google Drive metadata; refusing restore")
+            )
         }
-        val trustedChecksum = persistedChecksum ?: suppliedChecksum
+        if (suppliedChecksum != null && !suppliedChecksum.equals(trustedChecksum, ignoreCase = true)) {
+            _syncState.value = CloudSyncStatus.ERROR
+            return Result.failure(ChecksumMismatchException(trustedChecksum, suppliedChecksum))
+        }
         return pipeline.restore(backupInfo.backupId, trustedChecksum).fold(
             onSuccess = { result: RestoreResult ->
                 if (result.success) {
