@@ -228,12 +228,21 @@ export default {
     }
 
     if (request.method === "GET" && url.pathname === "/") {
+      const dimension = Number(env.EMBEDDING_DIMENSION || 768);
+      const configured = Boolean(
+        env.FIREBASE_PROJECT_ID &&
+        env.FIREBASE_PROJECT_NUMBER &&
+        env.FIREBASE_APP_ID &&
+        env.GEMINI_API_KEY &&
+        Number.isInteger(dimension) &&
+        dimension === 768
+      );
       return json({
-        ok: true,
+        ok: configured,
         model: env.EMBEDDING_MODEL || "gemini-embedding-2",
         version: env.EMBEDDING_VERSION || "3",
-        dimension: Number(env.EMBEDDING_DIMENSION || 768)
-      }, 200, cors);
+        dimension
+      }, configured ? 200 : 503, cors);
     }
 
     if (request.method !== "POST" || url.pathname !== "/embed") {
