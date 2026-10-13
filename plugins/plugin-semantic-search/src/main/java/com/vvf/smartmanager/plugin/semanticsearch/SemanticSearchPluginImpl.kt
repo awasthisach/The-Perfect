@@ -247,6 +247,11 @@ class SemanticSearchPluginImpl(
                     )
                 )
             }
+            // Commit each completed remote batch so a later retry resumes from persisted vectors.
+            if (recordsToPersist.isNotEmpty()) {
+                vectorStore?.putAll(recordsToPersist)
+                recordsToPersist.clear()
+            }
         }
         recordsToPersist.chunked(CloudflareEmbeddingClient.MAX_TEXTS).forEach { batch ->
             vectorStore?.putAll(batch)
