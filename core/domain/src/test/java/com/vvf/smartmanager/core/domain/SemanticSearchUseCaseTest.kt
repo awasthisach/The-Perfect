@@ -170,6 +170,31 @@ class SemanticSearchUseCaseTest {
 
 
     @Test
+    fun semanticConsentOffNeverSendsIndexedDocumentTextToProvider() = runBlocking {
+        val file = FileItem(
+            path = "gdrive://drive-file-private",
+            name = "private-notes.txt",
+            sizeBytes = 300L,
+            lastModified = 1L,
+            isDirectory = false,
+            mimeType = "text/plain",
+            indexedText = "Private document contents must not leave the device without consent."
+        )
+        val engine = FakeSemanticEngine()
+        val searchRepo = FakeSearchRepo(recentIndexedFiles = listOf(file))
+        val useCase = SemanticSearchUseCase(
+            engine,
+            searchRepo,
+            FakeFileManagerRepo(),
+            isEmbeddingConsentGranted = { false }
+        )
+
+        useCase.searchSemantically("private document")
+
+        assertTrue("No candidate text may be sent when consent is off", engine.capturedCandidates.isEmpty())
+    }
+
+    @Test
     fun consentedSemanticCandidatesIncludeExtractedDocumentText() = runBlocking {
         val file = FileItem(
             path = "gdrive://drive-file-content",
