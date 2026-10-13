@@ -124,9 +124,14 @@ class SemanticSearchPluginImpl(
         candidates: List<SemanticCandidate>,
         similarityThreshold: Float
     ): List<NearDuplicateCluster> = withContext(Dispatchers.IO) {
-        if (!isModelReady() || candidates.size < 2) return@withContext emptyList()
+        // Neural similarity is scoped to the consented Drive corpus; never upload local-device file text.
+        val driveCandidates = candidates.filter { it.fileItem.path.startsWith("gdrive://") }
+        if (!isModelReady() || driveCandidates.size < 2) return@withContext emptyList()
         try {
-            val embedded = embedCandidates(candidates, embedMissing = candidates.size <= ON_DEMAND_CANDIDATE_LIMIT).candidates
+            val embedded = embedCandidates(
+                driveCandidates,
+                embedMissing = driveCandidates.size <= ON_DEMAND_CANDIDATE_LIMIT
+            ).candidates
             ensureConsent()
             val visited = mutableSetOf<String>()
             val clusters = mutableListOf<NearDuplicateCluster>()
