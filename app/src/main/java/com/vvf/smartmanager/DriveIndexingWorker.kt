@@ -125,6 +125,8 @@ class DriveIndexingWorker(
                             batch.forEach { stalePath ->
                                 app.database.fileDao().getByPath(stalePath)?.offlineLocalPath
                                     ?.let { java.io.File(it).delete() }
+                                // Keep the encrypted vector store in sync with the local Drive corpus.
+                                app.database.semanticEmbeddingDao().deleteByPath(stalePath)
                             }
                             app.database.fileDao().deleteStaleByPaths(batch)
                         }
@@ -172,6 +174,7 @@ class DriveIndexingWorker(
                             app.database.fileDao().getByPath(removedPath)?.offlineLocalPath
                                 ?.let { java.io.File(it).delete() }
                             app.database.fileDao().deleteByPath(removedPath)
+                            app.database.semanticEmbeddingDao().deleteByPath(removedPath)
                         } else {
                             change.file?.let { dto -> upsertDriveFile(app, dto.toFileItem()) }
                         }
