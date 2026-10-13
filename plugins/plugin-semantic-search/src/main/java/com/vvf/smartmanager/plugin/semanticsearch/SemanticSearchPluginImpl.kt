@@ -82,6 +82,7 @@ class SemanticSearchPluginImpl(
         try {
             val queryVector = client.embed(listOf(query.take(500)), "query").single()
             val embedded = embedCandidates(candidates, embedMissing = candidates.size <= ON_DEMAND_CANDIDATE_LIMIT).candidates
+            ensureConsent()
             embedded.mapNotNull { candidate ->
                 val vector = candidate.embedding ?: return@mapNotNull null
                 val score = computeCosineSimilarity(queryVector, vector)
@@ -126,6 +127,7 @@ class SemanticSearchPluginImpl(
         if (!isModelReady() || candidates.size < 2) return@withContext emptyList()
         try {
             val embedded = embedCandidates(candidates, embedMissing = candidates.size <= ON_DEMAND_CANDIDATE_LIMIT).candidates
+            ensureConsent()
             val visited = mutableSetOf<String>()
             val clusters = mutableListOf<NearDuplicateCluster>()
             val threshold = similarityThreshold.coerceIn(0.70f, 0.95f)
