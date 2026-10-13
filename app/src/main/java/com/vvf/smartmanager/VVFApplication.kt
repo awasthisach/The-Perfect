@@ -282,8 +282,18 @@ class VVFApplication : Application(), Configuration.Provider {
     fun setDriveFullContentConsentEnabled(enabled: Boolean) {
         settingsPrefs.edit().putBoolean(KEY_DRIVE_FULL_CONTENT_CONSENT, enabled).apply()
         if (!enabled && ::database.isInitialized) {
+            // Full-content text may already have contributed to neural vectors. Abort uploads,
+            // discard cached/persisted vectors, then rebuild only from the reduced local corpus.
+            (semanticSearchPlugin as? SemanticSearchPluginImpl)?.cancelPendingEmbeddingRequests()
+            (semanticSearchPlugin as? SemanticSearchPluginImpl)?.clearCachedEmbeddings()
             applicationScope.launch {
                 runCatching {
+                    WorkManager.getInstance(this@VVFApplication)
+                        .cancelAllWorkByTag(SemanticEmbeddingIndexWorker.WORK_TAG)
+                }.onFailure { error ->
+                    Log.w(TAG, "Could not cancel semantic indexing after full-content consent revocation", error)
+                }
+                val textClear = runCatching {
                     database.fileDao().clearDriveFullContentText(
                         listOf(
                             DriveOfficeTextExtractor.DOCX,
@@ -293,7 +303,15 @@ class VVFApplication : Application(), Configuration.Provider {
                     )
                     database.searchFtsDao().rebuildFtsIndex()
                 }.onFailure { error ->
-                    Log.w(TAG, "Could not clear full-content Drive text after consent revocation", error)
+                    Log.e(TAG, "Could not clear full-content Drive text after consent revocation", error)
+                }
+                val vectorClear = runCatching {
+                    database.semanticEmbeddingDao().deleteAll()
+                }.onFailure { error ->
+                    Log.e(TAG, "Could not clear embeddings after full-content consent revocation", error)
+                }
+                if (textClear.isSuccess && vectorClear.isSuccess && isEmbeddingConsentEnabled()) {
+                    enqueueSemanticEmbeddingIndexing()
                 }
             }
         }
