@@ -241,6 +241,8 @@ class VVFApplication : Application(), Configuration.Provider {
                 enqueueSemanticEmbeddingIndexing()
             }
         } else {
+            // Stop in-flight document/query uploads immediately, not merely future WorkManager jobs.
+            (semanticSearchPlugin as? SemanticSearchPluginImpl)?.cancelPendingEmbeddingRequests()
             (semanticSearchPlugin as? SemanticSearchPluginImpl)?.clearCachedEmbeddings()
             embeddingClearJob = applicationScope.launch {
                 // Work cancellation and persistent-vector deletion are independent privacy
