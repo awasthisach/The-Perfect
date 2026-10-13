@@ -147,8 +147,9 @@ class SearchViewModel(
         val detailsItem = params[10] as FileItem?
         val snackbar = params[11] as String?
         val indexedCount = params[12] as Int
+        // SemanticSearchUseCase already returns only embedding-backed matches. Do not
+        // filter on presentation metadata: older and valid results may have no matchedConcept.
         val semanticHits = @Suppress("UNCHECKED_CAST") (params[13] as List<SemanticSearchResult>)
-            .filter { it.matchedConcept == "Neural embedding match" }
         val searching = params[14] as Boolean
 
         val semanticScoreByPath = semanticHits.associate { it.fileItem.path to it.similarityScore }
