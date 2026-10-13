@@ -335,7 +335,9 @@ class VVFApplication : Application(), Configuration.Provider {
             searchRepository = searchRepository,
             indexOcrTextUseCase = indexOcrTextUseCase
         )
-        semanticSearchPlugin = SemanticSearchPluginImpl()
+        semanticSearchPlugin = SemanticSearchPluginImpl(
+            isEmbeddingConsentGranted = { isEmbeddingConsentEnabled() }
+        )
         semanticSearchUseCase = SemanticSearchUseCase(
             semanticPlugin = semanticSearchPlugin,
             searchRepository = searchRepository,
