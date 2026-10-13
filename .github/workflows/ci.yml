@@ -221,7 +221,16 @@ jobs:
         if: ${{ env.FOSSA_ENABLED == 'true' }}
         run: |
           set -euo pipefail
-          curl -fsSL https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
+          FOSSA_VERSION="3.17.16"
+          FOSSA_ARCHIVE="fossa_${FOSSA_VERSION}_linux_amd64.zip"
+          FOSSA_BASE="https://github.com/fossas/fossa-cli/releases/download/v${FOSSA_VERSION}"
+          curl --fail --show-error --silent --location --retry 3 "${FOSSA_BASE}/${FOSSA_ARCHIVE}" --output "/tmp/${FOSSA_ARCHIVE}"
+          curl --fail --show-error --silent --location --retry 3 "${FOSSA_BASE}/${FOSSA_ARCHIVE}.sha256" --output "/tmp/${FOSSA_ARCHIVE}.sha256"
+          (cd /tmp && sha256sum --check --strict "${FOSSA_ARCHIVE}.sha256")
+          mkdir -p /tmp/fossa-cli
+          unzip -q -o "/tmp/${FOSSA_ARCHIVE}" -d /tmp/fossa-cli
+          test -x /tmp/fossa-cli/fossa || { echo "::error::Pinned FOSSA CLI binary missing"; exit 1; }
+          sudo install -m 0755 /tmp/fossa-cli/fossa /usr/local/bin/fossa
           fossa --version
       - name: FOSSA analyze
         id: fossa_analyze
