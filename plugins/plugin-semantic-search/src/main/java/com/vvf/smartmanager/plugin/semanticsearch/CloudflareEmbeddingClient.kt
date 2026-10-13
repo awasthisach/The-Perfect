@@ -14,6 +14,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -39,6 +40,13 @@ class CloudflareEmbeddingClient(
         .build()
 ) {
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
+
+    private val activeCalls = ConcurrentHashMap.newKeySet<Call>()
+
+    /** Cancels active HTTP requests immediately when neural-search consent is revoked. */
+    fun cancelPendingRequests() {
+        activeCalls.forEach { it.cancel() }
+    }
 
     fun hasSignedInUser(): Boolean = runCatching { firebaseAuthProvider().currentUser != null }.getOrDefault(false)
 
@@ -117,13 +125,19 @@ class CloudflareEmbeddingClient(
 
     private suspend fun execute(request: Request): Response = suspendCancellableCoroutine { continuation ->
         val call = http.newCall(request)
-        continuation.invokeOnCancellation { call.cancel() }
+        activeCalls.add(call)
+        continuation.invokeOnCancellation {
+            call.cancel()
+            activeCalls.remove(call)
+        }
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, error: IOException) {
+                activeCalls.remove(call)
                 if (continuation.isActive) continuation.resumeWithException(error)
             }
 
             override fun onResponse(call: Call, response: Response) {
+                activeCalls.remove(call)
                 continuation.resume(response) { _, value, _ -> value.close() }
             }
         })
