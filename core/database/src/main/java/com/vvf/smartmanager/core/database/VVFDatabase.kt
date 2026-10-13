@@ -9,6 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.vvf.smartmanager.core.database.dao.CloudSyncDao
 import com.vvf.smartmanager.core.database.dao.FileDao
 import com.vvf.smartmanager.core.database.dao.SearchFtsDao
+import com.vvf.smartmanager.core.database.dao.SemanticEmbeddingDao
 import com.vvf.smartmanager.core.database.dao.VaultDao
 import com.vvf.smartmanager.core.database.dao.VaultJournalDao
 import com.vvf.smartmanager.core.database.model.CloudSyncEntity
@@ -16,6 +17,7 @@ import com.vvf.smartmanager.core.database.model.FileFtsEntity
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
 import com.vvf.smartmanager.core.database.model.VaultItemEntity
 import com.vvf.smartmanager.core.database.model.VaultJournalEntity
+import com.vvf.smartmanager.core.database.model.SemanticEmbeddingEntity
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 /**
@@ -27,10 +29,11 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         FileFtsEntity::class,
         VaultItemEntity::class,
         VaultJournalEntity::class,
-        CloudSyncEntity::class
+        CloudSyncEntity::class,
+        SemanticEmbeddingEntity::class
     ],
-    // 1→2: vault journal; 2→3: extracted text/canonical URI; 3→4: offline pin metadata; 4→5: Drive sync generation.
-    version = 5,
+    // 1→2: vault journal; 2→3: extracted text/canonical URI; 3→4: offline pin metadata; 4→5: Drive sync generation; 5→6: consented semantic vector cache.
+    version = 6,
     exportSchema = true
 )
 abstract class VVFDatabase : RoomDatabase() {
@@ -40,6 +43,7 @@ abstract class VVFDatabase : RoomDatabase() {
     abstract fun vaultDao(): VaultDao
     abstract fun vaultJournalDao(): VaultJournalDao
     abstract fun cloudSyncDao(): CloudSyncDao
+    abstract fun semanticEmbeddingDao(): SemanticEmbeddingDao
 
     companion object {
         const val DATABASE_NAME = "vvf_smart_manager_enc.db"
@@ -93,6 +97,24 @@ abstract class VVFDatabase : RoomDatabase() {
             }
         }
 
+        /** Adds an encrypted semantic-vector cache without discarding existing indexed files. */
+        val MIGRATION_5_6: Migration = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `semantic_embeddings` (
+                        `filePath` TEXT NOT NULL,
+                        `contentHash` TEXT NOT NULL,
+                        `modelVersion` TEXT NOT NULL,
+                        `vector` BLOB NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`filePath`)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         /** Builds an encrypted SQLCipher Room database using the Keystore passphrase. */
         fun buildEncryptedDatabase(context: Context, passphrase: ByteArray): VVFDatabase {
             val openHelperFactory = SupportOpenHelperFactory(passphrase)
@@ -102,7 +124,7 @@ abstract class VVFDatabase : RoomDatabase() {
                 DATABASE_NAME
             )
                 .openHelperFactory(openHelperFactory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .build()
         }
 
