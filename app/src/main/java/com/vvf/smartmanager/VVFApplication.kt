@@ -232,6 +232,9 @@ class VVFApplication : Application(), Configuration.Provider {
 
     fun setEmbeddingConsentEnabled(enabled: Boolean) {
         settingsPrefs.edit().putBoolean(KEY_EMBEDDING_CONSENT, enabled).apply()
+        if (!enabled) {
+            (semanticSearchPlugin as? SemanticSearchPluginImpl)?.clearCachedEmbeddings()
+        }
     }
 
     /** Explicit opt-in for downloading supported Drive documents for local PDF/image/Office extraction. */
