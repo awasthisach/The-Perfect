@@ -300,7 +300,9 @@ class CloudSyncUseCase(
         status: String,
         errorMessage: String? = null
     ) {
-        val dao = cloudSyncDao ?: return
+        val dao = cloudSyncDao ?: throw IllegalStateException(
+            "Durable cloud sync unavailable: CloudSyncDao is not configured; refusing to report success without persisted remote identity"
+        )
         val prior = dao.getRecord(localPath, provider)
         dao.insertOrUpdate(
             CloudSyncEntity(
