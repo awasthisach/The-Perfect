@@ -180,7 +180,7 @@ fun SettingsScreen(
                         SettingToggleRow(
                             icon = Icons.Default.Security,
                             title = "Optional neural embeddings",
-                            subtitle = if (embeddingConsent) "Consent recorded; neural search stays unavailable until the authenticated Android Worker is deployed and verified." else "Off by default. No neural embedding content may be sent without your consent.",
+                            subtitle = if (embeddingConsent) "Consent recorded; neural ranking requires sign-in and an authenticated embedding backend." else "Off by default. No neural embedding content may be sent without your consent.",
                             isChecked = embeddingConsent,
                             onCheckedChange = { enabled ->
                                 if (enabled) showEmbeddingConsentDialog = true
