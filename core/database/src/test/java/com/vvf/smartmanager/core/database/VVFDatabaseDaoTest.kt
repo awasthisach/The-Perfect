@@ -77,8 +77,13 @@ class VVFDatabaseDaoTest {
         assertNotNull(fetched)
         assertEquals("sha256-content-hash", fetched?.contentHash)
         assertEquals("gemini-embedding-2:3:768", fetched?.modelVersion)
-        assertArrayEquals(vector, fetched?.vector)
+        assertArrayEquals(vector, fetched!!.vector)
         assertEquals(1, dao.count())
+
+        // Removing the indexed file must cascade-delete its private vector.
+        fileDao.deleteByPath("gdrive://semantic-file-1")
+        assertNull(dao.getByPath("gdrive://semantic-file-1"))
+        assertEquals(0, dao.count())
 
         dao.deleteAll()
         assertEquals(0, dao.count())
