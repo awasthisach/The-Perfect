@@ -22,8 +22,8 @@ The modular Clean Architecture intent is real, but the source does not support c
 | ID | Severity | Finding | Status |
 |---|---|---|---|
 | PROD-001 | Critical | A reusable debug keystore and credentials were embedded in Gradle source, enabling shared debug signing. | **Source remediation on red-team branch: embedded bytes/password/alias removed; Android default debug signing restored. Historical Git objects and Google OAuth SHA configuration still require review/rotation.** |
-| PROD-002 | Critical | Cloud restore is not yet a verified download/restore/rollback pipeline. | **Fail-closed; open** |
-| PROD-003 | High | `CloudDriverSPI.uploadFile()` returns only `Boolean`, so durable provider IDs cannot be persisted. | Open |
+| PROD-002 | Critical | Cloud restore must be verified end-to-end, including production wiring and real backup recovery. | **Implementation exists (`FailClosedRestorePipeline`: download → checksum verification → isolated decrypt/staging → snapshot/apply/rollback) with unit tests. Production composition-root wiring, concrete provider adapters, clean-device recovery drill and durable rollback evidence are not yet verified.** |
+| PROD-003 | High | Cloud upload must return and persist a durable provider ID. | **The current `CloudSyncUseCase` consumes `uploaded.remoteId`, rejects blank IDs via `DurableUploadContract`, and persists mappings in `CloudSyncDao`. Verify the actual SPI declaration and each real provider adapter/round-trip; the old Boolean-only claim is stale relative to the current call sites.** |
 | PROD-004 | High | Manual dependency graph is concentrated in `VVFApplication` and ViewModel factories. | Open |
 | PROD-005 | High | CI previously produced a debug-signed release artifact. | **Fixed on hardening branch** |
 | PROD-006 | High | Fresh build verification is unavailable in the audit sandbox. | Open; CI required |
