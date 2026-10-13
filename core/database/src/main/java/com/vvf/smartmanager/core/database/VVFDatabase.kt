@@ -29,7 +29,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         VaultJournalEntity::class,
         CloudSyncEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 abstract class VVFDatabase : RoomDatabase() {
@@ -42,6 +42,12 @@ abstract class VVFDatabase : RoomDatabase() {
 
     companion object {
         const val DATABASE_NAME = "vvf_smart_manager_enc.db"
+
+        val MIGRATION_2_3: Migration = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `cloud_sync_records` ADD COLUMN `checksumSha256` TEXT")
+            }
+        }
 
         val MIGRATION_1_2: Migration = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -71,7 +77,7 @@ abstract class VVFDatabase : RoomDatabase() {
                 DATABASE_NAME
             )
                 .openHelperFactory(openHelperFactory)
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
         }
 
