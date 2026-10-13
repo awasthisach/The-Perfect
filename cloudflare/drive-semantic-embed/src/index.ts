@@ -112,6 +112,8 @@ async function authenticateFirebase(request: Request, env: Env): Promise<string 
 }
 
 async function verifyAppCheck(request: Request, env: Env): Promise<boolean> {
+  // Bind App Check to this exact registered Android app; fail closed when not configured.
+  if (!env.FIREBASE_APP_ID) return false;
   const token = request.headers.get("X-Firebase-AppCheck");
   if (!token) return false;
   const claims = await verifyJwt(
