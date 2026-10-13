@@ -136,7 +136,8 @@ class GoogleDriveServiceImpl(
 
                 val parent = resolveFolderId(remoteFolderId)
                 val safeName = file.name.replace("\\", "\\\\").replace("\"", "\\\"")
-                val metadataJson = """{"name":"$safeName","parents":["$parent"]}"""
+                val localSha256 = calculateSha256(file)
+                val metadataJson = """{"name":"$safeName","parents":["$parent"],"appProperties":{"vvfSha256":"$localSha256"}}"""
                 val mediaType = (localFile.mimeType?.takeIf { it.isNotBlank() } ?: "application/octet-stream")
                     .toMediaType()
 
@@ -206,6 +207,17 @@ class GoogleDriveServiceImpl(
                         )
                     }
 
+                    // Confirm Drive persisted the checksum metadata used by clean-device restore.
+                    val remoteMetadata = driveApi.getFileMetadata(bearer(), id)
+                    val remoteSha256 = remoteMetadata.appProperties["vvfSha256"]
+                    if (remoteSha256.isNullOrBlank() ||
+                        !remoteSha256.equals(localSha256, ignoreCase = true)
+                    ) {
+                        return@withContext Result.failure(
+                            IllegalStateException("Drive upload did not persist the trusted SHA-256 metadata for $id")
+                        )
+                    }
+
                     currentAccount = currentAccount.copy(
                         usedBytes = currentAccount.usedBytes + file.length(),
                         lastSyncTimestamp = System.currentTimeMillis()
@@ -233,6 +245,23 @@ class GoogleDriveServiceImpl(
                 Result.failure(e)
             }
         }
+
+    override suspend fun getFileSha256(fileId: String): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            if (fileId.isBlank()) {
+                return@withContext Result.failure(IllegalArgumentException("Drive file ID is blank"))
+            }
+            val metadata = driveApi.getFileMetadata(bearer(), fileId)
+            val checksum = metadata.appProperties["vvfSha256"]
+                ?.takeIf { it.matches(Regex("^[a-fA-F0-9]{64}$")) }
+                ?: return@withContext Result.failure(
+                    IllegalStateException("Drive file has no trusted VVF SHA-256 metadata")
+                )
+            Result.success(checksum.lowercase())
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
 
     override suspend fun getStorageQuota(): Result<Pair<Long, Long>> = withContext(Dispatchers.IO) {
         try {
@@ -295,6 +324,19 @@ class GoogleDriveServiceImpl(
         if (value.length < 20 || value.length > 128) return false
         if (value.contains(' ') || value.contains('/') || value.contains('.')) return false
         return value.all { it.isLetterOrDigit() || it == '-' || it == '_' }
+    }
+
+    private fun calculateSha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(8192)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     private fun calculateMd5(file: File): String {
