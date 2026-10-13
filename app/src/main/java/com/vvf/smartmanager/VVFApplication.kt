@@ -198,8 +198,6 @@ class VVFApplication : Application(), Configuration.Provider {
                 .get()
             WorkManager.getInstance(this@VVFApplication)
                 .cancelAllWorkByTag(SemanticEmbeddingIndexWorker.WORK_TAG)
-                .result
-                .get()
         }
         DriveOfflineManager(this@VVFApplication).clearAllLocalCopies()
         if (::database.isInitialized) {
@@ -251,8 +249,6 @@ class VVFApplication : Application(), Configuration.Provider {
                 runCatching {
                     WorkManager.getInstance(this@VVFApplication)
                         .cancelAllWorkByTag(SemanticEmbeddingIndexWorker.WORK_TAG)
-                        .result
-                        .get()
                     if (::database.isInitialized) database.semanticEmbeddingDao().deleteAll()
                 }
             }
@@ -382,8 +378,6 @@ class VVFApplication : Application(), Configuration.Provider {
                 runCatching {
                     WorkManager.getInstance(this@VVFApplication)
                         .cancelAllWorkByTag(SemanticEmbeddingIndexWorker.WORK_TAG)
-                        .result
-                        .get()
                     embeddingVectorStore.clear()
                 }
             }
