@@ -64,6 +64,7 @@ import com.vvf.smartmanager.plugin.clouddrivers.S3StorageDriverImpl
 import com.vvf.smartmanager.plugin.ocr.OcrPluginImpl
 import com.vvf.smartmanager.plugin.semanticsearch.SemanticSearchPluginImpl
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -129,6 +130,7 @@ class VVFApplication : Application(), Configuration.Provider {
     var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var embeddingClearJob: Job? = null
     private val _driveIndexStatus = MutableStateFlow(DriveIndexStatus())
     val driveIndexStatus: StateFlow<DriveIndexStatus> = _driveIndexStatus.asStateFlow()
 
@@ -188,6 +190,7 @@ class VVFApplication : Application(), Configuration.Provider {
 
     /** Cancels Drive work and erases account-specific local index data on sign-out. */
     suspend fun clearDriveIndexOnSignOut() = withContext(Dispatchers.IO) {
+        embeddingClearJob?.join()
         runCatching {
             WorkManager.getInstance(this@VVFApplication)
                 .cancelUniqueWork("drive_semantic_index_initial")
@@ -238,12 +241,20 @@ class VVFApplication : Application(), Configuration.Provider {
     fun setEmbeddingConsentEnabled(enabled: Boolean) {
         settingsPrefs.edit().putBoolean(KEY_EMBEDDING_CONSENT, enabled).apply()
         if (enabled) {
-            enqueueSemanticEmbeddingIndexing()
+            applicationScope.launch {
+                embeddingClearJob?.join()
+                enqueueSemanticEmbeddingIndexing()
+            }
         } else {
-            WorkManager.getInstance(this).cancelAllWorkByTag(SemanticEmbeddingIndexWorker.WORK_TAG)
             (semanticSearchPlugin as? SemanticSearchPluginImpl)?.clearCachedEmbeddings()
-            if (::database.isInitialized) {
-                applicationScope.launch { runCatching { database.semanticEmbeddingDao().deleteAll() } }
+            embeddingClearJob = applicationScope.launch {
+                runCatching {
+                    WorkManager.getInstance(this@VVFApplication)
+                        .cancelAllWorkByTag(SemanticEmbeddingIndexWorker.WORK_TAG)
+                        .result
+                        .get()
+                    if (::database.isInitialized) database.semanticEmbeddingDao().deleteAll()
+                }
             }
         }
     }
@@ -367,7 +378,15 @@ class VVFApplication : Application(), Configuration.Provider {
         )
         // Consent defaults off; remove any vectors left by an earlier version or interrupted revocation.
         if (!isEmbeddingConsentEnabled()) {
-            applicationScope.launch { runCatching { embeddingVectorStore.clear() } }
+            embeddingClearJob = applicationScope.launch {
+                runCatching {
+                    WorkManager.getInstance(this@VVFApplication)
+                        .cancelAllWorkByTag(SemanticEmbeddingIndexWorker.WORK_TAG)
+                        .result
+                        .get()
+                    embeddingVectorStore.clear()
+                }
+            }
         } else {
             // Resume bounded background indexing after process death if consent and sign-in remain active.
             enqueueSemanticEmbeddingIndexing()
