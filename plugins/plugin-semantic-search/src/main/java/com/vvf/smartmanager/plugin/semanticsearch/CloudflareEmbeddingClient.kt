@@ -86,7 +86,7 @@ class CloudflareEmbeddingClient(
             .post(body)
             .build()
 
-        http.newCall(request).execute().use { response ->
+        execute(request).use { response ->
             val responseText = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 // Never include tokens or document text in exceptions/logs.
