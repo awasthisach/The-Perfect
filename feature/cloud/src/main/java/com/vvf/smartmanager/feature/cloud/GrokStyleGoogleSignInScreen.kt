@@ -30,6 +30,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.width
 import com.vvf.smartmanager.core.common.R as CommonR
 
 private val SoftGold = Color(0xFFD4A95A)
