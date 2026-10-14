@@ -1,5 +1,6 @@
+# FOSSA CLI v3 configuration for the GitHub repository.
+# Use the canonical repository identifier so analyze/test target the same project.
 version: 3
 server: https://app.fossa.com
 project:
-  id: The-Perfect
-  name: The-Perfect
+  id: github.com/awasthisach/The-Perfect
