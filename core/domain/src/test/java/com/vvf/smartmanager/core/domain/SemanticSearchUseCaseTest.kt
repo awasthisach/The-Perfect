@@ -158,7 +158,8 @@ class SemanticSearchUseCaseTest {
             mimeType = "application/pdf"
         )
         val searchRepo = FakeSearchRepo(
-            listOf(SearchResultItem(file, SearchMatchType.FILENAME, "budget"))
+            searchResults = listOf(SearchResultItem(file, SearchMatchType.FILENAME, "budget")),
+            recentIndexedFiles = listOf(file)
         )
         val engine = FakeSemanticEngine()
         val useCase = SemanticSearchUseCase(
