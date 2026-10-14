@@ -1,46 +1,39 @@
-# Drive Semantic Search: verified implementation-gap audit
+# Drive Semantic Search — current production-readiness audit
 
-This audit describes the current working branch `fix/drive-semantic-search-product-alignment` in **The-Perfect** only. It does not declare production readiness.
+Scope: `awasthisach/The-Perfect`, candidate branch `fix/drive-semantic-search-product-alignment`. This document records source and CI evidence; it does not declare the app production-ready.
 
-## Implemented on the working branch
+## Implemented in the candidate source
 
-- Native Kotlin/Jetpack Compose app identity, minimum SDK 26, and no WebView wrapper.
-- Removed the embedded reusable debug keystore and hard-coded debug signing secrets; release signing is configured through environment-injected secrets.
-- Google Drive full-scope OAuth; Firebase Auth session is linked to the same normalized Google account; a Firebase ID-token accessor is available for future trusted backend calls.
-- In-memory Drive access-token clearing, silent refresh only for an existing matching Google/Firebase session, account-specific index clearing on sign-out, and automatic index enqueue after successful interactive sign-in.
-- Drive v3 paginated listing, changes API, bounded 20,000-item listing, change cursor handling, explicit move/star/folder methods with ID validation, and no Drive-delete method added by this feature.
-- A Room-backed `DriveIndexingWorker` that indexes metadata/text in batches of 50, stores rows in the existing SQLCipher database, rebuilds FTS, preserves the changes cursor on failure, and reports the 20,000-item cap. Trashed/removed files are removed from the local index.
-- Room schema version 5 with migrations for extracted text, canonical Drive URL, offline-pin metadata, and an internal Drive sync-generation marker. Existing local rows are preserved by migrations. Existing local rows are preserved by migrations.
-- Plain-text and native Google Workspace text export; bounded PDF/image extraction through the existing extraction/OCR pipeline and bounded DOCX/XLSX/PPTX text extraction, only after full-content consent.
-- Revocable full-content consent clears extracted PDF/image/Office text when turned off.
-- App-private offline copies with an 80-file / 200 MiB cap and oldest-first eviction.
-- JSON index import/export with size/count bounds, Drive ID and URL validation, account check when an account is known, and exclusion of tokens, API keys, and file bytes. Import now respects full-content consent.
-- Keyword/FTS fallback remains available when optional semantic ranking is not enabled; vault PIN derivation changes retain a legacy verification path for existing PINs.
-- Initial tests cover indexing policy, keyword fallback, vault PIN verification, Office extraction, database FTS and offline quota queries.
+- Native Kotlin/Jetpack Compose application; no WebView wrapper.
+- Google Drive OAuth integration, account matching with Firebase Auth, paginated Drive indexing and changes-feed handling.
+- Room/SQLCipher-backed Drive index and 768-dimensional embedding-vector storage.
+- Real `gemini-embedding-2` neural embedding adapter in `CloudflareEmbeddingClient.kt`; the client sends a Firebase Auth ID token and Firebase App Check token, not the Drive access token or Gemini key.
+- Consent-gated embedding, bounded batches, vector caching/persistence, cancellation, and local FTS/metadata fallback.
+- Cloudflare Worker source with Firebase JWT and App Check verification for native calls without `Origin`, per-UID Durable Object rate limiting, bounded request payloads, response contract validation and upstream retry handling.
+- Bounded text extraction, resumable page checkpoints, offline pinning, and JSON index import/export that excludes tokens, API keys and file bytes.
+- Restore checksum verification, cleanup/rollback protections and release-signing hardening are present on separate draft PR #134 and still need to be reconciled with this candidate before release.
 
-- Initial/full-list indexing now requests one bounded page at a time. After each page is fully written to Room, the worker stores the next opaque page token, initial changes cursor, processed count, and internal run ID. A retry replays the saved page idempotently; invalid/expired page tokens clear the checkpoint and safely restart. A separate Room schema-v5 generation column marks rows seen in the current full pass so stale local rows are removed only after a complete listing without polluting user-visible tags. The worker does not advance the changes cursor on a capped listing. Automated failure/restart and migration tests are still required.
+## Current verified external/CI facts
 
-## Remaining production blockers
+- Live Worker health endpoint was fetched on 2026-10-14 and returned `{"ok":true,"model":"gemini-embedding-2","version":"3","dimension":768}`.
+- This health response proves the public health contract only. It does **not** prove the updated native App Check path is deployed or that an authenticated Android `POST /embed` succeeds.
+- CI run [#1052](https://github.com/awasthisach/The-Perfect/actions/runs/38548792319) on an earlier candidate passed unit tests, lint and debug APK assembly but failed Open Source License Compliance. FOSSA reported 192 issues and said the configured push-only API key cannot display issue details.
+- A newer candidate run was started for commit `161319b3788bca4187893a0c3578edbfe015f116`; the Android build and FOSSA jobs were still running at the last check. Do not treat the prior run or external FOSSA status badges as proof that this new run passed.
+- CPAS Production Gate passed for the newer candidate. That is one required gate, not overall release approval.
+- The public repository's `main` advanced by one commit after PR #130's merge base. GitHub currently reports PR #130 as not mergeable; it must be reconciled with current `main` before merge.
+- PR #134 is still Draft and separate. Its restore/signing changes are not yet proven integrated with PR #130.
 
-1. **Real neural semantic search:** the previous `SemanticSearchPluginImpl` used deterministic hashed token buckets; that implementation has been removed. The plugin reports the model as unavailable, returns no synthetic embedding vectors, and fails closed for semantic ranking/duplicate grouping until a genuine provider is integrated. Local FTS, keyword, and metadata search remain the active fallback. The live worker health endpoint was verified to return `ok=true`, model `gemini-embedding-2`, version `3`, dimension `768`; this does not verify `/embed` POST authorization or prove mobile requests work. The Cloudflare worker at `https://drive-semantic-embed.awasthi-sach.workers.dev` must not be called directly from Android until a trusted backend proxy or worker-side Android App Check is implemented and deployed. The Firebase ID token—not the Drive access token—must authenticate the backend. No API key may ship in the APK.
-2. **Resumability verification:** per-page full-list checkpoints are implemented, but automated tests still need to simulate interruption before/after page commit, invalid/expired page tokens, cap handling, and cursor persistence. Verify schema 4→5 migration against an existing encrypted database.
-3. **OAuth configuration:** verify the actual package `com.vvf.smartmanager`, web client ID, Firebase project, and debug/release signing SHA fingerprints. These external project settings and interactive device sign-in cannot be proven by source inspection alone.
-4. **UI/product completeness:** Drive move/star/folder suggestion and review/confirmation flows, dedicated Dashboard/Search/Duplicates/Vault/Offline/Backup navigation, and duplicate keep/move workflows need acceptance tests. Existing legacy file-manager screens and broad storage permissions remain.
-5. **Security and reliability tests:** add worker tests for cancellation, retries, change-feed paging, removed/trashed files, full-list cap, and cursor persistence; test backup malformed/oversized data and consent revocation/import; test offline quota eviction failures and local-file integrity; test Room 1→5 migrations with existing data.
-6. **Ranking:** implement and test the requested actual hybrid ranking (real cosine vectors + BM25/FTS + metadata weights) once a safe, authenticated embedding source is available. Do not describe hash-token similarity as neural embeddings.
-7. **Vault acceptance:** verify the exact PBKDF2-HMAC-SHA256 310,000-iteration new-PIN contract and AES-GCM round-trip, wrong PIN, legacy PIN, and decoy PIN flows.
-8. **Release gates:** current-head unit tests, lint, debug assembly, FOSSA/license checks, CodeQL, and CPAS checks passed. The dedicated hard SQLCipher 4.5.4 compatibility instrumentation test also passed on an API 35 emulator after fixing AVD creation and granting the ephemeral GitHub runner access to `/dev/kvm`. The normal PR CI's emulator step still soft-skips instrumentation when its separate emulator setup does not boot; the dedicated hard workflow is the verified database gate. Release signing, production Firebase configuration, release assembly, real-device checks, and live Google OAuth/Drive acceptance remain unverified. Configure release signing and Firebase files through CI secrets, not committed artifacts.
+## Remaining release blockers
 
-## Verified CI evidence (2026-10-12)
+1. **FOSSA findings:** provide a narrowly scoped key that can read issue details, review all reported findings, fix incompatible/unknown license or vulnerability blockers, document approved exceptions, and rerun the fail-closed gate. Track this in [issue #136](https://github.com/awasthisach/The-Perfect/issues/136). Do not bypass the gate.
+2. **Worker deployment:** run the reviewed manual deployment workflow only after confirming Cloudflare and Firebase App Check secrets are correctly configured. Verify the deployed health contract and missing-credential rejection. Then test a real native request from a signed-in Android device with valid Firebase Auth and App Check.
+3. **OAuth and Drive access:** verify the production Firebase project, Android app ID/package, OAuth client, signing certificate fingerprints, account switching and token refresh. Confirm the granted Drive scope actually matches the promised corpus; do not claim full-Drive access without proof.
+4. **Consent and privacy:** test fresh-install consent defaults to off, query/document embedding only after consent, immediate request cancellation on revocation, deletion of persisted vectors, and local-search continuity when the Worker is unavailable.
+5. **Indexing and data integrity:** exercise full-list/change-feed pagination, cap handling, trashed/removed files, interrupted page commits, expired page tokens, process death, account isolation, schema migration against existing encrypted databases, malformed/oversized imports and atomic restore rollback.
+6. **Restore/security integration:** reconcile PR #134's durable IDs, checksums, restore rollback and signing hardening with this branch without overwriting the newer Drive indexing/embedding implementation. Rerun tests on the integrated candidate.
+7. **Product acceptance:** test search relevance against a labelled sample corpus, hybrid neural/FTS ranking, no-result/failure/retry behavior, offline mode, duplicate review, and all user-confirmed Drive actions on a physical device.
+8. **Release:** pass current-head unit tests, lint, APK/AAB release build, hard SQLCipher instrumentation, CodeQL, CPAS and FOSSA. Verify the signed AAB/APK, signing fingerprint, SBOM and provenance. Confirm Play Console permission/policy eligibility, privacy/Data safety declarations, and staged rollout/monitoring.
 
-- Current code head at verification: `937e5d2ba181bfbc478b49e201659983efa0bcbd`.
-- VVF Smart Manager CI & Quality Gate: success (unit tests, Android lint, debug APK assembly, license compliance).
-- CodeQL: success.
-- CPAS Production Gate: success.
-- Weekly Instrumented Hard Gate: success. SQLCipher 4.5.4 fixture generation succeeded, the API 35 emulator booted after KVM permission correction, and the SQLCipher compatibility instrumentation test ran and passed (1 test).
-- The ordinary PR CI still marks SQLCipher instrumentation as skipped when its own soft-gated emulator does not boot; it is not counted as an instrumentation pass.
-- Current build warnings: the manifest declares a WorkManager initializer removal without a matching declaration; Android packaging reports some native libraries could not be stripped. These are warnings, not build failures.
+## Release decision
 
-## Release rule
-
-Do not merge this draft or call the app production-ready until the blockers above have evidence-backed closure. A green CI workflow is necessary but not sufficient.
+**Not production-ready.** A green compile or CI badge is not sufficient. Keep PRs in Draft until each blocker above has reproducible evidence, all required checks pass on one integrated candidate SHA, and real-device/external-service acceptance is complete.
