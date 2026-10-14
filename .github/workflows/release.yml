@@ -246,13 +246,13 @@ jobs:
           cat release-meta/aab-manifest.txt
 
       - name: Generate SBOM for signed AAB
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
           file: ${{ steps.aab.outputs.path }}
           format: spdx-json
           output-file: release-meta/aab-sbom.spdx.json
       - name: Generate SBOM with Syft
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
           file: ${{ steps.apk.outputs.path }}
           format: spdx-json
