@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -240,6 +241,42 @@ fun SearchScreen(
                         onCheckedChange = { enabled -> viewModel.setSemanticEnabled(enabled) },
                         modifier = Modifier.testTag("semantic_search_toggle")
                     )
+                }
+                when {
+                    uiState.isSemanticSearching -> Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Text(
+                            text = "Searching by meaning…",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    uiState.semanticErrorMessage != null -> Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = uiState.semanticErrorMessage,
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        TextButton(onClick = { viewModel.retrySemanticSearch() }) {
+                            Text("Retry")
+                        }
+                    }
+                    uiState.isSemanticEnabled && uiState.searchQuery.isNotBlank() && uiState.semanticResults.isEmpty() ->
+                        Text(
+                            text = "No neural matches found. Local keyword and full-text results remain available.",
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                 }
             }
         }

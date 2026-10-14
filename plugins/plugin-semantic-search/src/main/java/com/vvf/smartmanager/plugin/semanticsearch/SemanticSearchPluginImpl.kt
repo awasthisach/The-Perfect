@@ -104,9 +104,9 @@ class SemanticSearchPluginImpl(
             }.sortedByDescending { it.similarityScore }.take(options.maxResults.coerceIn(1, 200))
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: Exception) {
-            // Hybrid use case retains local FTS/metadata results when remote inference fails.
-            emptyList()
+        } catch (error: Exception) {
+            // Let the domain layer surface a retryable status while its local-search path remains available.
+            throw error
         }
     }
 

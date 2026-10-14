@@ -185,8 +185,17 @@ class VVFApplication : Application(), Configuration.Provider {
         )
     }
 
-    /** Cancels Drive work and erases account-specific local index data on sign-out. */
+    /** Cancels account-bound embedding work, revokes consent, and erases the previous account's local index. */
     suspend fun clearDriveIndexOnSignOut() = withContext(Dispatchers.IO) {
+        // Consent belongs to the account that granted it. A new account must opt in again.
+        settingsPrefs.edit()
+            .putBoolean(KEY_EMBEDDING_CONSENT, false)
+            .putBoolean(KEY_DRIVE_FULL_CONTENT_CONSENT, false)
+            .apply()
+        if (::semanticSearchPlugin.isInitialized) {
+            (semanticSearchPlugin as? SemanticSearchPluginImpl)?.cancelPendingEmbeddingRequests()
+            (semanticSearchPlugin as? SemanticSearchPluginImpl)?.clearCachedEmbeddings()
+        }
         embeddingClearJob?.join()
         runCatching {
             WorkManager.getInstance(this@VVFApplication)

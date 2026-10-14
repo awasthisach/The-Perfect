@@ -13,8 +13,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 
 /**
- * Hybrid search. Local FTS/metadata results are always retained; the optional semantic engine
- * only improves ranking when it is enabled and healthy. No cloud call is made from this use case.
+ * Scores embedding-backed matches using local lexical/metadata signals.
+ * The search UI obtains local FTS results independently, so they remain visible when neural
+ * ranking is disabled or the remote provider fails. No cloud call is made outside the opted-in engine.
  */
 class SemanticSearchUseCase(
     private val semanticPlugin: ISemanticSearchEngine,
@@ -78,32 +79,21 @@ class SemanticSearchUseCase(
             emptyList()
         }
 
-        val semanticByPath = semanticScores.associateBy { it.fileItem.path }
-        val allFiles = LinkedHashMap<String, FileItem>()
-        lexical.forEach { allFiles[it.fileItem.path] = it.fileItem }
-        semanticScores.forEach { allFiles[it.fileItem.path] = it.fileItem }
-
-        // Normalize to a common 0..1 scale. Keyword-only results still rank when neural search fails.
-        return allFiles.values.map { file ->
+        // Return only genuine embedding-backed hits. The ViewModel merges these with the
+        // independent local FTS result stream, avoiding false "semantic" labels on keyword-only rows.
+        return semanticScores.map { hit ->
+            val file = hit.fileItem
             val lexicalScore = lexicalScores[file.path]?.first ?: 0f
-            val semanticScore = (semanticByPath[file.path]?.similarityScore ?: 0f).coerceIn(0f, 1f)
-            val combined = if (semanticByPath.containsKey(file.path)) {
-                0.55f * semanticScore + 0.30f * lexicalScore + 0.15f * metadataScore(file)
-            } else {
-                // If no vector exists, do not penalize the lexical score by pretending a vector is zero.
-                0.80f * lexicalScore + 0.20f * metadataScore(file)
-            }
-            SemanticSearchResult(
-                fileItem = file,
+            val semanticScore = hit.similarityScore.coerceIn(0f, 1f)
+            val combined = 0.55f * semanticScore + 0.30f * lexicalScore + 0.15f * metadataScore(file)
+            hit.copy(
                 similarityScore = combined.coerceIn(0f, 1f),
-                matchedConcept = when {
-                    semanticByPath.containsKey(file.path) -> semanticByPath[file.path]?.matchedConcept ?: "Hybrid semantic match"
-                    lexicalScores[file.path]?.second?.matchedSnippet != null -> lexicalScores[file.path]?.second?.matchedSnippet
-                    else -> "Keyword or metadata match"
-                }
+                matchedConcept = hit.matchedConcept ?: "Neural embedding match"
             )
-        }.sortedWith(compareByDescending<SemanticSearchResult> { it.similarityScore }.thenBy { it.fileItem.name.lowercase() })
-            .take(options.maxResults.coerceIn(1, 200))
+        }.sortedWith(
+            compareByDescending<SemanticSearchResult> { it.similarityScore }
+                .thenBy { it.fileItem.name.lowercase() }
+        ).take(options.maxResults.coerceIn(1, 200))
     }
 
     private fun metadataScore(file: FileItem): Float =

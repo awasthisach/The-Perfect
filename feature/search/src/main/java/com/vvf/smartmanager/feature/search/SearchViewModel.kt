@@ -60,6 +60,7 @@ class SearchViewModel(
     // Neural ranking is always opt-in in the search UI and also requires Settings consent.
     private val _isSemanticEnabled = MutableStateFlow(false)
     private var semanticSearchJob: Job? = null
+    private var semanticSearchGeneration = 0
     private val _semanticSimilarityThreshold = MutableStateFlow(0.80f)
 
     private val _searchHistory = searchHistoryUseCase.getHistory()
@@ -88,17 +89,21 @@ class SearchViewModel(
 
     private fun triggerSemanticSearch(query: String, threshold: Float = _semanticSimilarityThreshold.value) {
         semanticSearchJob?.cancel()
+        val generation = ++semanticSearchGeneration
+        _isSemanticSearching.value = false
+        _semanticErrorMessage.value = null
         if (query.isBlank() || semanticSearchUseCase == null || !_isSemanticEnabled.value) {
-            // Never label ordinary keyword fallback rows as neural matches.
             _semanticResults.value = emptyList()
             return
         }
         if (!semanticSearchUseCase.isPluginReady()) {
-            // Consent may have been revoked or the linked Firebase session may have ended.
             _isSemanticEnabled.value = false
             _semanticResults.value = emptyList()
+            _semanticErrorMessage.value =
+                "Neural search needs privacy consent and an active sign-in. Local search remains available."
             return
         }
+        _isSemanticSearching.value = true
         semanticSearchJob = viewModelScope.launch {
             try {
                 val results = semanticSearchUseCase.searchSemantically(
@@ -109,10 +114,21 @@ class SearchViewModel(
                     )
                 )
                 _semanticResults.value = results
+                _semanticErrorMessage.value =
+                    if (semanticSearchUseCase.wasLastSemanticSearchUnavailable()) {
+                        "Neural search is temporarily unavailable. Local results remain available; try again."
+                    } else {
+                        null
+                    }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 _semanticResults.value = emptyList()
+                _semanticErrorMessage.value =
+                    "Neural search failed temporarily. Local results remain available; try again."
+            } finally {
+                // A cancelled older query must not hide the spinner for a newer active query.
+                if (generation == semanticSearchGeneration) _isSemanticSearching.value = false
             }
         }
     }
@@ -132,7 +148,9 @@ class SearchViewModel(
         _snackbarMessage,
         _totalIndexedCount,
         _semanticResults,
-        _isSearching
+        _isSearching,
+        _isSemanticSearching,
+        _semanticErrorMessage
     ) { params: Array<Any?> ->
         val query = params[0] as String
         val filter = params[1] as SearchFilter
@@ -151,6 +169,8 @@ class SearchViewModel(
         // filter on presentation metadata: older and valid results may have no matchedConcept.
         val semanticHits = @Suppress("UNCHECKED_CAST") (params[13] as List<SemanticSearchResult>)
         val searching = params[14] as Boolean
+        val semanticSearching = params[15] as Boolean
+        val semanticError = params[16] as String?
 
         val semanticScoreByPath = semanticHits.associate { it.fileItem.path to it.similarityScore }
         val semanticAsResults = semanticHits.map { hit ->
@@ -191,6 +211,8 @@ class SearchViewModel(
             aiSuggestedTags = suggestedTags,
             semanticSimilarityThreshold = similarityThreshold,
             isSemanticEnabled = isSemanticOn,
+            isSemanticSearching = semanticSearching,
+            semanticErrorMessage = semanticError,
             detailsDialogItem = detailsItem,
             snackbarMessage = snackbar,
             totalIndexedFileCount = indexedCount
@@ -238,18 +260,29 @@ class SearchViewModel(
     fun setSemanticEnabled(enabled: Boolean) {
         if (!enabled) {
             semanticSearchJob?.cancel()
+            semanticSearchGeneration++
             _isSemanticEnabled.value = false
+            _isSemanticSearching.value = false
+            _semanticErrorMessage.value = null
             _semanticResults.value = emptyList()
             return
         }
         if (semanticSearchUseCase?.isPluginReady() != true) {
             _isSemanticEnabled.value = false
+            _isSemanticSearching.value = false
             _semanticResults.value = emptyList()
+            _semanticErrorMessage.value = "Neural search needs privacy consent and an active sign-in. Local search remains available."
             _snackbarMessage.value = "Enable Neural Search Privacy consent and sign in before using neural ranking."
             return
         }
         _isSemanticEnabled.value = true
+        _semanticErrorMessage.value = null
         if (_searchQuery.value.isNotBlank()) triggerSemanticSearch(_searchQuery.value)
+    }
+
+    fun retrySemanticSearch() {
+        if (_isSemanticEnabled.value) triggerSemanticSearch(_searchQuery.value)
+        else setSemanticEnabled(true)
     }
 
     fun onHistoryItemClicked(historyQuery: String) {

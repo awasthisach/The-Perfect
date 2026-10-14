@@ -254,9 +254,11 @@ class GoogleDriveServiceImpl(
             val cleanName = name.trim()
             require(cleanName.isNotEmpty() && cleanName.length <= 200) { "Folder name must contain 1–200 characters" }
             require(parentFolderId == "root" || looksLikeDriveId(parentFolderId)) { "Invalid parent folder ID" }
-            val safeName = cleanName.replace("\\", "\\\\").replace("\"", "\\\"")
-            val safeParent = parentFolderId.replace("\\", "\\\\").replace("\"", "\\\"")
-            val json = """{"name":"$safeName","mimeType":"application/vnd.google-apps.folder","parents":["$safeParent"]}"""
+            val json = JSONObject()
+                .put("name", cleanName)
+                .put("mimeType", "application/vnd.google-apps.folder")
+                .put("parents", JSONArray().put(parentFolderId))
+                .toString()
             val created = driveApi.createFolder(bearer(), json.toRequestBody("application/json; charset=UTF-8".toMediaType()))
             Result.success(requireNotNull(created.id) { "Drive returned no folder ID" })
         } catch (e: CancellationException) { throw e } catch (e: Exception) { Result.failure(e) }

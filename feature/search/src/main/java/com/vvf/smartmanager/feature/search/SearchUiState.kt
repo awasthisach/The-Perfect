@@ -23,6 +23,8 @@ data class SearchUiState(
     val aiSuggestedTags: List<AiSuggestedTag> = emptyList(),
     val semanticSimilarityThreshold: Float = 0.80f,
     val isSemanticEnabled: Boolean = false,
+    val isSemanticSearching: Boolean = false,
+    val semanticErrorMessage: String? = null,
     val detailsDialogItem: FileItem? = null,
     val snackbarMessage: String? = null,
     val totalIndexedFileCount: Int = 0

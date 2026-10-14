@@ -124,7 +124,7 @@ class SemanticSearchUseCaseTest {
     }
 
     @Test
-    fun keywordResultsRemainAvailableWhenSemanticEngineIsDisabled() = runBlocking {
+    fun semanticResultsStayEmptyWhenEngineIsDisabledAndLocalResultsRemainAvailable() = runBlocking {
         val file = FileItem(
             path = "gdrive://drive-file-1",
             name = "Annual Report.pdf",
@@ -140,9 +140,9 @@ class SemanticSearchUseCaseTest {
 
         val results = useCase.searchSemantically("revenue")
 
-        assertEquals(1, results.size)
-        assertEquals(file.path, results.first().fileItem.path)
-        assertTrue(results.first().similarityScore > 0f)
+        assertTrue(results.isEmpty())
+        assertEquals(1, searchRepo.searchResults.size)
+        assertEquals(file.path, searchRepo.searchResults.first().fileItem.path)
     }
 
     @Test
@@ -230,7 +230,7 @@ class SemanticSearchUseCaseTest {
         assertTrue(useCase.isPluginReady())
 
         val results = useCase.searchSemantically("taxes and billing")
-        // Bounded semantic uses getRecentIndexedFiles which returns empty in fake → empty results OK
+        // The fake Drive corpus is empty, so the semantic-only result list is empty.
         assertTrue(results.isEmpty() || results.size <= 2)
     }
 
