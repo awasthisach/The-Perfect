@@ -32,10 +32,12 @@ class FailClosedRestorePipeline(
         val token = UUID.randomUUID().toString()
         val stagingDir = File(workingDir, "restore-$token")
         var snapshot: RestoreSnapshot? = null
+        var downloadedArtifact: DownloadedArtifact? = null
         return try {
             requireWorkingDirectory(stagingDir)
 
             val downloaded = downloader.download(remoteBackupId).getOrElse { return Result.failure(it) }
+            downloadedArtifact = downloaded
             val verified = verifier.verify(downloaded, expectedChecksum).getOrElse { return Result.failure(it) }
             val decrypted = decryptor.decrypt(verified, stagingDir).getOrElse { return Result.failure(it) }
 
@@ -108,6 +110,7 @@ class FailClosedRestorePipeline(
             Result.failure(RestoreException("Fail-closed restore aborted", error))
         } finally {
             stagingDir.deleteRecursively()
+            downloadedArtifact?.file?.delete()
         }
     }
 
@@ -120,9 +123,11 @@ class FailClosedRestorePipeline(
         }
         val token = UUID.randomUUID().toString()
         val stagingDir = File(workingDir, "dry-run-$token")
+        var downloadedArtifact: DownloadedArtifact? = null
         return try {
             requireWorkingDirectory(stagingDir)
             val downloaded = downloader.download(remoteBackupId).getOrElse { return Result.failure(it) }
+            downloadedArtifact = downloaded
             val verified = verifier.verify(downloaded, expectedChecksum).getOrElse { return Result.failure(it) }
             val decrypted = decryptor.decrypt(verified, stagingDir).getOrElse { return Result.failure(it) }
             val fileCount = decrypted.stagingDir.walkTopDown().count { it.isFile }
@@ -142,6 +147,7 @@ class FailClosedRestorePipeline(
             Result.failure(RestoreException("Fail-closed restore dry-run aborted", error))
         } finally {
             stagingDir.deleteRecursively()
+            downloadedArtifact?.file?.delete()
         }
     }
 
