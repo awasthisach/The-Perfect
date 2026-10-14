@@ -202,39 +202,43 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
-      - name: Record missing FOSSA credential
+      - name: Block missing FOSSA credential
         if: ${{ env.FOSSA_ENABLED != 'true' }}
         run: |
           cat > foss-status.json <<'EOF'
-          {"gate_id":"GATE-LICENSE-001","status":"BLOCKED","reason":"GH_FOSSA secret is not configured","policy":"CI records BLOCKED; release promotion requires FOSSA PASS"}
+          {"gate_id":"GATE-LICENSE-001","status":"BLOCKED","reason":"GH_FOSSA secret is not configured"}
           EOF
-          echo "::warning::GH_FOSSA missing — GATE-LICENSE-001 BLOCKED for release."
+          echo "::error::GH_FOSSA missing — license compliance cannot be verified; CI is blocked."
+          exit 1
       - name: Install FOSSA CLI
         if: ${{ env.FOSSA_ENABLED == 'true' }}
         run: |
           set -euo pipefail
-          curl -fsSL https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
+          FOSSA_VERSION="3.17.16"
+          FOSSA_ARCHIVE="fossa_${FOSSA_VERSION}_linux_amd64.zip"
+          FOSSA_BASE="https://github.com/fossas/fossa-cli/releases/download/v${FOSSA_VERSION}"
+          curl --fail --show-error --silent --location --retry 3 "${FOSSA_BASE}/${FOSSA_ARCHIVE}" --output "/tmp/${FOSSA_ARCHIVE}"
+          curl --fail --show-error --silent --location --retry 3 "${FOSSA_BASE}/${FOSSA_ARCHIVE}.sha256" --output "/tmp/${FOSSA_ARCHIVE}.sha256"
+          (cd /tmp && sha256sum --check --strict "${FOSSA_ARCHIVE}.sha256")
+          mkdir -p /tmp/fossa-cli
+          unzip -q -o "/tmp/${FOSSA_ARCHIVE}" -d /tmp/fossa-cli
+          test -x /tmp/fossa-cli/fossa || { echo "::error::Pinned FOSSA CLI binary missing"; exit 1; }
+          sudo install -m 0755 /tmp/fossa-cli/fossa /usr/local/bin/fossa
           fossa --version
       - name: FOSSA analyze
         id: fossa_analyze
         if: ${{ env.FOSSA_ENABLED == 'true' }}
         env:
           FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
-        run: fossa analyze --project "The-Perfect" --revision "${{ github.sha }}"
-      - name: FOSSA test (advisory)
+          GRADLE_OPTS: -Dorg.gradle.configuration-cache=false
+        run: fossa analyze --revision "${{ github.sha }}"
+      - name: FOSSA policy and findings test
         id: fossa_test
         if: ${{ env.FOSSA_ENABLED == 'true' && success() }}
+        continue-on-error: true
         env:
           FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
-        run: |
-          # FOSSA test is advisory: capture its result without making GitHub
-          # render an error annotation for an allowed advisory failure.
-          if fossa test --timeout 600; then
-            echo "test_outcome=success" >> "$GITHUB_OUTPUT"
-          else
-            echo "test_outcome=failure" >> "$GITHUB_OUTPUT"
-            echo "::warning::FOSSA test advisory failed; analyze gate remains PASS."
-          fi
+        run: fossa test --timeout 600
       - name: Record FOSSA gate status
         if: ${{ always() }}
         run: |
@@ -243,17 +247,16 @@ jobs:
             exit 0
           fi
           ANALYZE="${{ steps.fossa_analyze.outcome }}"
-          TEST="${{ steps.fossa_test.outputs.test_outcome }}"
-          if [ "$ANALYZE" = "success" ]; then
-            if [ "$TEST" = "success" ]; then
-              echo '{"gate_id":"GATE-LICENSE-001","status":"PASS","reason":"fossa analyze + fossa test succeeded"}' > foss-status.json
-            else
-              echo '{"gate_id":"GATE-LICENSE-001","status":"PASS","reason":"fossa analyze succeeded; fossa test advisory fail (outdated dependencies)"}' > foss-status.json
-              echo "::warning::FOSSA test advisory fail; analyze gate remains PASS."
-            fi
-          else
+          TEST="${{ steps.fossa_test.outcome }}"
+          if [ "$ANALYZE" = "success" ] && [ "$TEST" = "success" ]; then
+            echo '{"gate_id":"GATE-LICENSE-001","status":"PASS","reason":"fossa analyze and fossa test both succeeded"}' > foss-status.json
+          elif [ "$ANALYZE" != "success" ]; then
             echo '{"gate_id":"GATE-LICENSE-001","status":"BLOCKED","reason":"FOSSA analyze failed"}' > foss-status.json
             echo "::error::FOSSA analyze failed; license gate is BLOCKED."
+            exit 1
+          else
+            echo '{"gate_id":"GATE-LICENSE-001","status":"BLOCKED","reason":"FOSSA test reported unresolved policy or dependency findings; review and triage them in the FOSSA project before release"}' > foss-status.json
+            echo "::error::FOSSA test reported unresolved findings; release gate is BLOCKED until findings are reviewed and triaged."
             exit 1
           fi
       - name: Upload FOSSA gate status
