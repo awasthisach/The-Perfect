@@ -23,6 +23,11 @@ class SemanticSearchUseCase(
     @Suppress("unused") private val fileManagerRepository: FileManagerRepository,
     private val isEmbeddingConsentGranted: () -> Boolean = { false }
 ) {
+    @Volatile private var lastSemanticSearchUnavailable = false
+
+    /** True when the latest opted-in neural attempt failed at the provider/transport layer. */
+    fun wasLastSemanticSearchUnavailable(): Boolean = lastSemanticSearchUnavailable
+
     fun isPluginReady(): Boolean = runCatching { semanticPlugin.isModelReady() }.getOrDefault(false)
 
     suspend fun downloadPluginModel(onProgress: (Float) -> Unit = {}): Boolean =
@@ -32,6 +37,7 @@ class SemanticSearchUseCase(
         query: String,
         options: SemanticSearchOptions = SemanticSearchOptions()
     ): List<SemanticSearchResult> {
+        lastSemanticSearchUnavailable = false
         val cleanQuery = query.trim().take(500)
         if (cleanQuery.isBlank()) return emptyList()
 
@@ -56,8 +62,11 @@ class SemanticSearchUseCase(
         }
 
         val semanticScores = try {
-            if (!isEmbeddingConsentGranted() || !semanticPlugin.isModelReady()) emptyList()
-            else {
+            if (!isEmbeddingConsentGranted()) emptyList()
+            else if (!semanticPlugin.isModelReady()) {
+                lastSemanticSearchUnavailable = true
+                emptyList()
+            } else {
                 val recent = searchRepository.getRecentDriveIndexedFiles(CANDIDATE_LIMIT)
                 if (recent.isEmpty()) emptyList()
                 else {
@@ -76,6 +85,7 @@ class SemanticSearchUseCase(
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
+            lastSemanticSearchUnavailable = true
             emptyList()
         }
 

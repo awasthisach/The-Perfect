@@ -32,6 +32,7 @@ class SemanticSearchUseCaseTest {
     private class FakeSemanticEngine : ISemanticSearchEngine {
         var isReady = true
         var capturedCandidates: List<SemanticCandidate> = emptyList()
+        var throwOnSearch: Boolean = false
         override fun isModelReady(): Boolean = isReady
         override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean {
             isReady = true
@@ -48,6 +49,7 @@ class SemanticSearchUseCaseTest {
             candidates: List<SemanticCandidate>,
             options: SemanticSearchOptions
         ): List<SemanticSearchResult> {
+            if (throwOnSearch) throw IllegalStateException("embedding service unavailable")
             capturedCandidates = candidates
             return candidates.map {
                 SemanticSearchResult(it.fileItem, 0.88f, "Semantic match for $query")
@@ -245,4 +247,40 @@ class SemanticSearchUseCaseTest {
         val results = useCase.searchSemantically("any query")
         assertTrue(results.isEmpty())
     }
+
+    @Test
+    fun providerFailureIsReportedAndLocalSearchSourceRemainsAvailable() = runBlocking {
+        val file = FileItem(
+            path = "gdrive://annual-report",
+            name = "Annual Report.pdf",
+            sizeBytes = 100L,
+            lastModified = 1L,
+            isDirectory = false,
+            mimeType = "application/pdf"
+        )
+        val repository = FakeSearchRepo(
+            searchResults = listOf(SearchResultItem(file, SearchMatchType.FTS, "annual report revenue")),
+            recentIndexedFiles = listOf(file)
+        )
+        val engine = FakeSemanticEngine().apply { throwOnSearch = true }
+        val useCase = SemanticSearchUseCase(
+            engine,
+            repository,
+            FakeFileManagerRepo(),
+            isEmbeddingConsentGranted = { true }
+        )
+
+        val semanticResults = useCase.searchSemantically("revenue")
+
+        assertTrue(semanticResults.isEmpty())
+        assertEquals(1, repository.searchResults.size)
+        assertEquals(file.path, repository.searchResults.first().fileItem.path)
+        assertTrue(useCase.wasLastSemanticSearchUnavailable())
+
+        engine.throwOnSearch = false
+        assertEquals(1, useCase.searchSemantically("revenue").size)
+        assertFalse(useCase.wasLastSemanticSearchUnavailable())
+    }
+
+
 }
