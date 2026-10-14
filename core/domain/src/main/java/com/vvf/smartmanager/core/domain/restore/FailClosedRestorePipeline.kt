@@ -1,5 +1,8 @@
 package com.vvf.smartmanager.core.domain.restore
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -81,7 +84,7 @@ class FailClosedRestorePipeline(
             )
         } catch (error: Throwable) {
             if (snapshot != null) {
-                val rollbackAttempt = runCatching { applier.rollback(snapshot!!) }
+                val rollbackAttempt = withContext(NonCancellable) { runCatching { applier.rollback(snapshot!!) } }
                 preparedSnapshots.remove(snapshot!!.token)
                 val rollbackResult = rollbackAttempt.getOrNull()
                 if (rollbackAttempt.isFailure) {
@@ -101,6 +104,7 @@ class FailClosedRestorePipeline(
                     )
                 }
             }
+            if (error is CancellationException) throw error
             Result.failure(RestoreException("Fail-closed restore aborted", error))
         } finally {
             stagingDir.deleteRecursively()
@@ -134,6 +138,7 @@ class FailClosedRestorePipeline(
                 )
             )
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             Result.failure(RestoreException("Fail-closed restore dry-run aborted", error))
         } finally {
             stagingDir.deleteRecursively()

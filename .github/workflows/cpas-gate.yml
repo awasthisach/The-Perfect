@@ -2,7 +2,7 @@ name: CPAS Production Gate
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/drive-semantic-search-product-alignment]
   pull_request:
     branches: [main]
   workflow_dispatch:

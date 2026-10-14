@@ -111,4 +111,8 @@ interface SearchRepository {
 
     /** Bounded recent indexed files for semantic search (avoids loading entire library). */
     suspend fun getRecentIndexedFiles(limit: Int = 400): List<FileItem>
+
+    /** Drive-only semantic corpus; the default keeps test/fake repositories source-compatible. */
+    suspend fun getRecentDriveIndexedFiles(limit: Int = 2_000): List<FileItem> =
+        getRecentIndexedFiles(limit).filter { it.path.startsWith("gdrive://") }
 }

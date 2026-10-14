@@ -12,6 +12,7 @@ import com.vvf.smartmanager.core.model.FileOperationProgress
 import com.vvf.smartmanager.core.model.FileSortOption
 import com.vvf.smartmanager.core.model.NearDuplicateCluster
 import com.vvf.smartmanager.core.model.SearchFilter
+import com.vvf.smartmanager.core.model.SearchMatchType
 import com.vvf.smartmanager.core.model.SearchResultItem
 import com.vvf.smartmanager.core.model.SemanticCandidate
 import com.vvf.smartmanager.core.model.SemanticSearchOptions
@@ -30,6 +31,7 @@ class SemanticSearchUseCaseTest {
 
     private class FakeSemanticEngine : ISemanticSearchEngine {
         var isReady = true
+        var capturedCandidates: List<SemanticCandidate> = emptyList()
         override fun isModelReady(): Boolean = isReady
         override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean {
             isReady = true
@@ -46,6 +48,7 @@ class SemanticSearchUseCaseTest {
             candidates: List<SemanticCandidate>,
             options: SemanticSearchOptions
         ): List<SemanticSearchResult> {
+            capturedCandidates = candidates
             return candidates.map {
                 SemanticSearchResult(it.fileItem, 0.88f, "Semantic match for $query")
             }
@@ -103,8 +106,11 @@ class SemanticSearchUseCaseTest {
         override suspend fun cleanJunkItems(selectedDuplicatePaths: List<String>, selectedJunkPaths: List<String>): Result<Long> = Result.success(0L)
     }
 
-    private class FakeSearchRepo : SearchRepository {
-        override fun searchFiles(query: String, filter: SearchFilter): Flow<List<SearchResultItem>> = flowOf()
+    private class FakeSearchRepo(
+        var searchResults: List<SearchResultItem> = emptyList(),
+        var recentIndexedFiles: List<FileItem> = emptyList()
+    ) : SearchRepository {
+        override fun searchFiles(query: String, filter: SearchFilter): Flow<List<SearchResultItem>> = flowOf(searchResults)
         override fun getSearchHistory(): Flow<List<String>> = flowOf()
         override suspend fun saveSearchQuery(query: String) {}
         override suspend fun deleteSearchHistoryItem(query: String) {}
@@ -114,7 +120,104 @@ class SemanticSearchUseCaseTest {
         override suspend fun removeTagFromFile(path: String, tag: String): Result<Boolean> = Result.success(true)
         override fun getTotalIndexedCount(): Flow<Int> = flowOf(2)
         override suspend fun rebuildFtsIndex() {}
-        override suspend fun getRecentIndexedFiles(limit: Int) = emptyList<FileItem>()
+        override suspend fun getRecentIndexedFiles(limit: Int) = recentIndexedFiles.take(limit)
+    }
+
+    @Test
+    fun keywordResultsRemainAvailableWhenSemanticEngineIsDisabled() = runBlocking {
+        val file = FileItem(
+            path = "gdrive://drive-file-1",
+            name = "Annual Report.pdf",
+            sizeBytes = 100L,
+            lastModified = 1L,
+            isDirectory = false,
+            mimeType = "application/pdf"
+        )
+        val searchRepo = FakeSearchRepo(
+            listOf(SearchResultItem(file, SearchMatchType.FTS, "annual report revenue"))
+        )
+        val useCase = SemanticSearchUseCase(FakeSemanticEngine().apply { isReady = false }, searchRepo, FakeFileManagerRepo())
+
+        val results = useCase.searchSemantically("revenue")
+
+        assertEquals(1, results.size)
+        assertEquals(file.path, results.first().fileItem.path)
+        assertTrue(results.first().similarityScore > 0f)
+    }
+
+    @Test
+    fun semanticResultsAndKeywordResultsAreMergedWithoutDuplicates() = runBlocking {
+        val file = FileItem(
+            path = "gdrive://drive-file-2",
+            name = "Budget Plan.pdf",
+            sizeBytes = 100L,
+            lastModified = 1L,
+            isDirectory = false,
+            mimeType = "application/pdf"
+        )
+        val searchRepo = FakeSearchRepo(
+            listOf(SearchResultItem(file, SearchMatchType.FILENAME, "budget"))
+        )
+        val engine = FakeSemanticEngine()
+        val useCase = SemanticSearchUseCase(engine, searchRepo, FakeFileManagerRepo())
+
+        val results = useCase.searchSemantically("budget")
+
+        assertEquals(1, results.size)
+        assertEquals(file.path, results.first().fileItem.path)
+        assertTrue(results.first().similarityScore > 0f)
+    }
+
+
+    @Test
+    fun semanticConsentOffNeverSendsIndexedDocumentTextToProvider() = runBlocking {
+        val file = FileItem(
+            path = "gdrive://drive-file-private",
+            name = "private-notes.txt",
+            sizeBytes = 300L,
+            lastModified = 1L,
+            isDirectory = false,
+            mimeType = "text/plain",
+            indexedText = "Private document contents must not leave the device without consent."
+        )
+        val engine = FakeSemanticEngine()
+        val searchRepo = FakeSearchRepo(recentIndexedFiles = listOf(file))
+        val useCase = SemanticSearchUseCase(
+            engine,
+            searchRepo,
+            FakeFileManagerRepo(),
+            isEmbeddingConsentGranted = { false }
+        )
+
+        useCase.searchSemantically("private document")
+
+        assertTrue("No candidate text may be sent when consent is off", engine.capturedCandidates.isEmpty())
+    }
+
+    @Test
+    fun consentedSemanticCandidatesIncludeExtractedDocumentText() = runBlocking {
+        val file = FileItem(
+            path = "gdrive://drive-file-content",
+            name = "meeting-notes.txt",
+            sizeBytes = 300L,
+            lastModified = 1L,
+            isDirectory = false,
+            mimeType = "text/plain",
+            indexedText = "The board approved a renewable energy solar farm project."
+        )
+        val engine = FakeSemanticEngine()
+        val searchRepo = FakeSearchRepo(recentIndexedFiles = listOf(file))
+        val useCase = SemanticSearchUseCase(
+            engine,
+            searchRepo,
+            FakeFileManagerRepo(),
+            isEmbeddingConsentGranted = { true }
+        )
+
+        useCase.searchSemantically("clean energy")
+
+        assertEquals(1, engine.capturedCandidates.size)
+        assertTrue(engine.capturedCandidates.single().textContent.contains("renewable energy solar farm"))
     }
 
     @Test
