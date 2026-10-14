@@ -2,6 +2,7 @@ package com.vvf.smartmanager.core.cloud.gdrive
 
 import android.content.Context
 import com.vvf.smartmanager.core.model.CloudAccount
+import com.vvf.smartmanager.core.model.CloudBackupInfo
 import com.vvf.smartmanager.core.model.CloudProviderType
 import com.vvf.smartmanager.core.model.FileItem
 import kotlinx.coroutines.CancellationException
@@ -383,6 +384,57 @@ class GoogleDriveServiceImpl(
             }
         }
 
+    override suspend fun listDriveBackups(): Result<List<CloudBackupInfo>> = withContext(Dispatchers.IO) {
+        try {
+            val folderQuery = "name = 'VVF_Backups' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+            val folder = driveApi.listFiles(bearer(), query = folderQuery, pageSize = 10)
+                .files.firstOrNull { !it.id.isNullOrBlank() }
+                ?: return@withContext Result.success(emptyList())
+            val folderId = folder.id!!
+            val backups = mutableListOf<CloudBackupInfo>()
+            var pageToken: String? = null
+            var pageCount = 0
+            do {
+                val page = driveApi.listFiles(
+                    bearer = bearer(),
+                    query = "'$folderId' in parents and trashed = false",
+                    pageSize = 100,
+                    pageToken = pageToken,
+                    orderBy = "modifiedTime desc"
+                )
+                page.files
+                    .filter { !it.trashed && it.mimeType != "application/vnd.google-apps.folder" }
+                    .filter { it.name.orEmpty().endsWith(".vvfbak", ignoreCase = true) }
+                    .forEach { dto ->
+                        val id = dto.id?.takeIf { looksLikeDriveId(it) } ?: return@forEach
+                        val digest = dto.appProperties["vvfSha256"]?.trim()?.lowercase()
+                            ?.takeIf { it.matches(Regex("^[a-f0-9]{64}$")) }
+                        backups.add(
+                            CloudBackupInfo(
+                                backupId = id,
+                                timestamp = parseDriveTime(dto.modifiedTime),
+                                backupName = dto.name.orEmpty(),
+                                backupSizeBytes = dto.size?.toLongOrNull() ?: 0L,
+                                checksumSha256 = digest
+                            )
+                        )
+                    }
+                pageToken = page.nextPageToken
+                pageCount++
+                if (pageCount >= MAX_BACKUP_LIST_PAGES && pageToken != null) {
+                    return@withContext Result.failure(
+                        IllegalStateException("Backup listing exceeded the safe pagination limit; refusing to show an incomplete history")
+                    )
+                }
+            } while (pageToken != null)
+            Result.success(backups.sortedByDescending { it.timestamp })
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
     override suspend fun getFileSha256(fileId: String): Result<String> = withContext(Dispatchers.IO) {
         try {
             require(fileId.isNotBlank() && looksLikeDriveId(fileId)) { "Invalid Drive file id" }
@@ -579,6 +631,10 @@ class GoogleDriveServiceImpl(
         if (value.length < 20 || value.length > 128) return false
         if (value.contains(' ') || value.contains('/') || value.contains('.')) return false
         return value.all { it.isLetterOrDigit() || it == '-' || it == '_' }
+    }
+
+    private companion object {
+        const val MAX_BACKUP_LIST_PAGES = 20
     }
 
     private fun calculateSha256(file: File): String {
