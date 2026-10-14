@@ -142,10 +142,13 @@ class GoogleDriveAuth(
             val result = firebaseAuth.signInWithCredential(credential).await()
             val firebaseEmail = result.user?.email?.trim()?.lowercase()
             if (firebaseEmail.isNullOrBlank() || firebaseEmail != googleEmail) {
+                // Do not leave a previous account's Drive bearer usable after identity mismatch.
+                driveService?.setAccessToken(null)
                 firebaseAuth.signOut()
-                Result.failure(IllegalStateException("Google Drive and Firebase accounts did not match; Firebase session cleared"))
+                Result.failure(IllegalStateException("Google Drive and Firebase accounts did not match; linked sessions cleared"))
             } else Result.success(Unit)
         } catch (e: CancellationException) { throw e } catch (e: Exception) {
+            driveService?.setAccessToken(null)
             firebaseAuth.signOut()
             Result.failure(IllegalStateException("Firebase sign-in failed; no linked session was kept", e))
         }
@@ -157,14 +160,19 @@ class GoogleDriveAuth(
      */
     suspend fun silentRefreshDriveAccessToken(): Result<String> = withContext(Dispatchers.IO) {
         val account = GoogleSignIn.getLastSignedInAccount(context)
-            ?: return@withContext Result.failure(IllegalStateException("No existing Google session; interactive sign-in required"))
+            ?: run {
+                driveService?.setAccessToken(null)
+                return@withContext Result.failure(IllegalStateException("No existing Google session; interactive sign-in required"))
+            }
         val googleEmail = account.email?.trim()?.lowercase()
         val firebaseEmail = firebaseAuth.currentUser?.email?.trim()?.lowercase()
         if (googleEmail.isNullOrBlank() || firebaseEmail.isNullOrBlank() || googleEmail != firebaseEmail) {
+            driveService?.setAccessToken(null)
             firebaseAuth.signOut()
             return@withContext Result.failure(IllegalStateException("Google and Firebase sessions do not match; sign in again"))
         }
         if (account.account == null) {
+            driveService?.setAccessToken(null)
             return@withContext Result.failure(IllegalStateException("Existing Google account has no token account"))
         }
         accessTokenForAccount(account.account)
@@ -178,7 +186,9 @@ class GoogleDriveAuth(
             ?: return@withContext Result.failure(IllegalStateException("Google account email is unavailable"))
         val firebaseEmail = firebaseAuth.currentUser?.email?.trim()?.lowercase()
         if (firebaseEmail.isNullOrBlank() || firebaseEmail != googleEmail) {
-            return@withContext Result.failure(IllegalStateException("Google and Firebase accounts do not match"))
+            driveService?.setAccessToken(null)
+            firebaseAuth.signOut()
+            return@withContext Result.failure(IllegalStateException("Google and Firebase accounts do not match; linked sessions cleared"))
         }
         Result.success(googleEmail)
     }
