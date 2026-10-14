@@ -316,6 +316,8 @@ export default {
       return json({ error: "server_not_configured" }, 503, cors);
     }
 
+    // Version 3 document vectors used raw text; version 4 uses Gemini's retrieval document prefix.
+    // Keep version-specific formatting so clients cannot mix incompatible cached vector spaces.
     const requests = (body.texts as string[]).map((text) => {
       const prefixedText = mode === "query"
         ? "task: search result | query: " + text
