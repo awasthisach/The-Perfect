@@ -6,6 +6,7 @@ import com.vvf.smartmanager.core.database.model.CloudSyncEntity
 import com.vvf.smartmanager.core.domain.backup.ArchiveService
 import com.vvf.smartmanager.core.domain.cloud.DurableUploadContract
 import com.vvf.smartmanager.core.domain.restore.RestorePipeline
+import com.vvf.smartmanager.core.domain.restore.ChecksumMismatchException
 import com.vvf.smartmanager.core.domain.restore.RestoreResult
 import com.vvf.smartmanager.core.model.CloudAccount
 import com.vvf.smartmanager.core.model.CloudBackupInfo
@@ -221,7 +222,61 @@ class CloudSyncUseCase(
             return Result.failure(IllegalArgumentException("Backup id is blank; refusing restore"))
         }
         _syncState.value = CloudSyncStatus.DOWNLOADING
-        return pipeline.restore(backupInfo.backupId, backupInfo.checksumSha256).fold(
+        // Restore requires a trusted digest from the encrypted local mapping or Drive appProperties.
+        // Never trust a caller-provided checksum as the sole source of truth.
+        val suppliedChecksum = backupInfo.checksumSha256?.takeIf(::isSha256)
+        val persistedChecksum = try {
+            cloudSyncDao?.getRecordByRemoteId(backupInfo.backupId, CloudProviderType.GOOGLE_DRIVE.name)
+                ?.checksumSha256?.takeIf(::isSha256)
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            _syncState.value = CloudSyncStatus.ERROR
+            return Result.failure(error)
+        }
+        val remoteChecksum = if (persistedChecksum == null) {
+            try {
+                googleDriveService.getFileSha256(backupInfo.backupId).getOrElse { error ->
+                    if (error is CancellationException) throw error
+                    _syncState.value = CloudSyncStatus.ERROR
+                    return Result.failure(error)
+                }.takeIf(::isSha256)
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                _syncState.value = CloudSyncStatus.ERROR
+                return Result.failure(error)
+            }
+        } else null
+        val trustedChecksum = persistedChecksum ?: remoteChecksum
+        if (trustedChecksum == null) {
+            _syncState.value = CloudSyncStatus.ERROR
+            return Result.failure(
+                IllegalStateException("No trusted SHA-256 is available locally or in Google Drive metadata; refusing restore")
+            )
+        }
+        if (suppliedChecksum != null && !suppliedChecksum.equals(trustedChecksum, ignoreCase = true)) {
+            _syncState.value = CloudSyncStatus.ERROR
+            return Result.failure(ChecksumMismatchException(trustedChecksum, suppliedChecksum))
+        }
+        return pipeline.restore(backupInfo.backupId, trustedChecksum).fold(
+            onSuccess = { result: RestoreResult ->
+                if (result.success) {
+                    _syncState.value = CloudSyncStatus.SUCCESS
+                    Result.success(true)
+                } else {
+                    _syncState.value = CloudSyncStatus.ERROR
+                    Result.failure(IllegalStateException(result.message.ifBlank { "Restore completed without success" }))
+                }
+            },
+            onFailure = { error ->
+                _syncState.value = CloudSyncStatus.ERROR
+                Result.failure(error)
+            }
+        )
+    }
+
+    private fun isSha256(value: String): Boolean = value.matches(Regex("^[a-fA-F0-9]{64}$"))
+
+    suspend fun syncFileToCloud(
             onSuccess = { result: RestoreResult ->
                 if (result.success) {
                     _syncState.value = CloudSyncStatus.SUCCESS
