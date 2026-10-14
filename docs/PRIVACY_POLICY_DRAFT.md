@@ -16,7 +16,7 @@ Drive Semantic Search lets you connect your Google account, index information ab
 
 Depending on the features you use, the app may process:
 
-- **Google Drive file metadata:** file IDs, names, MIME types, sizes, modification times, parent IDs, links, and integrity hashes.
+- **Google Drive file metadata:** file IDs, names, MIME types, sizes, modification times, parent IDs, links, and integrity hashes. The app requests `drive.readonly` to read the user's corpus and `drive.file` for app-created backup files; it does not request full Drive-management access. `drive.readonly` is a restricted scope and requires the applicable Google OAuth verification and security-assessment review before public release.
 - **Extracted text:** text extracted from supported Drive files for local indexing and search. Full-content extraction for supported document formats requires the applicable in-app consent.
 - **Search queries:** the text you enter in search.
 - **Semantic vectors and hashes:** numerical embeddings and content hashes generated to support semantic ranking.
