@@ -266,7 +266,7 @@ export default {
       return json({
         ok: configured,
         model: env.EMBEDDING_MODEL || "gemini-embedding-2",
-        version: env.EMBEDDING_VERSION || "3",
+        version: env.EMBEDDING_VERSION || "4",
         dimension
       }, configured ? 200 : 503, cors);
     }
@@ -308,8 +308,8 @@ export default {
     }
     const mode = body.mode === "query" ? "query" : body.mode === "document" ? "document" : null;
     if (!mode) return json({ error: "invalid_mode" }, 400, cors);
-    const version = String(body.version ?? env.EMBEDDING_VERSION ?? "3");
-    if (version !== "2" && version !== "3") return json({ error: "invalid_version" }, 400, cors);
+    const version = String(body.version ?? env.EMBEDDING_VERSION ?? "4");
+    if (version !== "2" && version !== "3" && version !== "4") return json({ error: "invalid_version" }, 400, cors);
     const model = env.EMBEDDING_MODEL || "gemini-embedding-2";
     const dimension = Number(env.EMBEDDING_DIMENSION || 768);
     if (!env.GEMINI_API_KEY || !env.FIREBASE_PROJECT_ID || !Number.isInteger(dimension) || dimension !== 768) {
@@ -321,7 +321,7 @@ export default {
       // Keep the same document prefix across versioned indexes; changing this format requires re-embedding.
       const prefixedText = mode === "query"
         ? "task: search result | query: " + text
-        : "title: none | text: " + text;
+        : (version === "2" || version === "4") ? "title: none | text: " + text : text;
       return {
         model: `models/${model}`,
         content: { parts: [{ text: prefixedText }] },
