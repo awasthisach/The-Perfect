@@ -317,9 +317,11 @@ export default {
     }
 
     const requests = (body.texts as string[]).map((text) => {
+      // Gemini Embedding 2 retrieval requires paired query/document task formatting.
+      // Keep the same document prefix across versioned indexes; changing this format requires re-embedding.
       const prefixedText = mode === "query"
         ? "task: search result | query: " + text
-        : version === "2" ? "title: none | text: " + text : text;
+        : "title: none | text: " + text;
       return {
         model: `models/${model}`,
         content: { parts: [{ text: prefixedText }] },
