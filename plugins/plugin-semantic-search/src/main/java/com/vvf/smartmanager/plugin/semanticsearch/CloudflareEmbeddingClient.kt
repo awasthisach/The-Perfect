@@ -15,6 +15,7 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -61,6 +62,8 @@ class CloudflareEmbeddingClient(
                     payload.optInt("dimension") == EMBEDDING_DIMENSION &&
                     payload.optString("version") == EXPECTED_VERSION
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             false
         }
