@@ -2,7 +2,7 @@ name: VVF Smart Manager CI & Quality Gate
 
 on:
   push:
-    branches: ["main", "develop", "fix/drive-semantic-search-product-alignment"]
+    branches: ["main", "develop"]
   pull_request:
     branches: ["main", "develop"]
   workflow_dispatch:
