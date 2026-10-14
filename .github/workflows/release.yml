@@ -136,7 +136,12 @@ jobs:
           if not web_oauth_ids:
               raise SystemExit("Firebase Android client has no web OAuth client (client_type=3) required for Google/Firebase sign-in")
           env_text = Path(".env.example").read_text()
-          web_id_match = re.search(r'(?m)^GOOGLE_WEB_CLIENT_ID="?([^"\\r\\n#]+)"?\\s*
+          env_line = next((line for line in env_text.splitlines() if line.startswith("GOOGLE_WEB_CLIENT_ID=")), "")
+          if not env_line:
+              raise SystemExit(".env.example must define GOOGLE_WEB_CLIENT_ID for Google/Firebase sign-in")
+          expected_web_id = env_line.split("=", 1)[1].strip().strip('"').strip("'")
+          if not expected_web_id or expected_web_id not in web_oauth_ids:
+              raise SystemExit("GOOGLE_WEB_CLIENT_ID in .env.example does not match any web OAuth client in google-services.json")
           PY
 
       - name: Generate SQLCipher 4.5.4 compatibility fixture
