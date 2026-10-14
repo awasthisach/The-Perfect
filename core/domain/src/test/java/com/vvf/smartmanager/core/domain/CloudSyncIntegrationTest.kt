@@ -135,19 +135,32 @@ class CloudSyncIntegrationTest {
         assertTrue((item?.path ?: "").isNotEmpty())
     }
 
-    private fun artifact(file: File) = ArchiveArtifact(
-        file = file,
-        backupInfo = CloudBackupInfo(
-            backupId = "local-id",
-            timestamp = System.currentTimeMillis(),
-            backupName = "Test Backup",
-            backupSizeBytes = file.length(),
-            includesVault = false,
-            includesDatabase = true,
-            includesPreferences = false
-        ),
-        checksumSha256 = "checksum"
-    )
+    private fun artifact(file: File): ArchiveArtifact {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(8192)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        val checksum = digest.digest().joinToString("") { "%02x".format(it) }
+        return ArchiveArtifact(
+            file = file,
+            backupInfo = CloudBackupInfo(
+                backupId = "local-id",
+                timestamp = System.currentTimeMillis(),
+                backupName = "Test Backup",
+                backupSizeBytes = file.length(),
+                includesVault = false,
+                includesDatabase = true,
+                includesPreferences = false,
+                checksumSha256 = checksum
+            ),
+            checksumSha256 = checksum
+        )
+    }
 
     private class HttpFakeDriveService(
         private val server: MockWebServer
