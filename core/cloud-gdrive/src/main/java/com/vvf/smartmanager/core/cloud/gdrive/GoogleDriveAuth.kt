@@ -134,9 +134,17 @@ class GoogleDriveAuth(
     /** Link Firebase Auth to the exact Google account granted Drive access. */
     private suspend fun linkFirebaseAccount(account: GoogleSignInAccount): Result<Unit> {
         val googleEmail = account.email?.trim()?.lowercase()
-            ?: return Result.failure(IllegalStateException("Google did not return an account email"))
+            ?: run {
+                driveService?.setAccessToken(null)
+                firebaseAuth.signOut()
+                return Result.failure(IllegalStateException("Google did not return an account email; linked sessions cleared"))
+            }
         val googleIdToken = account.idToken?.takeIf { it.isNotBlank() }
-            ?: return Result.failure(IllegalStateException("Google ID token is missing; Firebase sign-in cannot proceed"))
+            ?: run {
+                driveService?.setAccessToken(null)
+                firebaseAuth.signOut()
+                return Result.failure(IllegalStateException("Google ID token is missing; linked sessions cleared"))
+            }
         return try {
             val credential = GoogleAuthProvider.getCredential(googleIdToken, null)
             val result = firebaseAuth.signInWithCredential(credential).await()
@@ -185,7 +193,11 @@ class GoogleDriveAuth(
                 return@withContext Result.failure(IllegalStateException("No existing Google account"))
             }
         val googleEmail = account.email?.trim()?.lowercase()
-            ?: return@withContext Result.failure(IllegalStateException("Google account email is unavailable"))
+            ?: run {
+                driveService?.setAccessToken(null)
+                firebaseAuth.signOut()
+                return@withContext Result.failure(IllegalStateException("Google account email is unavailable; linked sessions cleared"))
+            }
         val firebaseEmail = firebaseAuth.currentUser?.email?.trim()?.lowercase()
         if (firebaseEmail.isNullOrBlank() || firebaseEmail != googleEmail) {
             driveService?.setAccessToken(null)
@@ -210,7 +222,9 @@ class GoogleDriveAuth(
 
     private fun accessTokenForAccount(acct: android.accounts.Account?): Result<String> {
         if (acct == null) {
-            return Result.failure(IllegalStateException("No Google account on sign-in result"))
+            driveService?.setAccessToken(null)
+            firebaseAuth.signOut()
+            return Result.failure(IllegalStateException("No Google account on sign-in result; linked sessions cleared"))
         }
         return try {
             val token = com.google.android.gms.auth.GoogleAuthUtil.getToken(
