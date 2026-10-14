@@ -48,7 +48,7 @@ The public `GET /` endpoint should return:
 {
   "ok": true,
   "model": "gemini-embedding-2",
-  "version": "3",
+  "version": "4",
   "dimension": 768
 }
 ```
