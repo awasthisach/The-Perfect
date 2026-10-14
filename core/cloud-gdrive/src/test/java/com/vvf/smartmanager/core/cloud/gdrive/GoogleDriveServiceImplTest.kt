@@ -54,6 +54,12 @@ class GoogleDriveServiceImplTest {
     }
 
     @Test
+    fun getFileSha256_withoutToken_failsClosed() = runBlocking {
+        val result = service.getFileSha256("123456789012345678901234567890123")
+        assertTrue(result.isFailure)
+    }
+
+    @Test
     fun disconnect_clearsConnectedState() {
         service.setAccessToken("dummy-not-used-without-network")
         service.disconnect()
