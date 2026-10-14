@@ -17,7 +17,7 @@ Android-native Google Drive search app built with Kotlin, Jetpack Compose, Mater
 - **Language/UI:** Kotlin, Coroutines/Flow, Jetpack Compose + Material 3
 - **Architecture:** modular Clean Architecture / MVVM-style ViewModels; manual application composition root
 - **Navigation:** Jetpack Navigation Compose
-- **Persistence:** Room + SQLCipher; schema version 5 preserves prior local data through migrations
+- **Persistence:** Room + SQLCipher; schema version 7 preserves prior local data through migrations
 - **Security:** Android Keystore, AES-GCM vault encryption, protected database passphrase
 - **Background work:** AndroidX WorkManager for bounded Drive indexing
 - **Text extraction:** plain text and native Google Workspace exports; bounded PDF/image and DOCX/XLSX/PPTX extraction when the user opts in
