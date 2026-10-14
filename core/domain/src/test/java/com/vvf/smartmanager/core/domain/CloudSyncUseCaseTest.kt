@@ -39,6 +39,7 @@ class CloudSyncUseCaseTest {
         override suspend fun listDriveFiles(folderId: String): Result<List<FileItem>> = Result.success(emptyList())
         override suspend fun uploadFile(localFile: FileItem, remoteFolderId: String): Result<String> = uploadResult
         override suspend fun downloadFile(fileId: String, destinationPath: String): Result<Boolean> = Result.success(true)
+        override suspend fun getFileSha256(fileId: String): Result<String> = Result.success("a".repeat(64))
         override suspend fun getStorageQuota(): Result<Pair<Long, Long>> = Result.success(0L to 1L)
     }
 
@@ -48,6 +49,7 @@ class CloudSyncUseCaseTest {
 
         override suspend fun update(record: CloudSyncEntity) = Unit
         override suspend fun getRecord(localPath: String, provider: String): CloudSyncEntity? = null
+        override suspend fun getRecordByRemoteId(remoteFileId: String, provider: String): CloudSyncEntity? = null
         override fun getRecordsByProvider(provider: String): Flow<List<CloudSyncEntity>> = emptyFlow()
         override suspend fun getRecordsByStatus(status: String): List<CloudSyncEntity> = emptyList()
         override suspend fun deleteByLocalPath(localPath: String) = Unit
@@ -130,17 +132,18 @@ class CloudSyncUseCaseTest {
 
     @Test
     fun restoreUsesInjectedFailClosedPipeline() = runBlocking {
-        val info = CloudBackupInfo("remote-1", 1L, "backup.vvfbak", 10L, checksumSha256 = "abc")
+        val trustedChecksum = "a".repeat(64)
+        val info = CloudBackupInfo("remote-1", 1L, "backup.vvfbak", 10L, checksumSha256 = trustedChecksum)
         val pipeline = FailClosedRestorePipeline(
             workingDir = temp.newFolder("restore-work"),
             downloader = object : BackupDownloader {
                 override suspend fun download(remoteBackupId: String) = Result.success(
-                    DownloadedArtifact(temp.newFile("art"), info, "abc")
+                    DownloadedArtifact(temp.newFile("art"), info, trustedChecksum)
                 )
             },
             verifier = object : BackupVerifier {
                 override suspend fun verify(artifact: DownloadedArtifact, expectedChecksum: String?) =
-                    Result.success(VerifiedArtifact(artifact.file, info, "abc"))
+                    Result.success(VerifiedArtifact(artifact.file, info, trustedChecksum))
             },
             decryptor = object : BackupDecryptor {
                 override suspend fun decrypt(verifiedArtifact: VerifiedArtifact, stagingDir: File) =
