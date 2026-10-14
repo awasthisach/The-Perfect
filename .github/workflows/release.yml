@@ -25,7 +25,7 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
 
       - name: Set up JDK 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
@@ -35,10 +35,10 @@ jobs:
           cache: gradle
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
 
       - name: Install Android SDK components
-        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
 
       - name: CPAS structural + semantic verification (hard fail)
         run: |
@@ -58,9 +58,18 @@ jobs:
             echo "::error::GH_FOSSA secret required for release promotion"
             exit 1
           fi
-          curl -fsSL https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
+          FOSSA_VERSION="3.17.16"
+          FOSSA_ARCHIVE="fossa_${FOSSA_VERSION}_linux_amd64.zip"
+          FOSSA_BASE="https://github.com/fossas/fossa-cli/releases/download/v${FOSSA_VERSION}"
+          curl --fail --show-error --silent --location --retry 3 "${FOSSA_BASE}/${FOSSA_ARCHIVE}" --output "/tmp/${FOSSA_ARCHIVE}"
+          curl --fail --show-error --silent --location --retry 3 "${FOSSA_BASE}/${FOSSA_ARCHIVE}.sha256" --output "/tmp/${FOSSA_ARCHIVE}.sha256"
+          (cd /tmp && sha256sum --check --strict "${FOSSA_ARCHIVE}.sha256")
+          mkdir -p /tmp/fossa-cli
+          unzip -q -o "/tmp/${FOSSA_ARCHIVE}" -d /tmp/fossa-cli
+          test -x /tmp/fossa-cli/fossa || { echo "::error::Pinned FOSSA CLI binary missing"; exit 1; }
+          sudo install -m 0755 /tmp/fossa-cli/fossa /usr/local/bin/fossa
           fossa --version
-          fossa analyze --project "The-Perfect" --revision "${{ github.sha }}"
+          fossa analyze --revision "${{ github.sha }}"
           fossa test --timeout 600
           cat > foss-status.json <<'EOF'
           {"gate_id":"GATE-LICENSE-001","status":"PASS","reason":"fossa analyze + fossa test succeeded on release"}
@@ -102,16 +111,91 @@ jobs:
           import json
           from pathlib import Path
           payload = json.loads(Path("app/google-services.json").read_text())
-          if not payload.get("project_info", {}).get("project_id"):
-              raise SystemExit("google-services.json is missing project_info.project_id")
-          if not payload.get("client"):
-              raise SystemExit("google-services.json contains no Firebase client configuration")
+          project = payload.get("project_info", {})
+          if project.get("project_id") != "thevvforg":
+              raise SystemExit("Firebase project_id must match the configured Drive embedding Worker project (thevvforg)")
+          if str(project.get("project_number", "")) != "1058219630435":
+              raise SystemExit("Firebase project_number does not match the configured App Check project")
+          clients = payload.get("client", [])
+          expected_package = "com.vvf.smartmanager"
+          matching = [
+              client for client in clients
+              if client.get("client_info", {}).get("android_client_info", {}).get("package_name") == expected_package
+          ]
+          if not matching:
+              raise SystemExit(f"google-services.json has no Android client for {expected_package}")
+          def has_web_oauth_client(client):
+              oauth = list(client.get("oauth_client", []))
+              oauth += client.get("services", {}).get("appinvite_service", {}).get("other_platform_oauth_client", [])
+              return any(str(item.get("client_type", "")) == "3" and item.get("client_id") for item in oauth)
+          if not any(has_web_oauth_client(client) for client in matching):
+              raise SystemExit("Firebase Android client has no web OAuth client (client_type=3) required for Google/Firebase sign-in")
           PY
 
-      - name: Record instrumented DB evidence policy
+      - name: Generate SQLCipher 4.5.4 compatibility fixture
         run: |
-          echo "::notice::Unit tests and lint are hard on this release job."
-          echo "::warning::SQLCipher connectedAndroidTest remains a weekly/self-hosted KVM hard gate — not soft-passed here."
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev tcl-dev zlib1g-dev
+          curl -fsSL -o /tmp/sqlcipher.tgz https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz
+          tar -xzf /tmp/sqlcipher.tgz -C /tmp
+          cd /tmp/sqlcipher-4.5.4
+          ./configure --enable-tempstore=yes --enable-fts5 CFLAGS="-DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL" LDFLAGS="-lcrypto"
+          make -j"$(nproc)"
+          mkdir -p "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets"
+          printf '%s\n' "PRAGMA key = 'vvf-sqlcipher-compatibility-test';" "CREATE TABLE compatibility_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL);" "INSERT INTO compatibility_test (id, value) VALUES (1, 'legacy-4.5.4');" ".quit" | ./sqlcipher "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
+          test -s "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
+
+      - name: Grant runner access to KVM
+        run: |
+          set -euo pipefail
+          test -e /dev/kvm
+          sudo chown "$(id -un)":kvm /dev/kvm
+          sudo chmod 660 /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+          ls -l /dev/kvm
+
+      - name: Start Android emulator (hard release gate)
+        timeout-minutes: 15
+        env:
+          ANDROID_AVD_HOME: ${{ runner.temp }}/release-avd
+        run: |
+          set -euo pipefail
+          mkdir -p "$ANDROID_AVD_HOME"
+          export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH"
+          echo "no" | avdmanager create avd --force --name vvf-release-api35 --package "system-images;android-35;google_apis;x86_64"
+          adb start-server
+          emulator -avd vvf-release-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel on -no-metrics -wipe-data > "$RUNNER_TEMP/release-emulator.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/release-emulator.pid"
+          timeout 180 adb wait-for-device
+          for _ in $(seq 1 60); do
+            boot_completed="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+            if [ "$boot_completed" = "1" ]; then break; fi
+            sleep 5
+          done
+          test "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1"
+          adb devices
+
+      - name: SQLCipher compatibility instrumentation (hard release gate)
+        timeout-minutes: 20
+        run: ./gradlew --no-daemon :core:database-compat:connectedDebugAndroidTest --stacktrace
+
+      - name: Stop release emulator
+        if: always()
+        run: |
+          adb emu kill || true
+          if [ -f "$RUNNER_TEMP/release-emulator.pid" ]; then kill "$(cat "$RUNNER_TEMP/release-emulator.pid")" 2>/dev/null || true; fi
+
+      - name: Upload release emulator diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: release-emulator-diagnostics
+          path: |
+            ${{ runner.temp }}/release-emulator.log
+            **/build/reports/androidTests/**
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Unit tests (release hard gate)
         run: ./gradlew --no-daemon testDebugUnitTest --stacktrace
@@ -127,7 +211,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           VERSION_NAME: ${{ inputs.version_name }}
           VERSION_CODE: ${{ inputs.version_code }}
-        run: ./gradlew --no-daemon assembleRelease --stacktrace
+        run: ./gradlew --no-daemon assembleRelease bundleRelease --stacktrace
 
       - name: Verify signed APK + fingerprint + SHA-256
         id: apk
@@ -152,14 +236,44 @@ jobs:
           echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
           cat release-meta/apk-manifest.txt
 
+      - name: Verify signed Android App Bundle + SHA-256
+        id: aab
+        run: |
+          set -euo pipefail
+          AAB="$(find . -path '*/build/outputs/bundle/release/*.aab' -type f | head -n 1)"
+          test -n "$AAB" || { echo "::error::Signed release AAB not found"; exit 1; }
+          jarsigner -verify -verbose "$AAB" > /tmp/aab-signature-verification.log 2>&1
+          grep -qi "jar verified" /tmp/aab-signature-verification.log || {
+            cat /tmp/aab-signature-verification.log
+            echo "::error::Android App Bundle signature verification failed"
+            exit 1
+          }
+          SHA="$(sha256sum "$AAB" | awk '{print $1}')"
+          mkdir -p release-meta
+          {
+            echo "aab_path=$AAB"
+            echo "aab_sha256=$SHA"
+            echo "git_sha=${{ github.sha }}"
+            echo "run_id=${{ github.run_id }}"
+          } > release-meta/aab-manifest.txt
+          echo "path=$AAB" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          cat release-meta/aab-manifest.txt
+
+      - name: Generate SBOM for signed AAB
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          file: ${{ steps.aab.outputs.path }}
+          format: spdx-json
+          output-file: release-meta/aab-sbom.spdx.json
       - name: Generate SBOM with Syft
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
           file: ${{ steps.apk.outputs.path }}
           format: spdx-json
           output-file: release-meta/sbom.spdx.json
 
-      - name: Fail-closed release gate (CPAS + FOSSA + APK)
+      - name: Fail-closed release gate (CPAS + FOSSA + signed APK + signed AAB)
         run: |
           set -euo pipefail
           python3 tools/audit/release_gate.py \
@@ -173,6 +287,7 @@ jobs:
           name: vvf-smartmanager-release-${{ inputs.version_name }}-${{ inputs.version_code }}
           path: |
             **/build/outputs/apk/release/*.apk
+            **/build/outputs/bundle/release/*.aab
             release-meta/**
             cpas-status.json
             foss-status.json
@@ -183,6 +298,10 @@ jobs:
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
         with:
           subject-path: "**/build/outputs/apk/release/*.apk"
+      - name: Attest Android App Bundle (SLSA provenance)
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: "**/build/outputs/bundle/release/*.aab"
 
       - name: Remove signing and Firebase material
         if: always()

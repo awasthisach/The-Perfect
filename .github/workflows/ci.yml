@@ -2,7 +2,7 @@ name: VVF Smart Manager CI & Quality Gate
 
 on:
   push:
-    branches: ["main", "develop"]
+    branches: ["main", "develop", "fix/drive-semantic-search-product-alignment"]
   pull_request:
     branches: ["main", "develop"]
   workflow_dispatch:
@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
 
 env:
   UPLOAD_ARTIFACT_ACTION: b7c566a772e6b6bfb58ed0dc250532a479d7789f
@@ -24,7 +24,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
       - name: Set up JDK 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
@@ -32,28 +32,20 @@ jobs:
           distribution: "temurin"
           cache: gradle
       - name: Setup Android SDK
-        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
         with:
           packages: ""
           accept-android-sdk-licenses: true
       - name: Install required Android SDK components
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+        # Keep the PR gate focused on deterministic compile/test/lint/build work.
+        # Emulator packages are installed only by weekly-instrumented.yml, the hard SQLCipher gate.
+        # The emulator step below is intentionally soft and records a skip when its image is absent.
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
       - name: Create local.properties
         run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
-      - name: Generate SQLCipher 4.5.4 compatibility fixture
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y build-essential libssl-dev tcl-dev zlib1g-dev
-          mkdir -p core/database-compat/src/androidTest/assets
-          curl -fsSL https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz -o /tmp/sqlcipher-4.5.4.tar.gz
-          tar -xzf /tmp/sqlcipher-4.5.4.tar.gz -C /tmp
-          cd /tmp/sqlcipher-4.5.4
-          ./configure --enable-tempstore=yes --enable-fts5 CFLAGS="-DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL" LDFLAGS="-lcrypto"
-          make -j2
-          test -x ./sqlcipher
-          printf '%s\n' "PRAGMA key = 'vvf-sqlcipher-compatibility-test';" "CREATE TABLE compatibility_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL);" "INSERT INTO compatibility_test (id, value) VALUES (1, 'legacy-4.5.4');" ".quit" | ./sqlcipher "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
-          test -s "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
+      # SQLCipher fixture generation is only needed by connectedAndroidTest.
+      # This PR job intentionally has no emulator; the weekly hard gate builds the fixture
+      # immediately before instrumentation in weekly-instrumented.yml.
       - name: Verify Gradle wrapper
         run: ./gradlew --no-daemon --version
       - name: Run unit tests
@@ -209,27 +201,38 @@ jobs:
       FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - name: Record missing FOSSA credential
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+      - name: Block missing FOSSA credential
         if: ${{ env.FOSSA_ENABLED != 'true' }}
         run: |
           cat > foss-status.json <<'EOF'
-          {"gate_id":"GATE-LICENSE-001","status":"BLOCKED","reason":"GH_FOSSA secret is not configured","policy":"CI records BLOCKED; release promotion requires FOSSA PASS"}
+          {"gate_id":"GATE-LICENSE-001","status":"BLOCKED","reason":"GH_FOSSA secret is not configured"}
           EOF
-          echo "::warning::GH_FOSSA missing — GATE-LICENSE-001 BLOCKED for release."
+          echo "::error::GH_FOSSA missing — license compliance cannot be verified; CI is blocked."
+          exit 1
       - name: Install FOSSA CLI
         if: ${{ env.FOSSA_ENABLED == 'true' }}
         run: |
           set -euo pipefail
-          curl -fsSL https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
+          FOSSA_VERSION="3.17.16"
+          FOSSA_ARCHIVE="fossa_${FOSSA_VERSION}_linux_amd64.zip"
+          FOSSA_BASE="https://github.com/fossas/fossa-cli/releases/download/v${FOSSA_VERSION}"
+          curl --fail --show-error --silent --location --retry 3 "${FOSSA_BASE}/${FOSSA_ARCHIVE}" --output "/tmp/${FOSSA_ARCHIVE}"
+          curl --fail --show-error --silent --location --retry 3 "${FOSSA_BASE}/${FOSSA_ARCHIVE}.sha256" --output "/tmp/${FOSSA_ARCHIVE}.sha256"
+          (cd /tmp && sha256sum --check --strict "${FOSSA_ARCHIVE}.sha256")
+          mkdir -p /tmp/fossa-cli
+          unzip -q -o "/tmp/${FOSSA_ARCHIVE}" -d /tmp/fossa-cli
+          test -x /tmp/fossa-cli/fossa || { echo "::error::Pinned FOSSA CLI binary missing"; exit 1; }
+          sudo install -m 0755 /tmp/fossa-cli/fossa /usr/local/bin/fossa
           fossa --version
       - name: FOSSA analyze
         id: fossa_analyze
         if: ${{ env.FOSSA_ENABLED == 'true' }}
         env:
           FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
-        run: fossa analyze --project "The-Perfect" --revision "${{ github.sha }}"
-      - name: FOSSA test (advisory)
+          GRADLE_OPTS: -Dorg.gradle.configuration-cache=false
+        run: fossa analyze --revision "${{ github.sha }}"
+      - name: FOSSA policy and findings test
         id: fossa_test
         if: ${{ env.FOSSA_ENABLED == 'true' && success() }}
         continue-on-error: true
@@ -245,16 +248,15 @@ jobs:
           fi
           ANALYZE="${{ steps.fossa_analyze.outcome }}"
           TEST="${{ steps.fossa_test.outcome }}"
-          if [ "$ANALYZE" = "success" ]; then
-            if [ "$TEST" = "success" ]; then
-              echo '{"gate_id":"GATE-LICENSE-001","status":"PASS","reason":"fossa analyze + fossa test succeeded"}' > foss-status.json
-            else
-              echo '{"gate_id":"GATE-LICENSE-001","status":"PASS","reason":"fossa analyze succeeded; fossa test advisory fail (outdated dependencies)"}' > foss-status.json
-              echo "::warning::FOSSA test advisory fail; analyze gate remains PASS."
-            fi
-          else
+          if [ "$ANALYZE" = "success" ] && [ "$TEST" = "success" ]; then
+            echo '{"gate_id":"GATE-LICENSE-001","status":"PASS","reason":"fossa analyze and fossa test both succeeded"}' > foss-status.json
+          elif [ "$ANALYZE" != "success" ]; then
             echo '{"gate_id":"GATE-LICENSE-001","status":"BLOCKED","reason":"FOSSA analyze failed"}' > foss-status.json
             echo "::error::FOSSA analyze failed; license gate is BLOCKED."
+            exit 1
+          else
+            echo '{"gate_id":"GATE-LICENSE-001","status":"BLOCKED","reason":"FOSSA test reported unresolved policy or dependency findings; review and triage them in the FOSSA project before release"}' > foss-status.json
+            echo "::error::FOSSA test reported unresolved findings; release gate is BLOCKED until findings are reviewed and triaged."
             exit 1
           fi
       - name: Upload FOSSA gate status

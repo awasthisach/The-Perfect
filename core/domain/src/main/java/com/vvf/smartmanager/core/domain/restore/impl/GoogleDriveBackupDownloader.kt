@@ -5,10 +5,11 @@ import com.vvf.smartmanager.core.domain.restore.BackupDownloader
 import com.vvf.smartmanager.core.domain.restore.DownloadedArtifact
 import com.vvf.smartmanager.core.domain.restore.VerificationFailedException
 import com.vvf.smartmanager.core.model.CloudBackupInfo
+import kotlinx.coroutines.CancellationException
 import java.io.File
 import java.security.MessageDigest
 
-/** Downloads a provider backup artifact; computes local SHA-256 for independent verification. */
+/** Downloads a Drive backup only when its trusted appProperties SHA-256 can be verified. */
 class GoogleDriveBackupDownloader(
     private val driveService: GoogleDriveService,
     private val downloadDir: File
@@ -20,31 +21,62 @@ class GoogleDriveBackupDownloader(
         if (!downloadDir.exists() && !downloadDir.mkdirs()) {
             return Result.failure(VerificationFailedException("Unable to create download directory"))
         }
-        val dest = File(downloadDir, "backup-$remoteBackupId.vvfbak")
-        return driveService.downloadFile(remoteBackupId, dest.absolutePath).fold(
-            onSuccess = { ok ->
-                if (!ok || !dest.isFile || dest.length() == 0L) {
-                    Result.failure(VerificationFailedException("Download produced no artifact"))
-                } else {
-                    val checksum = sha256(dest)
-                    Result.success(
-                        DownloadedArtifact(
-                            file = dest,
-                            backupInfo = CloudBackupInfo(
-                                backupId = remoteBackupId,
-                                timestamp = dest.lastModified(),
-                                backupName = dest.name,
-                                backupSizeBytes = dest.length(),
-                                checksumSha256 = checksum
-                            ),
-                            checksumSha256 = checksum
-                        )
-                    )
+
+        val expected = driveService.getFileSha256(remoteBackupId).getOrElse {
+            return Result.failure(VerificationFailedException("Backup has no trusted Drive SHA-256 metadata"))
+        }.trim().lowercase()
+        if (!expected.matches(Regex("^[a-f0-9]{64}$"))) {
+            return Result.failure(VerificationFailedException("Trusted Drive SHA-256 metadata is invalid"))
+        }
+
+        // Hash provider IDs before using them as filenames; IDs are untrusted external input.
+        val dest = File(downloadDir, "backup-${sha256Text(remoteBackupId)}.vvfbak")
+        if (dest.exists() && !dest.delete()) {
+            return Result.failure(VerificationFailedException("Unable to clear stale backup download"))
+        }
+        return try {
+            driveService.downloadFile(remoteBackupId, dest.absolutePath).fold(
+                onSuccess = { ok ->
+                    if (!ok || !dest.isFile || dest.length() == 0L) {
+                        dest.delete()
+                        Result.failure(VerificationFailedException("Download produced no artifact"))
+                    } else {
+                        val actual = sha256(dest)
+                        if (!actual.equals(expected, ignoreCase = true)) {
+                            dest.delete()
+                            Result.failure(VerificationFailedException("Downloaded backup SHA-256 does not match trusted Drive metadata"))
+                        } else {
+                            Result.success(
+                                DownloadedArtifact(
+                                    file = dest,
+                                    backupInfo = CloudBackupInfo(
+                                        backupId = remoteBackupId,
+                                        timestamp = dest.lastModified(),
+                                        backupName = dest.name,
+                                        backupSizeBytes = dest.length(),
+                                        checksumSha256 = expected
+                                    ),
+                                    checksumSha256 = actual
+                                )
+                            )
+                        }
+                    }
+                },
+                onFailure = { error ->
+                    dest.delete()
+                    Result.failure(error)
                 }
-            },
-            onFailure = { Result.failure(it) }
-        )
+            )
+        } catch (error: Throwable) {
+            dest.delete()
+            if (error is CancellationException) throw error
+            throw error
+        }
     }
+
+    private fun sha256Text(value: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it) }
 
     private fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")

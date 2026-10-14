@@ -2,11 +2,16 @@ package com.vvf.smartmanager
 
 import android.app.Application
 import android.util.Log
+import com.google.firebase.FirebaseApp
+import com.google.firebase.appcheck.FirebaseAppCheck
+import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import androidx.work.Configuration
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import com.vvf.smartmanager.core.background.workers.FileIndexingOutcome
-import com.vvf.smartmanager.core.background.workers.FileIndexingRuntime
-import com.vvf.smartmanager.core.background.workers.CloudBackupBootstrap
-import com.vvf.smartmanager.core.background.workers.JunkScanBootstrap
 import com.vvf.smartmanager.core.background.BackgroundSyncManager
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveServiceImpl
@@ -45,6 +50,7 @@ import com.vvf.smartmanager.core.domain.SemanticSearchUseCase
 import com.vvf.smartmanager.core.domain.TagManagementUseCase
 import com.vvf.smartmanager.core.domain.VaultAuthUseCase
 import com.vvf.smartmanager.core.model.CloudProviderType
+import com.vvf.smartmanager.core.model.DriveIndexStatus
 import com.vvf.smartmanager.core.plugin.spi.ISemanticSearchEngine
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import com.vvf.smartmanager.plugin.clouddrivers.DropboxDriverImpl
@@ -55,9 +61,14 @@ import com.vvf.smartmanager.plugin.clouddrivers.S3StorageDriverImpl
 import com.vvf.smartmanager.plugin.ocr.OcrPluginImpl
 import com.vvf.smartmanager.plugin.semanticsearch.SemanticSearchPluginImpl
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -68,6 +79,8 @@ class VVFApplication : Application(), Configuration.Provider {
         private const val SETTINGS_PREFS = "vvf_app_settings"
         private const val KEY_AUTO_INDEX_OCR = "auto_index_ocr"
         private const val KEY_OFFLINE_ONLY_MODE = "offline_only_mode"
+        private const val KEY_EMBEDDING_CONSENT = "embedding_consent_v1"
+        private const val KEY_DRIVE_FULL_CONTENT_CONSENT = "drive_full_content_consent_v1"
     }
 
     override val workManagerConfiguration: Configuration
@@ -114,9 +127,104 @@ class VVFApplication : Application(), Configuration.Provider {
     var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var embeddingClearJob: Job? = null
+    private val _driveIndexStatus = MutableStateFlow(DriveIndexStatus())
+    val driveIndexStatus: StateFlow<DriveIndexStatus> = _driveIndexStatus.asStateFlow()
+
+    fun publishDriveIndexStatus(status: String, indexedCount: Int, capped: Boolean, message: String) {
+        val updatedAt = System.currentTimeMillis()
+        _driveIndexStatus.value = DriveIndexStatus(
+            status = status,
+            indexedCount = indexedCount.coerceAtLeast(0),
+            capped = capped,
+            message = message.take(500),
+            updatedAt = updatedAt
+        )
+        getSharedPreferences("drive_search_index", MODE_PRIVATE).edit()
+            .putString("last_status", status)
+            .putInt("last_indexed_count", indexedCount.coerceAtLeast(0))
+            .putBoolean("listing_capped", capped)
+            .putString("last_message", message.take(500))
+            .putLong("last_updated_at", updatedAt)
+            .apply()
+    }
+
+    private fun restoreDriveIndexStatus() {
+        val prefs = getSharedPreferences("drive_search_index", MODE_PRIVATE)
+        _driveIndexStatus.value = DriveIndexStatus(
+            status = prefs.getString("last_status", "NOT_SYNCED") ?: "NOT_SYNCED",
+            indexedCount = prefs.getInt("last_indexed_count", 0),
+            capped = prefs.getBoolean("listing_capped", false),
+            message = prefs.getString("last_message", "").orEmpty(),
+            updatedAt = prefs.getLong("last_updated_at", 0L)
+        )
+    }
+
 
     private val settingsPrefs by lazy {
         getSharedPreferences(SETTINGS_PREFS, MODE_PRIVATE)
+    }
+
+    /**
+     * Starts Drive indexing only after an interactive Drive sign-in succeeds.
+     * The access token is intentionally not placed in WorkManager input data.
+     */
+    fun enqueueDriveIndexing() {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .setRequiresBatteryNotLow(true)
+            .build()
+        val request = OneTimeWorkRequestBuilder<DriveIndexingWorker>()
+            .setConstraints(constraints)
+            .addTag("drive_semantic_index")
+            .build()
+        WorkManager.getInstance(this).enqueueUniqueWork(
+            "drive_semantic_index_initial",
+            ExistingWorkPolicy.KEEP,
+            request
+        )
+    }
+
+    /** Cancels Drive work and erases account-specific local index data on sign-out. */
+    suspend fun clearDriveIndexOnSignOut() = withContext(Dispatchers.IO) {
+        embeddingClearJob?.join()
+        runCatching {
+            WorkManager.getInstance(this@VVFApplication)
+                .cancelUniqueWork("drive_semantic_index_initial")
+                .result
+                .get()
+            WorkManager.getInstance(this@VVFApplication)
+                .cancelAllWorkByTag(SemanticEmbeddingIndexWorker.WORK_TAG)
+        }
+        DriveOfflineManager(this@VVFApplication).clearAllLocalCopies()
+        if (::database.isInitialized) {
+            // The opaque change cursor is account-scoped; never reuse it after sign-out/account switch.
+            database.cloudSyncDao().deleteByLocalPath("__drive_semantic_search_changes_cursor__")
+            database.fileDao().deleteAllDriveIndexRows()
+            database.semanticEmbeddingDao().deleteAll()
+            database.searchFtsDao().rebuildFtsIndex()
+        }
+        getSharedPreferences("drive_search_index", MODE_PRIVATE).edit().clear().apply()
+        publishDriveIndexStatus("NOT_SYNCED", 0, false, "")
+    }
+
+    /** Prevents one Google account from seeing another account's cached Drive index. */
+    suspend fun prepareDriveIndexForAccount(email: String) = withContext(Dispatchers.IO) {
+        val normalized = email.trim().lowercase()
+        require(normalized.isNotBlank()) { "A verified Google account email is required" }
+        val prefs = getSharedPreferences("drive_search_index", MODE_PRIVATE)
+        if (prefs.getString("account_email", null) != normalized) {
+            clearDriveIndexOnSignOut()
+            prefs.edit().putString("account_email", normalized).apply()
+        }
+    }
+
+    /** Removes abandoned private extraction inputs left by a process death after consent is revoked. */
+    private fun clearDriveIndexTemporaryInputs(): Boolean {
+        val directory = File(cacheDir, "drive-index-inputs")
+        if (!directory.exists()) return true
+        val files = directory.listFiles() ?: return false
+        return files.all { file -> !file.exists() || file.deleteRecursively() }
     }
 
     fun isAutoIndexOcrEnabled(): Boolean = settingsPrefs.getBoolean(KEY_AUTO_INDEX_OCR, true)
@@ -131,8 +239,116 @@ class VVFApplication : Application(), Configuration.Provider {
         settingsPrefs.edit().putBoolean(KEY_OFFLINE_ONLY_MODE, enabled).apply()
     }
 
+    fun isEmbeddingConsentEnabled(): Boolean = settingsPrefs.getBoolean(KEY_EMBEDDING_CONSENT, false)
+
+    fun setEmbeddingConsentEnabled(enabled: Boolean) {
+        settingsPrefs.edit().putBoolean(KEY_EMBEDDING_CONSENT, enabled).apply()
+        if (enabled) {
+            applicationScope.launch {
+                embeddingClearJob?.join()
+                enqueueSemanticEmbeddingIndexing()
+            }
+        } else {
+            // Stop in-flight document/query uploads immediately, not merely future WorkManager jobs.
+            (semanticSearchPlugin as? SemanticSearchPluginImpl)?.cancelPendingEmbeddingRequests()
+            (semanticSearchPlugin as? SemanticSearchPluginImpl)?.clearCachedEmbeddings()
+            val previousClearJob = embeddingClearJob
+            embeddingClearJob = applicationScope.launch {
+                previousClearJob?.join()
+                // Work cancellation and persistent-vector deletion are independent privacy
+                // actions: a WorkManager failure must never skip the database cleanup.
+                runCatching {
+                    WorkManager.getInstance(this@VVFApplication)
+                        .cancelAllWorkByTag(SemanticEmbeddingIndexWorker.WORK_TAG)
+                }.onFailure { error ->
+                    Log.w(TAG, "Could not cancel semantic indexing after consent revocation", error)
+                }
+                runCatching {
+                    if (::database.isInitialized) database.semanticEmbeddingDao().deleteAll()
+                }.onFailure { error ->
+                    Log.e(TAG, "Could not clear persisted embeddings after consent revocation", error)
+                }
+            }
+        }
+    }
+
+    /** Starts bounded background vector generation only when consent and Firebase sign-in are active. */
+    fun enqueueSemanticEmbeddingIndexing() {
+        // Never let a sync completion race privacy cleanup and queue stale extracted text.
+        if (embeddingClearJob?.isActive == true) {
+            applicationScope.launch {
+                while (embeddingClearJob?.isActive == true) embeddingClearJob?.join()
+                enqueueSemanticEmbeddingIndexing()
+            }
+            return
+        }
+        if (CryptoSecurityManager.isJvmUnitTestEnvironment(this) ||
+            !isEmbeddingConsentEnabled() || !::database.isInitialized || !::semanticSearchPlugin.isInitialized
+        ) return
+        if (!semanticSearchPlugin.isModelReady()) return
+        WorkManager.getInstance(this).enqueueUniqueWork(
+            SemanticEmbeddingIndexWorker.INITIAL_UNIQUE_WORK,
+            ExistingWorkPolicy.KEEP,
+            SemanticEmbeddingIndexWorker.initialRequest()
+        )
+    }
+
+    /** Explicit opt-in for downloading supported Drive documents for local PDF/image/Office extraction. */
+    fun isDriveFullContentConsentEnabled(): Boolean =
+        settingsPrefs.getBoolean(KEY_DRIVE_FULL_CONTENT_CONSENT, false)
+
+    fun setDriveFullContentConsentEnabled(enabled: Boolean) {
+        settingsPrefs.edit().putBoolean(KEY_DRIVE_FULL_CONTENT_CONSENT, enabled).apply()
+        if (!enabled && ::database.isInitialized) {
+            // Full-content text may already have contributed to neural vectors. Abort uploads,
+            // discard cached/persisted vectors, then rebuild only from the reduced local corpus.
+            (semanticSearchPlugin as? SemanticSearchPluginImpl)?.cancelPendingEmbeddingRequests()
+            (semanticSearchPlugin as? SemanticSearchPluginImpl)?.clearCachedEmbeddings()
+            val previousClearJob = embeddingClearJob
+            embeddingClearJob = applicationScope.launch {
+                previousClearJob?.join()
+                runCatching {
+                    WorkManager.getInstance(this@VVFApplication)
+                        .cancelAllWorkByTag(SemanticEmbeddingIndexWorker.WORK_TAG)
+                }.onFailure { error ->
+                    Log.w(TAG, "Could not cancel semantic indexing after full-content consent revocation", error)
+                }
+                val textClear = runCatching {
+                    database.fileDao().clearDriveFullContentText(
+                        listOf(
+                            DriveOfficeTextExtractor.DOCX,
+                            DriveOfficeTextExtractor.XLSX,
+                            DriveOfficeTextExtractor.PPTX
+                        )
+                    )
+                    database.searchFtsDao().rebuildFtsIndex()
+                    check(clearDriveIndexTemporaryInputs()) {
+                        "Could not remove temporary Drive extraction inputs after consent revocation"
+                    }
+                }.onFailure { error ->
+                    Log.e(TAG, "Could not clear full-content Drive text after consent revocation", error)
+                }
+                val vectorClear = runCatching {
+                    database.semanticEmbeddingDao().deleteAll()
+                }.onFailure { error ->
+                    Log.e(TAG, "Could not clear embeddings after full-content consent revocation", error)
+                }
+                if (textClear.isSuccess && vectorClear.isSuccess && isEmbeddingConsentEnabled()) {
+                    enqueueSemanticEmbeddingIndexing()
+                }
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
+        // App Check protects native calls to the custom embedding worker. Do not initialize
+        // Firebase SDKs in JVM unit-test environments that intentionally omit google-services.json.
+        if (!CryptoSecurityManager.isJvmUnitTestEnvironment(this) && FirebaseApp.getApps(this).isNotEmpty()) {
+            FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
+                PlayIntegrityAppCheckProviderFactory.getInstance()
+            )
+        }
         cryptoSecurityManager = CryptoSecurityManager(this)
 
         val jvmUnitTest = CryptoSecurityManager.isJvmUnitTestEnvironment(this)
@@ -201,11 +417,68 @@ class VVFApplication : Application(), Configuration.Provider {
             searchRepository = searchRepository,
             indexOcrTextUseCase = indexOcrTextUseCase
         )
-        semanticSearchPlugin = SemanticSearchPluginImpl()
+        val embeddingVectorStore = RoomEmbeddingVectorStore(database.semanticEmbeddingDao())
+        semanticSearchPlugin = SemanticSearchPluginImpl(
+            vectorStore = embeddingVectorStore,
+            isEmbeddingConsentGranted = { isEmbeddingConsentEnabled() },
+            isFullContentConsentGranted = { isDriveFullContentConsentEnabled() }
+        )
+        // Reconcile privacy preferences before any background embedding job can upload stored text.
+        val neuralConsentAtStartup = isEmbeddingConsentEnabled()
+        val fullContentConsentAtStartup = isDriveFullContentConsentEnabled()
+        if (!neuralConsentAtStartup || !fullContentConsentAtStartup) {
+            embeddingClearJob = applicationScope.launch {
+                if (!jvmUnitTest) {
+                    runCatching {
+                        WorkManager.getInstance(this@VVFApplication)
+                            .cancelAllWorkByTag(SemanticEmbeddingIndexWorker.WORK_TAG)
+                    }.onFailure { error ->
+                        Log.w(TAG, "Could not cancel stale semantic indexing during privacy reconciliation", error)
+                    }
+                }
+                var textClearSucceeded = true
+                if (!fullContentConsentAtStartup) {
+                    runCatching {
+                        database.fileDao().clearDriveFullContentText(
+                            listOf(
+                                DriveOfficeTextExtractor.DOCX,
+                                DriveOfficeTextExtractor.XLSX,
+                                DriveOfficeTextExtractor.PPTX
+                            )
+                        )
+                        database.searchFtsDao().rebuildFtsIndex()
+                        check(clearDriveIndexTemporaryInputs()) {
+                            "Could not remove temporary Drive extraction inputs during startup privacy reconciliation"
+                        }
+                    }.onFailure { error ->
+                        textClearSucceeded = false
+                        Log.e(TAG, "Could not reconcile revoked full-content consent at startup", error)
+                    }
+                }
+                var vectorsClearSucceeded = true
+                if (!neuralConsentAtStartup || !fullContentConsentAtStartup) {
+                    runCatching { embeddingVectorStore.clear() }.onFailure { error ->
+                        vectorsClearSucceeded = false
+                        Log.e(TAG, "Could not reconcile stale neural vectors at startup", error)
+                    }
+                }
+                // If neural consent is still enabled, rebuild only after old extracted text and
+                // its vectors have been removed. The worker re-checks full-content consent too.
+                if (textClearSucceeded && vectorsClearSucceeded &&
+                    isEmbeddingConsentEnabled() && !jvmUnitTest
+                ) {
+                    enqueueSemanticEmbeddingIndexing()
+                }
+            }
+        } else if (!jvmUnitTest) {
+            // Resume bounded background indexing after process death if both consent settings remain active.
+            enqueueSemanticEmbeddingIndexing()
+        }
         semanticSearchUseCase = SemanticSearchUseCase(
             semanticPlugin = semanticSearchPlugin,
             searchRepository = searchRepository,
-            fileManagerRepository = fileManagerRepository
+            fileManagerRepository = fileManagerRepository,
+            isEmbeddingConsentGranted = { isEmbeddingConsentEnabled() }
         )
         aiIntelligenceUseCase = AiIntelligenceUseCase(
             semanticPlugin = semanticSearchPlugin,
@@ -213,6 +486,7 @@ class VVFApplication : Application(), Configuration.Provider {
             searchRepository = searchRepository
         )
         googleDriveService = GoogleDriveServiceImpl(this)
+        restoreDriveIndexStatus()
         val cloudDrivers = mapOf(
             CloudProviderType.ONE_DRIVE to OneDriveDriverImpl(),
             CloudProviderType.DROPBOX to DropboxDriverImpl(),
@@ -258,23 +532,10 @@ class VVFApplication : Application(), Configuration.Provider {
             },
             cloudSyncDao = database.cloudSyncDao()
         )
+        // Drive Semantic Search indexes only the signed-in user's Drive corpus. Do not
+        // silently start legacy whole-device file indexing, junk scans, or cloud backups.
         backgroundSyncManager = BackgroundSyncManager(this)
-        FileIndexingRuntime.configure { indexPrimaryStorageForSearch() }
-        CloudBackupBootstrap.wire(cloudSyncUseCase)
-        JunkScanBootstrap.wire(junkCleanerUseCase)
         OcrBatchBootstrap.wire(database, ocrPlugin, ocrIndexingService)
-        val bgExceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
-            Log.e(TAG, "Background sync scheduling failed safely", throwable)
-        }
-        applicationScope.launch(bgExceptionHandler) {
-            try {
-                backgroundSyncManager.schedulePeriodicIndexing(intervalHours = 6L)
-                backgroundSyncManager.triggerImmediateIndexing()
-                backgroundSyncManager.schedulePeriodicJunkScan(intervalHours = 12L)
-            } catch (e: Throwable) {
-                Log.e(TAG, "Background sync scheduling failed", e)
-            }
-        }
     }
 
     private suspend fun indexPrimaryStorageForSearch(): FileIndexingOutcome {

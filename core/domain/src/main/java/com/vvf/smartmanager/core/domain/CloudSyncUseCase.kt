@@ -101,6 +101,14 @@ class CloudSyncUseCase(
         }
     }
 
+    /** Loads persistent backup history from the provider; only Drive metadata-backed entries are shown. */
+    suspend fun listCloudBackups(providerType: CloudProviderType): Result<List<CloudBackupInfo>> =
+        if (providerType == CloudProviderType.GOOGLE_DRIVE) {
+            googleDriveService.listDriveBackups()
+        } else {
+            Result.success(emptyList())
+        }
+
     suspend fun listRemoteFiles(providerType: CloudProviderType, path: String = "root"): Result<List<FileItem>> {
         return if (providerType == CloudProviderType.GOOGLE_DRIVE) {
             googleDriveService.listDriveFiles(path)
@@ -168,7 +176,8 @@ class CloudSyncUseCase(
                                     localPath = "backup://${artifact.backupInfo.backupName}",
                                     remoteId = durableId,
                                     provider = providerType.name,
-                                    status = "SYNCED"
+                                    status = "SYNCED",
+                                    checksumSha256 = artifact.backupInfo.checksumSha256
                                 )
                                 _syncState.value = CloudSyncStatus.SUCCESS
                                 Result.success(artifact.backupInfo.copy(backupId = durableId))
@@ -298,7 +307,8 @@ class CloudSyncUseCase(
         remoteId: String?,
         provider: String,
         status: String,
-        errorMessage: String? = null
+        errorMessage: String? = null,
+        checksumSha256: String? = null
     ) {
         val dao = cloudSyncDao ?: return
         val prior = dao.getRecord(localPath, provider)
@@ -310,7 +320,8 @@ class CloudSyncUseCase(
                 provider = provider,
                 status = status,
                 lastSyncedAt = System.currentTimeMillis(),
-                errorMessage = errorMessage
+                errorMessage = errorMessage,
+                checksumSha256 = checksumSha256 ?: prior?.checksumSha256
             )
         )
     }

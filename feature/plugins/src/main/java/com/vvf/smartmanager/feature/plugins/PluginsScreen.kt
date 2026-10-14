@@ -479,26 +479,26 @@ private fun SemanticSearchPluginCard() {
 
                     Column {
                         Text(
-                            text = "AI Semantic Search (TFLite)",
+                            text = "AI Semantic Search (Gemini Embeddings)",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = CosmicBlue
                         )
                         Text(
-                            text = "v1.0.0 • Phase 9 Plugin",
+                            text = "Cloud provider • Consent required",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
 
-                PluginTagBadge(label = "Phase 9", color = SkyCyan)
+                PluginTagBadge(label = "Optional", color = SkyCyan)
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
             Text(
-                text = "On-device lightweight embedding vectors for concept & meaning-based document discovery.",
+                text = "Meaning-based ranking uses Gemini Embedding 2 through an authenticated Cloudflare Worker. Indexed text is sent to the cloud only after explicit consent; keyword search remains available offline.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
