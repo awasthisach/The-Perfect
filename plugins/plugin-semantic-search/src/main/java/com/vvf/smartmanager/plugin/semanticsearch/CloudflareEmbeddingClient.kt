@@ -149,7 +149,7 @@ class CloudflareEmbeddingClient(
     companion object {
         const val WORKER_BASE_URL = "https://drive-semantic-embed.awasthi-sach.workers.dev"
         const val EXPECTED_MODEL = "gemini-embedding-2"
-        const val EXPECTED_VERSION = "3"
+        const val EXPECTED_VERSION = "4"
         const val EMBEDDING_DIMENSION = 768
         const val MAX_TEXTS = 32
         const val MAX_TEXT_CHARS = 8_000
