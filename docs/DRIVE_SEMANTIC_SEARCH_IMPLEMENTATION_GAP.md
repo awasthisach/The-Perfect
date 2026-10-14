@@ -18,7 +18,7 @@ Scope: `awasthisach/The-Perfect`, candidate branch `fix/drive-semantic-search-pr
 - Live Worker health endpoint was fetched on 2026-10-14 and returned `{"ok":true,"model":"gemini-embedding-2","version":"3","dimension":768}`.
 - This health response proves the public health contract only. It does **not** prove the updated native App Check path is deployed or that an authenticated Android `POST /embed` succeeds.
 - CI run [#1081](https://github.com/awasthisach/The-Perfect/actions/runs/38548792319) on an earlier candidate passed unit tests, lint and debug APK assembly but failed Open Source License Compliance. FOSSA reported 192 issues and said the configured push-only API key cannot display issue details.
-- A newer candidate run was started for commit `161319b3788bca4187893a0c3578edbfe015f116`; the Android build and FOSSA jobs were still running at the last check. Do not treat the prior run or external FOSSA status badges as proof that this new run passed.
+- Current candidate checks are linked from [Draft PR #137](https://github.com/awasthisach/The-Perfect/pull/137). Every code change creates a new candidate SHA; only the latest completed run for the current head can be counted as release evidence. Do not treat prior runs or external FOSSA status badges as proof that the current candidate passed.
 - CPAS Production Gate passed for the newer candidate. That is one required gate, not overall release approval.
 - The public repository's `main` advanced by one commit after PR #130's merge base. GitHub currently reports PR #130 as not mergeable; it must be reconciled with current `main` before merge.
 - PR #134 is still Draft and separate. Its restore/signing changes are not yet proven integrated with PR #130.
