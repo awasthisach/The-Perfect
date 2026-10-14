@@ -19,7 +19,7 @@ interface DriveApi {
         @Header("Authorization") bearer: String,
         @Query("q") query: String? = null,
         @Query("spaces") spaces: String = "drive",
-        @Query("fields") fields: String = "nextPageToken,files(id,name,mimeType,size,modifiedTime,parents,md5Checksum,starred,webViewLink)",
+        @Query("fields") fields: String = "nextPageToken,files(id,name,mimeType,size,modifiedTime,parents,md5Checksum,starred,webViewLink,appProperties,trashed)",
         @Query("pageSize") pageSize: Int = 100,
         @Query("pageToken") pageToken: String? = null,
         @Query("orderBy") orderBy: String? = "name"
