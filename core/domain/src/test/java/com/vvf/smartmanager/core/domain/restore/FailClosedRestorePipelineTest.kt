@@ -84,6 +84,7 @@ class FailClosedRestorePipelineTest {
         val result = pipeline().restore("remote-1", "abc")
         assertTrue(result.isSuccess)
         assertEquals(1, result.getOrThrow().restoredFileCount)
+        assertFalse("Downloaded backup artifact must be deleted after restore", File(temp.root, "dl.bin").exists())
     }
 
     @Test
@@ -250,5 +251,6 @@ class FailClosedRestorePipelineTest {
         assertTrue(result.isSuccess)
         val leftover = work.listFiles()?.filter { it.name.startsWith("dry-run-") } ?: emptyList()
         assertTrue(leftover.isEmpty())
+        assertFalse("Downloaded backup artifact must be deleted after dry-run", File(temp.root, "d3").exists())
     }
 }
