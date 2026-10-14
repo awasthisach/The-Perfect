@@ -2,6 +2,7 @@ package com.vvf.smartmanager
 
 import android.content.Context
 import android.net.Uri
+import androidx.room.withTransaction
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -130,13 +131,17 @@ class DriveIndexBackupManager(private val context: Context) {
                 )
             }
 
-            app.database.fileDao().replaceDriveIndexRows(rows)
+            // Replace the indexed rows, FTS projection and sync cursor atomically. If the FTS
+            // rebuild or cursor invalidation fails, Room rolls the index replacement back.
+            // Offline files are filesystem state and are cleared only after the DB transaction commits.
+            app.database.withTransaction {
+                app.database.fileDao().replaceDriveIndexRows(rows)
+                app.database.searchFtsDao().rebuildFtsIndex()
+                // Imported data is a local snapshot, not proof of a current remote changes cursor.
+                // Room is the worker's source of truth, so invalidate it in the same transaction.
+                app.database.cloudSyncDao().deleteByLocalPath("__drive_semantic_search_changes_cursor__")
+            }
             DriveOfflineManager(context).clearAllLocalCopies()
-            app.database.searchFtsDao().rebuildFtsIndex()
-            // Imported data is a local snapshot, not proof of a current remote changes cursor.
-            // Clear the encrypted Room cursor as well as the legacy preference; the worker reads
-            // Room first, so clearing only SharedPreferences could incorrectly skip a full resync.
-            app.database.cloudSyncDao().deleteByLocalPath("__drive_semantic_search_changes_cursor__")
             val prefs = context.getSharedPreferences("drive_search_index", Context.MODE_PRIVATE)
             prefs.edit()
                 .apply {
