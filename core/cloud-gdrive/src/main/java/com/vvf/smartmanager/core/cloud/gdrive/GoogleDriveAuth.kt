@@ -26,7 +26,7 @@ import kotlinx.coroutines.withContext
  * Paths:
  * 1. [requestGoogleIdToken] — Credential Manager (OpenID id_token only).
  * 2. [buildDriveSignInIntent] + [handleSignInActivityResult] — Drive access token
- *    with scope [DRIVE_SCOPE] for [GoogleDriveServiceImpl.setAccessToken].
+ *    with read-only corpus scope plus app-created backup scope for [GoogleDriveServiceImpl.setAccessToken].
  */
 class GoogleDriveAuth(
     private val context: Context,
@@ -73,7 +73,7 @@ class GoogleDriveAuth(
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestEmail()
             .requestIdToken(serverClientId)
-            .requestScopes(Scope(DRIVE_SCOPE))
+            .requestScopes(Scope(DRIVE_READONLY_SCOPE), Scope(DRIVE_FILE_SCOPE))
             .build()
         return GoogleSignIn.getClient(context, gso).signInIntent
     }
@@ -142,10 +142,12 @@ class GoogleDriveAuth(
             val result = firebaseAuth.signInWithCredential(credential).await()
             val firebaseEmail = result.user?.email?.trim()?.lowercase()
             if (firebaseEmail.isNullOrBlank() || firebaseEmail != googleEmail) {
+                driveService?.setAccessToken(null)
                 firebaseAuth.signOut()
-                Result.failure(IllegalStateException("Google Drive and Firebase accounts did not match; Firebase session cleared"))
+                Result.failure(IllegalStateException("Google Drive and Firebase accounts did not match; linked sessions cleared"))
             } else Result.success(Unit)
         } catch (e: CancellationException) { throw e } catch (e: Exception) {
+            driveService?.setAccessToken(null)
             firebaseAuth.signOut()
             Result.failure(IllegalStateException("Firebase sign-in failed; no linked session was kept", e))
         }
@@ -157,14 +159,19 @@ class GoogleDriveAuth(
      */
     suspend fun silentRefreshDriveAccessToken(): Result<String> = withContext(Dispatchers.IO) {
         val account = GoogleSignIn.getLastSignedInAccount(context)
-            ?: return@withContext Result.failure(IllegalStateException("No existing Google session; interactive sign-in required"))
+            ?: run {
+                driveService?.setAccessToken(null)
+                return@withContext Result.failure(IllegalStateException("No existing Google session; interactive sign-in required"))
+            }
         val googleEmail = account.email?.trim()?.lowercase()
         val firebaseEmail = firebaseAuth.currentUser?.email?.trim()?.lowercase()
         if (googleEmail.isNullOrBlank() || firebaseEmail.isNullOrBlank() || googleEmail != firebaseEmail) {
+            driveService?.setAccessToken(null)
             firebaseAuth.signOut()
             return@withContext Result.failure(IllegalStateException("Google and Firebase sessions do not match; sign in again"))
         }
         if (account.account == null) {
+            driveService?.setAccessToken(null)
             return@withContext Result.failure(IllegalStateException("Existing Google account has no token account"))
         }
         accessTokenForAccount(account.account)
@@ -173,12 +180,17 @@ class GoogleDriveAuth(
     /** Returns the verified email shared by the existing Google and Firebase sessions. */
     suspend fun getMatchingAccountEmail(): Result<String> = withContext(Dispatchers.IO) {
         val account = GoogleSignIn.getLastSignedInAccount(context)
-            ?: return@withContext Result.failure(IllegalStateException("No existing Google account"))
+            ?: run {
+                driveService?.setAccessToken(null)
+                return@withContext Result.failure(IllegalStateException("No existing Google account"))
+            }
         val googleEmail = account.email?.trim()?.lowercase()
             ?: return@withContext Result.failure(IllegalStateException("Google account email is unavailable"))
         val firebaseEmail = firebaseAuth.currentUser?.email?.trim()?.lowercase()
         if (firebaseEmail.isNullOrBlank() || firebaseEmail != googleEmail) {
-            return@withContext Result.failure(IllegalStateException("Google and Firebase accounts do not match"))
+            driveService?.setAccessToken(null)
+            firebaseAuth.signOut()
+            return@withContext Result.failure(IllegalStateException("Google and Firebase accounts do not match; linked sessions cleared"))
         }
         Result.success(googleEmail)
     }
@@ -204,7 +216,7 @@ class GoogleDriveAuth(
             val token = com.google.android.gms.auth.GoogleAuthUtil.getToken(
                 context,
                 acct,
-                "oauth2:$DRIVE_SCOPE"
+                "oauth2:$DRIVE_READONLY_SCOPE $DRIVE_FILE_SCOPE"
             )
             if (token.isNullOrBlank()) {
                 Result.failure(
@@ -228,7 +240,7 @@ class GoogleDriveAuth(
             val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
                 .requestEmail()
                 .requestIdToken(serverClientId)
-                .requestScopes(Scope(DRIVE_SCOPE))
+                .requestScopes(Scope(DRIVE_READONLY_SCOPE), Scope(DRIVE_FILE_SCOPE))
                 .build()
             GoogleSignIn.getClient(context, gso).signOut().await()
         } catch (e: CancellationException) {
@@ -239,7 +251,8 @@ class GoogleDriveAuth(
     }
 
     companion object {
-        const val DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
+        const val DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
+        const val DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 
         /** Common Google Sign-In [ApiException] status codes → actionable message. */
         fun mapApiException(e: ApiException): String = when (e.statusCode) {
