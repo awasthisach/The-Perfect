@@ -13,9 +13,9 @@
 
 Base URL: `https://drive-semantic-embed.awasthi-sach.workers.dev`
 
-- `GET /` should report `{ ok, model, version, dimension }`; expected current values are model `gemini-embedding-2`, version `3`, dimension `768`.
+- `GET /` should report `{ ok, model, version, dimension }`; expected candidate values are model `gemini-embedding-2`, version `4`, dimension `768`. Version 4 uses Gemini Embedding 2's retrieval document prefix; version-3 document vectors must be regenerated.
 - `POST /embed` authenticates the Firebase ID token and rejects missing or invalid JWTs with 401.
-- The currently deployed Worker rejects a missing or unapproved Origin with 403. The repository Worker source adds a native path that accepts a missing Origin only when Firebase Auth and Android App Check are valid; the source must be deployed before native requests can succeed.
+- The currently deployed Worker has previously reported version 3 and rejects a missing or unapproved Origin with 403. The candidate source expects version 4 and adds a native path that accepts a missing Origin only when Firebase Auth and Android App Check are valid; deploy the reviewed Worker before native requests can succeed.
 
 ## Mobile transport — implementation vs deployment
 
