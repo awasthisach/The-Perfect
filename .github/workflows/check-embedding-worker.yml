@@ -9,7 +9,6 @@ on:
   push:
     branches:
       - main
-      - "fix/drive-semantic-search-product-alignment"
     paths:
       - "cloudflare/drive-semantic-embed/**"
       - ".github/workflows/check-embedding-worker.yml"
