@@ -32,7 +32,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         CloudSyncEntity::class,
         SemanticEmbeddingEntity::class
     ],
-    // 1→2: vault journal; 2→3: extracted text/canonical URI; 3→4: offline pin metadata; 4→5: Drive sync generation; 5→6: consented semantic vector cache.
+    // 1→2: vault journal; 2→3: extracted text/canonical URI; 3→4: offline pin metadata; 4→5: Drive sync generation; 5→6: consented semantic vector cache; 6→7: durable cloud backup SHA-256.
     version = 7,
     exportSchema = true
 )
