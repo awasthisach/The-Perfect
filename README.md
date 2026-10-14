@@ -21,7 +21,7 @@ Android-native Google Drive search app built with Kotlin, Jetpack Compose, Mater
 - **Security:** Android Keystore, AES-GCM vault encryption, protected database passphrase
 - **Background work:** AndroidX WorkManager for bounded Drive indexing
 - **Text extraction:** plain text and native Google Workspace exports; bounded PDF/image and DOCX/XLSX/PPTX extraction when the user opts in
-- **Search:** Room FTS4/substring/metadata fallback plus a real 768-dimensional `gemini-embedding-2` adapter through the Cloudflare Worker. Neural ranking remains opt-in and consent-gated; deployment and authenticated Android end-to-end acceptance of the Worker path are still release blockers.
+- **Search:** Room FTS4/substring/metadata fallback plus a real 768-dimensional `gemini-embedding-2` adapter through the Cloudflare Worker. Embedding contract v4 uses Gemini's documented retrieval prompt format and regenerates old version-3 document vectors. Neural ranking remains opt-in and consent-gated; deployment and authenticated Android end-to-end acceptance of the Worker path are still release blockers.
 - **Cloud:** Google Drive REST integration, paginated file listing/changes feed, user-authorized move/star/folder APIs
 - **Offline copies:** app-private storage with a 200 MiB / 80-file cap and oldest-first eviction
 - **Index backup:** user-selected JSON import/export, with credentials and local file bytes excluded
@@ -86,6 +86,6 @@ A green CI workflow is necessary but not sufficient. See the implementation-gap 
 - [Mobile embedding authentication requirements](docs/ANDROID_EMBEDDING_AUTH.md)
 - [Architecture Guide](docs/ARCHITECTURE.md)
 - [Security Whitepaper](docs/SECURITY_WHITEPAPER.md)
-- [Production Readiness Audit](docs/PRODUCTION_READINESS_2026-08-31.md)
+- [Release Checklist](docs/RELEASE_CHECKLIST.md)
 
 Cloud restore remains fail-closed until download, integrity verification, atomic staging, rollback, and recovery tests are complete.
