@@ -108,6 +108,7 @@ class FailClosedRestorePipeline(
             Result.failure(RestoreException("Fail-closed restore aborted", error))
         } finally {
             stagingDir.deleteRecursively()
+            downloadedArtifact?.file?.delete()
         }
     }
 
@@ -142,6 +143,7 @@ class FailClosedRestorePipeline(
             Result.failure(RestoreException("Fail-closed restore dry-run aborted", error))
         } finally {
             stagingDir.deleteRecursively()
+            downloadedArtifact?.file?.delete()
         }
     }
 
