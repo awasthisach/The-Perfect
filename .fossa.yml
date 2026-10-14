@@ -1,4 +1,5 @@
 version: 3
 server: https://app.fossa.com
 project:
-  id: github.com/awasthisach/The-Perfect
+  id: The-Perfect
+  name: The-Perfect
