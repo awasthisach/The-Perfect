@@ -111,10 +111,25 @@ jobs:
           import json
           from pathlib import Path
           payload = json.loads(Path("app/google-services.json").read_text())
-          if not payload.get("project_info", {}).get("project_id"):
-              raise SystemExit("google-services.json is missing project_info.project_id")
-          if not payload.get("client"):
-              raise SystemExit("google-services.json contains no Firebase client configuration")
+          project = payload.get("project_info", {})
+          if project.get("project_id") != "thevvforg":
+              raise SystemExit("Firebase project_id must match the configured Drive embedding Worker project (thevvforg)")
+          if str(project.get("project_number", "")) != "1058219630435":
+              raise SystemExit("Firebase project_number does not match the configured App Check project")
+          clients = payload.get("client", [])
+          expected_package = "com.vvf.smartmanager"
+          matching = [
+              client for client in clients
+              if client.get("client_info", {}).get("android_client_info", {}).get("package_name") == expected_package
+          ]
+          if not matching:
+              raise SystemExit(f"google-services.json has no Android client for {expected_package}")
+          def has_web_oauth_client(client):
+              oauth = list(client.get("oauth_client", []))
+              oauth += client.get("services", {}).get("appinvite_service", {}).get("other_platform_oauth_client", [])
+              return any(str(item.get("client_type", "")) == "3" and item.get("client_id") for item in oauth)
+          if not any(has_web_oauth_client(client) for client in matching):
+              raise SystemExit("Firebase Android client has no web OAuth client (client_type=3) required for Google/Firebase sign-in")
           PY
 
       - name: Generate SQLCipher 4.5.4 compatibility fixture
