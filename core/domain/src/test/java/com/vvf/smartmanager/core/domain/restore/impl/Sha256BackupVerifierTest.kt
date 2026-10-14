@@ -60,6 +60,20 @@ class Sha256BackupVerifierTest {
     }
 
     @Test
+    fun malformedExpectedChecksumFailsClosed() = runBlocking {
+        val file = temp.newFile("bad-checksum.vvfbak").also { it.writeText("payload") }
+        val actual = sha256(file)
+        val artifact = DownloadedArtifact(
+            file = file,
+            backupInfo = CloudBackupInfo("id", 1L, file.name, file.length(), checksumSha256 = actual),
+            checksumSha256 = actual
+        )
+        val result = Sha256BackupVerifier().verify(artifact, "not-a-sha256")
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is VerificationFailedException)
+    }
+
+    @Test
     fun changedBytesAfterDownloadFailClosed() = runBlocking {
         val file = temp.newFile("d.vvfbak").also { it.writeText("payload") }
         val recorded = sha256(file)
