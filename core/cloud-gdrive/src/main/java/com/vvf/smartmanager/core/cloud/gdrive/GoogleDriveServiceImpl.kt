@@ -12,6 +12,8 @@ import okhttp3.MultipartBody
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
@@ -286,8 +288,12 @@ class GoogleDriveServiceImpl(
                 }
 
                 val parent = resolveFolderId(remoteFolderId)
-                val safeName = file.name.replace("\\", "\\\\").replace("\"", "\\\"")
-                val metadataJson = """{"name":"$safeName","parents":["$parent"]}"""
+                val localSha256 = calculateSha256(file)
+                val metadataJson = JSONObject()
+                    .put("name", file.name)
+                    .put("parents", JSONArray().put(parent))
+                    .put("appProperties", JSONObject().put("vvfSha256", localSha256))
+                    .toString()
                 val mediaType = (localFile.mimeType?.takeIf { it.isNotBlank() } ?: "application/octet-stream")
                     .toMediaType()
 
@@ -305,7 +311,7 @@ class GoogleDriveServiceImpl(
                 val request = Request.Builder()
                     .url(
                         "https://www.googleapis.com/upload/drive/v3/files" +
-                            "?uploadType=multipart&fields=id,name,mimeType,size,md5Checksum,parents,modifiedTime"
+                            "?uploadType=multipart&fields=id,name,mimeType,size,md5Checksum,parents,modifiedTime,appProperties"
                     )
                     .header("Authorization", bearer())
                     .post(related)
@@ -356,6 +362,15 @@ class GoogleDriveServiceImpl(
                             IllegalStateException("Drive upload size mismatch for $id")
                         )
                     }
+                    val persistedSha256 = driveApi.getFileMetadata(bearer(), id)
+                        .appProperties["vvfSha256"]
+                        ?.trim()
+                        ?.lowercase()
+                    if (persistedSha256.isNullOrBlank() || persistedSha256 != localSha256) {
+                        return@withContext Result.failure(
+                            IllegalStateException("Drive upload SHA-256 metadata round-trip failed for $id")
+                        )
+                    }
 
                     currentAccount = currentAccount.copy(
                         usedBytes = currentAccount.usedBytes + file.length(),
@@ -367,6 +382,22 @@ class GoogleDriveServiceImpl(
                 Result.failure(e)
             }
         }
+
+    override suspend fun getFileSha256(fileId: String): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            require(fileId.isNotBlank() && looksLikeDriveId(fileId)) { "Invalid Drive file id" }
+            val digest = driveApi.getFileMetadata(bearer(), fileId).appProperties["vvfSha256"]
+                ?.trim()
+                ?.lowercase()
+                ?: throw IllegalStateException("Drive backup has no trusted SHA-256 metadata")
+            require(digest.matches(Regex("^[a-f0-9]{64}$"))) { "Drive backup SHA-256 metadata is invalid" }
+            Result.success(digest)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
 
     override suspend fun downloadFile(fileId: String, destinationPath: String): Result<Boolean> =
         withContext(Dispatchers.IO) {
@@ -548,6 +579,19 @@ class GoogleDriveServiceImpl(
         if (value.length < 20 || value.length > 128) return false
         if (value.contains(' ') || value.contains('/') || value.contains('.')) return false
         return value.all { it.isLetterOrDigit() || it == '-' || it == '_' }
+    }
+
+    private fun calculateSha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(8192)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     private fun calculateMd5(file: File): String {
