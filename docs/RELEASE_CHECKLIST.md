@@ -14,7 +14,7 @@ This is a fail-closed checklist. A skipped check is not a pass. Do not mark the 
 ## Embedding Worker and privacy
 
 - [ ] Confirm `cloudflare/drive-semantic-embed/src/index.ts` is deployed to `https://drive-semantic-embed.awasthi-sach.workers.dev` through the protected manual deployment workflow.
-- [ ] Public health check returns `ok=true`, model `gemini-embedding-2`, version `3`, dimension `768`.
+- [ ] Public health check returns `ok=true`, model `gemini-embedding-2`, version `4`, dimension `768`.
 - [ ] A native Android request without an `Origin` header returns 401 without credentials and succeeds only with valid Firebase Auth ID token plus Firebase App Check token.
 - [ ] Confirm the Gemini API key belongs to a paid Gemini API project with active Cloud Billing. Review abuse-monitoring retention and explain third-party processing in privacy disclosures; do not use a free-tier key for production Drive document text.
 - [ ] A real signed-in Android device completes `POST /embed`; verify no Drive OAuth token, Gemini key, or document text appears in logs.
@@ -25,8 +25,8 @@ This is a fail-closed checklist. A skipped check is not a pass. Do not mark the 
 
 - [ ] Verify Firebase project, Android app ID, package `com.vvf.smartmanager`, OAuth client, and actual signing certificate fingerprints in Google Cloud/Firebase.
 - [ ] Test sign-in, denied permissions, token refresh/expiry, account switching and sign-out on a physical device.
-- [ ] Confirm the actual OAuth scope and document which Drive files are available to the app. Do not claim full-Drive coverage unless the granted scope, verification and user authorization prove it.
-- [ ] Because `https://www.googleapis.com/auth/drive` is a restricted scope, confirm the eligible app use case, least-privilege justification, OAuth verification status, and any required annual CASA/security assessment before public launch. Do not switch to `drive.file` without explicitly accepting the narrower corpus.
+- [ ] Confirm the app requests `drive.readonly` for corpus reads and `drive.file` for app-created backups; verify the actual granted corpus and account behavior. `drive.readonly` is restricted: complete applicable OAuth verification and review security-assessment/User Data Policy requirements before public release because opted-in text is sent to Gemini through the Worker.
+- [ ] Confirm restricted-scope verification and any required annual CASA/security assessment for `drive.readonly`; confirm Gemini API billing, provider retention/abuse-monitoring terms, and privacy disclosures. `drive.file` is used only for app-created backups and does not replace corpus read access.
 - [ ] Verify paginated full indexing, changes feed, removed/trashed files, the corpus cap, account isolation, and interruption/resume checkpoints.
 
 ## Storage, backup and restore
