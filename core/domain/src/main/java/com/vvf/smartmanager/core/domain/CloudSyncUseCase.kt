@@ -27,8 +27,8 @@ import java.util.UUID
  * Handles authentication, multi-provider syncing, automated database/vault snapshots,
  * and quota analytics across Google Drive (Core) and modular plugins.
  *
- * When [cloudSyncDao] is provided, successful uploads persist durable localPath↔remoteId
- * mappings so process death does not lose sync identity.
+ * Successful uploads fail closed unless [cloudSyncDao] durably persists the localPath↔remoteId
+ * mapping and checksum needed for process-death recovery and trusted restore.
  */
 class CloudSyncUseCase(
     private val googleDriveService: GoogleDriveService,
