@@ -1,5 +1,6 @@
 package com.vvf.smartmanager.core.cloud.gdrive
 
+import com.vvf.smartmanager.core.model.CloudBackupInfo
 import com.vvf.smartmanager.core.model.FileItem
 
 /** Google Drive synchronization and explicitly user-confirmed mutations. */
@@ -12,6 +13,10 @@ interface GoogleDriveService {
     /** Returns the SHA-256 recorded in Drive appProperties; never substitute a local-only digest. */
     suspend fun getFileSha256(fileId: String): Result<String> = Result.failure(
         UnsupportedOperationException("Provider does not expose a trusted backup SHA-256")
+    )
+    /** Lists only Drive backups whose remote SHA-256 metadata can be verified. */
+    suspend fun listDriveBackups(): Result<List<CloudBackupInfo>> = Result.failure(
+        UnsupportedOperationException("Provider does not expose an integrity-verified backup listing")
     )
     suspend fun downloadFileBounded(fileId: String, destinationPath: String, maxBytes: Long, mimeType: String? = null): Result<Boolean> = Result.failure(UnsupportedOperationException("Bounded download is not implemented"))
     /** Returns bounded plain text for supported text files and Google Workspace exports. */
