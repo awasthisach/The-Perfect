@@ -14,7 +14,7 @@ This is a fail-closed checklist. A skipped check is not a pass. Do not mark the 
 ## Embedding Worker and privacy
 
 - [ ] Confirm `cloudflare/drive-semantic-embed/src/index.ts` is deployed to `https://drive-semantic-embed.awasthi-sach.workers.dev` through the protected manual deployment workflow.
-- [ ] Public health check returns `ok=true`, model `gemini-embedding-2`, version `3`, dimension `768`.
+- [ ] Public health check returns `ok=true`, model `gemini-embedding-2`, version `4`, dimension `768`.
 - [ ] A native Android request without an `Origin` header returns 401 without credentials and succeeds only with valid Firebase Auth ID token plus Firebase App Check token.
 - [ ] A real signed-in Android device completes `POST /embed`; verify no Drive OAuth token, Gemini key, or document text appears in logs.
 - [ ] Fresh-install neural consent defaults off; revoke consent during indexing and verify calls cancel and persisted vectors are removed.
