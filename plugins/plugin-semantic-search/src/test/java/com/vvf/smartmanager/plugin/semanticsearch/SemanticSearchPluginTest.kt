@@ -79,4 +79,132 @@ class SemanticSearchPluginTest {
 
         assertTrue("Heuristic labels must not be represented as model output", plugin.suggestTags(candidate).isEmpty())
     }
+
+    private class FakeEmbeddingClient : EmbeddingClient {
+        var queryCalls = 0
+        var documentBatchCalls = 0
+
+        override fun cancelPendingRequests() = Unit
+        override fun hasSignedInUser(): Boolean = true
+        override suspend fun healthCheck(): Boolean = true
+
+        override suspend fun embed(texts: List<String>, mode: String): List<FloatArray> {
+            if (mode == "query") queryCalls++ else documentBatchCalls++
+            return texts.map { text ->
+                FloatArray(CloudflareEmbeddingClient.EMBEDDING_DIMENSION).also { vector ->
+                    if (mode == "query" || text.contains("receipt", ignoreCase = true) ||
+                        text.contains("grocery", ignoreCase = true) || text.contains("food", ignoreCase = true)
+                    ) vector[0] = 1f else vector[1] = 1f
+                }
+            }
+        }
+    }
+
+    private class MemoryVectorStore : EmbeddingVectorStore {
+        private val records = mutableMapOf<String, EmbeddingVectorRecord>()
+
+        override suspend fun get(filePath: String, contentHash: String, modelVersion: String): FloatArray? =
+            records[filePath]?.takeIf {
+                it.contentHash == contentHash && it.modelVersion == modelVersion
+            }?.vector?.copyOf()
+
+        override suspend fun put(filePath: String, contentHash: String, modelVersion: String, vector: FloatArray) {
+            records[filePath] = EmbeddingVectorRecord(filePath, contentHash, modelVersion, vector.copyOf())
+        }
+
+        override suspend fun clear() {
+            records.clear()
+        }
+
+        fun count(): Int = records.size
+    }
+
+    @Test
+    fun neuralRankingUsesRealClientVectorsAndReusesPersistedVectors() = runBlocking {
+        val receipt = SemanticCandidate(
+            fileItem = FileItem(
+                path = "gdrive://receipt",
+                name = "receipt_march.pdf",
+                sizeBytes = 1024L,
+                lastModified = 0L,
+                isDirectory = false,
+                mimeType = "application/pdf"
+            ),
+            textContent = "receipt grocery food expenses"
+        )
+        val medical = SemanticCandidate(
+            fileItem = FileItem(
+                path = "gdrive://medical",
+                name = "doctor_report.pdf",
+                sizeBytes = 2048L,
+                lastModified = 0L,
+                isDirectory = false,
+                mimeType = "application/pdf"
+            ),
+            textContent = "doctor hospital medical report"
+        )
+        val store = MemoryVectorStore()
+        val firstClient = FakeEmbeddingClient()
+        val firstPlugin = SemanticSearchPluginImpl(
+            client = firstClient,
+            vectorStore = store,
+            isEmbeddingConsentGranted = { true },
+            isFullContentConsentGranted = { true }
+        )
+
+        val firstResults = firstPlugin.searchSimilar(
+            query = "food expenses",
+            candidates = listOf(receipt, medical),
+            options = SemanticSearchOptions(similarityThreshold = 0.80f)
+        )
+
+        assertEquals(listOf("gdrive://receipt"), firstResults.map { it.fileItem.path })
+        assertEquals(1, firstClient.queryCalls)
+        assertEquals(1, firstClient.documentBatchCalls)
+        assertEquals(2, store.count())
+
+        // A fresh plugin instance has no in-memory cache; load vectors by path + content hash
+        // + model version instead of re-embedding document text.
+        val secondClient = FakeEmbeddingClient()
+        val secondPlugin = SemanticSearchPluginImpl(
+            client = secondClient,
+            vectorStore = store,
+            isEmbeddingConsentGranted = { true },
+            isFullContentConsentGranted = { true }
+        )
+        val secondResults = secondPlugin.searchSimilar(
+            query = "food expenses",
+            candidates = listOf(receipt, medical),
+            options = SemanticSearchOptions(similarityThreshold = 0.80f)
+        )
+
+        assertEquals(listOf("gdrive://receipt"), secondResults.map { it.fileItem.path })
+        assertEquals(1, secondClient.queryCalls)
+        assertEquals("Persisted vectors should avoid another document embedding batch", 0, secondClient.documentBatchCalls)
+    }
+
+    @Test
+    fun revokingConsentPreventsNeuralProviderCalls() = runBlocking {
+        val client = FakeEmbeddingClient()
+        val plugin = SemanticSearchPluginImpl(
+            client = client,
+            isEmbeddingConsentGranted = { false },
+            isFullContentConsentGranted = { true }
+        )
+        val candidate = SemanticCandidate(
+            fileItem = FileItem(
+                path = "gdrive://receipt",
+                name = "receipt.pdf",
+                sizeBytes = 10L,
+                lastModified = 0L,
+                isDirectory = false,
+                mimeType = "application/pdf"
+            ),
+            textContent = "receipt groceries"
+        )
+        assertTrue(plugin.searchSimilar("food", listOf(candidate), SemanticSearchOptions()).isEmpty())
+        assertEquals(0, client.queryCalls)
+        assertEquals(0, client.documentBatchCalls)
+    }
+
 }

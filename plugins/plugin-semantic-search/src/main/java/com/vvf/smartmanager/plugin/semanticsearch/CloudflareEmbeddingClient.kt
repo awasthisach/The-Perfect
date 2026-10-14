@@ -39,19 +39,19 @@ class CloudflareEmbeddingClient(
         .readTimeout(35, TimeUnit.SECONDS)
         .callTimeout(45, TimeUnit.SECONDS)
         .build()
-) {
+) : EmbeddingClient {
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
     private val activeCalls = ConcurrentHashMap.newKeySet<Call>()
 
     /** Cancels active HTTP requests immediately when neural-search consent is revoked. */
-    fun cancelPendingRequests() {
+    override fun cancelPendingRequests() {
         activeCalls.forEach { it.cancel() }
     }
 
-    fun hasSignedInUser(): Boolean = runCatching { firebaseAuthProvider().currentUser != null }.getOrDefault(false)
+    override fun hasSignedInUser(): Boolean = runCatching { firebaseAuthProvider().currentUser != null }.getOrDefault(false)
 
-    suspend fun healthCheck(): Boolean = withContext(Dispatchers.IO) {
+    override suspend fun healthCheck(): Boolean = withContext(Dispatchers.IO) {
         val request = Request.Builder().url(baseUrl.trimEnd('/') + "/").get().build()
         try {
             execute(request).use { response ->
@@ -69,7 +69,7 @@ class CloudflareEmbeddingClient(
         }
     }
 
-    suspend fun embed(texts: List<String>, mode: String): List<FloatArray> = withContext(Dispatchers.IO) {
+    override suspend fun embed(texts: List<String>, mode: String): List<FloatArray> = withContext(Dispatchers.IO) {
         require(texts.isNotEmpty() && texts.size <= MAX_TEXTS) { "Embedding batch must contain 1–$MAX_TEXTS texts" }
         require(mode == "query" || mode == "document") { "Unsupported embedding mode" }
         require(texts.all { it.isNotBlank() && it.length <= MAX_TEXT_CHARS }) { "Embedding text is empty or too long" }

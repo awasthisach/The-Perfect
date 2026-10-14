@@ -20,7 +20,7 @@ import java.util.LinkedHashMap
 private data class EmbeddingBatchResult(val candidates: List<SemanticCandidate>, val generatedCount: Int)
 
 class SemanticSearchPluginImpl(
-    private val client: CloudflareEmbeddingClient = CloudflareEmbeddingClient(),
+    private val client: EmbeddingClient = CloudflareEmbeddingClient(),
     private val vectorStore: EmbeddingVectorStore? = null,
     private val isEmbeddingConsentGranted: () -> Boolean = { false },
     private val isFullContentConsentGranted: () -> Boolean = { false }
