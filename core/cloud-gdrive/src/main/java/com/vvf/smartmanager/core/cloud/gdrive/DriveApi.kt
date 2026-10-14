@@ -61,6 +61,13 @@ interface DriveApi {
         @Query("fields") fields: String = "id,name,mimeType,parents,modifiedTime,starred"
     ): DriveFileDto
 
+    @GET("files/{fileId}")
+    suspend fun getFileMetadata(
+        @Header("Authorization") bearer: String,
+        @Path("fileId") fileId: String,
+        @Query("fields") fields: String = "id,appProperties,md5Checksum,size"
+    ): DriveFileDto
+
     @Streaming
     @GET("files/{fileId}")
     suspend fun downloadFile(
@@ -95,7 +102,8 @@ data class DriveFileDto(
     @Json(name = "md5Checksum") val md5Checksum: String? = null,
     @Json(name = "starred") val starred: Boolean = false,
     @Json(name = "webViewLink") val webViewLink: String? = null,
-    @Json(name = "trashed") val trashed: Boolean = false
+    @Json(name = "trashed") val trashed: Boolean = false,
+    @Json(name = "appProperties") val appProperties: Map<String, String> = emptyMap()
 )
 data class DriveAboutResponse(@Json(name = "storageQuota") val storageQuota: DriveStorageQuota? = null)
 data class DriveStorageQuota(@Json(name = "limit") val limit: String? = null, @Json(name = "usage") val usage: String? = null)
