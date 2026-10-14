@@ -196,7 +196,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           VERSION_NAME: ${{ inputs.version_name }}
           VERSION_CODE: ${{ inputs.version_code }}
-        run: ./gradlew --no-daemon assembleRelease --stacktrace
+        run: ./gradlew --no-daemon assembleRelease bundleRelease --stacktrace
 
       - name: Verify signed APK + fingerprint + SHA-256
         id: apk
@@ -221,6 +221,36 @@ jobs:
           echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
           cat release-meta/apk-manifest.txt
 
+      - name: Verify signed Android App Bundle + SHA-256
+        id: aab
+        run: |
+          set -euo pipefail
+          AAB="$(find . -path '*/build/outputs/bundle/release/*.aab' -type f | head -n 1)"
+          test -n "$AAB" || { echo "::error::Signed release AAB not found"; exit 1; }
+          jarsigner -verify -verbose "$AAB" > /tmp/aab-signature-verification.log 2>&1
+          grep -qi "jar verified" /tmp/aab-signature-verification.log || {
+            cat /tmp/aab-signature-verification.log
+            echo "::error::Android App Bundle signature verification failed"
+            exit 1
+          }
+          SHA="$(sha256sum "$AAB" | awk '{print $1}')"
+          mkdir -p release-meta
+          {
+            echo "aab_path=$AAB"
+            echo "aab_sha256=$SHA"
+            echo "git_sha=${{ github.sha }}"
+            echo "run_id=${{ github.run_id }}"
+          } > release-meta/aab-manifest.txt
+          echo "path=$AAB" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          cat release-meta/aab-manifest.txt
+
+      - name: Generate SBOM for signed AAB
+        uses: anchore/sbom-action@v0
+        with:
+          file: ${{ steps.aab.outputs.path }}
+          format: spdx-json
+          output-file: release-meta/aab-sbom.spdx.json
       - name: Generate SBOM with Syft
         uses: anchore/sbom-action@v0
         with:
@@ -228,7 +258,7 @@ jobs:
           format: spdx-json
           output-file: release-meta/sbom.spdx.json
 
-      - name: Fail-closed release gate (CPAS + FOSSA + APK)
+      - name: Fail-closed release gate (CPAS + FOSSA + signed APK + signed AAB)
         run: |
           set -euo pipefail
           python3 tools/audit/release_gate.py \
@@ -242,6 +272,7 @@ jobs:
           name: vvf-smartmanager-release-${{ inputs.version_name }}-${{ inputs.version_code }}
           path: |
             **/build/outputs/apk/release/*.apk
+            **/build/outputs/bundle/release/*.aab
             release-meta/**
             cpas-status.json
             foss-status.json
@@ -252,6 +283,10 @@ jobs:
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
         with:
           subject-path: "**/build/outputs/apk/release/*.apk"
+      - name: Attest Android App Bundle (SLSA provenance)
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: "**/build/outputs/bundle/release/*.aab"
 
       - name: Remove signing and Firebase material
         if: always()
