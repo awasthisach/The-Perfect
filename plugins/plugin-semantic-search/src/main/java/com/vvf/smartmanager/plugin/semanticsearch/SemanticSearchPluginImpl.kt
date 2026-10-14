@@ -374,7 +374,7 @@ class SemanticSearchPluginImpl(
 
     companion object {
         private const val CACHE_SIZE = 512
-        private const val MODEL_VERSION = "gemini-embedding-2:3:768"
+        private const val MODEL_VERSION = "gemini-embedding-2:4:768"
         private const val ON_DEMAND_CANDIDATE_LIMIT = 32
     }
 }
