@@ -101,6 +101,14 @@ class CloudSyncUseCase(
         }
     }
 
+    /** Loads persistent backup history from the provider; only Drive metadata-backed entries are shown. */
+    suspend fun listCloudBackups(providerType: CloudProviderType): Result<List<CloudBackupInfo>> =
+        if (providerType == CloudProviderType.GOOGLE_DRIVE) {
+            googleDriveService.listDriveBackups()
+        } else {
+            Result.success(emptyList())
+        }
+
     suspend fun listRemoteFiles(providerType: CloudProviderType, path: String = "root"): Result<List<FileItem>> {
         return if (providerType == CloudProviderType.GOOGLE_DRIVE) {
             googleDriveService.listDriveFiles(path)
