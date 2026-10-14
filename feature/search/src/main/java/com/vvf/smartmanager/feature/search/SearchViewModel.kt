@@ -57,6 +57,8 @@ class SearchViewModel(
     private val _snackbarMessage = MutableStateFlow<String?>(null)
     private val _isSearching = MutableStateFlow(false)
     private val _semanticResults = MutableStateFlow<List<SemanticSearchResult>>(emptyList())
+    private val _isSemanticSearching = MutableStateFlow(false)
+    private val _semanticErrorMessage = MutableStateFlow<String?>(null)
     // Neural ranking is always opt-in in the search UI and also requires Settings consent.
     private val _isSemanticEnabled = MutableStateFlow(false)
     private var semanticSearchJob: Job? = null
@@ -75,7 +77,10 @@ class SearchViewModel(
         .flatMapLatest { (query, filter, threshold) ->
             if (query.isBlank() && filter.isDefault) {
                 semanticSearchJob?.cancel()
+                semanticSearchGeneration++
                 _isSearching.value = false
+                _isSemanticSearching.value = false
+                _semanticErrorMessage.value = null
                 _semanticResults.value = emptyList()
                 flowOf(emptyList())
             } else {
