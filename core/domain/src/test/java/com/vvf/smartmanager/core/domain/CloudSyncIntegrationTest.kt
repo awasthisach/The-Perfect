@@ -1,6 +1,7 @@
 package com.vvf.smartmanager.core.domain
 
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
+import com.vvf.smartmanager.core.database.dao.CloudSyncDao
 import com.vvf.smartmanager.core.domain.backup.ArchiveArtifact
 import com.vvf.smartmanager.core.domain.backup.ArchiveService
 import com.vvf.smartmanager.core.model.CloudBackupInfo
@@ -51,7 +52,7 @@ class CloudSyncIntegrationTest {
         whenever(archive.createArchive(includeVault = false, includeDatabase = true)).thenReturn(
             Result.success(artifact(artifactFile))
         )
-        val useCase = CloudSyncUseCase(drive, archiveService = archive)
+        val useCase = CloudSyncUseCase(drive, archiveService = archive, cloudSyncDao = mock<CloudSyncDao>())
 
         val result = useCase.createCloudBackup(CloudProviderType.GOOGLE_DRIVE)
         val request = server.takeRequest(2, TimeUnit.SECONDS)
@@ -73,7 +74,7 @@ class CloudSyncIntegrationTest {
         whenever(archive.createArchive(includeVault = false, includeDatabase = true)).thenReturn(
             Result.success(artifact(artifactFile))
         )
-        val useCase = CloudSyncUseCase(drive, archiveService = archive)
+        val useCase = CloudSyncUseCase(drive, archiveService = archive, cloudSyncDao = mock<CloudSyncDao>())
 
         val result = useCase.createCloudBackup(CloudProviderType.GOOGLE_DRIVE)
 
@@ -102,7 +103,7 @@ class CloudSyncIntegrationTest {
         whenever(archive.createArchive(includeVault = false, includeDatabase = true)).thenReturn(
             Result.failure(IllegalStateException("Snapshot failed"))
         )
-        val useCase = CloudSyncUseCase(drive, archiveService = archive)
+        val useCase = CloudSyncUseCase(drive, archiveService = archive, cloudSyncDao = mock<CloudSyncDao>())
 
         val result = useCase.createCloudBackup(CloudProviderType.GOOGLE_DRIVE)
 
@@ -121,7 +122,7 @@ class CloudSyncIntegrationTest {
         whenever(archive.createArchive(includeVault = false, includeDatabase = true)).thenReturn(
             Result.success(artifact(artifactFile))
         )
-        val useCase = CloudSyncUseCase(drive, archiveService = archive)
+        val useCase = CloudSyncUseCase(drive, archiveService = archive, cloudSyncDao = mock<CloudSyncDao>())
 
         val result = useCase.createCloudBackup(CloudProviderType.GOOGLE_DRIVE)
 
