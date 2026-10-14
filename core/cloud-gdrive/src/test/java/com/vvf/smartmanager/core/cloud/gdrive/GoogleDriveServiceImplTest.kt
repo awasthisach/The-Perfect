@@ -60,6 +60,12 @@ class GoogleDriveServiceImplTest {
     }
 
     @Test
+    fun listDriveBackups_withoutToken_failsClosed() = runBlocking {
+        val result = service.listDriveBackups()
+        assertTrue(result.isFailure)
+    }
+
+    @Test
     fun disconnect_clearsConnectedState() {
         service.setAccessToken("dummy-not-used-without-network")
         service.disconnect()
