@@ -81,3 +81,18 @@ jobs:
           }
           process.stdout.write("Embedding Worker health contract verified.\n");
           NODE
+
+      - name: Verify native endpoint fails closed without Firebase credentials
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --show-error --output /tmp/worker-auth-smoke.json --write-out '%{http_code}' \
+            --request POST \
+            --header 'Content-Type: application/json' \
+            --data '{"texts":["release-gate-auth-smoke"],"mode":"query","version":"3"}' \
+            https://drive-semantic-embed.awasthi-sach.workers.dev/embed)"
+          if [ "$status" != "401" ]; then
+            echo "::error::Native /embed without Authorization must return 401; got HTTP $status. The deployed Worker may still enforce the old Origin-only policy or is misconfigured."
+            cat /tmp/worker-auth-smoke.json
+            exit 1
+          fi
+          echo "Native endpoint reached Firebase authentication without Origin and rejected missing credentials as expected."
