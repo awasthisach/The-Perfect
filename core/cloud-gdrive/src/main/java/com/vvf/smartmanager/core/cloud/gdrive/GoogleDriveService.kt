@@ -9,6 +9,10 @@ interface GoogleDriveService {
     suspend fun listDriveFiles(folderId: String = "root"): Result<List<FileItem>>
     suspend fun uploadFile(localFile: FileItem, remoteFolderId: String = "root"): Result<String>
     suspend fun downloadFile(fileId: String, destinationPath: String): Result<Boolean>
+    /** Returns the SHA-256 recorded in Drive appProperties; never substitute a local-only digest. */
+    suspend fun getFileSha256(fileId: String): Result<String> = Result.failure(
+        UnsupportedOperationException("Provider does not expose a trusted backup SHA-256")
+    )
     suspend fun downloadFileBounded(fileId: String, destinationPath: String, maxBytes: Long, mimeType: String? = null): Result<Boolean> = Result.failure(UnsupportedOperationException("Bounded download is not implemented"))
     /** Returns bounded plain text for supported text files and Google Workspace exports. */
     suspend fun extractTextContent(fileId: String, mimeType: String?): Result<String> = Result.failure(UnsupportedOperationException("Text extraction is not implemented"))
