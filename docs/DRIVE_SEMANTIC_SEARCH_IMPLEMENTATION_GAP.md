@@ -15,7 +15,7 @@ Scope: `awasthisach/The-Perfect`, candidate branch `fix/drive-semantic-search-pr
 
 ## Current verified external/CI facts
 
-- Live Worker health endpoint was fetched on 2026-10-14 and returned `{"ok":true,"model":"gemini-embedding-2","version":"3","dimension":768}`.
+- Live Worker health endpoint was fetched on 2026-10-14 and returned version 3. The current candidate changes document prompt formatting and bumps the embedding index contract to version 4; production deployment and authenticated native acceptance must be repeated after review.
 - This health response proves the public health contract only. It does **not** prove the updated native App Check path is deployed or that an authenticated Android `POST /embed` succeeds.
 - CI run [#1052](https://github.com/awasthisach/The-Perfect/actions/runs/38548792319) on an earlier candidate passed unit tests, lint and debug APK assembly but failed Open Source License Compliance. FOSSA reported 192 issues and said the configured push-only API key cannot display issue details.
 - A newer candidate run was started for commit `161319b3788bca4187893a0c3578edbfe015f116`; the Android build and FOSSA jobs were still running at the last check. Do not treat the prior run or external FOSSA status badges as proof that this new run passed.
