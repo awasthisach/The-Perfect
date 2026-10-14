@@ -26,6 +26,7 @@ class CloudViewModel(
     init {
         loadAllAccounts()
         observeSyncState()
+        loadBackupHistory()
     }
 
     private fun observeSyncState() {
@@ -44,6 +45,25 @@ class CloudViewModel(
     fun selectProvider(providerType: CloudProviderType) {
         _uiState.update { it.copy(selectedProvider = providerType) }
         loadRemoteFiles(providerType)
+        loadBackupHistory(providerType)
+    }
+
+    /** Reloads backup history from Drive instead of relying on an in-memory session list. */
+    fun loadBackupHistory(providerType: CloudProviderType = _uiState.value.selectedProvider) {
+        viewModelScope.launch {
+            val result = cloudSyncUseCase.listCloudBackups(providerType)
+            if (result.isSuccess) {
+                _uiState.update { state ->
+                    if (state.selectedProvider == providerType) {
+                        state.copy(backupHistory = result.getOrDefault(emptyList()))
+                    } else state
+                }
+            } else {
+                _uiState.update { state ->
+                    if (state.selectedProvider == providerType) state.copy(backupHistory = emptyList()) else state
+                }
+            }
+        }
     }
 
     fun loadAllAccounts() {
@@ -97,6 +117,7 @@ class CloudViewModel(
                     )
                 }
                 loadRemoteFiles(CloudProviderType.GOOGLE_DRIVE)
+                loadBackupHistory(CloudProviderType.GOOGLE_DRIVE)
             } else {
                 googleDriveService.setAccessToken(null)
                 _uiState.update {
@@ -191,6 +212,7 @@ class CloudViewModel(
                     )
                 }
                 loadAllAccounts()
+                loadBackupHistory(provider)
             } else {
                 _uiState.update {
                     it.copy(
