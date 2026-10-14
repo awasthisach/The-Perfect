@@ -88,7 +88,7 @@ jobs:
           status="$(curl --silent --show-error --output /tmp/worker-auth-smoke.json --write-out '%{http_code}' \
             --request POST \
             --header 'Content-Type: application/json' \
-            --data '{"texts":["release-gate-auth-smoke"],"mode":"query","version":"3"}' \
+            --data '{"texts":["release-gate-auth-smoke"],"mode":"query","version":"4"}' \
             https://drive-semantic-embed.awasthi-sach.workers.dev/embed)"
           if [ "$status" != "401" ]; then
             echo "::error::Native /embed without Authorization must return 401; got HTTP $status. The deployed Worker may still enforce the old Origin-only policy or is misconfigured."
