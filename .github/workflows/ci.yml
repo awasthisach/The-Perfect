@@ -2,7 +2,7 @@ name: VVF Smart Manager CI & Quality Gate
 
 on:
   push:
-    branches: ["main", "develop"]
+    branches: ["main", "develop", "fix/drive-semantic-search-product-alignment"]
   pull_request:
     branches: ["main", "develop"]
   workflow_dispatch:
@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
 
 env:
   UPLOAD_ARTIFACT_ACTION: b7c566a772e6b6bfb58ed0dc250532a479d7789f
