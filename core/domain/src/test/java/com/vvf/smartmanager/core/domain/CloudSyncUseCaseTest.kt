@@ -121,6 +121,17 @@ class CloudSyncUseCaseTest {
     }
 
     @Test
+    fun successfulUploadFailsClosedWhenDurableDaoIsMissing() = runBlocking {
+        val useCase = CloudSyncUseCase(FakeDriveService(Result.success("remote-123")))
+
+        val result = useCase.syncFileToCloud(sampleFile)
+
+        assertFalse(result.isSuccess)
+        assertEquals(CloudSyncStatus.ERROR, useCase.syncState.value)
+        assertTrue(result.exceptionOrNull()?.message?.contains("CloudSyncDao is not configured") == true)
+    }
+
+    @Test
     fun blankRemoteIdIsRejectedAsNonDurable() = runBlocking {
         val useCase = CloudSyncUseCase(FakeDriveService(Result.success("   ")))
 
