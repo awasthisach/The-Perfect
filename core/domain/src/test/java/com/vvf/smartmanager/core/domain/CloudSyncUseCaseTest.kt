@@ -33,13 +33,15 @@ class CloudSyncUseCaseTest {
     val temp = TemporaryFolder()
 
     private class FakeDriveService(
-        private val uploadResult: Result<String> = Result.success("drive-file-id")
+        private val uploadResult: Result<String> = Result.success("drive-file-id"),
+        private val checksumResult: Result<String> = Result.failure(UnsupportedOperationException("no remote checksum configured"))
     ) : GoogleDriveService {
         override suspend fun authenticate(): Result<Boolean> = Result.success(true)
         override suspend fun listDriveFiles(folderId: String): Result<List<FileItem>> = Result.success(emptyList())
         override suspend fun uploadFile(localFile: FileItem, remoteFolderId: String): Result<String> = uploadResult
         override suspend fun downloadFile(fileId: String, destinationPath: String): Result<Boolean> = Result.success(true)
         override suspend fun getStorageQuota(): Result<Pair<Long, Long>> = Result.success(0L to 1L)
+        override suspend fun getFileSha256(fileId: String): Result<String> = checksumResult
     }
 
     private class RecordingCloudSyncDao : CloudSyncDao {
@@ -189,7 +191,10 @@ class CloudSyncUseCaseTest {
                 override suspend fun rollback(snapshot: RestoreSnapshot) = Result.success(Unit)
             }
         )
-        val useCase = CloudSyncUseCase(FakeDriveService(), restorePipeline = pipeline)
+        val useCase = CloudSyncUseCase(
+            FakeDriveService(checksumResult = Result.success(trustedChecksum)),
+            restorePipeline = pipeline
+        )
 
         val result = useCase.restoreCloudBackup(info)
 
