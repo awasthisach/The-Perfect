@@ -50,6 +50,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -93,6 +94,8 @@ private val SoftGold = Color(0xFFD4A95A)
 fun SearchScreen(
     viewModel: SearchViewModel,
     onOpenFile: ((FileItem) -> Unit)? = null,
+    onToggleOfflinePin: ((FileItem) -> Unit)? = null,
+    onToggleDriveStar: ((FileItem) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -133,7 +136,7 @@ fun SearchScreen(
                             .padding(end = 8.dp)
                     )
                     Text(
-                        text = "VVF Smart Search",
+                        text = "Drive Semantic Search",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -206,7 +209,7 @@ fun SearchScreen(
                         .testTag("search_input_field")
                 )
 
-                // Subtitle badge row
+                // Local search is the baseline; neural ranking is an explicit second opt-in.
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -214,11 +217,28 @@ fun SearchScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "100% Offline Core Search (FTS4 + Tags + Metadata)",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Local search always available",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp
+                        )
+                        Text(
+                            text = if (uiState.isSemanticEnabled) {
+                                "Neural ranking on"
+                            } else {
+                                "Neural ranking requires privacy consent and sign-in"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp
+                        )
+                    }
+                    Switch(
+                        checked = uiState.isSemanticEnabled,
+                        onCheckedChange = { enabled -> viewModel.setSemanticEnabled(enabled) },
+                        modifier = Modifier.testTag("semantic_search_toggle")
                     )
                 }
             }
@@ -421,9 +441,16 @@ fun SearchScreen(
                                 viewModel.onExecuteSearch(uiState.searchQuery)
                                 onOpenFile?.invoke(item)
                             },
-                            onToggleFavorite = { viewModel.toggleFavorite(it) },
+                            onToggleFavorite = { item ->
+                                if (item.path.startsWith("gdrive://") && onToggleDriveStar != null) {
+                                    onToggleDriveStar.invoke(item)
+                                } else {
+                                    viewModel.toggleFavorite(item)
+                                }
+                            },
                             onManageTags = { viewModel.showTagDialog(it) },
-                            onShowDetails = { viewModel.showDetailsDialog(it) }
+                            onShowDetails = { viewModel.showDetailsDialog(it) },
+                            onToggleOfflinePin = onToggleOfflinePin
                         )
                     }
                 }

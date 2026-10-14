@@ -29,6 +29,13 @@ class CryptoSecurityManagerTest {
     }
 
     @Test
+    fun vaultPinUsesDerivedHashAndRejectsWrongPin() {
+        assertTrue(cryptoSecurityManager.setupVaultPin("482951"))
+        assertTrue(cryptoSecurityManager.verifyVaultPin("482951"))
+        assertFalse(cryptoSecurityManager.verifyVaultPin("482952"))
+    }
+
+    @Test
     fun testDatabasePassphraseGenerationAndPersistence() {
         val passphrase1 = cryptoSecurityManager.getOrCreateDatabasePassphrase()
         assertNotNull(passphrase1)

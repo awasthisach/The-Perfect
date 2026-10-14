@@ -51,7 +51,7 @@ hiltWork = "1.4.0"
 workManager = "2.10.0"
 securityCrypto = "1.1.0-alpha06"
 biometric = "1.2.0-alpha05"
-sqlcipherAndroid = "4.17.0"
+sqlcipherAndroid = "4.19.1"
 kotlinxSerializationJson = "1.7.3"
 
 [libraries]
@@ -107,6 +107,7 @@ roborazzi-junit-rule = { group = "io.github.takahirom.roborazzi", name = "robora
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 firebase-ai = { group = "com.google.firebase", name = "firebase-ai" }
 firebase-appcheck-recaptcha = { group = "com.google.firebase", name = "firebase-appcheck-recaptcha" }
+firebase-appcheck-playintegrity = { group = "com.google.firebase", name = "firebase-appcheck-playintegrity" }
 firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore" }
 firebase-auth = { group = "com.google.firebase", name = "firebase-auth" }
 androidx-credentials = { group = "androidx.credentials", name = "credentials", version.ref = "credentials" }

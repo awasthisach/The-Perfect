@@ -1,5 +1,8 @@
 package com.vvf.smartmanager.core.domain.restore
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -29,10 +32,12 @@ class FailClosedRestorePipeline(
         val token = UUID.randomUUID().toString()
         val stagingDir = File(workingDir, "restore-$token")
         var snapshot: RestoreSnapshot? = null
+        var downloadedArtifact: DownloadedArtifact? = null
         return try {
             requireWorkingDirectory(stagingDir)
 
             val downloaded = downloader.download(remoteBackupId).getOrElse { return Result.failure(it) }
+            downloadedArtifact = downloaded
             val verified = verifier.verify(downloaded, expectedChecksum).getOrElse { return Result.failure(it) }
             val decrypted = decryptor.decrypt(verified, stagingDir).getOrElse { return Result.failure(it) }
 
@@ -81,7 +86,7 @@ class FailClosedRestorePipeline(
             )
         } catch (error: Throwable) {
             if (snapshot != null) {
-                val rollbackAttempt = runCatching { applier.rollback(snapshot!!) }
+                val rollbackAttempt = withContext(NonCancellable) { runCatching { applier.rollback(snapshot!!) } }
                 preparedSnapshots.remove(snapshot!!.token)
                 val rollbackResult = rollbackAttempt.getOrNull()
                 if (rollbackAttempt.isFailure) {
@@ -101,9 +106,11 @@ class FailClosedRestorePipeline(
                     )
                 }
             }
+            if (error is CancellationException) throw error
             Result.failure(RestoreException("Fail-closed restore aborted", error))
         } finally {
             stagingDir.deleteRecursively()
+            downloadedArtifact?.file?.delete()
         }
     }
 
@@ -116,9 +123,11 @@ class FailClosedRestorePipeline(
         }
         val token = UUID.randomUUID().toString()
         val stagingDir = File(workingDir, "dry-run-$token")
+        var downloadedArtifact: DownloadedArtifact? = null
         return try {
             requireWorkingDirectory(stagingDir)
             val downloaded = downloader.download(remoteBackupId).getOrElse { return Result.failure(it) }
+            downloadedArtifact = downloaded
             val verified = verifier.verify(downloaded, expectedChecksum).getOrElse { return Result.failure(it) }
             val decrypted = decryptor.decrypt(verified, stagingDir).getOrElse { return Result.failure(it) }
             val fileCount = decrypted.stagingDir.walkTopDown().count { it.isFile }
@@ -134,9 +143,11 @@ class FailClosedRestorePipeline(
                 )
             )
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             Result.failure(RestoreException("Fail-closed restore dry-run aborted", error))
         } finally {
             stagingDir.deleteRecursively()
+            downloadedArtifact?.file?.delete()
         }
     }
 

@@ -23,7 +23,11 @@ data class FileItem(
     val canonicalUri: String? = null,
     val contentIdentityVersion: Long = 1L,
     val itemCount: Int = 0,
-    val tags: List<String> = emptyList()
+    val tags: List<String> = emptyList(),
+    val isOfflinePinned: Boolean = false,
+    val offlineLocalPath: String? = null,
+    /** Bounded locally extracted text, supplied to semantic ranking only after explicit consent. */
+    val indexedText: String = ""
 ) {
     val extension: String
         get() = name.substringAfterLast('.', "").lowercase()

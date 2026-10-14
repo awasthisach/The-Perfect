@@ -19,6 +19,8 @@ import com.vvf.smartmanager.core.model.SearchFilter
 import com.vvf.smartmanager.core.model.SemanticSearchOptions
 import com.vvf.smartmanager.core.model.SemanticSearchResult
 import com.vvf.smartmanager.core.model.SizeFilter
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +35,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.LinkedHashMap
 
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class SearchViewModel(
@@ -54,7 +57,9 @@ class SearchViewModel(
     private val _snackbarMessage = MutableStateFlow<String?>(null)
     private val _isSearching = MutableStateFlow(false)
     private val _semanticResults = MutableStateFlow<List<SemanticSearchResult>>(emptyList())
-    private val _isSemanticEnabled = MutableStateFlow(true)
+    // Neural ranking is always opt-in in the search UI and also requires Settings consent.
+    private val _isSemanticEnabled = MutableStateFlow(false)
+    private var semanticSearchJob: Job? = null
     private val _semanticSimilarityThreshold = MutableStateFlow(0.80f)
 
     private val _searchHistory = searchHistoryUseCase.getHistory()
@@ -68,6 +73,7 @@ class SearchViewModel(
         .distinctUntilChanged()
         .flatMapLatest { (query, filter, threshold) ->
             if (query.isBlank() && filter.isDefault) {
+                semanticSearchJob?.cancel()
                 _isSearching.value = false
                 _semanticResults.value = emptyList()
                 flowOf(emptyList())
@@ -81,11 +87,19 @@ class SearchViewModel(
         }
 
     private fun triggerSemanticSearch(query: String, threshold: Float = _semanticSimilarityThreshold.value) {
+        semanticSearchJob?.cancel()
         if (query.isBlank() || semanticSearchUseCase == null || !_isSemanticEnabled.value) {
+            // Never label ordinary keyword fallback rows as neural matches.
             _semanticResults.value = emptyList()
             return
         }
-        viewModelScope.launch {
+        if (!semanticSearchUseCase.isPluginReady()) {
+            // Consent may have been revoked or the linked Firebase session may have ended.
+            _isSemanticEnabled.value = false
+            _semanticResults.value = emptyList()
+            return
+        }
+        semanticSearchJob = viewModelScope.launch {
             try {
                 val results = semanticSearchUseCase.searchSemantically(
                     query = query,
@@ -95,7 +109,9 @@ class SearchViewModel(
                     )
                 )
                 _semanticResults.value = results
-            } catch (_: Throwable) {
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
                 _semanticResults.value = emptyList()
             }
         }
@@ -131,10 +147,12 @@ class SearchViewModel(
         val detailsItem = params[10] as FileItem?
         val snackbar = params[11] as String?
         val indexedCount = params[12] as Int
+        // SemanticSearchUseCase already returns only embedding-backed matches. Do not
+        // filter on presentation metadata: older and valid results may have no matchedConcept.
         val semanticHits = @Suppress("UNCHECKED_CAST") (params[13] as List<SemanticSearchResult>)
         val searching = params[14] as Boolean
 
-        val ftsPaths = results.mapTo(mutableSetOf()) { it.fileItem.path }
+        val semanticScoreByPath = semanticHits.associate { it.fileItem.path to it.similarityScore }
         val semanticAsResults = semanticHits.map { hit ->
             val pct = (hit.similarityScore * 100f).toInt().coerceIn(0, 100)
             val concept = hit.matchedConcept?.let { " · $it" } ?: ""
@@ -144,9 +162,20 @@ class SearchViewModel(
                 matchedSnippet = "Semantic match $pct%$concept"
             )
         }
-        val mergedResults = buildList {
-            addAll(semanticAsResults.filter { it.fileItem.path !in ftsPaths })
-            addAll(results)
+        // Merge by stable Drive path first, then rank the combined list. Previously all
+        // semantic-only hits were prepended, so weak semantic matches always beat strong
+        // filename/FTS matches and semantic scores never re-ranked files already in FTS.
+        val mergedByPath = LinkedHashMap<String, com.vvf.smartmanager.core.model.SearchResultItem>()
+        results.forEach { mergedByPath[it.fileItem.path] = it }
+        semanticAsResults.forEach { mergedByPath.putIfAbsent(it.fileItem.path, it) }
+        val mergedResults = if (isSemanticOn && semanticScoreByPath.isNotEmpty()) {
+            mergedByPath.values.sortedWith(
+                compareByDescending<com.vvf.smartmanager.core.model.SearchResultItem> { result ->
+                    semanticScoreByPath[result.fileItem.path] ?: lexicalFallbackScore(result.matchType)
+                }.thenBy { it.fileItem.name.lowercase() }
+            )
+        } else {
+            mergedByPath.values.toList()
         }
 
         SearchUiState(
@@ -172,6 +201,18 @@ class SearchViewModel(
         initialValue = SearchUiState()
     )
 
+    private fun lexicalFallbackScore(matchType: com.vvf.smartmanager.core.model.SearchMatchType): Float {
+        val lexicalScore = when (matchType) {
+            com.vvf.smartmanager.core.model.SearchMatchType.FILENAME -> 0.95f
+            com.vvf.smartmanager.core.model.SearchMatchType.FTS -> 0.85f
+            com.vvf.smartmanager.core.model.SearchMatchType.TAG -> 0.72f
+            com.vvf.smartmanager.core.model.SearchMatchType.METADATA -> 0.55f
+            com.vvf.smartmanager.core.model.SearchMatchType.SEMANTIC -> 0.50f
+        }
+        // Keep the fallback scale comparable to SemanticSearchUseCase's lexical-only path.
+        return (0.80f * lexicalScore + 0.20f * 0.50f).coerceIn(0f, 1f)
+    }
+
     fun onQueryChanged(newQuery: String) {
         _searchQuery.value = newQuery.take(500)
     }
@@ -195,12 +236,20 @@ class SearchViewModel(
     }
 
     fun setSemanticEnabled(enabled: Boolean) {
-        _isSemanticEnabled.value = enabled
         if (!enabled) {
+            semanticSearchJob?.cancel()
+            _isSemanticEnabled.value = false
             _semanticResults.value = emptyList()
-        } else if (_searchQuery.value.isNotBlank()) {
-            triggerSemanticSearch(_searchQuery.value)
+            return
         }
+        if (semanticSearchUseCase?.isPluginReady() != true) {
+            _isSemanticEnabled.value = false
+            _semanticResults.value = emptyList()
+            _snackbarMessage.value = "Enable Neural Search Privacy consent and sign in before using neural ranking."
+            return
+        }
+        _isSemanticEnabled.value = true
+        if (_searchQuery.value.isNotBlank()) triggerSemanticSearch(_searchQuery.value)
     }
 
     fun onHistoryItemClicked(historyQuery: String) {

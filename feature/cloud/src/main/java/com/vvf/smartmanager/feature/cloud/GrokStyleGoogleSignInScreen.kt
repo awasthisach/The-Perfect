@@ -15,11 +15,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,6 +30,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.width
 import com.vvf.smartmanager.core.common.R as CommonR
 
 private val SoftGold = Color(0xFFD4A95A)
@@ -45,7 +44,6 @@ fun GrokStyleGoogleSignInScreen(
     isLoading: Boolean,
     statusMessage: String?,
     onContinueWithGoogle: () -> Unit,
-    onSkipToProviders: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val canvas = Color(0xFF0A0A0A)
@@ -77,14 +75,14 @@ fun GrokStyleGoogleSignInScreen(
             )
             Spacer(modifier = Modifier.height(28.dp))
             Text(
-                text = "VVF Smart Manager",
+                text = "Drive Semantic Search",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = titleWhite
             )
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = "Secure cloud backup for your vault and files.\nSign in to connect Google Drive.",
+                text = "Connect Google Drive to build a searchable local index of your files. Keyword search works without neural-search consent.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = bodyGray,
                 textAlign = TextAlign.Center,
@@ -142,35 +140,11 @@ fun GrokStyleGoogleSignInScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Button(
-                onClick = onSkipToProviders,
-                enabled = !isLoading,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-                    .testTag("other_cloud_providers_btn"),
-                shape = RoundedCornerShape(28.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.Transparent,
-                    contentColor = titleWhite
-                ),
-                border = BorderStroke(1.dp, pillBorder)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.CloudQueue,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = bodyGray
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text("Other cloud providers", fontWeight = FontWeight.Medium)
-            }
+            Spacer(modifier = Modifier.height(24.dp))
 
             Spacer(modifier = Modifier.height(28.dp))
             Text(
-                text = "By continuing you agree to VVF Terms and Privacy Policy.\nYour files stay encrypted; Drive only receives what you back up.",
+                text = "Google sign-in connects the Drive account you choose. Sync updates the local search index and does not move or delete Drive files. Optional neural search requires separate consent.",
                 style = MaterialTheme.typography.labelSmall,
                 color = bodyGray.copy(alpha = 0.85f),
                 textAlign = TextAlign.Center,
