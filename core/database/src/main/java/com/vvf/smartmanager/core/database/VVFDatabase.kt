@@ -33,7 +33,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         SemanticEmbeddingEntity::class
     ],
     // 1→2: vault journal; 2→3: extracted text/canonical URI; 3→4: offline pin metadata; 4→5: Drive sync generation; 5→6: consented semantic vector cache.
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 abstract class VVFDatabase : RoomDatabase() {
@@ -116,6 +116,13 @@ abstract class VVFDatabase : RoomDatabase() {
             }
         }
 
+        /** Persists the trusted SHA-256 for each durable cloud backup record. */
+        val MIGRATION_6_7: Migration = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `cloud_sync_records` ADD COLUMN `checksumSha256` TEXT")
+            }
+        }
+
         /** Builds an encrypted SQLCipher Room database using the Keystore passphrase. */
         fun buildEncryptedDatabase(context: Context, passphrase: ByteArray): VVFDatabase {
             val openHelperFactory = SupportOpenHelperFactory(passphrase)
@@ -125,7 +132,7 @@ abstract class VVFDatabase : RoomDatabase() {
                 DATABASE_NAME
             )
                 .openHelperFactory(openHelperFactory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .build()
         }
 
