@@ -69,7 +69,7 @@ jobs:
           test -x /tmp/fossa-cli/fossa || { echo "::error::Pinned FOSSA CLI binary missing"; exit 1; }
           sudo install -m 0755 /tmp/fossa-cli/fossa /usr/local/bin/fossa
           fossa --version
-          fossa analyze --project "The-Perfect" --revision "${{ github.sha }}"
+          fossa analyze --revision "${{ github.sha }}"
           fossa test --timeout 600
           cat > foss-status.json <<'EOF'
           {"gate_id":"GATE-LICENSE-001","status":"PASS","reason":"fossa analyze + fossa test succeeded on release"}
