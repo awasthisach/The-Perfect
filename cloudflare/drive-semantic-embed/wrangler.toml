@@ -6,7 +6,7 @@ workers_dev = true
 [vars]
 ALLOWED_ORIGIN = "https://awasthisach.github.io"
 EMBEDDING_MODEL = "gemini-embedding-2"
-EMBEDDING_VERSION = "3"
+EMBEDDING_VERSION = "4"
 EMBEDDING_DIMENSION = "768"
 FIREBASE_PROJECT_ID = "thevvforg"
 FIREBASE_PROJECT_NUMBER = "1058219630435"
