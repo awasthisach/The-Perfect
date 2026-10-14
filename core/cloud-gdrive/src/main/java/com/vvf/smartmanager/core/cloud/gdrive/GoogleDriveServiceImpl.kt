@@ -616,8 +616,11 @@ class GoogleDriveServiceImpl(
         val existing = driveApi.listFiles(bearer(), query = query, pageSize = 10).files.firstOrNull()
         if (existing?.id != null) return existing.id
 
-        val safeFolderName = ref.replace("\\", "\\\\").replace("\"", "\\\"")
-        val metadata = """{"name":"$safeFolderName","mimeType":"application/vnd.google-apps.folder","parents":["root"]}"""
+        val metadata = JSONObject()
+            .put("name", ref)
+            .put("mimeType", "application/vnd.google-apps.folder")
+            .put("parents", JSONArray().put("root"))
+            .toString()
             .toRequestBody("application/json; charset=UTF-8".toMediaType())
         return driveApi.createFolder(bearer(), metadata).id
             ?: throw IllegalStateException("Drive folder creation returned no id for '$ref'")
