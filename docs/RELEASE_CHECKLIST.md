@@ -24,7 +24,7 @@ This is a fail-closed checklist. A skipped check is not a pass. Do not mark the 
 
 - [ ] Verify Firebase project, Android app ID, package `com.vvf.smartmanager`, OAuth client, and actual signing certificate fingerprints in Google Cloud/Firebase.
 - [ ] Test sign-in, denied permissions, token refresh/expiry, account switching and sign-out on a physical device.
-- [ ] Confirm the actual OAuth scope and document which Drive files are available to the app. Do not claim full-Drive coverage unless the granted scope, verification and user authorization prove it.
+- [ ] Confirm production OAuth requests `drive.readonly` for full-corpus read access and `drive.file` only for app-created backup files; verify the actual granted corpus and account behavior. `drive.readonly` is restricted: complete applicable OAuth verification and review the restricted-scope security-assessment and Google API User Data Policy requirements before public release, because opted-in extracted text is transmitted to Gemini through the Worker. Do not claim full-Drive coverage until real-account evidence exists.
 - [ ] Verify paginated full indexing, changes feed, removed/trashed files, the corpus cap, account isolation, and interruption/resume checkpoints.
 
 ## Storage, backup and restore
