@@ -380,8 +380,18 @@ fun CloudScreen(
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                                if (backup.checksumSha256.isNullOrBlank()) {
+                                    Text(
+                                        "Restore disabled: no trusted SHA-256 metadata",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
                             }
-                            OutlinedButton(onClick = { viewModel.restoreBackup(backup) }) {
+                            OutlinedButton(
+                                onClick = { viewModel.restoreBackup(backup) },
+                                enabled = !backup.checksumSha256.isNullOrBlank()
+                            ) {
                                 Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text("Restore", fontSize = 11.sp)
