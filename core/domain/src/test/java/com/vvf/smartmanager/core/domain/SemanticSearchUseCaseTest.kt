@@ -148,7 +148,7 @@ class SemanticSearchUseCaseTest {
     }
 
     @Test
-    fun semanticResultsAndKeywordResultsAreMergedWithoutDuplicates() = runBlocking {
+    fun semanticHitIsReturnedOnceAndUsesLexicalRankingSignals() = runBlocking {
         val file = FileItem(
             path = "gdrive://drive-file-2",
             name = "Budget Plan.pdf",
@@ -161,7 +161,12 @@ class SemanticSearchUseCaseTest {
             listOf(SearchResultItem(file, SearchMatchType.FILENAME, "budget"))
         )
         val engine = FakeSemanticEngine()
-        val useCase = SemanticSearchUseCase(engine, searchRepo, FakeFileManagerRepo())
+        val useCase = SemanticSearchUseCase(
+            engine,
+            searchRepo,
+            FakeFileManagerRepo(),
+            isEmbeddingConsentGranted = { true }
+        )
 
         val results = useCase.searchSemantically("budget")
 
