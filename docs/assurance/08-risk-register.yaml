@@ -1,8 +1,47 @@
 schema_version: 1
 finding_lifecycle: [discovered, triaged, reproduced, root_cause_verified, repair_implemented, tested, ci_verified, closed]
 
-# No open critical/high findings. Residual risks for cloud E2E are documented on closed items.
-open_findings: []
+# Current release blockers remain open until evidence-backed closure.
+open_findings:
+  - id: PROD-008
+    severity: high
+    title: FOSSA findings cannot be triaged with the configured push-only token
+    status: triaged
+    notes: >
+      Candidate CI reports 192 unresolved findings and FOSSA explicitly says the
+      configured GH_FOSSA token is push-only, so issue details are unavailable.
+      This does not imply all findings are violations; review/classify them and
+      fix or approve each item before release. Related issue #136.
+    residual_risk: high
+    related_issue: 136
+    last_updated: "2026-10-15"
+
+  - id: PROD-009
+    severity: high
+    title: Production embedding Worker is v3 while the native app requires v4
+    status: triaged
+    notes: >
+      Live health returns embedding version 3, while the candidate requires
+      version 4 and invalidates old vectors. Deploy through the protected
+      candidate-only workflow and verify health, fail-closed auth, App Check,
+      and an authenticated native request. Related issue #140.
+    residual_risk: high
+    related_issue: 140
+    last_updated: "2026-10-15"
+
+  - id: PROD-010
+    severity: high
+    title: Real-account OAuth, privacy, signing, and device acceptance are unverified
+    status: triaged
+    notes: >
+      Restricted drive.readonly verification, Firebase/Google OAuth and signing
+      fingerprints, paid Gemini billing/data handling, published privacy policy,
+      release artifact signing/provenance, and physical-device acceptance are
+      not yet evidenced. Public release remains blocked until the required
+      checks are completed. Related issue #141.
+    residual_risk: high
+    related_issue: 141
+    last_updated: "2026-10-15"
 
 closed_findings:
   - id: PROD-001
