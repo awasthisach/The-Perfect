@@ -145,6 +145,9 @@ dependencies {
   implementation(libs.firebase.ai)
   implementation(libs.firebase.appcheck.recaptcha)
   implementation(libs.firebase.appcheck.playintegrity)
+  // Debug builds need an explicit, separately registered Firebase App Check debug token.
+  // Never package the debug provider in release artifacts.
+  debugImplementation("com.google.firebase:firebase-appcheck-debug")
   implementation(libs.hiltAndroidRuntime)
   implementation("com.google.dagger:dagger:2.60.1")
   implementation(libs.kotlinx.coroutines.android)
