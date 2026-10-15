@@ -2,6 +2,8 @@
 
 This is a fail-closed checklist. A skipped check is not a pass. Do not mark the app production-ready until each applicable item has linked evidence.
 
+For the current PR #138 candidate, use the prioritized [PR #138 remediation checklist](REMEDIATION_CHECKLIST_PR138.md), which records the verified blockers, owners, acceptance criteria, and human-only actions. The current candidate remains blocked until the CPAS, FOSSA, external-service, signing, privacy, and physical-device evidence is complete.
+
 ## Automated build and supply chain
 
 - [ ] Current candidate SHA passes `testDebugUnitTest`, `lintDebug`, and `assembleDebug`.
