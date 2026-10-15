@@ -199,6 +199,9 @@ jobs:
     env:
       FOSSA_ENABLED: ${{ secrets.GH_FOSSA != '' }}
       FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
+      # For pull requests, github.sha can identify the synthetic merge commit.
+      # FOSSA must scan the contributor's exact candidate head instead.
+      FOSSA_SCAN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -206,7 +209,7 @@ jobs:
         if: ${{ env.FOSSA_ENABLED != 'true' }}
         run: |
           cat > foss-status.json <<'EOF'
-          {"gate_id":"GATE-LICENSE-001","status":"BLOCKED","reason":"GH_FOSSA secret is not configured"}
+          {"gate_id":"GATE-LICENSE-001","status":"BLOCKED","scan_revision":"${{ env.FOSSA_SCAN_SHA }}","reason":"GH_FOSSA secret is not configured"}
           EOF
           echo "::error::GH_FOSSA missing — license compliance cannot be verified; CI is blocked."
           exit 1
@@ -231,7 +234,9 @@ jobs:
         env:
           FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
           GRADLE_OPTS: -Dorg.gradle.configuration-cache=false
-        run: fossa analyze --revision "${{ github.sha }}"
+        run: |
+          set -euo pipefail
+          fossa analyze --revision "${FOSSA_SCAN_SHA}"
       - name: FOSSA policy and findings test
         id: fossa_test
         if: ${{ env.FOSSA_ENABLED == 'true' && success() }}
@@ -246,16 +251,17 @@ jobs:
           if [ "${{ env.FOSSA_ENABLED }}" != "true" ]; then
             exit 0
           fi
+          echo "FOSSA scan revision: ${FOSSA_SCAN_SHA}" >> "$GITHUB_STEP_SUMMARY"
           ANALYZE="${{ steps.fossa_analyze.outcome }}"
           TEST="${{ steps.fossa_test.outcome }}"
           if [ "$ANALYZE" = "success" ] && [ "$TEST" = "success" ]; then
-            echo '{"gate_id":"GATE-LICENSE-001","status":"PASS","reason":"fossa analyze and fossa test both succeeded"}' > foss-status.json
+            printf '{"gate_id":"GATE-LICENSE-001","status":"PASS","scan_revision":"%s","reason":"fossa analyze and fossa test both succeeded"}\n' "${FOSSA_SCAN_SHA}" > foss-status.json
           elif [ "$ANALYZE" != "success" ]; then
-            echo '{"gate_id":"GATE-LICENSE-001","status":"BLOCKED","reason":"FOSSA analyze failed"}' > foss-status.json
+            printf '{"gate_id":"GATE-LICENSE-001","status":"BLOCKED","scan_revision":"%s","reason":"FOSSA analyze failed"}\n' "${FOSSA_SCAN_SHA}" > foss-status.json
             echo "::error::FOSSA analyze failed; license gate is BLOCKED."
             exit 1
           else
-            echo '{"gate_id":"GATE-LICENSE-001","status":"BLOCKED","reason":"FOSSA test reported unresolved policy or dependency findings; review and triage them in the FOSSA project before release"}' > foss-status.json
+            printf '{"gate_id":"GATE-LICENSE-001","status":"BLOCKED","scan_revision":"%s","reason":"FOSSA test reported unresolved policy or dependency findings; review and triage them in the FOSSA project before release"}\n' "${FOSSA_SCAN_SHA}" > foss-status.json
             echo "::error::FOSSA test reported unresolved findings; release gate is BLOCKED until findings are reviewed and triaged."
             exit 1
           fi
