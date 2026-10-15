@@ -18,13 +18,16 @@ open_findings:
 
   - id: PROD-009
     severity: high
-    title: Production embedding Worker is v3 while the native app requires v4
-    status: triaged
+    title: Native Worker v4 authentication and App Check acceptance is incomplete
+    status: repair_implemented
     notes: >
-      Live health returns embedding version 3, while the candidate requires
-      version 4 and invalidates old vectors. Deploy through the protected
-      candidate-only workflow and verify health, fail-closed auth, App Check,
-      and an authenticated native request. Related issue #140.
+      Protected deployment workflow #38676382484 succeeded on candidate head
+      855d788cafd695c3fa8410d10fedecdb66ce6e16. CI verified the v4 health
+      contract (gemini-embedding-2, 768 dimensions) and rejection of /embed
+      without Firebase credentials. This resolves the stale-v3 deployment
+      portion, but does not prove invalid App Check rejection or a successful
+      real Android request with valid Firebase Auth + App Check. Keep open until
+      those authenticated acceptance checks are recorded. Related issue #140.
     residual_risk: high
     related_issue: 140
     last_updated: "2026-10-15"
