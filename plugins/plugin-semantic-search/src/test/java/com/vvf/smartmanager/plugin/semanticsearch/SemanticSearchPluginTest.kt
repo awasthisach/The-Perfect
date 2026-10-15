@@ -3,6 +3,7 @@ package com.vvf.smartmanager.plugin.semanticsearch
 import com.vvf.smartmanager.core.model.FileItem
 import com.vvf.smartmanager.core.model.SemanticCandidate
 import com.vvf.smartmanager.core.model.SemanticSearchOptions
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -12,6 +13,17 @@ import java.io.IOException
 import org.junit.Test
 
 class SemanticSearchPluginTest {
+
+    @Test
+    fun cloudflareTransportDefaultsToDeniedUntilExplicitConsent() = runBlocking {
+        val client = CloudflareEmbeddingClient(baseUrl = "https://example.invalid")
+        try {
+            client.embed(listOf("private document text"), "query")
+            fail("Embedding transport must require explicit consent by default")
+        } catch (cancelled: CancellationException) {
+            assertTrue(cancelled.message.orEmpty().contains("consent", ignoreCase = true))
+        }
+    }
 
     @Test
     fun cosineSimilarityNormalizesVectorsAndHandlesInvalidInputs() {
