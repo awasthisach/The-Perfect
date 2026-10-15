@@ -76,8 +76,10 @@ class SemanticSearchPluginImpl(
             vector
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: Exception) {
-            FloatArray(0)
+        } catch (error: Exception) {
+            // A transport/auth/model failure is not a valid empty embedding. Propagate it so
+            // callers can present retryable failure state instead of silently degrading results.
+            throw error
         }
     }
 
@@ -180,8 +182,9 @@ class SemanticSearchPluginImpl(
             clusters.sortedByDescending { it.averageSimilarity }
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: Exception) {
-            emptyList()
+        } catch (error: Exception) {
+            // Do not misreport an unavailable embedding service as "no duplicate files".
+            throw error
         }
     }
 
