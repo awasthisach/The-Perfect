@@ -274,8 +274,15 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: foss-status
+          path: foss-status.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload FOSSA diagnostics
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: foss-diagnostics
           path: |
-            foss-status.json
             fossa-test.json
             fossa-test.log
             fossa-test.exit
