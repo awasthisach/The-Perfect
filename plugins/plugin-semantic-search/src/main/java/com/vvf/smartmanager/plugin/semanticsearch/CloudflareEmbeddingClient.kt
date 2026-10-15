@@ -34,7 +34,7 @@ class CloudflareEmbeddingClient(
     private val baseUrl: String = WORKER_BASE_URL,
     private val firebaseAuthProvider: () -> FirebaseAuth = { FirebaseAuth.getInstance() },
     private val appCheckProvider: () -> FirebaseAppCheck = { FirebaseAppCheck.getInstance() },
-    private val isConsentGranted: () -> Boolean = { true },
+    private val isConsentGranted: () -> Boolean = { false },
     private val http: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(35, TimeUnit.SECONDS)
