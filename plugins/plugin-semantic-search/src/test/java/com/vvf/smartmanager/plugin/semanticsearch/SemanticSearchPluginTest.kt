@@ -7,6 +7,8 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
+import java.io.IOException
 import org.junit.Test
 
 class SemanticSearchPluginTest {
@@ -205,6 +207,60 @@ class SemanticSearchPluginTest {
         assertTrue(plugin.searchSimilar("food", listOf(candidate), SemanticSearchOptions()).isEmpty())
         assertEquals(0, client.queryCalls)
         assertEquals(0, client.documentBatchCalls)
+    }
+
+
+    @Test
+    fun remoteEmbeddingFailuresArePropagatedInsteadOfReportedAsEmptyResults() = runBlocking {
+        val failingClient = object : EmbeddingClient {
+            override fun cancelPendingRequests() = Unit
+            override fun hasSignedInUser(): Boolean = true
+            override suspend fun healthCheck(): Boolean = true
+            override suspend fun embed(texts: List<String>, mode: String): List<FloatArray> {
+                throw IOException("simulated embedding service outage")
+            }
+        }
+        val plugin = SemanticSearchPluginImpl(
+            client = failingClient,
+            isEmbeddingConsentGranted = { true },
+            isFullContentConsentGranted = { true }
+        )
+        val candidateA = SemanticCandidate(
+            fileItem = FileItem(
+                path = "gdrive://a",
+                name = "a.pdf",
+                sizeBytes = 10L,
+                lastModified = 0L,
+                isDirectory = false,
+                mimeType = "application/pdf"
+            ),
+            textContent = "invoice"
+        )
+        val candidateB = SemanticCandidate(
+            fileItem = FileItem(
+                path = "gdrive://b",
+                name = "b.pdf",
+                sizeBytes = 10L,
+                lastModified = 0L,
+                isDirectory = false,
+                mimeType = "application/pdf"
+            ),
+            textContent = "receipt"
+        )
+
+        try {
+            plugin.generateEmbedding("invoice")
+            fail("generateEmbedding must propagate service failures")
+        } catch (expected: IOException) {
+            assertEquals("simulated embedding service outage", expected.message)
+        }
+
+        try {
+            plugin.findNearDuplicates(listOf(candidateA, candidateB), 0.8f)
+            fail("findNearDuplicates must propagate service failures")
+        } catch (expected: IOException) {
+            assertEquals("simulated embedding service outage", expected.message)
+        }
     }
 
 }
