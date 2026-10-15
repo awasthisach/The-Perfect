@@ -34,6 +34,7 @@ class CloudflareEmbeddingClient(
     private val baseUrl: String = WORKER_BASE_URL,
     private val firebaseAuthProvider: () -> FirebaseAuth = { FirebaseAuth.getInstance() },
     private val appCheckProvider: () -> FirebaseAppCheck = { FirebaseAppCheck.getInstance() },
+    private val isConsentGranted: () -> Boolean = { true },
     private val http: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(35, TimeUnit.SECONDS)
@@ -83,6 +84,10 @@ class CloudflareEmbeddingClient(
         val appCheckToken = appCheckProvider().getAppCheckToken(false).await().token
             .takeIf { it.isNotBlank() } ?: throw IOException("App authenticity verification is unavailable")
 
+        // Consent can be revoked while Firebase/App Check token refresh is suspended.
+        // Re-check after token acquisition so a stale coroutine cannot start a new upload.
+        if (!isConsentGranted()) throw CancellationException("Embedding consent revoked")
+
         val body = JSONObject()
             .put("texts", JSONArray(texts))
             .put("mode", mode)
@@ -97,6 +102,8 @@ class CloudflareEmbeddingClient(
             .post(body)
             .build()
 
+        // Keep this check adjacent to dispatch as well as after token refresh.
+        if (!isConsentGranted()) throw CancellationException("Embedding consent revoked")
         execute(request).use { response ->
             val responseText = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
