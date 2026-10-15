@@ -240,7 +240,6 @@ jobs:
       - name: FOSSA policy and findings test
         id: fossa_test
         if: ${{ env.FOSSA_ENABLED == 'true' && success() }}
-        continue-on-error: true
         env:
           FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
         run: fossa test --revision "${FOSSA_SCAN_SHA}" --timeout 600
