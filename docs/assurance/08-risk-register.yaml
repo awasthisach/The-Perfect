@@ -5,13 +5,19 @@ finding_lifecycle: [discovered, triaged, reproduced, root_cause_verified, repair
 open_findings:
   - id: PROD-008
     severity: high
-    title: FOSSA findings cannot be triaged with the configured push-only token
+    title: FOSSA policy findings and outdated dependencies remain unresolved
     status: triaged
     notes: >
-      Candidate CI reports 192 unresolved findings and FOSSA explicitly says the
-      configured GH_FOSSA token is push-only, so issue details are unavailable.
-      This does not imply all findings are violations; review/classify them and
-      fix or approve each item before release. Related issue #136.
+      FOSSA test on CI run #38703527318 evaluated revision
+      3c7ab9d98198a8b85216f63fcecfa0b7a74eb9d4 and returned 66 unresolved issues:
+      59 policy_flag, 5 policy_conflict, and 2 outdated_dependency. The scan
+      completed and emitted a structured report, so the prior claim that the
+      configured GH_FOSSA token is push-only and issue details are unavailable
+      is stale and removed. Findings must be classified by dependency path and
+      license evidence, then fixed or formally approved under policy; do not
+      blanket-whitelist or suppress them. CI evidence:
+      https://github.com/awasthisach/The-Perfect/actions/runs/38703527318
+      Related issue #136.
     residual_risk: high
     related_issue: 136
     last_updated: "2026-10-15"
