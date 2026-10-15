@@ -36,6 +36,16 @@ jobs:
           node-version: "22"
           package-manager-cache: false
 
+      - name: Require reviewed release-candidate branch
+        env:
+          DEPLOY_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          if [ "$DEPLOY_REF" != "refs/heads/candidate/drive-semantic-search-release" ]; then
+            echo "::error::Production Worker deployment is restricted to candidate/drive-semantic-search-release; selected ref was $DEPLOY_REF."
+            exit 1
+          fi
+
       - name: Install pinned Wrangler
         run: npm install --global wrangler@4.149.0
 
