@@ -1,6 +1,6 @@
 # Drive Semantic Search — current production-readiness audit
 
-Scope: `awasthisach/The-Perfect`, candidate branch `fix/drive-semantic-search-product-alignment`. This document records source and CI evidence; it does not declare the app production-ready.
+Scope: `awasthisach/The-Perfect`, release candidate branch `candidate/drive-semantic-search-release`, PR #138, current audited head `855d788cafd695c3fa8410d10fedecdb66ce6e16`. This document records source and CI evidence; it does not declare the app production-ready.
 
 ## Implemented in the candidate source
 
@@ -15,25 +15,29 @@ Scope: `awasthisach/The-Perfect`, candidate branch `fix/drive-semantic-search-pr
 
 ## Current verified external/CI facts
 
-- Live Worker health endpoint was fetched on 2026-10-14 and returned `{"ok":true,"model":"gemini-embedding-2","version":"3","dimension":768}`.
-- This health response proves the public health contract only. It does **not** prove the updated native App Check path is deployed or that an authenticated Android `POST /embed` succeeds.
-- CI run [#1081](https://github.com/awasthisach/The-Perfect/actions/runs/38548792319) on an earlier candidate passed unit tests, lint and debug APK assembly but failed Open Source License Compliance. FOSSA reported 192 issues and said the configured push-only API key cannot display issue details.
-- Current candidate checks are linked from [Draft PR #138](https://github.com/awasthisach/The-Perfect/pull/138). Every code change creates a new candidate SHA; only the latest completed run for the current head can be counted as release evidence. Do not treat prior runs or external FOSSA status badges as proof that the current candidate passed.
-- CPAS Production Gate passed for the newer candidate. That is one required gate, not overall release approval.
-- The public repository's `main` advanced by one commit after PR #130's merge base. GitHub currently reports PR #130 as not mergeable; it must be reconciled with current `main` before merge.
-- PR #134 is still Draft and separate. Its restore/signing changes are not yet proven integrated with PR #130.
+- The protected deployment workflow [#38676382484](https://github.com/awasthisach/The-Perfect/actions/runs/38676382484) succeeded on the current candidate SHA. Its steps verified the Worker health contract (`gemini-embedding-2`, version `4`, dimension `768`) and that `/embed` rejects requests without Firebase credentials. This proves deployment and these server-side checks only; it does **not** prove a valid signed-in Android request with real Firebase Auth + App Check succeeds.
+- On current candidate head `855d788cafd695c3fa8410d10fedecdb66ce6e16`, Android unit tests, lint and debug APK assembly succeeded in [CI run #38661489693](https://github.com/awasthisach/The-Perfect/actions/runs/38661489693), but the overall CI workflow failed at the FOSSA license gate. FOSSA reported 192 findings and explicitly said the configured push-only API key cannot display issue details.
+- The dedicated SQLCipher instrumented hard gate passed on this head in [run #38661489617](https://github.com/awasthisach/The-Perfect/actions/runs/38661489617). This does not substitute for real-device Google OAuth/Drive/Worker acceptance.
+- [CPAS Production Gate #38661489626](https://github.com/awasthisach/The-Perfect/actions/runs/38661489626) correctly fails closed: 13 of 14 checks passed, but `PROD-008`, `PROD-009`, and `PROD-010` remain blockers. The current gate result is **BLOCKED**, not PASS.
+- The single release candidate is [Draft PR #138](https://github.com/awasthisach/The-Perfect/pull/138), with 90 changed files. Avoid merging older duplicate PRs; #138 must remain Draft until every required gate and external acceptance check is evidenced on one current SHA.
 
 ## Remaining release blockers
 
 1. **FOSSA findings:** provide a narrowly scoped key that can read issue details, review all reported findings, fix incompatible/unknown license or vulnerability blockers, document approved exceptions, and rerun the fail-closed gate. Track this in [issue #136](https://github.com/awasthisach/The-Perfect/issues/136). Do not bypass the gate.
-2. **Worker deployment and Gemini data handling:** run the reviewed manual deployment workflow only after confirming Cloudflare and Firebase App Check secrets are correctly configured. Verify the deployed health contract and missing-credential rejection. Then test a real native request from a signed-in Android device with valid Firebase Auth and App Check. Confirm the Gemini API key belongs to a paid project with active Cloud Billing; the free tier may use prompts/documents to improve products. Review abuse-monitoring retention and privacy disclosures.
+2. **Native Worker acceptance and Gemini data handling:** deployment is now verified by workflow #38676382484, including health version 4 and rejection of missing Firebase credentials. Still test invalid App Check rejection and a real native request from a signed-in Android device with valid Firebase Auth + App Check. Confirm the Gemini API key belongs to a paid project with active Cloud Billing; the free tier may use prompts/documents to improve products. Review abuse-monitoring retention and privacy disclosures.
 3. **OAuth and Drive access:** the app requests `drive.readonly` for corpus reads and `drive.file` for app-created backups. `drive.readonly` is restricted. Verify the production Firebase project, Android app ID/package, OAuth client, signing fingerprints, account switching/token refresh, and applicable restricted-scope verification/security-assessment and User Data Policy requirements before public release. Do not claim full-Drive access without real-account evidence.
 4. **Consent and privacy:** test fresh-install consent defaults to off, query/document embedding only after consent, immediate request cancellation on revocation, deletion of persisted vectors, and local-search continuity when the Worker is unavailable.
 5. **Indexing and data integrity:** exercise full-list/change-feed pagination, cap handling, trashed/removed files, interrupted page commits, expired page tokens, process death, account isolation, schema migration against existing encrypted databases, malformed/oversized imports and atomic restore rollback.
-6. **Restore/security integration:** reconcile PR #134's durable IDs, checksums, restore rollback and signing hardening with this branch without overwriting the newer Drive indexing/embedding implementation. Rerun tests on the integrated candidate.
+6. **Restore/security integration:** the current PR #138 source includes durable IDs, checksums, restore rollback and protected signing hardening; verify these with real-provider, interrupted-restore and signed-artifact acceptance tests.
 7. **Product acceptance:** test search relevance against a labelled sample corpus, hybrid neural/FTS ranking, no-result/failure/retry behavior, offline mode, duplicate review, and all user-confirmed Drive actions on a physical device.
 8. **Release:** pass current-head unit tests, lint, APK/AAB release build, hard SQLCipher instrumentation, CodeQL, CPAS and FOSSA. Verify the signed AAB/APK, signing fingerprint, SBOM and provenance. Confirm Play Console permission/policy eligibility, privacy/Data safety declarations, and staged rollout/monitoring.
 
+## Code-level findings that remain visible in source
+
+- `SemanticSearchPluginImpl.suggestTags()` intentionally returns an empty list. Do not advertise AI tag suggestions as implemented until a real model contract and tests exist.
+- `generateEmbedding()` maps remote failures to an empty vector, and near-duplicate detection maps failures to an empty list. Ensure UI/domain state distinguishes “no matches” from “service unavailable”; otherwise the UX can silently misrepresent a network/auth failure as a valid empty result.
+- `CloudflareEmbeddingClient` correctly separates Firebase ID token from Drive OAuth access token and requires App Check. The live endpoint's health response cannot verify that these credentials work end-to-end on a physical device.
+
 ## Release decision
 
-**Not production-ready.** A green compile or CI badge is not sufficient. Keep PRs in Draft until each blocker above has reproducible evidence, all required checks pass on one integrated candidate SHA, and real-device/external-service acceptance is complete.
+**Not production-ready.** The current Worker deployment is verified, but FOSSA and CPAS fail closed and external OAuth/privacy/signing/device acceptance remains open. A green compile or individual workflow is not overall release approval. Keep PR #138 Draft until each blocker has reproducible evidence, all required checks pass on one integrated candidate SHA, and real-device/external-service acceptance is complete.
