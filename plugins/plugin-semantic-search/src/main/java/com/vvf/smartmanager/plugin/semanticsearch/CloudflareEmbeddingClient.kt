@@ -76,6 +76,7 @@ class CloudflareEmbeddingClient(
         require(texts.all { it.isNotBlank() && it.length <= MAX_TEXT_CHARS }) { "Embedding text is empty or too long" }
         val estimatedBodyBytes = texts.sumOf { it.toByteArray(Charsets.UTF_8).size + JSON_TEXT_OVERHEAD_BYTES } + JSON_BODY_OVERHEAD_BYTES
         require(estimatedBodyBytes <= MAX_REQUEST_BYTES) { "Embedding batch payload is too large" }
+        if (!isConsentGranted()) throw CancellationException("Embedding consent revoked")
 
         val user = runCatching { firebaseAuthProvider().currentUser }.getOrNull()
             ?: throw IOException("Sign in to Google Drive before using neural search")
