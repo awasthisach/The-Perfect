@@ -4,7 +4,6 @@ import android.app.Application
 import android.util.Log
 import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
-import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import androidx.work.Configuration
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
@@ -354,9 +353,10 @@ class VVFApplication : Application(), Configuration.Provider {
         // App Check protects native calls to the custom embedding worker. Do not initialize
         // Firebase SDKs in JVM unit-test environments that intentionally omit google-services.json.
         if (!CryptoSecurityManager.isJvmUnitTestEnvironment(this) && FirebaseApp.getApps(this).isNotEmpty()) {
-            FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
-                PlayIntegrityAppCheckProviderFactory.getInstance()
-            )
+            // Select the attestation provider by build type: debug builds use the
+            // Firebase debug provider for controlled testing; release builds use Play Integrity.
+            // Provider implementations live in build-type source sets so debug APIs cannot ship.
+            AppCheckProviderInstaller.install(FirebaseAppCheck.getInstance())
         }
         cryptoSecurityManager = CryptoSecurityManager(this)
 
