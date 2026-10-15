@@ -242,6 +242,14 @@ jobs:
           test -x /tmp/fossa-cli/fossa || { echo "::error::Pinned FOSSA CLI binary missing"; exit 1; }
           sudo install -m 0755 /tmp/fossa-cli/fossa /usr/local/bin/fossa
           fossa --version
+      - name: Capture FOSSA target inventory
+        if: ${{ env.FOSSA_ENABLED == 'true' }}
+        continue-on-error: true
+        run: |
+          fossa list-targets > fossa-targets.txt 2>&1 || {
+            code=$?
+            printf '\nFOSSA target inventory command exited with code %s\n' "$code" >> fossa-targets.txt
+          }
       - name: FOSSA analyze
         id: fossa_analyze
         if: ${{ env.FOSSA_ENABLED == 'true' }}
@@ -262,6 +270,26 @@ jobs:
           code=$?
           printf '%s\n' "$code" > fossa-test.exit
           exit "$code"
+      - name: Export FOSSA issue details for remediation
+        if: ${{ always() && env.FOSSA_ENABLED == 'true' }}
+        continue-on-error: true
+        env:
+          FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
+        run: |
+          set +e
+          curl --silent --show-error --fail --get \
+            'https://app.fossa.com/api/projects/custom%2B64047%2Fgithub.com%2Fawasthisach%2FThe-Perfect/export-issues' \
+            --data-urlencode 'format=json' \
+            --data-urlencode "revisionId=${FOSSA_SCAN_SHA}" \
+            --data-urlencode 'status=active' \
+            --header "Authorization: Bearer ${FOSSA_API_KEY}" \
+            --output fossa-issues-export.json
+          code=$?
+          if [ "$code" -ne 0 ] || [ ! -s fossa-issues-export.json ]; then
+            printf '{"status":"unavailable","reason":"FOSSA issue export API did not return a report"}\n' > fossa-issues-export.json
+          elif ! python3 -m json.tool fossa-issues-export.json >/dev/null 2>&1; then
+            printf '{"status":"unavailable","reason":"FOSSA issue export response was not valid JSON"}\n' > fossa-issues-export.json
+          fi
       - name: Record FOSSA gate status
         if: ${{ always() }}
         run: |
@@ -300,5 +328,7 @@ jobs:
             fossa-test.json
             fossa-test.log
             fossa-test.exit
+            fossa-targets.txt
+            fossa-issues-export.json
           if-no-files-found: ignore
           retention-days: 30
