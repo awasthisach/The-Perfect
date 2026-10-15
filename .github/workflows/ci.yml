@@ -242,7 +242,12 @@ jobs:
         if: ${{ env.FOSSA_ENABLED == 'true' && success() }}
         env:
           FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
-        run: fossa test --revision "${FOSSA_SCAN_SHA}" --timeout 600
+        run: |
+          set +e
+          fossa test --revision "${FOSSA_SCAN_SHA}" --format json --timeout 600 > fossa-test.json 2> fossa-test.log
+          code=$?
+          printf '%s\n' "$code" > fossa-test.exit
+          exit "$code"
       - name: Record FOSSA gate status
         if: ${{ always() }}
         run: |
@@ -269,6 +274,10 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: foss-status
-          path: foss-status.json
-          if-no-files-found: error
+          path: |
+            foss-status.json
+            fossa-test.json
+            fossa-test.log
+            fossa-test.exit
+          if-no-files-found: ignore
           retention-days: 30
