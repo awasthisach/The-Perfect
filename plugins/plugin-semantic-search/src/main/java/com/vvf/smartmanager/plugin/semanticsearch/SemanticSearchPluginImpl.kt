@@ -20,11 +20,16 @@ import java.util.LinkedHashMap
 private data class EmbeddingBatchResult(val candidates: List<SemanticCandidate>, val generatedCount: Int)
 
 class SemanticSearchPluginImpl(
-    private val client: EmbeddingClient = CloudflareEmbeddingClient(),
+    client: EmbeddingClient? = null,
     private val vectorStore: EmbeddingVectorStore? = null,
     private val isEmbeddingConsentGranted: () -> Boolean = { false },
     private val isFullContentConsentGranted: () -> Boolean = { false }
 ) : SemanticSearchSPI {
+
+    // Wire the live consent callback into the transport itself, so revocation during token
+    // refresh cannot dispatch a newly-started document/query upload.
+    private val embeddingClient: EmbeddingClient =
+        client ?: CloudflareEmbeddingClient(isConsentGranted = isEmbeddingConsentGranted)
 
     private val vectorCache = object : LinkedHashMap<String, FloatArray>(CACHE_SIZE, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, FloatArray>?): Boolean =
@@ -36,12 +41,12 @@ class SemanticSearchPluginImpl(
             clearCachedEmbeddings()
             return false
         }
-        return client.hasSignedInUser()
+        return embeddingClient.hasSignedInUser()
     }
 
     /** Abort active remote calls before clearing vectors when consent is revoked. */
     fun cancelPendingEmbeddingRequests() {
-        client.cancelPendingRequests()
+        embeddingClient.cancelPendingRequests()
     }
 
     /** Immediately drop in-memory vectors when the user revokes neural-search consent. */
@@ -55,9 +60,9 @@ class SemanticSearchPluginImpl(
     }
 
     override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean = withContext(Dispatchers.IO) {
-        if (!isEmbeddingConsentGranted() || !client.hasSignedInUser()) return@withContext false
+        if (!isEmbeddingConsentGranted() || !embeddingClient.hasSignedInUser()) return@withContext false
         progressCallback(0f)
-        val ready = client.healthCheck()
+        val ready = embeddingClient.healthCheck()
         ensureConsent()
         progressCallback(if (ready) 1f else 0f)
         ready
@@ -70,7 +75,7 @@ class SemanticSearchPluginImpl(
         cached(key)?.let { return@withContext it }
         try {
             ensureConsent()
-            val vector = client.embed(listOf(cleanText), "document").single()
+            val vector = embeddingClient.embed(listOf(cleanText), "document").single()
             ensureConsent()
             cache(key, vector)
             vector
@@ -91,7 +96,7 @@ class SemanticSearchPluginImpl(
         if (!isModelReady() || query.isBlank() || candidates.isEmpty()) return@withContext emptyList()
         try {
             ensureConsent()
-            val queryVector = client.embed(listOf(query.take(500)), "query").single()
+            val queryVector = embeddingClient.embed(listOf(query.take(500)), "query").single()
             val embedded = embedCandidates(candidates, embedMissing = candidates.size <= ON_DEMAND_CANDIDATE_LIMIT).candidates
             ensureConsent()
             embedded.mapNotNull { candidate ->
@@ -284,7 +289,7 @@ class SemanticSearchPluginImpl(
             if (fullContentConsentAtStart && !isFullContentConsentGranted() &&
                 chunk.any { sourceIndex -> isFullContentFile(safeCandidates[pendingIndices[sourceIndex]].fileItem) }
             ) throw CancellationException("Full-content consent revoked")
-            val vectors = client.embed(chunk.map { pendingTexts[it] }, "document")
+            val vectors = embeddingClient.embed(chunk.map { pendingTexts[it] }, "document")
             ensureConsent()
             if (fullContentConsentAtStart && !isFullContentConsentGranted() &&
                 chunk.any { sourceIndex -> isFullContentFile(safeCandidates[pendingIndices[sourceIndex]].fileItem) }
