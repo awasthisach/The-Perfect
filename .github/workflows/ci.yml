@@ -52,6 +52,11 @@ jobs:
         run: ./gradlew --no-daemon testDebugUnitTest --stacktrace
       - name: Run Android lint
         run: ./gradlew --no-daemon lintDebug --stacktrace
+
+      # Emit the resolved release runtime graph so FOSSA findings can be traced
+      # to actual shipped dependencies rather than inferred from license notices.
+      - name: Resolve release runtime dependency graph
+        run: ./gradlew --no-daemon :app:dependencies --configuration releaseRuntimeClasspath --console=plain > release-runtime-dependencies.txt
       - name: Assemble debug APK
         run: ./gradlew --no-daemon assembleDebug --stacktrace
       - name: Generate CPAS unit evidence
@@ -167,6 +172,15 @@ jobs:
             ${{ runner.temp }}/emulator.log
           if-no-files-found: ignore
           retention-days: 7
+      - name: Upload release runtime dependency graph
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: release-runtime-dependency-graph
+          path: release-runtime-dependencies.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Upload lint reports
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
