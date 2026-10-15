@@ -33,6 +33,12 @@ subprojects {
           useVersion("3.18.0")
         requested.group == "org.apache.httpcomponents" && requested.name == "httpclient" ->
           useVersion("4.5.14")
+        // Align any legacy transitive Firebase request with the current Firebase BoM.
+        requested.group == "com.google.firebase" && requested.name == "firebase-components" ->
+          useVersion("20.0.0")
+        // JetBrains publishes this artifact under Apache-2.0; keep old transitive pins current.
+        requested.group == "org.jetbrains" && requested.name == "annotations" ->
+          useVersion("26.1.0")
       }
     }
   }
