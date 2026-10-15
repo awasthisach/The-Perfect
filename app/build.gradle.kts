@@ -77,12 +77,17 @@ secrets {
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
 }
 
-// Validate production-only prerequisites against the resolved task graph, not raw
-// command-line arguments. In particular, "--configuration releaseRuntimeClasspath"
-// is a dependency-report option and must not be mistaken for a release build.
+// Validate production-only prerequisites only when the user explicitly requests a
+// release artifact task. Looking at every task in the resolved graph is unsafe here:
+// Gradle can add release-named dependency/report tasks when inspecting
+// releaseRuntimeClasspath, which must remain usable by CI/FOSSA diagnostics.
 gradle.taskGraph.whenReady {
-  val releaseTaskRequested = allTasks.any {
-    it.name.contains("release", ignoreCase = true) || it.name.contains("bundle", ignoreCase = true)
+  val releaseArtifactTaskPattern = Regex(
+    """(?i)^(assemble|bundle|package|validateSigning|sign|publish)([A-Za-z0-9]*Release)([A-Za-z0-9]*)$"""
+  )
+  val releaseTaskRequested = gradle.startParameter.taskNames.any { requested ->
+    val taskName = requested.substringAfterLast(':')
+    releaseArtifactTaskPattern.matches(taskName)
   }
   if (releaseTaskRequested) {
     val requiredSigningVars = listOf("KEYSTORE_PATH", "STORE_PASSWORD", "KEY_ALIAS", "KEY_PASSWORD")
