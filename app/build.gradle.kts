@@ -77,26 +77,30 @@ secrets {
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
 }
 
-val releaseTaskRequested = gradle.startParameter.taskNames.any {
-  it.contains("release", ignoreCase = true) || it.contains("bundle", ignoreCase = true)
-}
-
-if (releaseTaskRequested) {
-  val requiredSigningVars = listOf("KEYSTORE_PATH", "STORE_PASSWORD", "KEY_ALIAS", "KEY_PASSWORD")
-  val missingSigningVars = requiredSigningVars.filter { providers.environmentVariable(it).orNull.isNullOrBlank() }
-  if (missingSigningVars.isNotEmpty()) {
-    throw GradleException(
-      "Release signing is not configured. Set ${missingSigningVars.joinToString()} before running a release task. " +
-        "Release builds must never fall back to the Android debug keystore."
-    )
+// Validate production-only prerequisites against the resolved task graph, not raw
+// command-line arguments. In particular, "--configuration releaseRuntimeClasspath"
+// is a dependency-report option and must not be mistaken for a release build.
+gradle.taskGraph.whenReady {
+  val releaseTaskRequested = allTasks.any {
+    it.name.contains("release", ignoreCase = true) || it.name.contains("bundle", ignoreCase = true)
   }
-  val releaseKeystore = providers.environmentVariable("KEYSTORE_PATH").orNull!!
-  require(file(releaseKeystore).isFile) { "KEYSTORE_PATH does not point to a readable keystore: $releaseKeystore" }
-  if (!file("google-services.json").isFile) {
-    throw GradleException(
-      "google-services.json is required for production release builds. " +
-        "Provide the production Firebase configuration through the release secret injection step."
-    )
+  if (releaseTaskRequested) {
+    val requiredSigningVars = listOf("KEYSTORE_PATH", "STORE_PASSWORD", "KEY_ALIAS", "KEY_PASSWORD")
+    val missingSigningVars = requiredSigningVars.filter { providers.environmentVariable(it).orNull.isNullOrBlank() }
+    if (missingSigningVars.isNotEmpty()) {
+      throw GradleException(
+        "Release signing is not configured. Set ${missingSigningVars.joinToString()} before running a release task. " +
+          "Release builds must never fall back to the Android debug keystore."
+      )
+    }
+    val releaseKeystore = providers.environmentVariable("KEYSTORE_PATH").orNull!!
+    require(file(releaseKeystore).isFile) { "KEYSTORE_PATH does not point to a readable keystore: $releaseKeystore" }
+    if (!file("google-services.json").isFile) {
+      throw GradleException(
+        "google-services.json is required for production release builds. " +
+          "Provide the production Firebase configuration through the release secret injection step."
+      )
+    }
   }
 }
 
