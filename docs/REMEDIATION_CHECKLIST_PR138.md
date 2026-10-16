@@ -2,7 +2,7 @@
 
 **Repository:** `awasthisach/The-Perfect`  
 **Candidate branch:** `candidate/drive-semantic-search-release`  
-**Audited head:** `f6c649e3e9e9169e6bd088b75efb29c3e96034f9` (latest documentation candidate; final CI must be rerun on the final SHA)  
+**Audited head:** `3a372a7ab01bf99c930a70ef16ef8a800929e695` (final evidence-documentation candidate; CI must be rerun on this SHA)  
 **PR:** [#138](https://github.com/awasthisach/The-Perfect/pull/138)  
 **Decision at audit time:** **BLOCKED — keep Draft**
 
