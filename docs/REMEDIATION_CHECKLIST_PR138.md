@@ -46,9 +46,9 @@ This checklist is fail-closed. A code change, a green sub-check, a skipped test,
   - [ ] mark as false positive only with supporting evidence.
 - [ ] Re-run ORT on the final SHA and confirm the `Open Source Compliance (ORT)` check passes with evaluator/advisor exit code 0.
 - [ ] Attach ORT report/SBOM links and the disposition inventory to issue #136.
-- [ ] Update `PROD-008` only after the above evidence exists; do not close it merely because `fossa analyze` succeeded.
+- [ ] Update `PROD-008` only after current ORT reports and evidence-backed dispositions exist.
 
-**Acceptance:** `fossa-status.json` reports `GATE-LICENSE-001/PASS`, the workflow check is green, and every finding has a durable disposition.
+**Acceptance:** `ort-status.json` reports `GATE-LICENSE-001/PASS`, the workflow check is green, and every finding has a durable disposition.
 
 ### P0.2 CPAS blocker `PROD-009`: native Worker authentication and App Check
 
@@ -108,7 +108,7 @@ python3 tools/audit/cpas_verify.py --root .
 - [ ] `Embedding Worker Build Gate` passes.
 - [ ] CodeQL checks pass.
 - [ ] CPAS verifier reports `production_status.value=PASS`.
-- [ ] FOSSA reports `GATE-LICENSE-001/PASS`.
+- [ ] ORT reports `GATE-LICENSE-001/PASS`.
 - [ ] All required checks are green for one identical candidate SHA.
 - [ ] Preserve workflow URLs, job IDs, artifact names, and artifact digests in the evidence ledger.
 
@@ -133,7 +133,7 @@ python3 tools/audit/cpas_verify.py --root .
 - [ ] Refresh [`DRIVE_SEMANTIC_SEARCH_IMPLEMENTATION_GAP.md`](DRIVE_SEMANTIC_SEARCH_IMPLEMENTATION_GAP.md) with the final candidate SHA, actual Worker revision, and current check URLs.
 - [ ] Ensure no document claims “production-ready” while any P0 item is open.
 - [ ] Ensure all CPAS risk-register dates and notes describe current evidence, not an older commit.
-- [ ] Confirm branch protection requires CPAS, FOSSA, build/quality, CodeQL, and instrumentation checks as intended.
+- [ ] Confirm branch protection requires CPAS, ORT, build/quality, CodeQL, and instrumentation checks as intended.
 - [ ] Keep PR #138 Draft until the release owner confirms every P0 acceptance condition.
 - [ ] Only after evidence review, update risk statuses to `ci_verified`/`closed` according to the CPAS lifecycle; do not edit statuses to force a green result.
 
@@ -143,7 +143,7 @@ The PR may leave Draft only when all of the following are true:
 
 - [ ] `PROD-008`, `PROD-009`, and `PROD-010` have evidence-backed closure.
 - [ ] CPAS verifier reports `PASS` on the exact release SHA.
-- [ ] FOSSA analyze and policy test pass on that SHA.
+- [ ] ORT analysis, scanning, evaluator and advisor pass on that SHA.
 - [ ] The signed artifact, signer fingerprint, SBOM, provenance, privacy URL, Play configuration, Worker revision, and device report are cross-linked.
 - [ ] No required check is skipped, soft-skipped, stale, or based on a different commit.
 - [ ] Release owner and reviewer have approved the evidence package.
