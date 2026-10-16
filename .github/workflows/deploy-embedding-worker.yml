@@ -52,7 +52,14 @@ jobs:
       - name: Require explicit paid-tier and provider-data approval before deployment
         run: |
           set -euo pipefail
-          if ! grep -Eq '^GEMINI_PRODUCTION_APPROVED = "true"          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          if ! grep -Fq 'GEMINI_PRODUCTION_APPROVED = "true"' cloudflare/drive-semantic-embed/wrangler.toml; then
+            echo "::error::Worker deployment blocked until paid Gemini billing and provider data handling are reviewed and the approval flag is explicitly enabled."
+            exit 1
+          fi
+
+      - name: Validate required secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
