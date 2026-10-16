@@ -11,6 +11,14 @@ on:
         options:
           - "no"
           - "yes"
+      confirm_gemini_data_handling:
+        description: "Confirm paid Gemini billing and provider data-handling review (required only to enable embeddings)"
+        type: choice
+        required: true
+        default: "no"
+        options:
+          - "no"
+          - "yes"
 
 permissions:
   contents: read
@@ -49,12 +57,18 @@ jobs:
       - name: Install pinned Wrangler
         run: npm install --global wrangler@4.149.0
 
-      - name: Require explicit paid-tier and provider-data approval before deployment
+      - name: Guard production embedding enablement
+        env:
+          CONFIRM_GEMINI_DATA_HANDLING: ${{ inputs.confirm_gemini_data_handling }}
         run: |
           set -euo pipefail
-          if ! grep -Fq 'GEMINI_PRODUCTION_APPROVED = "true"' cloudflare/drive-semantic-embed/wrangler.toml; then
-            echo "::error::Worker deployment blocked until paid Gemini billing and provider data handling are reviewed and the approval flag is explicitly enabled."
-            exit 1
+          if grep -Fq 'GEMINI_PRODUCTION_APPROVED = "true"' cloudflare/drive-semantic-embed/wrangler.toml; then
+            if [ "$CONFIRM_GEMINI_DATA_HANDLING" != "yes" ]; then
+              echo "::error::Embedding is enabled in wrangler.toml but the dispatch did not confirm paid Gemini billing and provider data handling."
+              exit 1
+            fi
+          else
+            echo "Worker will deploy with embeddings disabled by default; no Gemini production approval is inferred."
           fi
 
       - name: Validate required secrets
@@ -88,19 +102,25 @@ jobs:
         run: wrangler deploy --config cloudflare/drive-semantic-embed/wrangler.toml
 
       - name: Verify deployed health contract
+        env:
+          GEMINI_APPROVED: ${{ contains(github.event.inputs.confirm_gemini_data_handling, 'yes') }}
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
           const response = await fetch("https://drive-semantic-embed.awasthi-sach.workers.dev/");
-          if (!response.ok) throw new Error(`Worker health endpoint returned HTTP ${response.status}`);
           const body = await response.json();
-          if (body.ok !== true || body.model !== "gemini-embedding-2" || body.version !== "4" || body.dimension !== 768) {
-            throw new Error("Deployed Worker health contract does not match expected model/version/dimension");
+          const expectedStatus = process.env.GEMINI_APPROVED === "true" ? 200 : 503;
+          const expectedOk = process.env.GEMINI_APPROVED === "true";
+          if (response.status !== expectedStatus || body.ok !== expectedOk ||
+              body.model !== "gemini-embedding-2" || body.version !== "4" || body.dimension !== 768) {
+            throw new Error(`Worker health mismatch: HTTP ${response.status}, body=${JSON.stringify(body)}`);
           }
-          process.stdout.write("Embedding Worker health contract verified.\n");
+          process.stdout.write("Embedding Worker health contract verified for configured approval state.\n");
           NODE
 
       - name: Verify native endpoint fails closed without Firebase credentials
+        env:
+          GEMINI_APPROVED: ${{ contains(github.event.inputs.confirm_gemini_data_handling, 'yes') }}
         run: |
           set -euo pipefail
           status="$(curl --silent --show-error --output /tmp/worker-auth-smoke.json --write-out '%{http_code}' \
@@ -108,71 +128,17 @@ jobs:
             --header 'Content-Type: application/json' \
             --data '{"texts":["release-gate-auth-smoke"],"mode":"query","version":"4"}' \
             https://drive-semantic-embed.awasthi-sach.workers.dev/embed)"
-          if [ "$status" != "401" ]; then
-            echo "::error::Native /embed without Authorization must return 401; got HTTP $status. The deployed Worker may still enforce the old Origin-only policy or is misconfigured."
+          if [ "$GEMINI_APPROVED" = "true" ]; then
+            expected_status=401
+            expected_error="unauthorized"
+          else
+            expected_status=503
+            expected_error="production_approval_required"
+          fi
+          if [ "$status" != "$expected_status" ]; then
+            echo "::error::Native /embed expected HTTP $expected_status but got $status."
             cat /tmp/worker-auth-smoke.json
             exit 1
           fi
-          echo "Native endpoint reached Firebase authentication without Origin and rejected missing credentials as expected."
- cloudflare/drive-semantic-embed/wrangler.toml; then
-            echo "::error::Worker deployment blocked: verify active paid Gemini billing and provider data-handling/retention terms, then explicitly set GEMINI_PRODUCTION_APPROVED = \"true\" in wrangler.toml."
-            exit 1
-          fi
-
-      - name: Validate required secrets
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
-        run: |
-          set -euo pipefail
-          test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing repository secret CLOUDFLARE_API_TOKEN"; exit 1; }
-          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing repository secret CLOUDFLARE_ACCOUNT_ID"; exit 1; }
-          test -n "$GEMINI_API_KEY" || { echo "::error::Missing repository secret GEMINI_API_KEY"; exit 1; }
-          test -n "$FIREBASE_APP_ID" || { echo "::error::Missing repository secret FIREBASE_APP_ID"; exit 1; }
-
-      - name: Store server-only Worker secrets
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
-        run: |
-          set -euo pipefail
-          printf '%s' "$GEMINI_API_KEY" | wrangler secret put GEMINI_API_KEY --config cloudflare/drive-semantic-embed/wrangler.toml
-          printf '%s' "$FIREBASE_APP_ID" | wrangler secret put FIREBASE_APP_ID --config cloudflare/drive-semantic-embed/wrangler.toml
-
-      - name: Deploy Worker
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: wrangler deploy --config cloudflare/drive-semantic-embed/wrangler.toml
-
-      - name: Verify deployed health contract
-        run: |
-          set -euo pipefail
-          node --input-type=module <<'NODE'
-          const response = await fetch("https://drive-semantic-embed.awasthi-sach.workers.dev/");
-          if (!response.ok) throw new Error(`Worker health endpoint returned HTTP ${response.status}`);
-          const body = await response.json();
-          if (body.ok !== true || body.model !== "gemini-embedding-2" || body.version !== "4" || body.dimension !== 768) {
-            throw new Error("Deployed Worker health contract does not match expected model/version/dimension");
-          }
-          process.stdout.write("Embedding Worker health contract verified.\n");
-          NODE
-
-      - name: Verify native endpoint fails closed without Firebase credentials
-        run: |
-          set -euo pipefail
-          status="$(curl --silent --show-error --output /tmp/worker-auth-smoke.json --write-out '%{http_code}' \
-            --request POST \
-            --header 'Content-Type: application/json' \
-            --data '{"texts":["release-gate-auth-smoke"],"mode":"query","version":"4"}' \
-            https://drive-semantic-embed.awasthi-sach.workers.dev/embed)"
-          if [ "$status" != "401" ]; then
-            echo "::error::Native /embed without Authorization must return 401; got HTTP $status. The deployed Worker may still enforce the old Origin-only policy or is misconfigured."
-            cat /tmp/worker-auth-smoke.json
-            exit 1
-          fi
-          echo "Native endpoint reached Firebase authentication without Origin and rejected missing credentials as expected."
+          node -e 'const x=require("/tmp/worker-auth-smoke.json"); if(x.error!==process.argv[1]) process.exit(1)' "$expected_error"
+          echo "Native endpoint failed closed as expected for the configured approval state."
