@@ -93,7 +93,7 @@ jobs:
               "advisor_exit_code": advisor or None,
               "reason": "ORT evaluator and advisor completed successfully" if status == "PASS" else "ORT failed or reported policy/security findings; review ORT result artifacts"
           }
-          Path("ort-status.json").write_text(json.dumps(result, indent=2) + "\\n")
+          Path("ort-status.json").write_text(json.dumps(result, indent=2) + "\n")
           print(json.dumps(result))
           if status != "PASS":
               raise SystemExit(1)
