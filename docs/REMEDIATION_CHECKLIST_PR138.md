@@ -2,7 +2,7 @@
 
 **Repository:** `awasthisach/The-Perfect`  
 **Candidate branch:** `candidate/drive-semantic-search-release`  
-**Last code-audited SHA:** `f853cc56ea9e34712b0ed9028780cfe43ea4ba89` (subsequent changes are workflow/README/checklist documentation; rerun mandatory checks on the final PR head)  
+**Latest verified PR head:** `8ea5e368d609ea10592a565a8ef151db1054054f` (2026-10-17 UTC). This head has a passing Android build/test/lint/debug-APK job and passing SQLCipher instrumentation, but FOSSA and CPAS still fail. Any later code changes require a fresh full gate run.  
 **PR:** [#138](https://github.com/awasthisach/The-Perfect/pull/138)  
 **Decision at audit time:** **BLOCKED — keep Draft**
 
@@ -12,12 +12,12 @@ This checklist is fail-closed. A code change, a green sub-check, a skipped test,
 
 | Area | Current state | Evidence | Closure condition |
 |---|---|---|---|
-| Build, unit tests, lint, debug APK | Passing on the latest observed CI run | PR check `Build, Test, Lint & Quality` | Re-run and retain the result on the final candidate SHA |
+| Build, unit tests, lint, debug APK | **Passed** on SHA `8ea5e368d609ea10592a565a8ef151db1054054f` | [CI run #38976363606](https://github.com/awasthisach/The-Perfect/actions/runs/38976363606), job `Build, Test, Lint & Quality` | Re-run and retain the result on the final candidate SHA |
 | CodeQL | Passing | PR checks | Re-run on the final candidate SHA |
-| SQLCipher instrumentation | Passing in the dedicated hard workflow | PR checks | Keep a non-skipped run on the final candidate SHA |
+| SQLCipher instrumentation | **Passed** on SHA `8ea5e368d609ea10592a565a8ef151db1054054f` | [Weekly Instrumented Hard Gate #38976363757](https://github.com/awasthisach/The-Perfect/actions/runs/38976363757) | Keep a non-skipped run on the final candidate SHA |
 | Embedding Worker build/deploy contract | Passing for build/health/unauthenticated rejection | PR checks and Worker workflow | Complete real native Auth + App Check acceptance |
-| FOSSA | **Blocked** by unresolved policy findings | VVF check `Open Source License Compliance`; issue [#136](https://github.com/awasthisach/The-Perfect/issues/136) | Triage every finding, remediate or approve with documented owner/expiry, then `fossa analyze` and `fossa test` pass |
-| CPAS | **Blocked** by `PROD-008`, `PROD-009`, `PROD-010` | `python3 tools/audit/cpas_verify.py --root .` | Close each finding with current, reproducible evidence |
+| FOSSA | **Failed** on SHA `8ea5e368d609ea10592a565a8ef151db1054054f`; 34 policy findings remain (30 flags, 4 conflicts) | [CI run #38976363606](https://github.com/awasthisach/The-Perfect/actions/runs/38976363606), job `Open Source License Compliance`; issue [#136](https://github.com/awasthisach/The-Perfect/issues/136) | Inspect matched evidence for each finding, remediate or approve with documented owner/expiry, then `fossa analyze` and `fossa test` pass |
+| CPAS | **Failed closed** on SHA `8ea5e368d609ea10592a565a8ef151db1054054f`; blockers `PROD-008`, `PROD-009`, `PROD-010` | [CPAS Production Gate #38976363902](https://github.com/awasthisach/The-Perfect/actions/runs/38976363902) | Close each finding with current, reproducible evidence |
 | Privacy publication | **Blocked**; draft still contains placeholders | [`PRIVACY_POLICY_DRAFT.md`](PRIVACY_POLICY_DRAFT.md) | Owner/legal review complete and stable HTTPS policy URL published |
 | Release signing / Play Integrity | **Blocked by external setup** | Firebase App Check console and Play Console access check on 2026-10-17 | Firebase App Check says app is unregistered with no SHA-256; connected Google account has no Play Console developer account; paid billing is unlinked |
 | Physical-device acceptance | **Unverified** | [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) | Clean-device test report attached to the final artifact digest |
