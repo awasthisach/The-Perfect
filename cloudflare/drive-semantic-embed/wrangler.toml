@@ -8,6 +8,8 @@ ALLOWED_ORIGIN = "https://awasthisach.github.io"
 EMBEDDING_MODEL = "gemini-embedding-2"
 EMBEDDING_VERSION = "4"
 EMBEDDING_DIMENSION = "768"
+# Fail closed until paid Gemini billing and provider data-handling review are verified.
+GEMINI_PRODUCTION_APPROVED = "false"
 FIREBASE_PROJECT_ID = "thevvforg"
 FIREBASE_PROJECT_NUMBER = "1058219630435"
 
