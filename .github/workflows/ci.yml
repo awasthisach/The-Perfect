@@ -316,18 +316,18 @@ jobs:
           while IFS= read -r issue_id; do
             [ -n "$issue_id" ] || continue
             http_code=$(curl --silent --show-error --get \
-              "https://app.fossa.com/api/v2/issues/\${issue_id}" \
+              "https://app.fossa.com/api/v2/issues/${issue_id}" \
               --data-urlencode 'category=licensing' \
               --data-urlencode 'scope[type]=project' \
               --data-urlencode 'scope[id]=custom+64047/github.com/awasthisach/The-Perfect' \
-              --data-urlencode "scope[revision]=\${FOSSA_SCAN_SHA}" \
-              --header "Authorization: Bearer \${FOSSA_API_KEY}" \
-              --output "fossa-issue-details/\${issue_id}.json" \
+              --data-urlencode "scope[revision]=${FOSSA_SCAN_SHA}" \
+              --header "Authorization: Bearer ${FOSSA_API_KEY}" \
+              --output "fossa-issue-details/${issue_id}.json" \
               --write-out '%{http_code}' --max-time 10)
             code=$?
             printf 'issue_id=%s curl_exit=%s http_status=%s\n' "$issue_id" "$code" "$http_code" >> fossa-issue-detail-status.txt
             if [ "$code" -ne 0 ] || [ "$http_code" != "200" ]; then
-              rm -f "fossa-issue-details/\${issue_id}.json"
+              rm -f "fossa-issue-details/${issue_id}.json"
             fi
           done < fossa-issue-ids.txt
 
