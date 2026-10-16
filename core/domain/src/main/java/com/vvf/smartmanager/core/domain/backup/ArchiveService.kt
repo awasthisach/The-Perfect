@@ -60,8 +60,9 @@ class ArchiveService(
                 )
             }
 
-            // Vault PIN material is Keystore-wrapped ciphertext in prefs — include in archive.
-            val vaultAuth = cryptoSecurityManager.exportVaultAuthMetadata()
+            // Vault PIN material is Keystore-wrapped ciphertext in prefs. Respect the user's
+            // vault exclusion choice; a database-only backup must not contain vault auth material.
+            val vaultAuth = if (includeVault) cryptoSecurityManager.exportVaultAuthMetadata() else emptyMap()
             val includesPreferences = vaultAuth.isNotEmpty()
             if (includesPreferences) {
                 File(stagingDir, "vault_auth.json").writeText(json.encodeToString(MapSerializer(String.serializer(), String.serializer()), vaultAuth))
