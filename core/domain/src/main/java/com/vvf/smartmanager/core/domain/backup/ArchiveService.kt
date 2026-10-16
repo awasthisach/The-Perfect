@@ -90,6 +90,12 @@ class ArchiveService(
             if (!encryptedFile.isFile || encryptedFile.length() == 0L) {
                 return@withContext Result.failure(ArchiveException("Encryption produced no artifact"))
             }
+            if (encryptedFile.length() > MAX_BACKUP_BYTES) {
+                encryptedFile.delete()
+                return@withContext Result.failure(
+                    ArchiveException("Encrypted backup exceeds the 200 MiB restore safety limit")
+                )
+            }
             val checksum = calculateSha256(encryptedFile)
             val backupInfo = CloudBackupInfo(
                 backupId = "backup-$timestamp",
@@ -146,6 +152,10 @@ class ArchiveService(
 
     private fun formatTimestamp(timestamp: Long): String =
         SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(timestamp))
+
+    private companion object {
+        const val MAX_BACKUP_BYTES = 200L * 1024L * 1024L
+    }
 }
 
 data class ArchiveArtifact(
