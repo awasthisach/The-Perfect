@@ -46,34 +46,58 @@ jobs:
           python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
           python3 tools/audit/cpas_verify.py --root .
 
-      - name: FOSSA license gate (hard fail for release)
+      - name: OSS Review Toolkit compliance gate (hard fail for release)
+        id: ort
+        uses: oss-review-toolkit/ort-ci-github-action@70149d4579e446b0312f8b80fdd8d465a91e4391 # pinned commit
+        with:
+          sw-name: The-Perfect
+          sw-version: ${{ github.sha }}
+          ort-config-revision: 5075f4308109384c98a6a2fab53246f7b60d59f4
+          run: >-
+            cache-dependencies,
+            labels,
+            analyzer,
+            scanner,
+            evaluator,
+            advisor,
+            reporter,
+            upload-results,
+            upload-evaluation-result,
+            upload-advisor-result,
+            upload-scan-result
+          fail-on: 'violations,issues'
+
+      - name: Record ORT release gate status
+        if: always()
         env:
-          FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
+          ORT_STEP_OUTCOME: ${{ steps.ort.outcome }}
+          ORT_EVALUATOR_EXIT_CODE: ${{ steps.ort.outputs.evaluator-exit-code }}
+          ORT_ADVISOR_EXIT_CODE: ${{ steps.ort.outputs.advisor-exit-code }}
+          SCAN_REVISION: ${{ github.sha }}
         run: |
-          set -euo pipefail
-          if [ -z "${FOSSA_API_KEY:-}" ]; then
-            cat > foss-status.json <<'EOF'
-            {"gate_id":"GATE-LICENSE-001","status":"BLOCKED","reason":"GH_FOSSA missing for release"}
-            EOF
-            echo "::error::GH_FOSSA secret required for release promotion"
-            exit 1
-          fi
-          FOSSA_VERSION="3.17.16"
-          FOSSA_ARCHIVE="fossa_${FOSSA_VERSION}_linux_amd64.zip"
-          FOSSA_BASE="https://github.com/fossas/fossa-cli/releases/download/v${FOSSA_VERSION}"
-          curl --fail --show-error --silent --location --retry 3 "${FOSSA_BASE}/${FOSSA_ARCHIVE}" --output "/tmp/${FOSSA_ARCHIVE}"
-          curl --fail --show-error --silent --location --retry 3 "${FOSSA_BASE}/${FOSSA_ARCHIVE}.sha256" --output "/tmp/${FOSSA_ARCHIVE}.sha256"
-          (cd /tmp && sha256sum --check --strict "${FOSSA_ARCHIVE}.sha256")
-          mkdir -p /tmp/fossa-cli
-          unzip -q -o "/tmp/${FOSSA_ARCHIVE}" -d /tmp/fossa-cli
-          test -x /tmp/fossa-cli/fossa || { echo "::error::Pinned FOSSA CLI binary missing"; exit 1; }
-          sudo install -m 0755 /tmp/fossa-cli/fossa /usr/local/bin/fossa
-          fossa --version
-          fossa analyze --revision "${{ github.sha }}"
-          fossa test --timeout 600
-          cat > foss-status.json <<'EOF'
-          {"gate_id":"GATE-LICENSE-001","status":"PASS","reason":"fossa analyze + fossa test succeeded on release"}
-          EOF
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          outcome = os.environ.get("ORT_STEP_OUTCOME", "unknown")
+          evaluator = os.environ.get("ORT_EVALUATOR_EXIT_CODE", "")
+          advisor = os.environ.get("ORT_ADVISOR_EXIT_CODE", "")
+          status = "PASS" if outcome == "success" and evaluator == "0" and advisor == "0" else "BLOCKED"
+          result = {
+              "gate_id": "GATE-LICENSE-001",
+              "scanner": "OSS Review Toolkit (ORT)",
+              "status": status,
+              "scan_revision": os.environ["SCAN_REVISION"],
+              "ort_action_outcome": outcome,
+              "evaluator_exit_code": evaluator or None,
+              "advisor_exit_code": advisor or None,
+              "reason": "ORT evaluator and advisor completed successfully" if status == "PASS" else "ORT failed or reported policy/security findings; review ORT result artifacts"
+          }
+          Path("ort-status.json").write_text(json.dumps(result, indent=2) + "\\n")
+          print(json.dumps(result))
+          if status != "PASS":
+              raise SystemExit(1)
+          PY
 
       - name: Validate release inputs and secrets
         env:
@@ -285,12 +309,12 @@ jobs:
           format: spdx-json
           output-file: release-meta/sbom.spdx.json
 
-      - name: Fail-closed release gate (CPAS + FOSSA + signed APK + signed AAB)
+      - name: Fail-closed release gate (CPAS + ORT + signed APK + signed AAB)
         run: |
           set -euo pipefail
           python3 tools/audit/release_gate.py \
             --cpas-status cpas-status.json \
-            --foss-status foss-status.json \
+            --ort-status ort-status.json \
             --apk "${{ steps.apk.outputs.path }}"
 
       - name: Upload signed release APK + metadata
@@ -302,7 +326,7 @@ jobs:
             **/build/outputs/bundle/release/*.aab
             release-meta/**
             cpas-status.json
-            foss-status.json
+            ort-status.json
           if-no-files-found: error
           retention-days: 30
 
