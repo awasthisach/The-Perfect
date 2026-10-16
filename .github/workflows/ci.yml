@@ -331,46 +331,62 @@ jobs:
             fi
           done < fossa-issue-ids.txt
 
-      - name: Export FOSSA attribution evidence with file-level license fields
+      - name: Export FOSSA attribution evidence with package-path fields
         if: ${{ always() && env.FOSSA_ENABLED == 'true' }}
         continue-on-error: true
         env:
           FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
         run: |
           set +e
-          REVISION_ID="custom+64047/github.com/awasthisach/The-Perfect\$${FOSSA_SCAN_SHA}"
+          REVISION_ID="custom+64047/github.com/awasthisach/The-Perfect\$ ${FOSSA_SCAN_SHA}"
+          REVISION_ID="${REVISION_ID/\$ /\$}"
           export REVISION_ID
           ENCODED_REVISION="$(python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["REVISION_ID"], safe=""))')"
           : > fossa-attribution-evidence-status.txt
           for format in CSV MD; do
-            output="fossa-attribution-evidence.$(printf '%s' "$format" | tr '[:upper:]' '[:lower:]')"
-            http_code=$(curl --silent --show-error --location --get \
-              "https://app.fossa.com/api/revisions/${ENCODED_REVISION}/attribution/download" \
-              --data-urlencode 'download=true' \
-              --data-urlencode "format=$format" \
-              --data-urlencode 'dependencyInfoOptions[]=Library' \
-              --data-urlencode 'dependencyInfoOptions[]=License' \
-              --data-urlencode 'dependencyInfoOptions[]=ConcludedLicense' \
-              --data-urlencode 'dependencyInfoOptions[]=FilePath' \
-              --data-urlencode 'dependencyInfoOptions[]=Source' \
-              --data-urlencode 'dependencyInfoOptions[]=PackageDownloadUrl' \
-              --data-urlencode 'dependencyInfoOptions[]=DependencyPaths' \
-              --data-urlencode 'dependencyInfoOptions[]=LicenseFileURL' \
-              --header "Authorization: Bearer ${FOSSA_API_KEY}" \
-              --dump-header "fossa-attribution-headers-$format.txt" \
-              --output "$output" \
-              --write-out '%{http_code} %{size_download} %{content_type}' --max-time 60)
-            code=$?
-            printf 'format=%s curl_exit=%s response=%s\n' "$format" "$code" "$http_code" >> fossa-attribution-evidence-status.txt
-            if [ "$code" -eq 0 ] && [ "${http_code%% *}" = "200" ] && [ -s "$output" ]; then
-              echo "Attribution evidence downloaded as $format."
-              break
-            fi
-            rm -f "$output"
+            for option_set in detailed basic defaults; do
+              output="fossa-attribution-evidence.$(printf '%s' "$format" | tr '[:upper:]' '[:lower:]')"
+              args=()
+              case "$option_set" in
+                detailed)
+                  args+=(--data-urlencode 'dependencyInfoOptions[]=Library')
+                  args+=(--data-urlencode 'dependencyInfoOptions[]=License')
+                  args+=(--data-urlencode 'dependencyInfoOptions[]=ConcludedLicense')
+                  args+=(--data-urlencode 'dependencyInfoOptions[]=FilePath')
+                  args+=(--data-urlencode 'dependencyInfoOptions[]=Source')
+                  args+=(--data-urlencode 'dependencyInfoOptions[]=PackageDownloadUrl')
+                  args+=(--data-urlencode 'dependencyInfoOptions[]=DependencyPaths')
+                  args+=(--data-urlencode 'dependencyInfoOptions[]=LicenseFileURL')
+                  ;;
+                basic)
+                  args+=(--data-urlencode 'dependencyInfoOptions[]=Library')
+                  args+=(--data-urlencode 'dependencyInfoOptions[]=License')
+                  args+=(--data-urlencode 'dependencyInfoOptions[]=Source')
+                  args+=(--data-urlencode 'dependencyInfoOptions[]=PackageDownloadUrl')
+                  args+=(--data-urlencode 'dependencyInfoOptions[]=DependencyPaths')
+                  ;;
+                defaults) ;;
+              esac
+              http_code=$(curl --silent --show-error --location --get \
+                "https://app.fossa.com/api/revisions/${ENCODED_REVISION}/attribution/download" \
+                --data-urlencode 'download=true' \
+                --data-urlencode "format=$format" \
+                "${args[@]}" \
+                --header "Authorization: Bearer ${FOSSA_API_KEY}" \
+                --dump-header "fossa-attribution-headers-$format-$option_set.txt" \
+                --output "$output" \
+                --write-out '%{http_code} %{size_download} %{content_type}' --max-time 60)
+              code=$?
+              printf 'format=%s option_set=%s curl_exit=%s response=%s\n' "$format" "$option_set" "$code" "$http_code" >> fossa-attribution-evidence-status.txt
+              if [ "$code" -eq 0 ] && [ "${http_code%% *}" = "200" ] && [ -s "$output" ] &&
+                 grep -Eiq 'com[.]google[.]mlkit|com[.]google[.]firebase|com[.]google[.]android[.]play|jakarta[.]inject' "$output"; then
+                echo "Attribution report contains the affected release dependencies (format=$format, options=$option_set)."
+                exit 0
+              fi
+              rm -f "$output"
+            done
           done
-          if ! find . -maxdepth 1 -type f -name 'fossa-attribution-evidence.*' ! -name '*status.txt' ! -name '*headers*' -size +0c | grep -q .; then
-            printf 'No non-empty attribution report returned; inspect response headers and job log.\n' >> fossa-attribution-evidence-status.txt
-          fi
+          printf 'FOSSA attribution endpoint returned no report containing the affected dependency coordinates; inspect response headers and job log.\n' >> fossa-attribution-evidence-status.txt
 
       - name: Record FOSSA gate status
         if: ${{ always() }}
