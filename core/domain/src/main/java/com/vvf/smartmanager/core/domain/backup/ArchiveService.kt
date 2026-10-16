@@ -77,7 +77,9 @@ class ArchiveService(
                 vaultItemCount = File(stagingDir, "vault").walkTopDown().count { it.isFile },
                 appVersion = appVersion,
                 schemaVersion = schemaVersion,
-                includesVaultAuth = includesPreferences
+                includesVaultAuth = includesPreferences,
+                includesDatabase = snapshots.containsKey("database"),
+                includesVault = snapshots.containsKey("vault")
             )
             File(stagingDir, "metadata.json").writeText(json.encodeToString(metadata))
             zipDirectory(stagingDir, zipFile)
@@ -162,7 +164,10 @@ data class ArchiveMetadata(
     val vaultItemCount: Int,
     val appVersion: String,
     val schemaVersion: Int,
-    val includesVaultAuth: Boolean = false
+    val includesVaultAuth: Boolean = false,
+    // Defaults preserve the historical full-backup interpretation for older manifests.
+    val includesDatabase: Boolean = true,
+    val includesVault: Boolean = true
 )
 
 class ArchiveException(message: String, cause: Throwable? = null) : Exception(message, cause)
