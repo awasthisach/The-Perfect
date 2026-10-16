@@ -2,7 +2,7 @@
 
 **Repository:** `awasthisach/The-Perfect`  
 **Candidate branch:** `candidate/drive-semantic-search-release`  
-**Latest verified PR head:** `8ea5e368d609ea10592a565a8ef151db1054054f` (2026-10-17 UTC). This head has a passing Android build/test/lint/debug-APK job and passing SQLCipher instrumentation, but FOSSA and CPAS still fail. Any later code changes require a fresh full gate run.  
+**Latest verified PR head:** `59e712d045beffde424dae4c56febe6f0562e74b` (2026-10-17 UTC). On this SHA, the Worker build and SQLCipher hard gate passed; FOSSA failed with 34 policy findings; CPAS failed closed. The Android build/test/lint job was still in progress at the time of this update. Any later code changes require a fresh full gate run.  
 **PR:** [#138](https://github.com/awasthisach/The-Perfect/pull/138)  
 **Decision at audit time:** **BLOCKED — keep Draft**
 
@@ -12,12 +12,12 @@ This checklist is fail-closed. A code change, a green sub-check, a skipped test,
 
 | Area | Current state | Evidence | Closure condition |
 |---|---|---|---|
-| Build, unit tests, lint, debug APK | **Passed** on SHA `8ea5e368d609ea10592a565a8ef151db1054054f` | [CI run #38976363606](https://github.com/awasthisach/The-Perfect/actions/runs/38976363606), job `Build, Test, Lint & Quality` | Re-run and retain the result on the final candidate SHA |
+| Build, unit tests, lint, debug APK | **In progress** on SHA `59e712d045beffde424dae4c56febe6f0562e74b` | [CI run #38979011280](https://github.com/awasthisach/The-Perfect/actions/runs/38979011280), job `Build, Test, Lint & Quality` | Wait for completion and retain the result on the final candidate SHA |
 | CodeQL | Passing | PR checks | Re-run on the final candidate SHA |
-| SQLCipher instrumentation | **Passed** on SHA `8ea5e368d609ea10592a565a8ef151db1054054f` | [Weekly Instrumented Hard Gate #38976363757](https://github.com/awasthisach/The-Perfect/actions/runs/38976363757) | Keep a non-skipped run on the final candidate SHA |
+| SQLCipher instrumentation | **Passed** on SHA `59e712d045beffde424dae4c56febe6f0562e74b` | [Weekly Instrumented Hard Gate #38979011282](https://github.com/awasthisach/The-Perfect/actions/runs/38979011282) | Keep a non-skipped run on the final candidate SHA |
 | Embedding Worker build/deploy contract | Passing for build/health/unauthenticated rejection | PR checks and Worker workflow | Complete real native Auth + App Check acceptance |
-| FOSSA | **Failed** on SHA `8ea5e368d609ea10592a565a8ef151db1054054f`; 34 policy findings remain (30 flags, 4 conflicts) | [CI run #38976363606](https://github.com/awasthisach/The-Perfect/actions/runs/38976363606), job `Open Source License Compliance`; issue [#136](https://github.com/awasthisach/The-Perfect/issues/136) | Inspect matched evidence for each finding, remediate or approve with documented owner/expiry, then `fossa analyze` and `fossa test` pass |
-| CPAS | **Failed closed** on SHA `8ea5e368d609ea10592a565a8ef151db1054054f`; blockers `PROD-008`, `PROD-009`, `PROD-010` | [CPAS Production Gate #38976363902](https://github.com/awasthisach/The-Perfect/actions/runs/38976363902) | Close each finding with current, reproducible evidence |
+| FOSSA | **Failed** on SHA `59e712d045beffde424dae4c56febe6f0562e74b`; 34 policy findings remain (30 flags, 4 conflicts) | [CI run #38979011280](https://github.com/awasthisach/The-Perfect/actions/runs/38979011280), job `Open Source License Compliance`; [diagnostics artifact](https://github.com/awasthisach/The-Perfect/actions/runs/38979011280/artifacts/12080212594); issue [#136](https://github.com/awasthisach/The-Perfect/issues/136) | Verify exact artifact/POM license terms and bundled-notice attribution per package, then remediate or document narrowly scoped disposition and pass `fossa test` |
+| CPAS | **Failed closed** on SHA `59e712d045beffde424dae4c56febe6f0562e74b`; blockers `PROD-008`, `PROD-009`, `PROD-010` | [CPAS Production Gate #38979011368](https://github.com/awasthisach/The-Perfect/actions/runs/38979011368) | Close each finding with current, reproducible evidence |
 | Privacy publication | **Blocked**; draft still contains placeholders | [`PRIVACY_POLICY_DRAFT.md`](PRIVACY_POLICY_DRAFT.md) | Owner/legal review complete and stable HTTPS policy URL published |
 | Release signing / Play Integrity | **Blocked by external setup** | Firebase App Check console and Play Console access check on 2026-10-17 | Firebase App Check says app is unregistered with no SHA-256; connected Google account has no Play Console developer account; paid billing is unlinked |
 | Physical-device acceptance | **Unverified** | [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) | Clean-device test report attached to the final artifact digest |
@@ -28,7 +28,7 @@ This checklist is fail-closed. A code change, a green sub-check, a skipped test,
 - Firebase App Check lists `com.vvf.smartmanager` as **Unregistered**; Play Integrity is not configured and no SHA-256 fingerprint is registered.
 - The connected Google account is redirected to Play Console developer-account signup; no Play Console app listing or Play App Signing fingerprint is accessible.
 - Google Auth Platform is External, in Testing, and not verified. The exact restricted `drive.readonly` verification state remains unconfirmed.
-- The FOSSA dashboard issue page is not accessible from the current browser profile; the CI API export supplies the 34 package/license records but not the matched-file evidence needed for safe correction.
+- The FOSSA diagnostics artifact for run #38979011280 now includes match-path data for all seven affected coordinates. Most flagged matches for six coordinates point to a shared `third_party_licenses.txt`; Jakarta Inject also has package-local Apache-2.0 evidence and a declared GPL-2.0-with-classpath-exception identifier. This is useful attribution evidence, but does not alone prove a false positive or settle redistribution rights. The dashboard’s per-issue disposition workflow remains unavailable in the current browser profile.
 
 ## P0 — resolve before any release-candidate approval
 
