@@ -5,22 +5,20 @@ finding_lifecycle: [discovered, triaged, reproduced, root_cause_verified, repair
 open_findings:
   - id: PROD-008
     severity: high
-    title: FOSSA policy findings and license attribution require resolution
+    title: Open-source license compliance and attribution require resolution
     status: triaged
     notes: >
-      Latest inspected candidate scan is CI run #1224 on SHA
-      dd1387b6117037d5c186b4dea638bf0ea91df45f (run 38969699459).
-      FOSSA analyze succeeded; fossa test failed with 34 unresolved policy
-      findings (30 policy_flag and 4 policy_conflict). The releaseRuntimeClasspath
-      graph contains all seven affected Maven coordinates, so they cannot be
-      dismissed as test-only. The diagnostics artifact was downloaded and
-      inspected: the per-issue API returned HTTP 200 for all 34 IDs and confirms
-      detected license, issue type, source coordinate, active status and
-      dashboard URL, but its details field is empty and provides no matched-file
-      evidence. No finding was suppressed or blanket-approved. Correct only
-      demonstrated false positives or satisfy real license obligations, then
-      rerun the hard gate. Evidence:
-      https://github.com/awasthisach/The-Perfect/actions/runs/38969699459
+      Paid FOSSA service has been removed from the candidate CI workflow and
+      replaced with the open-source OSS Review Toolkit (ORT) GitHub Action,
+      pinned to immutable action and configuration commits. The previous FOSSA
+      scan found 34 unresolved runtime license-policy findings (30 policy_flag
+      and 4 policy_conflict) on the earlier candidate revision; those findings
+      remain historical evidence and are NOT considered resolved by changing
+      scanners. The ORT gate must run on the current candidate SHA, produce
+      evaluator/advisor results and SBOM artifacts, and all license findings
+      must be reviewed against package metadata and source evidence before this
+      risk can be closed. No blanket allowlist or suppressions are authorized.
+      Historical evidence: https://github.com/awasthisach/The-Perfect/actions/runs/38969699459
       Related issue #136.
     residual_risk: high
     related_issue: 136
