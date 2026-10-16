@@ -42,3 +42,41 @@ jobs:
 
       - name: Bundle and validate Worker without deploying
         run: wrangler deploy --dry-run --config cloudflare/drive-semantic-embed/wrangler.toml
+
+      - name: Verify production embedding is disabled by default
+        run: |
+          set -euo pipefail
+          wrangler dev --local --ip 127.0.0.1 --port 8787 \
+            --persist-to /tmp/drive-semantic-embed-state \
+            --config cloudflare/drive-semantic-embed/wrangler.toml \
+            > /tmp/drive-semantic-embed-worker.log 2>&1 &
+          worker_pid=$!
+          cleanup() {
+            kill "$worker_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          health_status=""
+          for _ in $(seq 1 30); do
+            health_status="$(curl --silent --output /tmp/embedding-health.json --write-out '%{http_code}' \
+              http://127.0.0.1:8787/ || true)"
+            [ "$health_status" = "503" ] && break
+            sleep 1
+          done
+          if [ "$health_status" != "503" ]; then
+            cat /tmp/drive-semantic-embed-worker.log
+            echo "::error::Worker must fail health while GEMINI_PRODUCTION_APPROVED=false; got HTTP $health_status."
+            exit 1
+          fi
+          node -e 'const x=require("/tmp/embedding-health.json"); if(x.ok!==false || x.version!=="4" || x.dimension!==768) process.exit(1)'
+
+          embed_status="$(curl --silent --output /tmp/embedding-disabled.json --write-out '%{http_code}' \
+            --request POST --header 'Content-Type: application/json' \
+            --data '{"texts":["production approval smoke test"],"mode":"query","version":"4"}' \
+            http://127.0.0.1:8787/embed)"
+          if [ "$embed_status" != "503" ]; then
+            cat /tmp/embedding-disabled.json
+            echo "::error::Worker must reject /embed until production data handling is approved; got HTTP $embed_status."
+            exit 1
+          fi
+          node -e 'const x=require("/tmp/embedding-disabled.json"); if(x.error!=="production_approval_required") process.exit(1)'
