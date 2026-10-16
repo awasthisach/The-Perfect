@@ -217,8 +217,11 @@ jobs:
       # FOSSA must scan the contributor's exact candidate head instead.
       FOSSA_SCAN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
-      - name: Checkout Repository
+      - name: Checkout exact candidate revision for FOSSA
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ env.FOSSA_SCAN_SHA }}
+          persist-credentials: false
       - name: Block missing FOSSA credential
         if: ${{ env.FOSSA_ENABLED != 'true' }}
         run: |
