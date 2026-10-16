@@ -68,6 +68,10 @@ jobs:
               exit 1
             fi
           else
+            if [ "$CONFIRM_GEMINI_DATA_HANDLING" = "yes" ]; then
+              echo "::error::Dispatch claims Gemini production approval but wrangler.toml still disables embedding. Set the flag only after completing the required review."
+              exit 1
+            fi
             echo "Worker will deploy with embeddings disabled by default; no Gemini production approval is inferred."
           fi
 
