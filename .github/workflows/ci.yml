@@ -296,6 +296,41 @@ jobs:
           elif ! python3 -m json.tool fossa-issues-export.json >/dev/null 2>&1; then
             printf 'FOSSA export returned non-JSON; inspect raw response in fossa-issues-export.json.\n' >> fossa-issues-export-status.txt
           fi
+      - name: Export per-issue FOSSA API details for license triage
+        if: ${{ always() && env.FOSSA_ENABLED == 'true' }}
+        continue-on-error: true
+        env:
+          FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
+        run: |
+          set +e
+          mkdir -p fossa-issue-details
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = Path("fossa-test.json")
+          issues = json.loads(report.read_text()).get("issues", []) if report.exists() else []
+          ids = [str(item["id"]) for item in issues if item.get("id") is not None]
+          Path("fossa-issue-ids.txt").write_text("\n".join(ids) + ("\n" if ids else ""))
+          PY
+          : > fossa-issue-detail-status.txt
+          while IFS= read -r issue_id; do
+            [ -n "$issue_id" ] || continue
+            http_code=$(curl --silent --show-error --get \
+              "https://app.fossa.com/api/v2/issues/\${issue_id}" \
+              --data-urlencode 'category=licensing' \
+              --data-urlencode 'scope[type]=project' \
+              --data-urlencode 'scope[id]=custom+64047/github.com/awasthisach/The-Perfect' \
+              --data-urlencode "scope[revision]=\${FOSSA_SCAN_SHA}" \
+              --header "Authorization: Bearer \${FOSSA_API_KEY}" \
+              --output "fossa-issue-details/\${issue_id}.json" \
+              --write-out '%{http_code}' --max-time 10)
+            code=$?
+            printf 'issue_id=%s curl_exit=%s http_status=%s\n' "$issue_id" "$code" "$http_code" >> fossa-issue-detail-status.txt
+            if [ "$code" -ne 0 ] || [ "$http_code" != "200" ]; then
+              rm -f "fossa-issue-details/\${issue_id}.json"
+            fi
+          done < fossa-issue-ids.txt
+
       - name: Record FOSSA gate status
         if: ${{ always() }}
         run: |
@@ -336,5 +371,9 @@ jobs:
             fossa-test.exit
             fossa-targets.txt
             fossa-issues-export.json
+            fossa-issues-export-status.txt
+            fossa-issue-ids.txt
+            fossa-issue-detail-status.txt
+            fossa-issue-details/*.json
           if-no-files-found: ignore
           retention-days: 30
