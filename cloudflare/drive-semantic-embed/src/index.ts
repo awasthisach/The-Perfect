@@ -3,6 +3,7 @@ export interface Env {
   FIREBASE_PROJECT_NUMBER: string;
   FIREBASE_APP_ID?: string;
   GEMINI_API_KEY: string;
+  GEMINI_PRODUCTION_APPROVED?: string;
   ALLOWED_ORIGIN: string;
   EMBEDDING_MODEL?: string;
   EMBEDDING_VERSION?: string;
@@ -260,6 +261,7 @@ export default {
         env.FIREBASE_PROJECT_NUMBER &&
         env.FIREBASE_APP_ID &&
         env.GEMINI_API_KEY &&
+        env.GEMINI_PRODUCTION_APPROVED === "true" &&
         Number.isInteger(dimension) &&
         dimension === 768
       );
@@ -273,6 +275,12 @@ export default {
 
     if (request.method !== "POST" || url.pathname !== "/embed") {
       return json({ error: "not_found" }, 404, cors);
+    }
+
+    // Fail closed until the owner verifies paid-tier Gemini billing and provider data-handling terms.
+    // This is an explicit release approval flag, not an automatic inference from API-key presence.
+    if (env.GEMINI_PRODUCTION_APPROVED !== "true") {
+      return json({ error: "production_approval_required" }, 503, cors);
     }
 
     // Browser calls must originate from the configured web origin. Native calls have no
