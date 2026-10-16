@@ -253,4 +253,16 @@ class FailClosedRestorePipelineTest {
         assertTrue(leftover.isEmpty())
         assertFalse("Downloaded backup artifact must be deleted after dry-run", File(temp.root, "d3").exists())
     }
+    @Test
+    fun successfulRestoreKeepsSnapshotAvailableForExplicitRollback() = runBlocking {
+        val p = pipeline()
+        val restored = p.restore("remote-1", "abc")
+        assertTrue(restored.isSuccess)
+        val token = restored.getOrThrow().snapshotToken
+        assertTrue("Successful restore must expose a rollback token", !token.isNullOrBlank())
+
+        assertTrue(p.rollback(token!!).isSuccess)
+        assertTrue("A consumed snapshot token must not be reusable", p.rollback(token).isFailure)
+    }
+
 }
