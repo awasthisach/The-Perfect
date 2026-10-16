@@ -401,12 +401,7 @@ jobs:
             fossa-targets.txt
             fossa-issues-export.json
             fossa-issues-export-status.txt
-            fossa-issue-ids.txt
-            fossa-issue-detail-status.txt
-            fossa-issue-details/*.json
-            fossa-attribution-evidence.csv
-            fossa-attribution-evidence.md
-            fossa-attribution-headers-*.txt
-            fossa-attribution-evidence-status.txt
+            fossa-dependency-license-details.json
+            fossa-dependency-license-details-status.txt
           if-no-files-found: ignore
           retention-days: 30
