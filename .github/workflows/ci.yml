@@ -53,8 +53,8 @@ jobs:
       - name: Run Android lint
         run: ./gradlew --no-daemon lintDebug --stacktrace
 
-      # Emit the resolved release runtime graph so FOSSA findings can be traced
-      # to actual shipped dependencies rather than inferred from license notices.
+      # Emit the resolved release runtime graph as supporting evidence for ORT license review
+      # package metadata and source attribution still require review.
       - name: Resolve release runtime dependency graph
         run: ./gradlew --no-daemon :app:dependencies --configuration releaseRuntimeClasspath --console=plain > release-runtime-dependencies.txt
       - name: Assemble debug APK
@@ -266,7 +266,7 @@ jobs:
               "advisor_exit_code": advisor or None,
               "reason": "ORT evaluator and advisor completed successfully" if status == "PASS" else "ORT failed or reported policy/security findings; review ORT result artifacts"
           }
-          Path("ort-status.json").write_text(json.dumps(result, indent=2) + "\\n")
+          Path("ort-status.json").write_text(json.dumps(result, indent=2) + "\n")
           print(json.dumps(result))
           if status != "PASS":
               raise SystemExit(1)
