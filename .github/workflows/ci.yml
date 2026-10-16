@@ -280,18 +280,21 @@ jobs:
           FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
         run: |
           set +e
-          curl --silent --show-error --fail --get \
+          http_code=$(curl --silent --show-error --get \
             'https://app.fossa.com/api/projects/custom%2B64047%2Fgithub.com%2Fawasthisach%2FThe-Perfect/export-issues' \
             --data-urlencode 'format=json' \
             --data-urlencode "revisionId=${FOSSA_SCAN_SHA}" \
             --data-urlencode 'status=active' \
             --header "Authorization: Bearer ${FOSSA_API_KEY}" \
-            --output fossa-issues-export.json
+            --output fossa-issues-export.json \
+            --write-out '%{http_code}')
           code=$?
-          if [ "$code" -ne 0 ] || [ ! -s fossa-issues-export.json ]; then
-            printf '{"status":"unavailable","reason":"FOSSA issue export API did not return a report"}\n' > fossa-issues-export.json
+          printf 'curl_exit=%s http_status=%s\n' "$code" "$http_code" > fossa-issues-export-status.txt
+          if [ "$code" -ne 0 ] || [ "$http_code" != "200" ] || [ ! -s fossa-issues-export.json ]; then
+            printf 'FOSSA export failed; inspect fossa-issues-export-status.txt and fossa-test.json.\n' >> fossa-issues-export-status.txt
+            rm -f fossa-issues-export.json
           elif ! python3 -m json.tool fossa-issues-export.json >/dev/null 2>&1; then
-            printf '{"status":"unavailable","reason":"FOSSA issue export response was not valid JSON"}\n' > fossa-issues-export.json
+            printf 'FOSSA export returned non-JSON; inspect raw response in fossa-issues-export.json.\n' >> fossa-issues-export-status.txt
           fi
       - name: Record FOSSA gate status
         if: ${{ always() }}
