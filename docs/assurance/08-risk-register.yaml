@@ -8,26 +8,19 @@ open_findings:
     title: FOSSA policy findings and license attribution require resolution
     status: triaged
     notes: >
-      FOSSA CI run #38950701170 scanned candidate SHA
-      640c1e3a1ef1d4609766633d74c52e4ed15f4cb4. Analysis succeeded, but
-      fossa test exited 1 with 34 unresolved findings: 30 policy_flag and
-      4 policy_conflict; the structured result showed zero quality and zero
-      vulnerability issues for that FOSSA report. The releaseRuntimeClasspath
-      graph artifact includes all seven affected coordinates: ML Kit
-      common 18.11.0, vision-common 17.3.0, vision-interfaces 16.3.0;
-      Play core-common 2.0.4; Firebase firebase-auth 24.2.0 and
-      firebase-auth-interop 20.0.0; and jakarta.inject-api 2.0.1.
-      Therefore these findings cannot be dismissed as build-only based on
-      current evidence. FOSSA target inventory listed 37 Gradle module targets
-      and warned list-targets does not apply filtering, so the experimental
-      releaseRuntimeClasspath filter has not been proven to constrain analyzed
-      targets. Several detected licenses conflict with upstream package metadata,
-      suggesting package-license attribution needs evidence-backed correction,
-      but no license was blanket-approved. The issue-export artifact and captured
-      job log were inconsistent; CI workflow now records HTTP status separately.
-      Re-run current-head FOSSA and reconcile each package/version/license against
-      upstream metadata and shipped artifact before closing. Evidence:
-      https://github.com/awasthisach/The-Perfect/actions/runs/38950701170
+      Latest inspected candidate scan is CI run #1224 on SHA
+      dd1387b6117037d5c186b4dea638bf0ea91df45f (run 38969699459).
+      FOSSA analyze succeeded; fossa test failed with 34 unresolved policy
+      findings (30 policy_flag and 4 policy_conflict). The releaseRuntimeClasspath
+      graph contains all seven affected Maven coordinates, so they cannot be
+      dismissed as test-only. The diagnostics artifact was downloaded and
+      inspected: the per-issue API returned HTTP 200 for all 34 IDs and confirms
+      detected license, issue type, source coordinate, active status and
+      dashboard URL, but its details field is empty and provides no matched-file
+      evidence. No finding was suppressed or blanket-approved. Correct only
+      demonstrated false positives or satisfy real license obligations, then
+      rerun the hard gate. Evidence:
+      https://github.com/awasthisach/The-Perfect/actions/runs/38969699459
       Related issue #136.
     residual_risk: high
     related_issue: 136
@@ -59,16 +52,17 @@ open_findings:
     notes: >
       Read-only Google Cloud inspection on 2026-10-17 confirmed the Firebase
       Android app ID 1:1058219630435:android:759d656a98d3b50aee3d56 and an Android
-      OAuth client for package com.vvf.smartmanager. The previous web client ID
-      in .env.example was not present; it was replaced with the existing
-      Firebase-generated Web client ID, but the protected release workflow has
-      not yet confirmed that ID against google-services.json. Firebase Project
-      Settings shows no SHA certificate fingerprints, and the only visible
-      Android OAuth SHA-1 may be stale relative to the actual release key.
-      Restricted drive.readonly verification, signing fingerprints, paid Gemini
-      billing/data handling, published privacy policy, signed artifact provenance,
-      and physical-device acceptance remain unverified. Public release remains
-      blocked until the required checks are completed. Related issue #141.
+      OAuth client for package com.vvf.smartmanager. Google Auth Platform is
+      External + Testing and not verified; Data Access explicitly shows
+      "No scopes configured", so neither drive.readonly nor drive.file is
+      declared on the consent configuration. Cloud Billing is not linked.
+      Firebase App Check says the Android app is Unregistered and no SHA-256
+      fingerprint is configured; the connected account has no Play Console
+      developer account and no actual Play App Signing fingerprint is available.
+      Privacy policy remains a draft with owner/legal/contact placeholders.
+      Public release remains blocked until scopes, applicable restricted-scope
+      verification, billing/data handling, privacy publication, signing and
+      physical-device acceptance are completed. Related issue #141.
     residual_risk: high
     related_issue: 141
     last_updated: "2026-10-15"
