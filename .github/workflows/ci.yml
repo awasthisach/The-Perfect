@@ -331,6 +331,37 @@ jobs:
             fi
           done < fossa-issue-ids.txt
 
+      - name: Export FOSSA attribution CSV with file-level license evidence
+        if: ${{ always() && env.FOSSA_ENABLED == 'true' }}
+        continue-on-error: true
+        env:
+          FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
+        run: |
+          set +e
+          REVISION_ID="custom+64047/github.com/awasthisach/The-Perfect${FOSSA_SCAN_SHA}"
+          ENCODED_REVISION="$(python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["REVISION_ID"], safe=""))' )"
+          http_code=$(curl --silent --show-error --get \
+            "https://app.fossa.com/api/revisions/${ENCODED_REVISION}/attribution/download" \
+            --data-urlencode 'download=true' \
+            --data-urlencode 'format=CSV' \
+            --data-urlencode 'dependencyInfoOptions[]=Library' \
+            --data-urlencode 'dependencyInfoOptions[]=License' \
+            --data-urlencode 'dependencyInfoOptions[]=ConcludedLicense' \
+            --data-urlencode 'dependencyInfoOptions[]=FilePath' \
+            --data-urlencode 'dependencyInfoOptions[]=Source' \
+            --data-urlencode 'dependencyInfoOptions[]=PackageDownloadUrl' \
+            --data-urlencode 'dependencyInfoOptions[]=DependencyPaths' \
+            --data-urlencode 'dependencyInfoOptions[]=LicenseFileURL' \
+            --header "Authorization: Bearer ${FOSSA_API_KEY}" \
+            --output fossa-attribution-evidence.csv \
+            --write-out '%{http_code}' --max-time 60)
+          code=$?
+          printf 'curl_exit=%s http_status=%s\n' "$code" "$http_code" > fossa-attribution-evidence-status.txt
+          if [ "$code" -ne 0 ] || [ "$http_code" != "200" ] || [ ! -s fossa-attribution-evidence.csv ]; then
+            rm -f fossa-attribution-evidence.csv
+            printf 'Attribution evidence export failed; see status and job log.\n' >> fossa-attribution-evidence-status.txt
+          fi
+
       - name: Record FOSSA gate status
         if: ${{ always() }}
         run: |
@@ -375,5 +406,7 @@ jobs:
             fossa-issue-ids.txt
             fossa-issue-detail-status.txt
             fossa-issue-details/*.json
+            fossa-attribution-evidence.csv
+            fossa-attribution-evidence-status.txt
           if-no-files-found: ignore
           retention-days: 30
