@@ -35,7 +35,12 @@ class GoogleDriveBackupDownloader(
             return Result.failure(VerificationFailedException("Unable to clear stale backup download"))
         }
         return try {
-            driveService.downloadFile(remoteBackupId, dest.absolutePath).fold(
+            driveService.downloadFileBounded(
+                remoteBackupId,
+                dest.absolutePath,
+                MAX_BACKUP_BYTES,
+                "application/octet-stream"
+            ).fold(
                 onSuccess = { ok ->
                     if (!ok || !dest.isFile || dest.length() == 0L) {
                         dest.delete()
@@ -72,6 +77,10 @@ class GoogleDriveBackupDownloader(
             if (error is CancellationException) throw error
             throw error
         }
+    }
+
+    private companion object {
+        const val MAX_BACKUP_BYTES = 200L * 1024L * 1024L
     }
 
     private fun sha256Text(value: String): String = MessageDigest.getInstance("SHA-256")
