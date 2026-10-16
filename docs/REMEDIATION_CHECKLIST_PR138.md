@@ -2,7 +2,7 @@
 
 **Repository:** `awasthisach/The-Perfect`  
 **Candidate branch:** `candidate/drive-semantic-search-release`  
-**Audited head:** `96058b8835df6c6a3b8b3b258a758292ccc8ee61`  
+**Audited head:** `f6c649e3e9e9169e6bd088b75efb29c3e96034f9` (latest documentation candidate; final CI must be rerun on the final SHA)  
 **PR:** [#138](https://github.com/awasthisach/The-Perfect/pull/138)  
 **Decision at audit time:** **BLOCKED — keep Draft**
 
@@ -19,8 +19,16 @@ This checklist is fail-closed. A code change, a green sub-check, a skipped test,
 | FOSSA | **Blocked** by unresolved policy findings | VVF check `Open Source License Compliance`; issue [#136](https://github.com/awasthisach/The-Perfect/issues/136) | Triage every finding, remediate or approve with documented owner/expiry, then `fossa analyze` and `fossa test` pass |
 | CPAS | **Blocked** by `PROD-008`, `PROD-009`, `PROD-010` | `python3 tools/audit/cpas_verify.py --root .` | Close each finding with current, reproducible evidence |
 | Privacy publication | **Blocked**; draft still contains placeholders | [`PRIVACY_POLICY_DRAFT.md`](PRIVACY_POLICY_DRAFT.md) | Owner/legal review complete and stable HTTPS policy URL published |
-| Release signing / Play Integrity | **Unverified** | [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) | Protected signed artifact, fingerprints, Play registration, and provenance verified |
+| Release signing / Play Integrity | **Blocked by external setup** | Firebase App Check console and Play Console access check on 2026-10-17 | Firebase App Check says app is unregistered with no SHA-256; connected Google account has no Play Console developer account; paid billing is unlinked |
 | Physical-device acceptance | **Unverified** | [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) | Clean-device test report attached to the final artifact digest |
+
+## Verified external prerequisites (2026-10-17)
+
+- Google Cloud project `thevvforg` has no linked Cloud Billing account. Keep `GEMINI_PRODUCTION_APPROVED=false`; the Worker source now blocks health and embedding until the owner confirms the intended paid Gemini tier and provider data-handling terms.
+- Firebase App Check lists `com.vvf.smartmanager` as **Unregistered**; Play Integrity is not configured and no SHA-256 fingerprint is registered.
+- The connected Google account is redirected to Play Console developer-account signup; no Play Console app listing or Play App Signing fingerprint is accessible.
+- Google Auth Platform is External, in Testing, and not verified. The exact restricted `drive.readonly` verification state remains unconfirmed.
+- The FOSSA dashboard issue page is not accessible from the current browser profile; the CI API export supplies the 34 package/license records but not the matched-file evidence needed for safe correction.
 
 ## P0 — resolve before any release-candidate approval
 
