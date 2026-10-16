@@ -338,8 +338,9 @@ jobs:
           FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
         run: |
           set +e
-          REVISION_ID="custom+64047/github.com/awasthisach/The-Perfect${FOSSA_SCAN_SHA}"
-          ENCODED_REVISION="$(python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["REVISION_ID"], safe=""))' )"
+          REVISION_ID="custom+64047/github.com/awasthisach/The-Perfect\\${FOSSA_SCAN_SHA}"
+          export REVISION_ID
+          ENCODED_REVISION="$(python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["REVISION_ID"], safe=""))')"
           http_code=$(curl --silent --show-error --get \
             "https://app.fossa.com/api/revisions/${ENCODED_REVISION}/attribution/download" \
             --data-urlencode 'download=true' \
