@@ -206,202 +206,77 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  license_compliance:
-    name: Open Source License Compliance
+  open_source_compliance:
+    name: Open Source Compliance (ORT)
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    env:
-      FOSSA_ENABLED: ${{ secrets.GH_FOSSA != '' }}
-      FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
-      # For pull requests, github.sha can identify the synthetic merge commit.
-      # FOSSA must scan the contributor's exact candidate head instead.
-      FOSSA_SCAN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
     steps:
-      - name: Checkout exact candidate revision for FOSSA
+      - name: Checkout exact candidate revision
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ env.FOSSA_SCAN_SHA }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - name: Block missing FOSSA credential
-        if: ${{ env.FOSSA_ENABLED != 'true' }}
-        run: |
-          cat > foss-status.json <<'EOF'
-          {"gate_id":"GATE-LICENSE-001","status":"BLOCKED","scan_revision":"${{ env.FOSSA_SCAN_SHA }}","reason":"GH_FOSSA secret is not configured"}
-          EOF
-          echo "::error::GH_FOSSA missing — license compliance cannot be verified; CI is blocked."
-          exit 1
-      - name: Install FOSSA CLI
-        if: ${{ env.FOSSA_ENABLED == 'true' }}
-        run: |
-          set -euo pipefail
-          FOSSA_VERSION="3.17.16"
-          FOSSA_ARCHIVE="fossa_${FOSSA_VERSION}_linux_amd64.zip"
-          FOSSA_BASE="https://github.com/fossas/fossa-cli/releases/download/v${FOSSA_VERSION}"
-          curl --fail --show-error --silent --location --retry 3 "${FOSSA_BASE}/${FOSSA_ARCHIVE}" --output "/tmp/${FOSSA_ARCHIVE}"
-          curl --fail --show-error --silent --location --retry 3 "${FOSSA_BASE}/${FOSSA_ARCHIVE}.sha256" --output "/tmp/${FOSSA_ARCHIVE}.sha256"
-          (cd /tmp && sha256sum --check --strict "${FOSSA_ARCHIVE}.sha256")
-          mkdir -p /tmp/fossa-cli
-          unzip -q -o "/tmp/${FOSSA_ARCHIVE}" -d /tmp/fossa-cli
-          test -x /tmp/fossa-cli/fossa || { echo "::error::Pinned FOSSA CLI binary missing"; exit 1; }
-          sudo install -m 0755 /tmp/fossa-cli/fossa /usr/local/bin/fossa
-          fossa --version
-      - name: Capture FOSSA target inventory
-        if: ${{ env.FOSSA_ENABLED == 'true' }}
-        continue-on-error: true
-        run: |
-          timeout 120s fossa list-targets > fossa-targets.txt 2>&1 || {
-            code=$?
-            printf '\nFOSSA target inventory command exited with code %s (124 means the 120-second diagnostic timeout)\n' "$code" >> fossa-targets.txt
-          }
-      - name: FOSSA analyze
-        id: fossa_analyze
-        if: ${{ env.FOSSA_ENABLED == 'true' }}
+
+      - name: Run OSS Review Toolkit (license, source scan, vulnerability and policy checks)
+        id: ort
+        uses: oss-review-toolkit/ort-ci-github-action@70149d4579e446b0312f8b80fdd8d465a91e4391 # pinned commit
+        with:
+          sw-name: The-Perfect
+          sw-version: ${{ github.event.pull_request.head.sha || github.sha }}
+          ort-config-revision: 5075f4308109384c98a6a2fab53246f7b60d59f4
+          run: >-
+            cache-dependencies,
+            labels,
+            analyzer,
+            scanner,
+            evaluator,
+            advisor,
+            reporter,
+            upload-results,
+            upload-evaluation-result,
+            upload-advisor-result,
+            upload-scan-result
+          fail-on: 'violations,issues'
+
+      - name: Record OSS compliance gate status
+        if: always()
         env:
-          FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
-          GRADLE_OPTS: -Dorg.gradle.configuration-cache=false
+          ORT_STEP_OUTCOME: ${{ steps.ort.outcome }}
+          ORT_EVALUATOR_EXIT_CODE: ${{ steps.ort.outputs.evaluator-exit-code }}
+          ORT_ADVISOR_EXIT_CODE: ${{ steps.ort.outputs.advisor-exit-code }}
+          SCAN_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          set -euo pipefail
-          fossa analyze --revision "${FOSSA_SCAN_SHA}"
-      - name: FOSSA policy and findings test
-        id: fossa_test
-        if: ${{ env.FOSSA_ENABLED == 'true' && success() }}
-        env:
-          FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
-        run: |
-          set +e
-          fossa test --revision "${FOSSA_SCAN_SHA}" --format json --timeout 600 > fossa-test.json 2> fossa-test.log
-          code=$?
-          printf '%s\n' "$code" > fossa-test.exit
-          exit "$code"
-      - name: Export FOSSA issue details for remediation
-        if: ${{ always() && env.FOSSA_ENABLED == 'true' }}
-        continue-on-error: true
-        env:
-          FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
-        run: |
-          set +e
-          http_code=$(curl --silent --show-error --get \
-            'https://app.fossa.com/api/projects/custom%2B64047%2Fgithub.com%2Fawasthisach%2FThe-Perfect/export-issues' \
-            --data-urlencode 'format=json' \
-            --data-urlencode "revisionId=${FOSSA_SCAN_SHA}" \
-            --data-urlencode 'status=active' \
-            --header "Authorization: Bearer ${FOSSA_API_KEY}" \
-            --output fossa-issues-export.json \
-            --write-out '%{http_code}')
-          code=$?
-          printf 'curl_exit=%s http_status=%s\n' "$code" "$http_code" > fossa-issues-export-status.txt
-          if [ "$code" -ne 0 ] || [ "$http_code" != "200" ] || [ ! -s fossa-issues-export.json ]; then
-            printf 'FOSSA export failed; inspect fossa-issues-export-status.txt and fossa-test.json.\n' >> fossa-issues-export-status.txt
-            rm -f fossa-issues-export.json
-          elif ! python3 -m json.tool fossa-issues-export.json >/dev/null 2>&1; then
-            printf 'FOSSA export returned non-JSON; inspect raw response in fossa-issues-export.json.\n' >> fossa-issues-export-status.txt
-          fi
-      - name: Export FOSSA dependency license-match evidence (v2 API)
-        if: ${{ always() && env.FOSSA_ENABLED == 'true' }}
-        continue-on-error: true
-        env:
-          FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
-        run: |
-          set +e
-          # The per-issue endpoint returns policy summaries but no file-match data.
-          # FOSSA's documented revision-dependencies API supports includeMatches=true.
-          REVISION_LOCATOR="custom+64047/github.com/awasthisach/The-Perfect\$${FOSSA_SCAN_SHA}"
-          export REVISION_LOCATOR
-          ENCODED_REVISION="$(python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["REVISION_LOCATOR"], safe=""))')"
-          args=()
-          for locator in \
-            'mvn+com.google.mlkit:vision-interfaces$16.3.0' \
-            'mvn+com.google.mlkit:common$18.11.0' \
-            'mvn+com.google.android.play:core-common$2.0.4' \
-            'mvn+com.google.firebase:firebase-auth$24.2.0' \
-            'mvn+com.google.mlkit:vision-common$17.3.0' \
-            'mvn+com.google.firebase:firebase-auth-interop$20.0.0' \
-            'mvn+jakarta.inject:jakarta.inject-api$2.0.1'; do
-            args+=(--data-urlencode "locators[]=${locator}")
-          done
-          http_code=$(curl --silent --show-error --get \
-            "https://app.fossa.com/api/v2/revisions/${ENCODED_REVISION}/dependencies" \
-            --data-urlencode 'count=100' \
-            --data-urlencode 'page=1' \
-            --data-urlencode 'includeMatches=true' \
-            --data-urlencode 'includeLicenseText=true' \
-            --data-urlencode 'includeCopyright=true' \
-            --data-urlencode 'includeResolutionNotes=true' \
-            "${args[@]}" \
-            --header "Authorization: Bearer ${FOSSA_API_KEY}" \
-            --output fossa-dependency-license-details.json \
-            --write-out '%{http_code}' --max-time 60)
-          code=$?
-          if [ "$code" -ne 0 ] || [ "$http_code" != "200" ] || [ ! -s fossa-dependency-license-details.json ]; then
-            printf 'curl_exit=%s http_status=%s\n' "$code" "$http_code" > fossa-dependency-license-details-status.txt
-            echo "::warning::FOSSA dependency/license match export did not return a usable report; policy gate remains fail-closed."
-          else
-            python3 - <<'PY'
-          import json
+          python3 - <<'PY'
+          import json, os
           from pathlib import Path
-          report = json.loads(Path("fossa-dependency-license-details.json").read_text())
-          deps = report.get("dependencies", []) if isinstance(report, dict) else []
-          expected = {
-              "mvn+com.google.mlkit:vision-interfaces$16.3.0",
-              "mvn+com.google.mlkit:common$18.11.0",
-              "mvn+com.google.android.play:core-common$2.0.4",
-              "mvn+com.google.firebase:firebase-auth$24.2.0",
-              "mvn+com.google.mlkit:vision-common$17.3.0",
-              "mvn+com.google.firebase:firebase-auth-interop$20.0.0",
-              "mvn+jakarta.inject:jakarta.inject-api$2.0.1",
+
+          outcome = os.environ.get("ORT_STEP_OUTCOME", "unknown")
+          evaluator = os.environ.get("ORT_EVALUATOR_EXIT_CODE", "")
+          advisor = os.environ.get("ORT_ADVISOR_EXIT_CODE", "")
+          status = "PASS" if outcome == "success" and evaluator == "0" and advisor == "0" else "BLOCKED"
+          result = {
+              "gate_id": "GATE-LICENSE-001",
+              "scanner": "OSS Review Toolkit (ORT)",
+              "status": status,
+              "scan_revision": os.environ["SCAN_REVISION"],
+              "ort_action_outcome": outcome,
+              "evaluator_exit_code": evaluator or None,
+              "advisor_exit_code": advisor or None,
+              "reason": "ORT evaluator and advisor completed successfully" if status == "PASS" else "ORT failed or reported policy/security findings; review ORT result artifacts"
           }
-          found = {item.get("locator") for item in deps if isinstance(item, dict)}
-          missing = sorted(expected - found)
-          Path("fossa-dependency-license-details-status.txt").write_text(
-              f"http_status=200 dependency_count={len(deps)} "
-              f"affected_found={len(expected & found)}/7 missing={','.join(missing) or 'none'}\n"
-          )
-          if missing:
-              print("::warning::FOSSA v2 dependency export did not return all seven affected coordinates.")
+          Path("ort-status.json").write_text(json.dumps(result, indent=2) + "\\n")
+          print(json.dumps(result))
+          if status != "PASS":
+              raise SystemExit(1)
           PY
-          fi
-      - name: Record FOSSA gate status
-        if: ${{ always() }}
-        run: |
-          set -euo pipefail
-          if [ "${{ env.FOSSA_ENABLED }}" != "true" ]; then
-            exit 0
-          fi
-          echo "FOSSA scan revision: ${FOSSA_SCAN_SHA}" >> "$GITHUB_STEP_SUMMARY"
-          ANALYZE="${{ steps.fossa_analyze.outcome }}"
-          TEST="${{ steps.fossa_test.outcome }}"
-          if [ "$ANALYZE" = "success" ] && [ "$TEST" = "success" ]; then
-            printf '{"gate_id":"GATE-LICENSE-001","status":"PASS","scan_revision":"%s","reason":"fossa analyze and fossa test both succeeded"}\n' "${FOSSA_SCAN_SHA}" > foss-status.json
-          elif [ "$ANALYZE" != "success" ]; then
-            printf '{"gate_id":"GATE-LICENSE-001","status":"BLOCKED","scan_revision":"%s","reason":"FOSSA analyze failed"}\n' "${FOSSA_SCAN_SHA}" > foss-status.json
-            echo "::error::FOSSA analyze failed; license gate is BLOCKED."
-            exit 1
-          else
-            printf '{"gate_id":"GATE-LICENSE-001","status":"BLOCKED","scan_revision":"%s","reason":"FOSSA test reported unresolved policy or dependency findings; review and triage them in the FOSSA project before release"}\n' "${FOSSA_SCAN_SHA}" > foss-status.json
-            echo "::error::FOSSA test reported unresolved findings; release gate is BLOCKED until findings are reviewed and triaged."
-            exit 1
-          fi
-      - name: Upload FOSSA gate status
+
+      - name: Upload OSS compliance gate status
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: foss-status
-          path: foss-status.json
+          name: ort-status
+          path: ort-status.json
           if-no-files-found: error
-          retention-days: 30
-      - name: Upload FOSSA diagnostics
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: foss-diagnostics
-          path: |
-            fossa-test.json
-            fossa-test.log
-            fossa-test.exit
-            fossa-targets.txt
-            fossa-issues-export.json
-            fossa-issues-export-status.txt
-            fossa-dependency-license-details.json
-            fossa-dependency-license-details-status.txt
-          if-no-files-found: ignore
           retention-days: 30
