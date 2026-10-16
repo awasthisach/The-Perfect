@@ -8,15 +8,18 @@ open_findings:
     title: FOSSA policy findings and outdated dependencies remain unresolved
     status: triaged
     notes: >
-      FOSSA test on CI run #38703527318 evaluated revision
-      3c7ab9d98198a8b85216f63fcecfa0b7a74eb9d4 and returned 66 unresolved issues:
-      59 policy_flag, 5 policy_conflict, and 2 outdated_dependency. The scan
-      completed and emitted a structured report, so the prior claim that the
-      configured GH_FOSSA token is push-only and issue details are unavailable
-      is stale and removed. Findings must be classified by dependency path and
-      license evidence, then fixed or formally approved under policy; do not
-      blanket-whitelist or suppress them. CI evidence:
-      https://github.com/awasthisach/The-Perfect/actions/runs/38703527318
+      FOSSA on CI run #38950701170 scanned the exact candidate revision
+      640c1e3a1ef1d4609766633d74c52e4ed15f4cb4. The analysis succeeded, but
+      the policy test exited 1 and the mandatory license gate failed. The
+      workflow's attempted issue-export endpoint did not return a usable report;
+      the diagnostics artifact records the export as unavailable. Do not infer
+      a zero-finding result or claim the release-runtime scope filter resolved
+      findings until the actual target inventory and structured test report are
+      reviewed. The release runtime dependency graph artifact was produced by
+      the same run. Findings remain unresolved and must be classified by
+      dependency path and license evidence; do not blanket-whitelist or suppress.
+      CI evidence:
+      https://github.com/awasthisach/The-Perfect/actions/runs/38950701170
       Related issue #136.
     residual_risk: high
     related_issue: 136
@@ -27,13 +30,14 @@ open_findings:
     title: Native Worker v4 authentication and App Check acceptance is incomplete
     status: repair_implemented
     notes: >
-      Protected deployment workflow #38676382484 succeeded on candidate head
-      855d788cafd695c3fa8410d10fedecdb66ce6e16. CI verified the v4 health
+      Protected deployment workflow #38676382484 previously verified the v4 health
       contract (gemini-embedding-2, 768 dimensions) and rejection of /embed
-      without Firebase credentials. This resolves the stale-v3 deployment
-      portion, but does not prove invalid App Check rejection or a successful
-      real Android request with valid Firebase Auth + App Check. Keep open until
-      those authenticated acceptance checks are recorded. Related issue #140.
+      without Firebase credentials. Current candidate CI run #38950701190
+      passed the Worker build gate, but that is not deployment or native
+      acceptance evidence. Invalid App Check rejection and a successful real
+      Android request with valid Firebase Auth + App Check remain unverified.
+      Keep open until those authenticated acceptance checks are recorded.
+      Related issue #140.
     residual_risk: high
     related_issue: 140
     last_updated: "2026-10-15"
