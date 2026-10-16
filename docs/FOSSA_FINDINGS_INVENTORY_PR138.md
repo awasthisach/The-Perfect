@@ -1,9 +1,9 @@
-# FOSSA license-policy inventory — PR #138
+# Historical FOSSA license-policy inventory — PR #138
 
 **Repository:** `awasthisach/The-Perfect`  
 **Candidate revision scanned:** `59e712d045beffde424dae4c56febe6f0562e74b`  
 **Evidence:** [FOSSA CI run #38979011280](https://github.com/awasthisach/The-Perfect/actions/runs/38979011280), [diagnostics artifact](https://github.com/awasthisach/The-Perfect/actions/runs/38979011280/artifacts/12080212594), [blocker issue #136](https://github.com/awasthisach/The-Perfect/issues/136).  
-**Status:** BLOCKED — 34 active license-policy findings; 30 `policy_flag`, 4 `policy_conflict`, 0 quality issues, 0 vulnerability issues in this FOSSA result.
+**Status:** ARCHIVED HISTORICAL EVIDENCE — the paid FOSSA gate was removed from CI and replaced by the open-source OSS Review Toolkit (ORT). This report documents 34 active license-policy findings on the older scanned revision; it is not a current scan and does not prove those findings are resolved. ORT must now be run and its current reports reviewed.
 
 ## Package-level inventory
 
@@ -25,7 +25,11 @@
 4. The shared `third_party_licenses.txt` match path is evidence of bundled notice attribution, **not proof by itself** that a finding is a false positive. Inspect the exact artifact contents and upstream package/POM metadata before correcting license attribution.
 5. The Jakarta Inject finding is different: its package metadata declares both Apache-2.0 and GPL-2.0-with-classpath-exception. Review the applicable dual-license choice in the package's upstream metadata. If detected license data is correct but one license should govern this project/revision, use a project/revision-scoped license conclusion; if the detected data itself is wrong, a correction is the appropriate tool but FOSSA documents corrections as organization-wide across projects and versions. See [FOSSA's conclusions-vs-corrections guidance](https://docs.fossa.com/docs/help/license-conclusions-vs-corrections). No correction or conclusion has been made.
 6. The `android-sdk` finding on `firebase-auth-interop` is a policy flag on the declared license and needs an explicit policy decision; it is not solved by changing bundled-notice attribution.
-7. Do not exclude `third_party_licenses.txt` globally, blanket-allow licenses, suppress findings, or close `PROD-008` to make CI green. The connected browser profile is not authenticated to FOSSA, so the dashboard issue details and scoped resolution controls are unavailable; no package corrections or dispositions have been applied.
+7. Do not exclude `third_party_licenses.txt` globally, blanket-allow licenses, suppress findings, or close `PROD-008` to make CI green. No FOSSA package corrections or dispositions were applied. FOSSA dashboard workflow is no longer part of CI; use the ORT scan and independently verify package/source evidence.
+
+## Historical closure criteria (retain for traceability; active gate is ORT)
+
+Use the replacement ORT workflow for the current candidate and do not treat this archived report as a current scan.
 
 ## Closure gate
 
