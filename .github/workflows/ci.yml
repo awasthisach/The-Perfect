@@ -331,36 +331,46 @@ jobs:
             fi
           done < fossa-issue-ids.txt
 
-      - name: Export FOSSA attribution CSV with file-level license evidence
+      - name: Export FOSSA attribution evidence with file-level license fields
         if: ${{ always() && env.FOSSA_ENABLED == 'true' }}
         continue-on-error: true
         env:
           FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
         run: |
           set +e
-          REVISION_ID="custom+64047/github.com/awasthisach/The-Perfect\$${FOSSA_SCAN_SHA}"
+          REVISION_ID="custom+64047/github.com/awasthisach/The-Perfect\$ ${FOSSA_SCAN_SHA}"
+          REVISION_ID="${REVISION_ID/\$ /\$}"
           export REVISION_ID
           ENCODED_REVISION="$(python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["REVISION_ID"], safe=""))')"
-          http_code=$(curl --silent --show-error --get \
-            "https://app.fossa.com/api/revisions/${ENCODED_REVISION}/attribution/download" \
-            --data-urlencode 'download=true' \
-            --data-urlencode 'format=CSV' \
-            --data-urlencode 'dependencyInfoOptions[]=Library' \
-            --data-urlencode 'dependencyInfoOptions[]=License' \
-            --data-urlencode 'dependencyInfoOptions[]=ConcludedLicense' \
-            --data-urlencode 'dependencyInfoOptions[]=FilePath' \
-            --data-urlencode 'dependencyInfoOptions[]=Source' \
-            --data-urlencode 'dependencyInfoOptions[]=PackageDownloadUrl' \
-            --data-urlencode 'dependencyInfoOptions[]=DependencyPaths' \
-            --data-urlencode 'dependencyInfoOptions[]=LicenseFileURL' \
-            --header "Authorization: Bearer ${FOSSA_API_KEY}" \
-            --output fossa-attribution-evidence.csv \
-            --write-out '%{http_code}' --max-time 60)
-          code=$?
-          printf 'curl_exit=%s http_status=%s\n' "$code" "$http_code" > fossa-attribution-evidence-status.txt
-          if [ "$code" -ne 0 ] || [ "$http_code" != "200" ] || [ ! -s fossa-attribution-evidence.csv ]; then
-            rm -f fossa-attribution-evidence.csv
-            printf 'Attribution evidence export failed; see status and job log.\n' >> fossa-attribution-evidence-status.txt
+          : > fossa-attribution-evidence-status.txt
+          for format in CSV MD; do
+            output="fossa-attribution-evidence.$(printf '%s' "$format" | tr '[:upper:]' '[:lower:]')"
+            http_code=$(curl --silent --show-error --location --get \
+              "https://app.fossa.com/api/revisions/${ENCODED_REVISION}/attribution/download" \
+              --data-urlencode 'download=true' \
+              --data-urlencode "format=$format" \
+              --data-urlencode 'dependencyInfoOptions[]=Library' \
+              --data-urlencode 'dependencyInfoOptions[]=License' \
+              --data-urlencode 'dependencyInfoOptions[]=ConcludedLicense' \
+              --data-urlencode 'dependencyInfoOptions[]=FilePath' \
+              --data-urlencode 'dependencyInfoOptions[]=Source' \
+              --data-urlencode 'dependencyInfoOptions[]=PackageDownloadUrl' \
+              --data-urlencode 'dependencyInfoOptions[]=DependencyPaths' \
+              --data-urlencode 'dependencyInfoOptions[]=LicenseFileURL' \
+              --header "Authorization: Bearer ${FOSSA_API_KEY}" \
+              --dump-header "fossa-attribution-headers-$format.txt" \
+              --output "$output" \
+              --write-out '%{http_code} %{size_download} %{content_type}' --max-time 60)
+            code=$?
+            printf 'format=%s curl_exit=%s response=%s\n' "$format" "$code" "$http_code" >> fossa-attribution-evidence-status.txt
+            if [ "$code" -eq 0 ] && [ "${http_code%% *}" = "200" ] && [ -s "$output" ]; then
+              echo "Attribution evidence downloaded as $format."
+              break
+            fi
+            rm -f "$output"
+          done
+          if ! find . -maxdepth 1 -type f -name 'fossa-attribution-evidence.*' ! -name '*status.txt' ! -name '*headers*' -size +0c | grep -q .; then
+            printf 'No non-empty attribution report returned; inspect response headers and job log.\n' >> fossa-attribution-evidence-status.txt
           fi
 
       - name: Record FOSSA gate status
@@ -408,6 +418,8 @@ jobs:
             fossa-issue-detail-status.txt
             fossa-issue-details/*.json
             fossa-attribution-evidence.csv
+            fossa-attribution-evidence.md
+            fossa-attribution-headers-*.txt
             fossa-attribution-evidence-status.txt
           if-no-files-found: ignore
           retention-days: 30
