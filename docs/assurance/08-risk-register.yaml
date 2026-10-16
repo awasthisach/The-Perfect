@@ -55,11 +55,18 @@ open_findings:
     title: Real-account OAuth, privacy, signing, and device acceptance are unverified
     status: triaged
     notes: >
-      Restricted drive.readonly verification, Firebase/Google OAuth and signing
-      fingerprints, paid Gemini billing/data handling, published privacy policy,
-      release artifact signing/provenance, and physical-device acceptance are
-      not yet evidenced. Public release remains blocked until the required
-      checks are completed. Related issue #141.
+      Read-only Google Cloud inspection on 2026-10-17 confirmed the Firebase
+      Android app ID 1:1058219630435:android:759d656a98d3b50aee3d56 and an Android
+      OAuth client for package com.vvf.smartmanager. The previous web client ID
+      in .env.example was not present; it was replaced with the existing
+      Firebase-generated Web client ID, but the protected release workflow has
+      not yet confirmed that ID against google-services.json. Firebase Project
+      Settings shows no SHA certificate fingerprints, and the only visible
+      Android OAuth SHA-1 may be stale relative to the actual release key.
+      Restricted drive.readonly verification, signing fingerprints, paid Gemini
+      billing/data handling, published privacy policy, signed artifact provenance,
+      and physical-device acceptance remain unverified. Public release remains
+      blocked until the required checks are completed. Related issue #141.
     residual_risk: high
     related_issue: 141
     last_updated: "2026-10-15"
