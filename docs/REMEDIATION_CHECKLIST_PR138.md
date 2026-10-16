@@ -2,7 +2,7 @@
 
 **Repository:** `awasthisach/The-Perfect`  
 **Candidate branch:** `candidate/drive-semantic-search-release`  
-**Latest verified PR head:** `59e712d045beffde424dae4c56febe6f0562e74b` (2026-10-17 UTC). On this SHA, the Worker build and SQLCipher hard gate passed; FOSSA failed with 34 policy findings; CPAS failed closed. The Android build/test/lint job was still in progress at the time of this update. Any later code changes require a fresh full gate run.  
+**Latest verified PR head:** `59e712d045beffde424dae4c56febe6f0562e74b` (2026-10-17 UTC). On this SHA, the Worker build and SQLCipher hard gate passed; the former FOSSA gate failed with 34 policy findings; the replacement ORT gate has not yet been validated; CPAS failed closed. The Android build/test/lint job was still in progress at the time of this update. Any later code changes require a fresh full gate run.  
 **PR:** [#138](https://github.com/awasthisach/The-Perfect/pull/138)  
 **Decision at audit time:** **BLOCKED — keep Draft**
 
@@ -16,7 +16,7 @@ This checklist is fail-closed. A code change, a green sub-check, a skipped test,
 | CodeQL | Passing | PR checks | Re-run on the final candidate SHA |
 | SQLCipher instrumentation | **Passed** on SHA `59e712d045beffde424dae4c56febe6f0562e74b` | [Weekly Instrumented Hard Gate #38979011282](https://github.com/awasthisach/The-Perfect/actions/runs/38979011282) | Keep a non-skipped run on the final candidate SHA |
 | Embedding Worker build/deploy contract | Passing for build/health/unauthenticated rejection | PR checks and Worker workflow | Complete real native Auth + App Check acceptance |
-| FOSSA | **Failed** on SHA `59e712d045beffde424dae4c56febe6f0562e74b`; 34 policy findings remain (30 flags, 4 conflicts) | [CI run #38979011280](https://github.com/awasthisach/The-Perfect/actions/runs/38979011280), job `Open Source License Compliance`; [diagnostics artifact](https://github.com/awasthisach/The-Perfect/actions/runs/38979011280/artifacts/12080212594); issue [#136](https://github.com/awasthisach/The-Perfect/issues/136) | Verify exact artifact/POM license terms and bundled-notice attribution per package, then remediate or document narrowly scoped disposition and pass `fossa test` |
+| Open-source license compliance (ORT) | **Migration committed; validation pending**. Historical FOSSA evidence recorded 34 runtime policy findings on SHA `59e712d045beffde424dae4c56febe6f0562e74b` | [Historical FOSSA CI run #38979011280](https://github.com/awasthisach/The-Perfect/actions/runs/38979011280); issue [#136](https://github.com/awasthisach/The-Perfect/issues/136); current ORT gate in `.github/workflows/ci.yml` | Run ORT on the current candidate SHA, review its license/evaluator/advisor reports, remediate or document evidence-backed decisions, and pass the new gate |
 | CPAS | **Failed closed** on SHA `59e712d045beffde424dae4c56febe6f0562e74b`; blockers `PROD-008`, `PROD-009`, `PROD-010` | [CPAS Production Gate #38979011368](https://github.com/awasthisach/The-Perfect/actions/runs/38979011368) | Close each finding with current, reproducible evidence |
 | Privacy publication | **Blocked**; draft still contains placeholders | [`PRIVACY_POLICY_DRAFT.md`](PRIVACY_POLICY_DRAFT.md) | Owner/legal review complete and stable HTTPS policy URL published |
 | Release signing / Play Integrity | **Blocked by external setup** | Firebase App Check console and Play Console access check on 2026-10-17 | Firebase App Check says app is unregistered with no SHA-256; connected Google account has no Play Console developer account; paid billing is unlinked |
@@ -28,26 +28,24 @@ This checklist is fail-closed. A code change, a green sub-check, a skipped test,
 - Firebase App Check lists `com.vvf.smartmanager` as **Unregistered**; Play Integrity is not configured and no SHA-256 fingerprint is registered.
 - The connected Google account is redirected to Play Console developer-account signup; no Play Console app listing or Play App Signing fingerprint is accessible.
 - Google Auth Platform is External, in Testing, and not verified. The exact restricted `drive.readonly` verification state remains unconfirmed.
-- The FOSSA diagnostics artifact for run #38979011280 now includes match-path data for all seven affected coordinates. Most flagged matches for six coordinates point to a shared `third_party_licenses.txt`; Jakarta Inject also has package-local Apache-2.0 evidence and a declared GPL-2.0-with-classpath-exception identifier. This is useful attribution evidence, but does not alone prove a false positive or settle redistribution rights. The dashboard’s per-issue disposition workflow remains unavailable in the current browser profile.
+- The archived FOSSA diagnostics artifact for run #38979011280 includes match-path data for all seven affected coordinates; this is historical evidence, not an active paid-service dependency. Most flagged matches for six coordinates point to a shared `third_party_licenses.txt`; Jakarta Inject also has package-local Apache-2.0 evidence and a declared GPL-2.0-with-classpath-exception identifier. This is useful attribution evidence, but does not alone prove a false positive or settle redistribution rights. The dashboard’s per-issue disposition workflow remains unavailable in the current browser profile.
 
 ## P0 — resolve before any release-candidate approval
 
-### P0.1 FOSSA license and vulnerability triage (`PROD-008`)
+### P0.1 ORT license and vulnerability triage (`PROD-008`)
 
-**Owner:** repository/release owner with FOSSA project access  
-**Status:** blocked; do not weaken the CI gate or replace the push-only CI token with a broad credential.
+**Owner:** repository/release owner  
+**Status:** blocked; FOSSA has been removed from CI and the free/open-source OSS Review Toolkit (ORT) is the replacement. Do not weaken policy thresholds or blanket-allow licenses.
 
-- [ ] Open FOSSA project `github.com/awasthisach/The-Perfect` at the candidate revision.
-- [ ] Use a separately controlled read-capable FOSSA credential or dashboard session for issue details; do not place that credential in GitHub Actions.
+- [ ] Run the ORT compliance workflow on the current candidate revision and retain evaluator, advisor, scanner and SBOM artifacts.
 - [ ] Export a review inventory containing package, version, finding type, license/vulnerability, severity, direct/transitive path, and current disposition.
 - [ ] For each finding, choose exactly one disposition:
   - [ ] upgrade, replace, or remove the dependency;
   - [ ] add a narrowly scoped, reviewable allow-list entry when policy permits;
   - [ ] record a documented exception with owner, rationale, compensating control, and expiry; or
   - [ ] mark as false positive only with supporting evidence.
-- [ ] Re-run `fossa analyze --revision <final-sha>` and `fossa test --timeout 600`.
-- [ ] Confirm the VVF `Open Source License Compliance` check passes on the final SHA.
-- [ ] Attach the FOSSA project/result URL and the disposition inventory to issue #136.
+- [ ] Re-run ORT on the final SHA and confirm the `Open Source Compliance (ORT)` check passes with evaluator/advisor exit code 0.
+- [ ] Attach ORT report/SBOM links and the disposition inventory to issue #136.
 - [ ] Update `PROD-008` only after the above evidence exists; do not close it merely because `fossa analyze` succeeded.
 
 **Acceptance:** `fossa-status.json` reports `GATE-LICENSE-001/PASS`, the workflow check is green, and every finding has a durable disposition.
