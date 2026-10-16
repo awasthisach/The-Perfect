@@ -259,9 +259,9 @@ class FailClosedRestorePipelineTest {
         val restored = p.restore("remote-1", "abc")
         assertTrue(restored.isSuccess)
         val token = restored.getOrThrow().snapshotToken
-        assertTrue("Successful restore must expose a rollback token", !token.isNullOrBlank())
+            ?: throw AssertionError("Successful restore must expose a rollback token")
 
-        assertTrue(p.rollback(token!!).isSuccess)
+        assertTrue(p.rollback(token).isSuccess)
         assertTrue("A consumed snapshot token must not be reusable", p.rollback(token).isFailure)
     }
 
