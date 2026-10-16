@@ -5,25 +5,33 @@ finding_lifecycle: [discovered, triaged, reproduced, root_cause_verified, repair
 open_findings:
   - id: PROD-008
     severity: high
-    title: FOSSA policy findings and outdated dependencies remain unresolved
+    title: FOSSA policy findings and license attribution require resolution
     status: triaged
     notes: >
-      FOSSA on CI run #38950701170 scanned the exact candidate revision
-      640c1e3a1ef1d4609766633d74c52e4ed15f4cb4. The analysis succeeded, but
-      the policy test exited 1 and the mandatory license gate failed. The
-      workflow's attempted issue-export endpoint did not return a usable report;
-      the diagnostics artifact records the export as unavailable. Do not infer
-      a zero-finding result or claim the release-runtime scope filter resolved
-      findings until the actual target inventory and structured test report are
-      reviewed. The release runtime dependency graph artifact was produced by
-      the same run. Findings remain unresolved and must be classified by
-      dependency path and license evidence; do not blanket-whitelist or suppress.
-      CI evidence:
+      FOSSA CI run #38950701170 scanned candidate SHA
+      640c1e3a1ef1d4609766633d74c52e4ed15f4cb4. Analysis succeeded, but
+      fossa test exited 1 with 34 unresolved findings: 30 policy_flag and
+      4 policy_conflict; the structured result showed zero quality and zero
+      vulnerability issues for that FOSSA report. The releaseRuntimeClasspath
+      graph artifact includes all seven affected coordinates: ML Kit
+      common 18.11.0, vision-common 17.3.0, vision-interfaces 16.3.0;
+      Play core-common 2.0.4; Firebase firebase-auth 24.2.0 and
+      firebase-auth-interop 20.0.0; and jakarta.inject-api 2.0.1.
+      Therefore these findings cannot be dismissed as build-only based on
+      current evidence. FOSSA target inventory listed 37 Gradle module targets
+      and warned list-targets does not apply filtering, so the experimental
+      releaseRuntimeClasspath filter has not been proven to constrain analyzed
+      targets. Several detected licenses conflict with upstream package metadata,
+      suggesting package-license attribution needs evidence-backed correction,
+      but no license was blanket-approved. The issue-export artifact and captured
+      job log were inconsistent; CI workflow now records HTTP status separately.
+      Re-run current-head FOSSA and reconcile each package/version/license against
+      upstream metadata and shipped artifact before closing. Evidence:
       https://github.com/awasthisach/The-Perfect/actions/runs/38950701170
       Related issue #136.
     residual_risk: high
     related_issue: 136
-    last_updated: "2026-10-15"
+    last_updated: "2026-10-17"
 
   - id: PROD-009
     severity: high
