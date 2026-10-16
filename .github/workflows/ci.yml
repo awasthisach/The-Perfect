@@ -339,7 +339,6 @@ jobs:
         run: |
           set +e
           REVISION_ID="custom+64047/github.com/awasthisach/The-Perfect\$${FOSSA_SCAN_SHA}"
-          REVISION_ID="${REVISION_ID/\$ /\$}"
           export REVISION_ID
           ENCODED_REVISION="$(python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["REVISION_ID"], safe=""))')"
           : > fossa-attribution-evidence-status.txt
