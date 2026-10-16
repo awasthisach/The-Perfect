@@ -49,6 +49,69 @@ jobs:
       - name: Install pinned Wrangler
         run: npm install --global wrangler@4.149.0
 
+      - name: Require explicit paid-tier and provider-data approval before deployment
+        run: |
+          set -euo pipefail
+          if ! grep -Eq '^GEMINI_PRODUCTION_APPROVED = "true"          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing repository secret CLOUDFLARE_API_TOKEN"; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing repository secret CLOUDFLARE_ACCOUNT_ID"; exit 1; }
+          test -n "$GEMINI_API_KEY" || { echo "::error::Missing repository secret GEMINI_API_KEY"; exit 1; }
+          test -n "$FIREBASE_APP_ID" || { echo "::error::Missing repository secret FIREBASE_APP_ID"; exit 1; }
+
+      - name: Store server-only Worker secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GEMINI_API_KEY" | wrangler secret put GEMINI_API_KEY --config cloudflare/drive-semantic-embed/wrangler.toml
+          printf '%s' "$FIREBASE_APP_ID" | wrangler secret put FIREBASE_APP_ID --config cloudflare/drive-semantic-embed/wrangler.toml
+
+      - name: Deploy Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: wrangler deploy --config cloudflare/drive-semantic-embed/wrangler.toml
+
+      - name: Verify deployed health contract
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const response = await fetch("https://drive-semantic-embed.awasthi-sach.workers.dev/");
+          if (!response.ok) throw new Error(`Worker health endpoint returned HTTP ${response.status}`);
+          const body = await response.json();
+          if (body.ok !== true || body.model !== "gemini-embedding-2" || body.version !== "4" || body.dimension !== 768) {
+            throw new Error("Deployed Worker health contract does not match expected model/version/dimension");
+          }
+          process.stdout.write("Embedding Worker health contract verified.\n");
+          NODE
+
+      - name: Verify native endpoint fails closed without Firebase credentials
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --show-error --output /tmp/worker-auth-smoke.json --write-out '%{http_code}' \
+            --request POST \
+            --header 'Content-Type: application/json' \
+            --data '{"texts":["release-gate-auth-smoke"],"mode":"query","version":"4"}' \
+            https://drive-semantic-embed.awasthi-sach.workers.dev/embed)"
+          if [ "$status" != "401" ]; then
+            echo "::error::Native /embed without Authorization must return 401; got HTTP $status. The deployed Worker may still enforce the old Origin-only policy or is misconfigured."
+            cat /tmp/worker-auth-smoke.json
+            exit 1
+          fi
+          echo "Native endpoint reached Firebase authentication without Origin and rejected missing credentials as expected."
+ cloudflare/drive-semantic-embed/wrangler.toml; then
+            echo "::error::Worker deployment blocked: verify active paid Gemini billing and provider data-handling/retention terms, then explicitly set GEMINI_PRODUCTION_APPROVED = \"true\" in wrangler.toml."
+            exit 1
+          fi
+
       - name: Validate required secrets
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
