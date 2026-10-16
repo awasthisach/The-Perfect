@@ -235,4 +235,25 @@ class LocalRestoreApplierTest {
         assertFalse(File(liveVault, "new.bin").exists())
     }
 
+    @Test
+    fun rollbackRemovesComponentsThatDidNotExistBeforeRestore() = runBlocking {
+        val root = temp.newFolder("rollback-absent")
+        val liveDb = File(root, "previously-absent.db")
+        val liveVault = File(root, "previously-absent-vault")
+        val applier = LocalRestoreApplier(
+            liveDatabaseFile = liveDb,
+            liveVaultDir = liveVault,
+            snapshotRoot = File(root, "snapshots")
+        )
+
+        val snapshot = applier.prepare().getOrThrow()
+        liveDb.writeText("FAILED-RESTORE-DB")
+        liveVault.mkdirs()
+        File(liveVault, "failed.bin").writeText("FAILED-RESTORE-VAULT")
+
+        assertTrue(applier.rollback(snapshot).isSuccess)
+        assertFalse(liveDb.exists())
+        assertFalse(liveVault.exists())
+    }
+
 }
