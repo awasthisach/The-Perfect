@@ -296,98 +296,70 @@ jobs:
           elif ! python3 -m json.tool fossa-issues-export.json >/dev/null 2>&1; then
             printf 'FOSSA export returned non-JSON; inspect raw response in fossa-issues-export.json.\n' >> fossa-issues-export-status.txt
           fi
-      - name: Export per-issue FOSSA API details for license triage
+      - name: Export FOSSA dependency license-match evidence (v2 API)
         if: ${{ always() && env.FOSSA_ENABLED == 'true' }}
         continue-on-error: true
         env:
           FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
         run: |
           set +e
-          mkdir -p fossa-issue-details
-          python3 - <<'PY'
+          # The per-issue endpoint returns policy summaries but no file-match data.
+          # FOSSA's documented revision-dependencies API supports includeMatches=true.
+          REVISION_LOCATOR="custom+64047/github.com/awasthisach/The-Perfect\$${FOSSA_SCAN_SHA}"
+          export REVISION_LOCATOR
+          ENCODED_REVISION="$(python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["REVISION_LOCATOR"], safe=""))')"
+          args=()
+          for locator in \
+            'mvn+com.google.mlkit:vision-interfaces$16.3.0' \
+            'mvn+com.google.mlkit:common$18.11.0' \
+            'mvn+com.google.android.play:core-common$2.0.4' \
+            'mvn+com.google.firebase:firebase-auth$24.2.0' \
+            'mvn+com.google.mlkit:vision-common$17.3.0' \
+            'mvn+com.google.firebase:firebase-auth-interop$20.0.0' \
+            'mvn+jakarta.inject:jakarta.inject-api$2.0.1'; do
+            args+=(--data-urlencode "locators[]=${locator}")
+          done
+          http_code=$(curl --silent --show-error --get \
+            "https://app.fossa.com/api/v2/revisions/${ENCODED_REVISION}/dependencies" \
+            --data-urlencode 'count=100' \
+            --data-urlencode 'page=1' \
+            --data-urlencode 'includeMatches=true' \
+            --data-urlencode 'includeLicenseText=true' \
+            --data-urlencode 'includeCopyright=true' \
+            --data-urlencode 'includeResolutionNotes=true' \
+            "${args[@]}" \
+            --header "Authorization: Bearer ${FOSSA_API_KEY}" \
+            --output fossa-dependency-license-details.json \
+            --write-out '%{http_code}' --max-time 60)
+          code=$?
+          if [ "$code" -ne 0 ] || [ "$http_code" != "200" ] || [ ! -s fossa-dependency-license-details.json ]; then
+            printf 'curl_exit=%s http_status=%s\n' "$code" "$http_code" > fossa-dependency-license-details-status.txt
+            echo "::warning::FOSSA dependency/license match export did not return a usable report; policy gate remains fail-closed."
+          else
+            python3 - <<'PY'
           import json
           from pathlib import Path
-          report = Path("fossa-test.json")
-          issues = json.loads(report.read_text()).get("issues", []) if report.exists() else []
-          ids = [str(item["id"]) for item in issues if item.get("id") is not None]
-          Path("fossa-issue-ids.txt").write_text("\n".join(ids) + ("\n" if ids else ""))
+          report = json.loads(Path("fossa-dependency-license-details.json").read_text())
+          deps = report.get("dependencies", []) if isinstance(report, dict) else []
+          expected = {
+              "mvn+com.google.mlkit:vision-interfaces$16.3.0",
+              "mvn+com.google.mlkit:common$18.11.0",
+              "mvn+com.google.android.play:core-common$2.0.4",
+              "mvn+com.google.firebase:firebase-auth$24.2.0",
+              "mvn+com.google.mlkit:vision-common$17.3.0",
+              "mvn+com.google.firebase:firebase-auth-interop$20.0.0",
+              "mvn+jakarta.inject:jakarta.inject-api$2.0.1",
+          }
+          found = {item.get("locator") for item in deps if isinstance(item, dict)}
+          missing = sorted(expected - found)
+          Path("fossa-dependency-license-details-status.txt").write_text(
+              f"http_status=200 dependency_count={len(deps)} "
+              f"affected_found={len(expected & found)}/7 missing={','.join(missing) or 'none'}\n"
+          )
+          if missing:
+              print("::warning::FOSSA v2 dependency export did not return all seven affected coordinates.")
           PY
-          : > fossa-issue-detail-status.txt
-          while IFS= read -r issue_id; do
-            [ -n "$issue_id" ] || continue
-            http_code=$(curl --silent --show-error --get \
-              "https://app.fossa.com/api/v2/issues/${issue_id}" \
-              --data-urlencode 'category=licensing' \
-              --data-urlencode 'scope[type]=project' \
-              --data-urlencode 'scope[id]=custom+64047/github.com/awasthisach/The-Perfect' \
-              --data-urlencode "scope[revision]=${FOSSA_SCAN_SHA}" \
-              --header "Authorization: Bearer ${FOSSA_API_KEY}" \
-              --output "fossa-issue-details/${issue_id}.json" \
-              --write-out '%{http_code}' --max-time 10)
-            code=$?
-            printf 'issue_id=%s curl_exit=%s http_status=%s\n' "$issue_id" "$code" "$http_code" >> fossa-issue-detail-status.txt
-            if [ "$code" -ne 0 ] || [ "$http_code" != "200" ]; then
-              rm -f "fossa-issue-details/${issue_id}.json"
-            fi
-          done < fossa-issue-ids.txt
-
-      - name: Export FOSSA attribution evidence with package-path fields
-        if: ${{ always() && env.FOSSA_ENABLED == 'true' }}
-        continue-on-error: true
-        env:
-          FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
-        run: |
-          set +e
-          REVISION_ID="custom+64047/github.com/awasthisach/The-Perfect\$ ${FOSSA_SCAN_SHA}"
-          REVISION_ID="${REVISION_ID/\$ /\$}"
-          export REVISION_ID
-          ENCODED_REVISION="$(python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["REVISION_ID"], safe=""))')"
-          : > fossa-attribution-evidence-status.txt
-          for format in CSV MD; do
-            for option_set in detailed basic defaults; do
-              output="fossa-attribution-evidence.$(printf '%s' "$format" | tr '[:upper:]' '[:lower:]')"
-              args=()
-              case "$option_set" in
-                detailed)
-                  args+=(--data-urlencode 'dependencyInfoOptions[]=Library')
-                  args+=(--data-urlencode 'dependencyInfoOptions[]=License')
-                  args+=(--data-urlencode 'dependencyInfoOptions[]=ConcludedLicense')
-                  args+=(--data-urlencode 'dependencyInfoOptions[]=FilePath')
-                  args+=(--data-urlencode 'dependencyInfoOptions[]=Source')
-                  args+=(--data-urlencode 'dependencyInfoOptions[]=PackageDownloadUrl')
-                  args+=(--data-urlencode 'dependencyInfoOptions[]=DependencyPaths')
-                  args+=(--data-urlencode 'dependencyInfoOptions[]=LicenseFileURL')
-                  ;;
-                basic)
-                  args+=(--data-urlencode 'dependencyInfoOptions[]=Library')
-                  args+=(--data-urlencode 'dependencyInfoOptions[]=License')
-                  args+=(--data-urlencode 'dependencyInfoOptions[]=Source')
-                  args+=(--data-urlencode 'dependencyInfoOptions[]=PackageDownloadUrl')
-                  args+=(--data-urlencode 'dependencyInfoOptions[]=DependencyPaths')
-                  ;;
-                defaults) ;;
-              esac
-              http_code=$(curl --silent --show-error --location --get \
-                "https://app.fossa.com/api/revisions/${ENCODED_REVISION}/attribution/download" \
-                --data-urlencode 'download=true' \
-                --data-urlencode "format=$format" \
-                "${args[@]}" \
-                --header "Authorization: Bearer ${FOSSA_API_KEY}" \
-                --dump-header "fossa-attribution-headers-$format-$option_set.txt" \
-                --output "$output" \
-                --write-out '%{http_code} %{size_download} %{content_type}' --max-time 60)
-              code=$?
-              printf 'format=%s option_set=%s curl_exit=%s response=%s\n' "$format" "$option_set" "$code" "$http_code" >> fossa-attribution-evidence-status.txt
-              if [ "$code" -eq 0 ] && [ "${http_code%% *}" = "200" ] && [ -s "$output" ] &&
-                 grep -Eiq 'com[.]google[.]mlkit|com[.]google[.]firebase|com[.]google[.]android[.]play|jakarta[.]inject' "$output"; then
-                echo "Attribution report contains the affected release dependencies (format=$format, options=$option_set)."
-                exit 0
-              fi
-              rm -f "$output"
-            done
-          done
-          printf 'FOSSA attribution endpoint returned no report containing the affected dependency coordinates; inspect response headers and job log.\n' >> fossa-attribution-evidence-status.txt
-
+          fi
       - name: Record FOSSA gate status
         if: ${{ always() }}
         run: |
