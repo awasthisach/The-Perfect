@@ -46,6 +46,11 @@ jobs:
           python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
           python3 tools/audit/cpas_verify.py --root .
 
+      # ORT's embedded Git/JGit downloader cannot use the ephemeral runner SSH agent.
+      - name: Use HTTPS instead of SSH for GitHub source downloads
+        run: |
+          git config --global --add url.https://github.com/.insteadOf ssh://git@github.com/
+          git config --global --add url.https://github.com/.insteadOf git@github.com:
       - name: OSS Review Toolkit compliance gate (hard fail for release)
         id: ort
         uses: oss-review-toolkit/ort-ci-github-action@70149d4579e446b0312f8b80fdd8d465a91e4391 # pinned commit
