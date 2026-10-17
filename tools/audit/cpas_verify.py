@@ -26,6 +26,13 @@ def check(name: str, passed: bool, detail: str) -> dict[str, str]:
     return {"name": name, "status": "PASS" if passed else "BLOCKED", "detail": detail}
 
 
+def production_evidence_quality(local_only_count: int) -> tuple[bool, str]:
+    """Local/pre-CI evidence must never qualify for a production PASS."""
+    if local_only_count:
+        return False, f"{local_only_count} local-only evidence entries cannot support production PASS"
+    return True, "no local-only evidence entries"
+
+
 def ids_from_yaml(path: Path) -> list[str]:
     ids: list[str] = []
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -243,13 +250,8 @@ def main() -> int:
             ledger_detail = f"invalid JSON: {exc}"
     checks.append(check("evidence_ledger_integrity", ledger_ok, ledger_detail))
 
-    production_evidence_ok = True
-    if local_only_count and open_blockers:
-        production_evidence_ok = False
-    checks.append(check("production_evidence_quality",
-                        production_evidence_ok or not open_blockers,
-                        "real CI evidence present or no open critical blockers" if production_evidence_ok or not open_blockers
-                        else f"{local_only_count} local-only evidence entries while critical findings remain open"))
+    evidence_quality_ok, evidence_quality_detail = production_evidence_quality(local_only_count)
+    checks.append(check("production_evidence_quality", evidence_quality_ok, evidence_quality_detail))
 
     stale_count = 0
     if isinstance(entries, list):

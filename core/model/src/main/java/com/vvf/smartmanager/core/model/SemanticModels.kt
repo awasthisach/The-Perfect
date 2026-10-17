@@ -1,7 +1,7 @@
 package com.vvf.smartmanager.core.model
 
 /**
- * Candidate item for semantic embedding and vector similarity indexing.
+ * Candidate item for cloud-generated semantic embeddings and local vector similarity ranking.
  */
 data class SemanticCandidate(
     val fileItem: FileItem,
@@ -29,7 +29,7 @@ data class SemanticSearchResult(
 )
 
 /**
- * Immutable on-device vector embedding index record with content-version and model binding.
+ * Immutable semantic vector index record with content-version and model binding.
  */
 data class SemanticIndexRecord(
     val fileId: String,
@@ -88,7 +88,7 @@ data class NearDuplicateCluster(
 }
 
 /**
- * Suggested conceptual tag from on-device semantic analysis.
+ * Suggested conceptual tag from semantic analysis.
  */
 data class AiSuggestedTag(
     val tagName: String,
@@ -97,7 +97,7 @@ data class AiSuggestedTag(
 )
 
 /**
- * Summary metrics of on-device AI intelligence analysis.
+ * Summary metrics of AI intelligence analysis.
  */
 data class AiIntelligenceSummary(
     val totalScanned: Int = 0,

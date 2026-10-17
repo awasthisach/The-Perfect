@@ -23,5 +23,7 @@ data class CloudSyncEntity(
     val provider: String, // GDRIVE, ONEDRIVE, DROPBOX, NEXTCLOUD, S3, NAS
     val status: String, // SYNCED, PENDING, UPLOADING, ERROR
     val lastSyncedAt: Long = System.currentTimeMillis(),
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    /** SHA-256 of the exact encrypted backup artifact persisted with its durable remote ID. */
+    val checksumSha256: String? = null
 )

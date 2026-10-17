@@ -19,6 +19,11 @@ android {
 }
 
 dependencies {
+  implementation(platform(libs.firebase.bom))
+  implementation(libs.firebase.auth)
+  implementation(libs.firebase.appcheck.playintegrity)
+  implementation(libs.okhttp)
+  implementation(libs.kotlinx.coroutines.play.services)
   api(project(":core:plugin-spi"))
   api(project(":core:model"))
   api(project(":core:common"))

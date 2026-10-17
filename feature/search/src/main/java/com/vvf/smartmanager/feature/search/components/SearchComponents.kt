@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Folder
@@ -91,6 +92,7 @@ fun SearchResultCard(
     onToggleFavorite: (FileItem) -> Unit,
     onManageTags: (FileItem) -> Unit,
     onShowDetails: (FileItem) -> Unit,
+    onToggleOfflinePin: ((FileItem) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val fileItem = resultItem.fileItem
@@ -143,6 +145,18 @@ fun SearchResultCard(
                 }
                 IconButton(onClick = { onShowDetails(fileItem) }, modifier = Modifier.size(36.dp)) {
                     Icon(Icons.Default.Info, contentDescription = "File Info", tint = CosmicBlue.copy(alpha = 0.7f))
+                }
+                if (fileItem.path.startsWith("gdrive://") && onToggleOfflinePin != null) {
+                    IconButton(
+                        onClick = { onToggleOfflinePin.invoke(fileItem) },
+                        modifier = Modifier.size(36.dp).testTag("offline_pin_${fileItem.name}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudDownload,
+                            contentDescription = if (fileItem.isOfflinePinned) "Remove offline pin" else "Pin for offline",
+                            tint = if (fileItem.isOfflinePinned) EmeraldGreen else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
             Spacer(modifier = Modifier.height(6.dp))

@@ -41,11 +41,21 @@ class LocalRestoreApplier(
             val token = UUID.randomUUID().toString()
             val dbSnap = File(snapshotRoot, "$token-db")
             val vaultSnap = File(snapshotRoot, "$token-vault")
+            val databaseExisted = liveDatabaseFile.isFile
+            val vaultExisted = liveVaultDir.isDirectory
             // Best-effort consistent copy of live DB file (caller should avoid concurrent writers).
-            if (liveDatabaseFile.exists()) liveDatabaseFile.copyTo(dbSnap, overwrite = true)
-            if (liveVaultDir.exists()) liveVaultDir.copyRecursively(vaultSnap, overwrite = true)
-            else vaultSnap.mkdirs()
-            Result.success(RestoreSnapshot(token, System.currentTimeMillis(), dbSnap, vaultSnap))
+            if (databaseExisted) liveDatabaseFile.copyTo(dbSnap, overwrite = true)
+            if (vaultExisted) liveVaultDir.copyRecursively(vaultSnap, overwrite = true)
+            Result.success(
+                RestoreSnapshot(
+                    token = token,
+                    timestamp = System.currentTimeMillis(),
+                    databaseSnapshotPath = dbSnap,
+                    vaultSnapshotPath = vaultSnap,
+                    databaseExisted = databaseExisted,
+                    vaultExisted = vaultExisted
+                )
+            )
         } catch (error: Throwable) {
             Result.failure(RestoreException("Restore snapshot prepare failed", error))
         }
@@ -64,56 +74,69 @@ class LocalRestoreApplier(
         val backupLiveVault = File(parent, "${liveVaultDir.name}.restore-bak-${UUID.randomUUID()}")
 
         return try {
+            // A manifest is required to distinguish full backups from deliberately partial backups.
+            // Never infer a missing component as an empty component and overwrite live user data.
+            val manifestFile = File(decryptedBackup.stagingDir, "metadata.json")
+            if (!manifestFile.isFile) {
+                return Result.failure(RestoreException("Backup manifest is missing; live data left unchanged"))
+            }
+            val manifest = json.decodeFromString(ArchiveMetadata.serializer(), manifestFile.readText())
+            val includesDatabase = manifest.includesDatabase
+            val includesVault = manifest.includesVault
+            if (includesDatabase && (!decryptedBackup.databaseFile.isFile || decryptedBackup.databaseFile.length() <= 0L)) {
+                return Result.failure(RestoreException("Backup declares a database but its payload is missing or empty"))
+            }
+            if (includesVault && !decryptedBackup.vaultDir.isDirectory) {
+                return Result.failure(RestoreException("Backup declares a vault but its payload directory is missing"))
+            }
+            if (!includesDatabase && !includesVault) {
+                return Result.failure(RestoreException("Backup contains no restorable database or vault component"))
+            }
+
+            // Validate the staged archive completely before closing connections or touching live data.
+            val actualFiles = decryptedBackup.stagingDir.walkTopDown()
+                .count { it.isFile && it.name != "metadata.json" }
+            if (actualFiles < manifest.fileCount) {
+                return Result.failure(
+                    RestoreException(
+                        "Incomplete restore: expected ${manifest.fileCount} files, extracted $actualFiles"
+                    )
+                )
+            }
+            val actualVault = decryptedBackup.vaultDir.walkTopDown().count { it.isFile }
+            if (includesVault && actualVault < manifest.vaultItemCount) {
+                return Result.failure(
+                    RestoreException(
+                        "Incomplete restore: expected ${manifest.vaultItemCount} vault items, extracted $actualVault"
+                    )
+                )
+            }
+
             beforeApply?.invoke()
 
-            // --- Manifest completeness (when present) ---
-            val manifestFile = File(decryptedBackup.stagingDir, "metadata.json")
-            if (manifestFile.isFile) {
-                val manifest = json.decodeFromString(ArchiveMetadata.serializer(), manifestFile.readText())
-                // ArchiveService counts files before writing metadata.json, so exclude it here.
-                val actualFiles = decryptedBackup.stagingDir.walkTopDown()
-                    .count { it.isFile && it.name != "metadata.json" }
-                if (actualFiles < manifest.fileCount) {
-                    return Result.failure(
-                        RestoreException(
-                            "Incomplete restore: expected ${manifest.fileCount} files, extracted $actualFiles"
-                        )
-                    )
+            // --- Stage only the components explicitly included in the manifest ---
+            if (includesDatabase) {
+                if (tempDb.exists() && !tempDb.delete()) {
+                    return Result.failure(RestoreException("Unable to clear previous temp database"))
                 }
-                val actualVault = decryptedBackup.vaultDir.walkTopDown().count { it.isFile }
-                if (actualVault < manifest.vaultItemCount) {
-                    return Result.failure(
-                        RestoreException(
-                            "Incomplete restore: expected ${manifest.vaultItemCount} vault items, extracted $actualVault"
-                        )
-                    )
-                }
-            }
-
-            // --- Stage database to temp (do not touch live yet) ---
-            if (tempDb.exists() && !tempDb.delete()) {
-                return Result.failure(RestoreException("Unable to clear previous temp database"))
-            }
-            if (decryptedBackup.databaseFile.isFile) {
                 decryptedBackup.databaseFile.copyTo(tempDb, overwrite = true)
-                if (tempDb.length() != decryptedBackup.databaseFile.length()) {
+                if (!tempDb.isFile || tempDb.length() != decryptedBackup.databaseFile.length() || tempDb.length() <= 0L) {
                     tempDb.delete()
-                    return Result.failure(RestoreException("Database temp copy size mismatch"))
+                    return Result.failure(RestoreException("Database temp copy verification failed"))
                 }
             }
 
-            // --- Stage vault to temp ---
-            if (tempVault.exists()) tempVault.deleteRecursively()
-            if (!tempVault.mkdirs()) {
-                return Result.failure(RestoreException("Unable to create temp vault directory"))
-            }
-            if (decryptedBackup.vaultDir.exists()) {
+            if (includesVault) {
+                if (tempVault.exists()) tempVault.deleteRecursively()
+                if (!tempVault.mkdirs()) {
+                    return Result.failure(RestoreException("Unable to create temp vault directory"))
+                }
                 decryptedBackup.vaultDir.copyRecursively(tempVault, overwrite = true)
             }
 
-            // --- Auth metadata before committing live vault/DB ---
+            // --- Auth metadata is relevant only when restoring the vault component ---
             val authFile = File(decryptedBackup.stagingDir, "vault_auth.json")
-            if (authFile.isFile && vaultAuthImporter != null) {
+            if (includesVault && manifest.includesVaultAuth && authFile.isFile && vaultAuthImporter != null) {
                 val metadata = json.decodeFromString(
                     MapSerializer(String.serializer(), String.serializer()),
                     authFile.readText()
@@ -127,59 +150,61 @@ class LocalRestoreApplier(
                 }
             }
 
-            // --- Commit DB: keep old as .restore-bak then swap temp into place ---
-            if (backupLiveDb.exists()) backupLiveDb.delete()
-            if (liveDatabaseFile.exists()) {
-                if (!liveDatabaseFile.renameTo(backupLiveDb)) {
-                    liveDatabaseFile.copyTo(backupLiveDb, overwrite = true)
-                    if (!liveDatabaseFile.delete()) {
-                        cleanupTemps(tempDb, tempVault)
-                        return Result.failure(RestoreException("Unable to move live database aside for swap"))
+            // --- Commit database only if this backup explicitly contains it ---
+            if (includesDatabase) {
+                if (backupLiveDb.exists() && !backupLiveDb.delete()) {
+                    cleanupTemps(tempDb, tempVault)
+                    return Result.failure(RestoreException("Unable to clear previous database rollback file"))
+                }
+                if (liveDatabaseFile.exists()) {
+                    if (!liveDatabaseFile.renameTo(backupLiveDb)) {
+                        liveDatabaseFile.copyTo(backupLiveDb, overwrite = true)
+                        if (!liveDatabaseFile.delete()) {
+                            cleanupTemps(tempDb, tempVault)
+                            return Result.failure(RestoreException("Unable to move live database aside for swap"))
+                        }
                     }
                 }
-            }
-            if (tempDb.isFile) {
                 if (!tempDb.renameTo(liveDatabaseFile)) {
                     tempDb.copyTo(liveDatabaseFile, overwrite = true)
                     tempDb.delete()
                 }
-                if (!liveDatabaseFile.isFile) {
-                    // attempt emergency restore from bak
+                if (!liveDatabaseFile.isFile || liveDatabaseFile.length() <= 0L) {
                     if (backupLiveDb.isFile) backupLiveDb.copyTo(liveDatabaseFile, overwrite = true)
                     cleanupTemps(tempDb, tempVault)
                     return Result.failure(RestoreException("Database swap failed"))
                 }
             }
 
-            // --- Commit vault: move live aside, move temp into place ---
-            if (backupLiveVault.exists()) backupLiveVault.deleteRecursively()
-            if (liveVaultDir.exists()) {
-                if (!liveVaultDir.renameTo(backupLiveVault)) {
-                    liveVaultDir.copyRecursively(backupLiveVault, overwrite = true)
-                    liveVaultDir.deleteRecursively()
+            // --- Commit vault only if this backup explicitly contains it ---
+            if (includesVault) {
+                if (backupLiveVault.exists()) backupLiveVault.deleteRecursively()
+                if (liveVaultDir.exists()) {
+                    if (!liveVaultDir.renameTo(backupLiveVault)) {
+                        liveVaultDir.copyRecursively(backupLiveVault, overwrite = true)
+                        liveVaultDir.deleteRecursively()
+                    }
                 }
-            }
-            if (!tempVault.renameTo(liveVaultDir)) {
-                liveVaultDir.mkdirs()
-                tempVault.copyRecursively(liveVaultDir, overwrite = true)
-                tempVault.deleteRecursively()
-            }
-            if (!liveVaultDir.isDirectory) {
-                if (backupLiveVault.exists()) {
-                    backupLiveVault.copyRecursively(liveVaultDir, overwrite = true)
+                if (!tempVault.renameTo(liveVaultDir)) {
+                    liveVaultDir.mkdirs()
+                    tempVault.copyRecursively(liveVaultDir, overwrite = true)
+                    tempVault.deleteRecursively()
                 }
-                if (backupLiveDb.isFile) backupLiveDb.copyTo(liveDatabaseFile, overwrite = true)
-                cleanupTemps(tempDb, tempVault)
-                return Result.failure(RestoreException("Vault swap failed"))
+                if (!liveVaultDir.isDirectory) {
+                    if (backupLiveVault.exists()) backupLiveVault.copyRecursively(liveVaultDir, overwrite = true)
+                    if (includesDatabase && backupLiveDb.isFile) backupLiveDb.copyTo(liveDatabaseFile, overwrite = true)
+                    cleanupTemps(tempDb, tempVault)
+                    return Result.failure(RestoreException("Vault swap failed"))
+                }
             }
 
-            // Success — drop rollback backups and temps
-            backupLiveDb.delete()
-            if (backupLiveVault.exists()) backupLiveVault.deleteRecursively()
+            // Success — drop only rollback files created for components being restored.
+            if (includesDatabase) backupLiveDb.delete()
+            if (includesVault && backupLiveVault.exists()) backupLiveVault.deleteRecursively()
             cleanupTemps(tempDb, tempVault)
 
-            val fileCount = decryptedBackup.stagingDir.walkTopDown().count { it.isFile }
-            val vaultCount = liveVaultDir.walkTopDown().count { it.isFile }
+            val fileCount = if (includesDatabase) decryptedBackup.stagingDir.walkTopDown().count { it.isFile } else 0
+            val vaultCount = if (includesVault) liveVaultDir.walkTopDown().count { it.isFile } else 0
             Result.success(
                 AppliedRestore(
                     success = true,
@@ -196,12 +221,22 @@ class LocalRestoreApplier(
 
     override suspend fun rollback(snapshot: RestoreSnapshot): Result<Unit> {
         return try {
-            if (snapshot.databaseSnapshotPath.isFile) {
+            if (snapshot.databaseExisted) {
+                if (!snapshot.databaseSnapshotPath.isFile) {
+                    return Result.failure(RestoreException("Database rollback snapshot is missing"))
+                }
                 snapshot.databaseSnapshotPath.copyTo(liveDatabaseFile, overwrite = true)
+            } else if (liveDatabaseFile.exists() && !liveDatabaseFile.delete()) {
+                return Result.failure(RestoreException("Unable to remove database created by failed restore"))
             }
-            if (liveVaultDir.exists()) liveVaultDir.deleteRecursively()
-            liveVaultDir.mkdirs()
-            if (snapshot.vaultSnapshotPath.exists()) {
+
+            if (liveVaultDir.exists() && !liveVaultDir.deleteRecursively()) {
+                return Result.failure(RestoreException("Unable to clear vault created by failed restore"))
+            }
+            if (snapshot.vaultExisted) {
+                if (!snapshot.vaultSnapshotPath.isDirectory) {
+                    return Result.failure(RestoreException("Vault rollback snapshot is missing"))
+                }
                 snapshot.vaultSnapshotPath.copyRecursively(liveVaultDir, overwrite = true)
             }
             Result.success(Unit)
