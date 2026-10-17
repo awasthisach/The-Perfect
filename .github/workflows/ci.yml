@@ -222,6 +222,12 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
+      # ORT's embedded Git/JGit downloader cannot use the ephemeral runner SSH agent.
+      # Rewrite GitHub SSH clone URLs to HTTPS before ORT starts, as recommended by ORT.
+      - name: Use HTTPS instead of SSH for GitHub source downloads
+        run: |
+          git config --global --add url.https://github.com/.insteadOf ssh://git@github.com/
+          git config --global --add url.https://github.com/.insteadOf git@github.com:
       - name: Run OSS Review Toolkit (license, source scan, vulnerability and policy checks)
         id: ort
         uses: oss-review-toolkit/ort-ci-github-action@70149d4579e446b0312f8b80fdd8d465a91e4391 # pinned commit
