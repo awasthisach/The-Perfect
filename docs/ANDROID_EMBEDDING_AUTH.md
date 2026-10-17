@@ -16,7 +16,7 @@ Base URL: `https://drive-semantic-embed.awasthi-sach.workers.dev`
 - `GET /` should report `{ ok, model, version, dimension }`; expected candidate values are model `gemini-embedding-2`, version `4`, dimension `768`. Version 4 uses Gemini Embedding 2's retrieval document prefix; version-3 document vectors must be regenerated.
 - `POST /embed` authenticates the Firebase ID token and rejects missing or invalid JWTs with 401.
 - Protected deployment workflow [#38676382484](https://github.com/awasthisach/The-Perfect/actions/runs/38676382484) verified the Worker v4 health contract (`gemini-embedding-2`, 768 dimensions) and rejection of unauthenticated `/embed` requests. This is not evidence of a successful native request with valid Firebase Auth + App Check.
-- Native requests intentionally omit `Origin`; they must present a valid Firebase Auth ID token and Firebase App Check token in separate headers. The Worker fails closed if `FIREBASE_APP_ID` is missing and rejects native requests with missing/invalid App Check using 403. Real valid-token acceptance and invalid-App-Check rejection still need a recorded device/API acceptance test.
+- Every `/embed` caller must present a valid Firebase Auth ID token and Firebase App Check token in separate headers, regardless of `Origin`. The Worker fails closed if `FIREBASE_APP_ID` is missing and rejects missing/invalid App Check using 403. Real valid-token acceptance and invalid-App-Check rejection still need a recorded device/API acceptance test.
 
 ## Mobile transport — implementation vs deployment
 
@@ -24,7 +24,7 @@ The native client now sends both the Firebase Auth ID token and an Android Fireb
 
 The repository includes the Worker-side App Check path in `cloudflare/drive-semantic-embed/src/index.ts`, including Firebase JWT verification, per-user Durable Object rate limiting, bounded request bodies, model/version/dimension validation, JWKS caching, and transient upstream retries. The Worker also has an operator approval gate: `GEMINI_PRODUCTION_APPROVED` defaults to `false`; while false, health returns HTTP 503 and `/embed` returns `production_approval_required`. The deploy workflow refuses deployment unless the owner explicitly enables this flag after verifying paid Gemini billing and provider data-handling terms. Google Cloud project `thevvforg` currently has no linked billing account, so this flag must remain false. The production Worker has not been redeployed with this new gate. Until billing/data handling is verified, App Check is registered with the actual Play App Signing SHA-256, and the reviewed Worker is deployed, neural embedding must remain unavailable. Local keyword/full-text/metadata search must continue to work.
 
-Do not spoof an allowed `Origin` header to bypass the deployed worker's current policy. Origin is a browser CORS control, not proof of app identity. Native calls without Origin must pass both Firebase Auth and App Check verification.
+Do not use or trust an `Origin` header as proof of app identity. Origin is a browser CORS control and can be spoofed by non-browser clients; every caller must pass both Firebase Auth and App Check verification. Native calls intentionally omit `Origin`.
 
 ## Release acceptance tests
 

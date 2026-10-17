@@ -37,6 +37,9 @@ jobs:
           node-version: "22"
           package-manager-cache: false
 
+      - name: Run Worker authentication regression tests
+        run: node --experimental-strip-types --test cloudflare/drive-semantic-embed/test/*.test.mjs
+
       - name: Install pinned Wrangler
         run: npm install --global wrangler@4.149.0
 

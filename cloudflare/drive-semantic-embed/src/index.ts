@@ -220,7 +220,11 @@ async function callGeminiWithRetry(env: Env, model: string, requests: unknown[])
 }
 
 export class UserRateLimiter {
-  constructor(private readonly state: DurableObjectState) {}
+  private readonly state: DurableObjectState;
+
+  constructor(state: DurableObjectState) {
+    this.state = state;
+  }
 
   async fetch(request: Request): Promise<Response> {
     if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
@@ -283,14 +287,14 @@ export default {
       return json({ error: "production_approval_required" }, 503, cors);
     }
 
-    // Browser calls must originate from the configured web origin. Native calls have no
-    // browser Origin and must instead prove app authenticity with Firebase App Check.
+    // Origin is a browser CORS control, not a caller identity: non-browser clients can spoof it.
     if (origin && origin !== env.ALLOWED_ORIGIN) return json({ error: "origin_not_allowed" }, 403, cors);
     const uid = await authenticateFirebase(request, env);
     if (!uid) return json({ error: "unauthorized" }, 401, cors);
     // Rate-limit authenticated identities before App Check/JWKS fetches and body parsing.
     if (!(await rateLimit(uid, env))) return json({ error: "rate_limited" }, 429, cors);
-    if (!origin && !(await verifyAppCheck(request, env))) {
+    // Require App Check on every client, including requests carrying the allowed Origin.
+    if (!(await verifyAppCheck(request, env))) {
       return json({ error: "app_check_required" }, 403, cors);
     }
 

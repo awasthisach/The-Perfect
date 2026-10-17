@@ -8,8 +8,9 @@ This directory contains the source intended for the existing production Worker:
 
 - Gemini API credentials exist only as Cloudflare Worker secrets; never place them in Android resources, `BuildConfig`, or source control.
 - Every `POST /embed` request requires a Firebase Auth ID token in `Authorization: Bearer …`.
-- Browser requests must send the exact configured `Origin`; unapproved origins are rejected.
-- Native requests omit `Origin` and must include a valid `X-Firebase-AppCheck` token. The token must be issued for the configured Firebase project and exact Android Firebase App ID.
+- Every request, including one with the allowed browser `Origin`, must include a valid `X-Firebase-AppCheck` token. The token must be issued for the configured Firebase project and exact registered Firebase App ID.
+- `Origin` is only a browser CORS control, not proof of caller identity. Unapproved browser origins are rejected; spoofed `Origin` headers do not bypass App Check.
+- Native Android requests omit `Origin` and must include both Firebase Auth and App Check tokens.
 - Requests are rate-limited per Firebase UID and the request body is streamed with a 300 KB limit.
 - Maximum batch: 32 texts; maximum text length: 8,000 characters; expected vector size: 768.
 - The Android client never sends the Drive access token to this service.
