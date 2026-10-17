@@ -209,7 +209,10 @@ jobs:
   open_source_compliance:
     name: Open Source Compliance (ORT)
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    # The previous candidate was cancelled during ORT's active source scan at
+    # the 45-minute job limit, before evaluation/advisor and report artifacts.
+    # Allow a bounded 90-minute window; policy findings still fail closed.
+    timeout-minutes: 90
     permissions:
       contents: read
     steps:
