@@ -58,6 +58,8 @@ jobs:
           sw-name: The-Perfect
           sw-version: ${{ github.sha }}
           ort-config-revision: 5075f4308109384c98a6a2fab53246f7b60d59f4
+          # Enable project-scoped .ort.yml package curations; default ORT config disables them.
+          ort-cli-args: -P ort.enableRepositoryPackageCurations=true
           run: >-
             cache-dependencies,
             labels,
