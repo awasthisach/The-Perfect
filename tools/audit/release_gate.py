@@ -27,7 +27,7 @@ def load_json(path: Path) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="CPAS + FOSSA release gate")
+    parser = argparse.ArgumentParser(description="CPAS + ORT license release gate")
     parser.add_argument("--cpas-status", type=Path, default=Path("cpas-status.json"))
     parser.add_argument("--foss-status", type=Path, default=Path("foss-status.json"))
     parser.add_argument("--apk", type=Path, default=None)
@@ -54,15 +54,15 @@ def main() -> int:
             foss = load_json(args.foss_status)
             if foss.get("status") != "PASS":
                 failures.append(
-                    f"FOSSA status is {foss.get('status')!r}, expected PASS "
+                    f"LICENSE/ORT status is {foss.get('status')!r}, expected PASS "
                     f"(reason={foss.get('reason')!r})"
                 )
             else:
-                print("FOSSA: PASS")
+                print("LICENSE/ORT: PASS")
         except (OSError, ValueError, json.JSONDecodeError) as exc:
-            failures.append(f"FOSSA status unreadable/missing: {exc}")
+            failures.append(f"LICENSE/ORT status unreadable/missing: {exc}")
     else:
-        print("FOSSA: skipped (--allow-missing-fossa)")
+        print("LICENSE/ORT: skipped (--allow-missing-fossa)")
 
     if args.apk is not None:
         if not args.apk.is_file() or args.apk.stat().st_size <= 0:
@@ -80,4 +80,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())
