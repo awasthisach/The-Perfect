@@ -26,7 +26,7 @@ if (!vvfDebugKeystoreFile.exists()) {
 
 android {
   namespace = "com.vvf.smartmanager"
-  compileSdk = 36
+  compileSdk = 37
 
   defaultConfig {
     applicationId = "com.vvf.smartmanager"

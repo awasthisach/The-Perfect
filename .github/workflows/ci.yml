@@ -37,7 +37,7 @@ jobs:
           packages: ""
           accept-android-sdk-licenses: true
       - name: Install required Android SDK components
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+        run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
       - name: Create local.properties
         run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
       - name: Generate SQLCipher 4.5.4 compatibility fixture

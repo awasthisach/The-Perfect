@@ -5,7 +5,7 @@ plugins {
 
 android {
   namespace = "com.vvf.smartmanager.core.plugin.spi"
-  compileSdk = 36
+  compileSdk = 37
 
   defaultConfig {
     minSdk = 24
