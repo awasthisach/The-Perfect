@@ -210,10 +210,10 @@ jobs:
   open_source_compliance:
     name: Open Source Compliance (ORT)
     runs-on: ubuntu-24.04
-    # ORT's ScanCode source scan ran for 83 minutes on the previous candidate
-    # and was cancelled at the 90-minute job limit before evaluation/advisor/SBOM.
-    # Allow a bounded 180-minute window; no scanner, evaluator, or policy checks are skipped.
-    timeout-minutes: 180
+    # ORT ScanCode exceeded 180 minutes on the latest candidate before
+    # evaluation/advisor/SBOM completed. Keep the full checks enabled and allow
+    # a bounded 330-minute window (below GitHub-hosted runner's 360-minute cap).
+    timeout-minutes: 330
     permissions:
       contents: read
     steps:
