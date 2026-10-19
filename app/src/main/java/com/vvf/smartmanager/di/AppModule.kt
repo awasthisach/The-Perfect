@@ -69,9 +69,14 @@ object AppModule {
     @Provides @Singleton @Named("vaultDir")
     fun vaultDir(@ApplicationContext ctx: Context) = File(ctx.filesDir, "vvf_vault_encrypted")
 
+    @Provides @Singleton @Named("decoyVaultDir")
+    fun decoyVaultDir(@ApplicationContext ctx: Context) = File(ctx.filesDir, "vvf_decoy_vault_encrypted")
+
     @Provides @Singleton
     fun vaultRepo(
         vaultDao: VaultDao, crypto: CryptoSecurityManager,
-        @Named("vaultDir") dir: File, journal: VaultJournalDao
-    ) = SecureVaultRepository(vaultDao, crypto, dir, journal)
+        @Named("vaultDir") dir: File,
+        @Named("decoyVaultDir") decoyDir: File,
+        journal: VaultJournalDao
+    ) = SecureVaultRepository(vaultDao, crypto, dir, journal, decoyDir)
 }
