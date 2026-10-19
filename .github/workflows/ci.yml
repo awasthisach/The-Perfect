@@ -3,9 +3,9 @@ name: VVF Smart Manager CI & Quality Gate
 
 on:
   push:
-    branches: ["main", "develop"]
+    branches: ["main", "develop", "candidate/**"]
   pull_request:
-    branches: ["main", "develop"]
+    branches: ["main", "develop", "candidate/**"]
   workflow_dispatch:
 
 permissions:
@@ -246,9 +246,40 @@ jobs:
           outcome = os.environ.get("ORT_STEP_OUTCOME", "unknown")
           evaluator = os.environ.get("ORT_EVALUATOR_EXIT_CODE", "")
           advisor = os.environ.get("ORT_ADVISOR_EXIT_CODE", "")
-          # Upstream ORT action may emit empty advisor-exit-code (output name bug).
-          advisor_ok = advisor in ("0", "", "null", "None")
-          status = "PASS" if outcome == "success" and evaluator == "0" and advisor_ok else "BLOCKED"
+
+          # Empty advisor-exit-code is NOT proof of success (upstream action bug).
+          # PASS requires: step success + evaluator 0 + (advisor explicitly 0
+          # OR local ORT evaluation/advisor result files present after a successful step).
+          artifact_paths = []
+          for pattern in ("*evaluation-result*", "*advisor-result*", "ort-results/**", "ort/**/*.json"):
+              artifact_paths.extend(str(p) for p in Path(".").glob(pattern) if p.is_file())
+          for d in (Path("ort-results"), Path("ort"), Path("results")):
+              if d.is_dir():
+                  artifact_paths.extend(str(p) for p in d.rglob("*.json") if p.is_file())
+          has_artifacts = len(artifact_paths) > 0
+
+          if outcome != "success" or evaluator != "0":
+              status = "BLOCKED"
+              reason = "ORT step failed or evaluator exit code is not 0; review ORT result artifacts"
+          elif advisor == "0":
+              status = "PASS"
+              reason = "ORT evaluator and advisor exit codes are 0; step succeeded"
+          elif advisor in ("", "null", "None") and has_artifacts and outcome == "success":
+              status = "PASS"
+              reason = (
+                  "advisor-exit-code empty (upstream action bug) but ORT step succeeded "
+                  "with evaluator 0 and local ORT result files present; fail-on=violations,issues already enforced by action"
+              )
+          elif advisor in ("", "null", "None"):
+              status = "BLOCKED"
+              reason = (
+                  "advisor-exit-code empty and no local ORT evaluation/advisor result files found; "
+                  "not treating empty advisor code as success"
+              )
+          else:
+              status = "BLOCKED"
+              reason = f"ORT advisor exit code is {advisor!r}; review advisor findings"
+
           result = {
               "gate_id": "GATE-LICENSE-001",
               "scanner": "OSS Review Toolkit (ORT)",
@@ -256,12 +287,14 @@ jobs:
               "scan_revision": os.environ["SCAN_REVISION"],
               "ort_action_outcome": outcome,
               "evaluator_exit_code": evaluator or None,
-              "advisor_exit_code": advisor or None,
-              "advisor_exit_code_note": "empty advisor code treated as OK when ort step succeeded (upstream action bug workaround)",
-              "reason": "ORT evaluator completed successfully; advisor gated by step outcome" if status == "PASS" else "ORT failed or reported policy/security findings; review ORT result artifacts"
+              "advisor_exit_code": advisor if advisor not in ("", "null", "None") else None,
+              "advisor_exit_code_empty": advisor in ("", "null", "None"),
+              "ort_result_files_found": has_artifacts,
+              "ort_result_file_count": len(artifact_paths),
+              "reason": reason,
           }
           Path("ort-status.json").write_text(json.dumps(result, indent=2) + "\n")
-          print(json.dumps(result))
+          print(json.dumps(result, indent=2))
           if status != "PASS":
               raise SystemExit(1)
           PY
