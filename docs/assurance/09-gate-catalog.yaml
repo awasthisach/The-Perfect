@@ -61,14 +61,14 @@ gates:
   - id: GATE-LICENSE-001
     name: license_compliance
     owner: supply-chain
-    command: fossa analyze
+    command: oss-review-toolkit/ort-ci-github-action
     threshold: scan executed and policy result recorded
-    evidence: foss-status.json
+    evidence: ort-status.json
     blocking: true
     notes: |
-      CI records BLOCKED in foss-status.json when FOSSA_API_KEY is absent so
-      unit/build gates remain observable. Release/promotion MUST require
-      foss-status.status == PASS (fail-closed for production ship).
+      CI records BLOCKED in ort-status.json when ORT finds violations/issues.
+      Release/promotion MUST require ort-status.status == PASS (fail-closed).
+      FOSSA is retired; license authority is ORT only.
 
   - id: GATE-RELEASE-001
     name: signed_release_identity
@@ -84,4 +84,4 @@ policy:
   missing_evidence: BLOCKED
   expired_evidence: BLOCKED
   unknown_gate_id: BLOCKED
-  release_requires_fossa_pass: true
+  release_requires_ort_pass: true
