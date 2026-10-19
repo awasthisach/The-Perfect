@@ -266,6 +266,10 @@ jobs:
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK"
           SHA="$(sha256sum "$APK" | awk '{print $1}')"
           CERT_FP="$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$APK" 2>/dev/null | grep -i 'SHA-256 digest' | head -n1 || true)"
+          test -n "$CERT_FP" || {
+            echo "::error::APK signer SHA-256 certificate fingerprint could not be extracted"
+            exit 1
+          }
           mkdir -p release-meta
           {
             echo "apk_path=$APK"
