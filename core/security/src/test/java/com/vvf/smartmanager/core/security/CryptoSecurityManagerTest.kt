@@ -46,6 +46,11 @@ class CryptoSecurityManagerTest {
     }
 
     @Test
+    fun pinHashUsesConfiguredPbkdf2IterationCount() {
+        assertEquals(600_000, CryptoSecurityManager.PBKDF2_ITERATIONS)
+    }
+
+    @Test
     fun byteEncryptionDecryptsToOriginalPayload() {
         val original = "VVF Smart Manager confidential metadata".toByteArray(Charsets.UTF_8)
         val (encrypted, iv) = crypto.encryptBytes(original)
@@ -117,6 +122,8 @@ class CryptoSecurityManagerTest {
     @Test
     fun realAndDecoyPinsRemainDistinct() {
         assertTrue(crypto.setupVaultPin("2468"))
+        assertFalse("A decoy PIN must not equal the real PIN", crypto.setupDecoyPin("2468"))
+        assertFalse(crypto.isDecoyVaultConfigured())
         assertTrue(crypto.setupDecoyPin("654321"))
 
         assertEquals(
@@ -127,7 +134,54 @@ class CryptoSecurityManagerTest {
             CryptoSecurityManager.VaultAuthResult.SUCCESS_DECOY,
             crypto.verifyVaultPinWithResult("654321")
         )
+        assertFalse(crypto.verifyDecoyPin("2468"))
+        assertTrue(crypto.verifyDecoyPin("654321"))
         assertTrue(crypto.verifyVaultPinWithResult("1357") is CryptoSecurityManager.VaultAuthResult.INVALID_PIN)
+    }
+
+    @Test
+    fun pinMetadataPersistsAcrossFreshManagerInstance() {
+        assertTrue(crypto.setupVaultPin("2468"))
+        assertTrue(crypto.setupDecoyPin("654321"))
+
+        val freshManager = CryptoSecurityManager(context, "Robolectric")
+        assertEquals(
+            CryptoSecurityManager.VaultAuthResult.SUCCESS_REAL,
+            freshManager.verifyVaultPinWithResult("2468")
+        )
+        assertEquals(
+            CryptoSecurityManager.VaultAuthResult.SUCCESS_DECOY,
+            freshManager.verifyVaultPinWithResult("654321")
+        )
+    }
+
+    @Test
+    fun removingDecoyPinDisablesDecoyAuthentication() {
+        assertTrue(crypto.setupVaultPin("2468"))
+        assertTrue(crypto.setupDecoyPin("654321"))
+        assertTrue(crypto.verifyDecoyPin("654321"))
+
+        assertTrue(crypto.removeDecoyPin())
+        assertFalse(crypto.isDecoyVaultConfigured())
+        assertFalse(crypto.verifyDecoyPin("654321"))
+    }
+
+    @Test
+    fun repeatedInvalidPinsTriggerConfiguredLockout() {
+        assertTrue(crypto.setupVaultPin("2468"))
+
+        var lastFailure: CryptoSecurityManager.VaultAuthResult.INVALID_PIN? = null
+        repeat(5) {
+            val result = crypto.verifyVaultPinWithResult("1357")
+            assertTrue(result is CryptoSecurityManager.VaultAuthResult.INVALID_PIN)
+            lastFailure = result as CryptoSecurityManager.VaultAuthResult.INVALID_PIN
+        }
+        assertEquals(5, lastFailure?.failedAttempts)
+        assertEquals(30, lastFailure?.lockoutSeconds)
+
+        val blockedCorrectPin = crypto.verifyVaultPinWithResult("2468")
+        assertTrue(blockedCorrectPin is CryptoSecurityManager.VaultAuthResult.LOCKED_OUT)
+        assertTrue(crypto.getRemainingLockoutSeconds() in 1..30)
     }
 
     @Test

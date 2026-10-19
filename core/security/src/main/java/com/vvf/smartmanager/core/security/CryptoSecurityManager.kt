@@ -78,7 +78,7 @@ class CryptoSecurityManager(
         private const val DB_PASSPHRASE_TEMP_SUFFIX = ".tmp"
         private const val DB_PASSPHRASE_FORMAT_VERSION: Byte = 2
 
-        private const val PBKDF2_ITERATIONS = 600_000
+        internal const val PBKDF2_ITERATIONS = 600_000
         private val memoryKeyMap = mutableMapOf<String, SecretKey>()
 
         @JvmStatic
