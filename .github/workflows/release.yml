@@ -96,8 +96,8 @@ jobs:
           Path("ort-status.json").write_text(json.dumps(result, indent=2) + "\n")
           print(json.dumps(result))
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write("status=" + status + "\\n")
-              output.write("scan_revision=" + os.environ["SCAN_REVISION"] + "\\n")
+              output.write("status=" + status + "\n")
+              output.write("scan_revision=" + os.environ["SCAN_REVISION"] + "\n")
           if status != "PASS":
               raise SystemExit(1)
           PY
