@@ -16,6 +16,7 @@ import com.google.android.gms.common.api.Scope
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -78,15 +79,8 @@ class GoogleDriveAuth(
         return GoogleSignIn.getClient(context, gso).signInIntent
     }
 
-    /**
-     * Handles the Activity result from [buildDriveSignInIntent].
-     * Always inspects [data] for [ApiException] status codes so DEVELOPER_ERROR (10)
-     * is not misreported as a user cancel.
-     */
     suspend fun handleSignInActivityResult(resultCode: Int, data: Intent?): Result<String> =
         withContext(Dispatchers.IO) {
-            // Prefer parsing the intent payload — Google often returns status here even when
-            // resultCode is RESULT_CANCELED (e.g. DEVELOPER_ERROR / code 10).
             if (data != null) {
                 try {
                     val account = GoogleSignIn.getSignedInAccountFromIntent(data).await()
@@ -96,7 +90,6 @@ class GoogleDriveAuth(
                 } catch (e: ApiException) {
                     return@withContext Result.failure(IllegalStateException(mapApiException(e), e))
                 } catch (e: CancellationException) { throw e } catch (e: Exception) {
-                    // Fall through to resultCode handling
                     if (resultCode == Activity.RESULT_OK) {
                         return@withContext Result.failure(e)
                     }
@@ -154,17 +147,19 @@ class GoogleDriveAuth(
                 firebaseAuth.signOut()
                 Result.failure(IllegalStateException("Google Drive and Firebase accounts did not match; linked sessions cleared"))
             } else Result.success(Unit)
-        } catch (e: CancellationException) { throw e } catch (e: Exception) {
+        } catch (e: CancellationException) {
+            withContext(NonCancellable) {
+                driveService?.setAccessToken(null)
+                firebaseAuth.signOut()
+            }
+            throw e
+        } catch (e: Exception) {
             driveService?.setAccessToken(null)
             firebaseAuth.signOut()
             Result.failure(IllegalStateException("Firebase sign-in failed; no linked session was kept", e))
         }
     }
 
-    /**
-     * Refresh Drive access silently only when both an existing Google session and a matching
-     * Firebase session exist. This method never starts interactive account selection.
-     */
     suspend fun silentRefreshDriveAccessToken(): Result<String> = withContext(Dispatchers.IO) {
         val account = GoogleSignIn.getLastSignedInAccount(context)
             ?: run {
@@ -185,7 +180,6 @@ class GoogleDriveAuth(
         accessTokenForAccount(account.account)
     }
 
-    /** Returns the verified email shared by the existing Google and Firebase sessions. */
     suspend fun getMatchingAccountEmail(): Result<String> = withContext(Dispatchers.IO) {
         val account = GoogleSignIn.getLastSignedInAccount(context)
             ?: run {
@@ -207,7 +201,6 @@ class GoogleDriveAuth(
         Result.success(googleEmail)
     }
 
-    /** Firebase ID token for backend calls. Never substitute the Drive access token. */
     suspend fun getFirebaseIdToken(): Result<String> {
         return try {
             val user = firebaseAuth.currentUser
@@ -247,7 +240,6 @@ class GoogleDriveAuth(
     }
 
     suspend fun signOut() = withContext(Dispatchers.IO) {
-        // Clear the in-memory Drive bearer before ending either identity session.
         driveService?.setAccessToken(null)
         firebaseAuth.signOut()
         try {
@@ -260,7 +252,6 @@ class GoogleDriveAuth(
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
-            // best-effort
         }
     }
 
@@ -268,7 +259,6 @@ class GoogleDriveAuth(
         const val DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
         const val DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 
-        /** Common Google Sign-In [ApiException] status codes → actionable message. */
         fun mapApiException(e: ApiException): String = when (e.statusCode) {
             10 ->
                 "Google Sign-In setup error (code 10 DEVELOPER_ERROR). " +
