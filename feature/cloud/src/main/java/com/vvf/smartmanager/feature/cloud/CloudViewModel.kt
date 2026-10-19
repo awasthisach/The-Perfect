@@ -48,7 +48,6 @@ class CloudViewModel(
         loadBackupHistory(providerType)
     }
 
-    /** Reloads backup history from Drive instead of relying on an in-memory session list. */
     fun loadBackupHistory(providerType: CloudProviderType = _uiState.value.selectedProvider) {
         viewModelScope.launch {
             val result = cloudSyncUseCase.listCloudBackups(providerType)
@@ -74,10 +73,7 @@ class CloudViewModel(
                 accountMap[provider] = cloudSyncUseCase.getAccount(provider)
             }
             _uiState.update {
-                it.copy(
-                    accounts = accountMap,
-                    isLoading = false
-                )
+                it.copy(accounts = accountMap, isLoading = false)
             }
             loadRemoteFiles(_uiState.value.selectedProvider)
         }
@@ -87,14 +83,12 @@ class CloudViewModel(
         _uiState.update { it.copy(includeVaultInBackup = enabled) }
     }
 
-    /** Prepares visible state before the activity launches the Google sign-in intent. */
     fun beginGoogleDriveSignIn() {
         _uiState.update {
             it.copy(isLoading = true, statusMessage = "Choose a Google account to connect Drive…")
         }
     }
 
-    /** Completes the activity-owned Google sign-in flow and validates the resulting Drive token. */
     fun completeGoogleDriveSignIn(accessTokenResult: Result<String>) {
         viewModelScope.launch {
             val token = accessTokenResult.getOrElse { error ->
@@ -130,7 +124,6 @@ class CloudViewModel(
         }
     }
 
-    /** Updates UI state after Activity has cleared Google/Firebase sessions and local Drive index. */
     fun completeGoogleDriveSignOut() {
         googleDriveService.setAccessToken(null)
         _uiState.update { state ->
@@ -229,17 +222,20 @@ class CloudViewModel(
             _uiState.update { it.copy(isLoading = true, statusMessage = "Restoring ${backupInfo.backupName}...") }
             val result = cloudSyncUseCase.restoreCloudBackup(backupInfo)
             if (result.isSuccess) {
+                val restore = result.getOrThrow()
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        statusMessage = "Restored ${backupInfo.backupName} successfully."
+                        statusMessage = "Restored ${backupInfo.backupName} successfully.",
+                        lastRestoreSnapshotToken = restore.snapshotToken
                     )
                 }
             } else {
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        statusMessage = "Restore failed."
+                        statusMessage = "Restore failed: ${result.exceptionOrNull()?.message ?: "unknown error"}",
+                        lastRestoreSnapshotToken = null
                     )
                 }
             }
