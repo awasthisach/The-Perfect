@@ -116,7 +116,6 @@ hiltAndroidRuntime = { group = "com.google.dagger", name = "hilt-android", versi
 hiltCompiler = { group = "com.google.dagger", name = "hilt-compiler", version.ref = "hilt" }
 androidx-hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version.ref = "hiltNavigationCompose" }
 androidx-hilt-work = { group = "androidx.hilt", name = "hilt-work", version.ref = "hiltWork" }
-androidx-hilt-compiler = { group = "com.google.dagger", name = "hilt-compiler", version.ref = "hiltWork" }
 androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }
 androidx-work-testing = { group = "androidx.work", name = "work-testing", version.ref = "workManager" }
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }

@@ -147,7 +147,6 @@ dependencies {
   implementation(libs.firebase.appcheck.recaptcha)
   implementation(libs.hiltAndroidRuntime)
   implementation(libs.androidx.hilt.work)
-  "ksp"(libs.androidx.hilt.compiler)
   implementation("com.google.dagger:dagger:2.60.1")
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)

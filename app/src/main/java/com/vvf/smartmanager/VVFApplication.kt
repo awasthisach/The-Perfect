@@ -60,7 +60,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.io.File
+import dagger.hilt.android.HiltAndroidApp
 
+@HiltAndroidApp
 class VVFApplication : Application(), Configuration.Provider {
 
     companion object {
