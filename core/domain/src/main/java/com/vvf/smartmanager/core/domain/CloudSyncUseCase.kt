@@ -22,14 +22,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 
-/**
- * Unified Cloud Core & Plugin Driver Domain UseCase.
- * Handles authentication, multi-provider syncing, automated database/vault snapshots,
- * and quota analytics across Google Drive (Core) and modular plugins.
- *
- * Successful uploads fail closed unless [cloudSyncDao] durably persists the localPath↔remoteId
- * mapping and checksum needed for process-death recovery and trusted restore.
- */
 class CloudSyncUseCase(
     private val googleDriveService: GoogleDriveService,
     private val pluginDrivers: Map<CloudProviderType, CloudDriverSPI> = emptyMap(),
@@ -44,7 +36,6 @@ class CloudSyncUseCase(
     private val _syncQueue = MutableStateFlow<List<CloudSyncItem>>(emptyList())
     val syncQueue = _syncQueue.asStateFlow()
 
-    /** Serializes backup vs restore so both cannot mutate live storage concurrently. */
     private val archiveMutex = Mutex()
 
     suspend fun authenticateProvider(providerType: CloudProviderType): Result<Boolean> {
@@ -53,15 +44,8 @@ class CloudSyncUseCase(
         } else {
             val driver = pluginDrivers[providerType]
             if (driver != null) {
-                if (driver.authenticate()) {
-                    Result.success(true)
-                } else {
-                    Result.failure(
-                        UnsupportedOperationException(
-                            "${driver.displayName} authentication is not implemented or was not accepted."
-                        )
-                    )
-                }
+                if (driver.authenticate()) Result.success(true)
+                else Result.failure(UnsupportedOperationException("${driver.displayName} authentication is not implemented or was not accepted."))
             } else {
                 Result.failure(IllegalArgumentException("Plugin for ${providerType.displayName} is not installed or enabled."))
             }
@@ -88,38 +72,24 @@ class CloudSyncUseCase(
         } else {
             val driver = pluginDrivers[providerType]
             if (driver != null) {
-                CloudAccount(
-                    providerType = providerType,
-                    displayName = driver.displayName,
-                    isConnected = false,
-                    usedBytes = 0L,
-                    totalBytes = 0L,
-                    autoSyncEnabled = false
-                )
+                CloudAccount(providerType = providerType, displayName = driver.displayName, isConnected = false, usedBytes = 0L, totalBytes = 0L, autoSyncEnabled = false)
             } else {
                 CloudAccount(providerType = providerType, isConnected = false)
             }
         }
     }
 
-    /** Loads persistent backup history from the provider; only Drive metadata-backed entries are shown. */
     suspend fun listCloudBackups(providerType: CloudProviderType): Result<List<CloudBackupInfo>> =
-        if (providerType == CloudProviderType.GOOGLE_DRIVE) {
-            googleDriveService.listDriveBackups()
-        } else {
-            Result.success(emptyList())
-        }
+        if (providerType == CloudProviderType.GOOGLE_DRIVE) googleDriveService.listDriveBackups()
+        else Result.success(emptyList())
 
     suspend fun listRemoteFiles(providerType: CloudProviderType, path: String = "root"): Result<List<FileItem>> {
         return if (providerType == CloudProviderType.GOOGLE_DRIVE) {
             googleDriveService.listDriveFiles(path)
         } else {
             val driver = pluginDrivers[providerType]
-            if (driver != null) {
-                Result.success(driver.listRemoteFiles(path))
-            } else {
-                Result.failure(IllegalStateException("Provider plugin not found"))
-            }
+            if (driver != null) Result.success(driver.listRemoteFiles(path))
+            else Result.failure(IllegalStateException("Provider plugin not found"))
         }
     }
 
@@ -131,18 +101,10 @@ class CloudSyncUseCase(
         val service = archiveService
         if (service == null) {
             _syncState.value = CloudSyncStatus.ERROR
-            return Result.failure(
-                UnsupportedOperationException(
-                    "Cloud backup is unavailable: no real archive/export pipeline is configured for ${providerType.displayName}."
-                )
-            )
+            return Result.failure(UnsupportedOperationException("Cloud backup is unavailable: no real archive/export pipeline is configured for ${providerType.displayName}."))
         }
-
         _syncState.value = CloudSyncStatus.SYNCING
-        return service.createArchive(
-            includeVault = includeVault,
-            includeDatabase = includeDatabase
-        ).fold(
+        return service.createArchive(includeVault = includeVault, includeDatabase = includeDatabase).fold(
             onSuccess = { artifact ->
                 try {
                     val fileItem = FileItem(
@@ -159,15 +121,8 @@ class CloudSyncUseCase(
                         val driver = pluginDrivers[providerType]
                             ?: return@fold Result.failure(IllegalStateException("Provider plugin not found"))
                         val uploaded = driver.uploadFile(fileItem, "root")
-                        if (uploaded != null) {
-                            Result.success(uploaded.remoteId)
-                        } else {
-                            Result.failure(
-                                IllegalStateException(
-                                    "${driver.displayName} rejected the backup upload or is not configured"
-                                )
-                            )
-                        }
+                        if (uploaded != null) Result.success(uploaded.remoteId)
+                        else Result.failure(IllegalStateException("${driver.displayName} rejected the backup upload or is not configured"))
                     }
                     uploadResult.fold(
                         onSuccess = { remoteId ->
@@ -207,15 +162,11 @@ class CloudSyncUseCase(
         )
     }
 
-    suspend fun restoreCloudBackup(backupInfo: CloudBackupInfo): Result<Boolean> = archiveMutex.withLock {
+    suspend fun restoreCloudBackup(backupInfo: CloudBackupInfo): Result<RestoreResult> = archiveMutex.withLock {
         val pipeline = restorePipeline
         if (pipeline == null) {
             _syncState.value = CloudSyncStatus.ERROR
-            return Result.failure(
-                UnsupportedOperationException(
-                    "Cloud restore is unavailable: no FailClosedRestorePipeline is configured for ${backupInfo.backupName}."
-                )
-            )
+            return Result.failure(UnsupportedOperationException("Cloud restore is unavailable: no FailClosedRestorePipeline is configured for ${backupInfo.backupName}."))
         }
         if (backupInfo.backupId.isBlank()) {
             _syncState.value = CloudSyncStatus.ERROR
@@ -247,9 +198,7 @@ class CloudSyncUseCase(
         val trustedChecksum = persistedChecksum ?: remoteChecksum
         if (trustedChecksum == null) {
             _syncState.value = CloudSyncStatus.ERROR
-            return Result.failure(
-                IllegalStateException("No trusted SHA-256 is available locally or in Google Drive metadata; refusing restore")
-            )
+            return Result.failure(IllegalStateException("No trusted SHA-256 is available locally or in Google Drive metadata; refusing restore"))
         }
         if (suppliedChecksum != null && !suppliedChecksum.equals(trustedChecksum, ignoreCase = true)) {
             _syncState.value = CloudSyncStatus.ERROR
@@ -259,7 +208,7 @@ class CloudSyncUseCase(
             onSuccess = { result: RestoreResult ->
                 if (result.success) {
                     _syncState.value = CloudSyncStatus.SUCCESS
-                    Result.success(true)
+                    Result.success(result)
                 } else {
                     _syncState.value = CloudSyncStatus.ERROR
                     Result.failure(IllegalStateException(result.message.ifBlank { "Restore completed without success" }))
@@ -286,9 +235,7 @@ class CloudSyncUseCase(
                 val driver = pluginDrivers[providerType]
                     ?: throw IllegalStateException("Provider plugin not found")
                 val uploaded = driver.uploadFile(fileItem, "root")
-                    ?: throw IllegalStateException(
-                        "${driver.displayName} rejected the upload or is not configured"
-                    )
+                    ?: throw IllegalStateException("${driver.displayName} rejected the upload or is not configured")
                 uploaded.remoteId
             }
             val remoteId = DurableUploadContract.requireDurableRemoteId(rawRemoteId)
