@@ -1,4 +1,5 @@
 name: VVF Smart Manager CI & Quality Gate
+# Candidate workflow: ORT is the active license-compliance gate; FOSSA is retired.
 
 on:
   push:
