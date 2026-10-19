@@ -21,7 +21,8 @@ jobs:
   release:
     name: Build Signed Release
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    # ORT source scanning may take >90 minutes; leave headroom beyond its 180-minute gate.
+    timeout-minutes: 240
 
     steps:
       - name: Checkout Repository
