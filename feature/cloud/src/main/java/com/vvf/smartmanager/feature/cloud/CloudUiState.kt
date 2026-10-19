@@ -20,5 +20,7 @@ data class CloudUiState(
     val isBackingUp: Boolean = false,
     val includeVaultInBackup: Boolean = false,
     val backupHistory: List<CloudBackupInfo> = emptyList(),
-    val statusMessage: String? = null
+    val statusMessage: String? = null,
+    /** Non-null after a successful restore; use with pipeline.rollback when supported. */
+    val lastRestoreSnapshotToken: String? = null
 )
