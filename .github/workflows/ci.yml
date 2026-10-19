@@ -197,26 +197,88 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  license_compliance:
-    name: Open Source License Compliance (ORT)
+  open_source_compliance:
+    name: Open Source Compliance (ORT)
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # ORT ScanCode exceeded 180 minutes on the latest candidate before
+    # evaluation/advisor/SBOM completed. Keep the full checks enabled and allow
+    # a bounded 330-minute window (below GitHub-hosted runner's 360-minute cap).
+    timeout-minutes: 330
+    permissions:
+      contents: read
     steps:
-      - name: Checkout Repository
+      - name: Checkout exact candidate revision
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
-      - name: Record ORT-only license gate status
+      # ORT's embedded Git/JGit downloader cannot use the ephemeral runner SSH agent.
+      # Rewrite GitHub SSH clone URLs to HTTPS before ORT starts, as recommended by ORT.
+      - name: Use HTTPS instead of SSH for GitHub source downloads
         run: |
-          set -euo pipefail
-          cat > foss-status.json <<'EOF'
-          {"gate_id":"GATE-LICENSE-001","status":"PASS","tool":"ort","reason":"FOSSA removed from CI; license compliance is ORT-only. Release promotion still requires ORT human triage (#136).","policy":"CI advisory PASS; release uses ORT report + issue #136"}
-          EOF
-          echo "GATE-LICENSE-001: ORT-only policy recorded (FOSSA steps removed)."
+          git config --global --add url.https://github.com/.insteadOf ssh://git@github.com/
+          git config --global --add url.https://github.com/.insteadOf git@github.com:
+      - name: Run OSS Review Toolkit (license, source scan, vulnerability and policy checks)
+        id: ort
+        uses: oss-review-toolkit/ort-ci-github-action@70149d4579e446b0312f8b80fdd8d465a91e4391 # pinned commit
+        with:
+          sw-name: The-Perfect
+          sw-version: ${{ github.event.pull_request.head.sha || github.sha }}
+          ort-config-revision: 5075f4308109384c98a6a2fab53246f7b60d59f4
+          # Enable project-scoped .ort.yml package curations; default ORT config disables them.
+          ort-cli-args: -P ort.enableRepositoryPackageCurations=true
+          run: >-
+            cache-dependencies,
+            labels,
+            analyzer,
+            scanner,
+            evaluator,
+            advisor,
+            reporter,
+            upload-results,
+            upload-evaluation-result,
+            upload-advisor-result,
+            upload-scan-result
+          fail-on: 'violations,issues'
 
-      - name: Upload license gate status
+      - name: Record OSS compliance gate status
+        if: always()
+        env:
+          ORT_STEP_OUTCOME: ${{ steps.ort.outcome }}
+          ORT_EVALUATOR_EXIT_CODE: ${{ steps.ort.outputs.evaluator-exit-code }}
+          ORT_ADVISOR_EXIT_CODE: ${{ steps.ort.outputs.advisor-exit-code }}
+          SCAN_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          outcome = os.environ.get("ORT_STEP_OUTCOME", "unknown")
+          evaluator = os.environ.get("ORT_EVALUATOR_EXIT_CODE", "")
+          advisor = os.environ.get("ORT_ADVISOR_EXIT_CODE", "")
+          status = "PASS" if outcome == "success" and evaluator == "0" and advisor == "0" else "BLOCKED"
+          result = {
+              "gate_id": "GATE-LICENSE-001",
+              "scanner": "OSS Review Toolkit (ORT)",
+              "status": status,
+              "scan_revision": os.environ["SCAN_REVISION"],
+              "ort_action_outcome": outcome,
+              "evaluator_exit_code": evaluator or None,
+              "advisor_exit_code": advisor or None,
+              "reason": "ORT evaluator and advisor completed successfully" if status == "PASS" else "ORT failed or reported policy/security findings; review ORT result artifacts"
+          }
+          Path("ort-status.json").write_text(json.dumps(result, indent=2) + "\n")
+          print(json.dumps(result))
+          if status != "PASS":
+              raise SystemExit(1)
+          PY
+
+      - name: Upload OSS compliance gate status
+        if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: foss-status
-          path: foss-status.json
+          name: ort-status
+          path: ort-status.json
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
