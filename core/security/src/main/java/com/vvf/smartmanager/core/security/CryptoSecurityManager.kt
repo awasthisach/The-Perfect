@@ -20,7 +20,6 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
-import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
@@ -42,9 +41,6 @@ class CryptoSecurityManager(
     private val context: Context,
     private val keyStoreProvider: String = ANDROID_KEYSTORE
 ) {
-
-    @Inject
-    constructor(context: Context) : this(context, ANDROID_KEYSTORE)
 
     companion object {
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
