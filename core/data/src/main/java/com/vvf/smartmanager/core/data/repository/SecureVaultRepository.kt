@@ -20,7 +20,8 @@ class SecureVaultRepository(
     private val vaultDao: VaultDao,
     private val cryptoManager: CryptoSecurityManager,
     private val vaultDirectory: File,
-    private val vaultJournalDao: VaultJournalDao
+    private val vaultJournalDao: VaultJournalDao,
+    private val decoyVaultDirectory: File = File(vaultDirectory.absoluteFile.parentFile, "vvf_decoy_vault_encrypted")
 ) {
     fun getAllVaultItems(isDecoy: Boolean = false): Flow<List<VaultItem>> =
         vaultDao.getAllVaultItems(isDecoy).map { list -> list.map { it.toDomainModel() } }
@@ -37,7 +38,7 @@ class SecureVaultRepository(
 
     suspend fun recoverOrphanedJournals(): Int {
         val pendingJournals = vaultJournalDao.getPendingJournals("PENDING")
-        val canonicalVault = vaultDirectory.canonicalFile
+        val canonicalVaultDirectories = listOf(vaultDirectory, decoyVaultDirectory).map { it.canonicalFile }
         var recoveredCount = 0
 
         for (journal in pendingJournals) {
@@ -47,7 +48,7 @@ class SecureVaultRepository(
                         val encFile = File(journal.vaultPath).canonicalFile
                         // Never trust a persisted journal path for filesystem mutation.
                         // A corrupted/tampered journal must not become an arbitrary-file delete primitive.
-                        if (isInsideDirectory(encFile, canonicalVault) && encFile.exists() && encFile.length() == 0L) {
+                        if (canonicalVaultDirectories.any { isInsideDirectory(encFile, it) } && encFile.exists() && encFile.length() == 0L) {
                             encFile.delete()
                         }
                         vaultJournalDao.updateJournal(journal.copy(status = "FAILED"))
@@ -78,18 +79,18 @@ class SecureVaultRepository(
         }
 
         val canonicalSource = sourceFile.canonicalFile
-        val canonicalVault = vaultDirectory.canonicalFile
-        require(!isInsideDirectory(canonicalSource, canonicalVault)) {
-            "Source file cannot already be inside the vault directory: ${sourceFile.absolutePath}"
+        require(!isInsideAnyVaultDirectory(canonicalSource)) {
+            "Source file cannot already be inside either vault directory: ${sourceFile.absolutePath}"
         }
-
-        require(vaultDirectory.exists() || vaultDirectory.mkdirs()) {
-            "Unable to create secure vault directory: ${vaultDirectory.absolutePath}"
+        val activeVaultDirectory = directoryFor(isDecoy)
+        require(activeVaultDirectory.exists() || activeVaultDirectory.mkdirs()) {
+            "Unable to create secure vault directory: ${activeVaultDirectory.absolutePath}"
         }
+        val canonicalVault = activeVaultDirectory.canonicalFile
 
         val fileId = UUID.randomUUID().toString()
         val encryptedFileName = "enc_${fileId}.vvf"
-        val destinationFile = File(vaultDirectory, encryptedFileName).canonicalFile
+        val destinationFile = File(activeVaultDirectory, encryptedFileName).canonicalFile
         require(isInsideDirectory(destinationFile, canonicalVault)) {
             "Encrypted destination escaped the secure vault directory"
         }
@@ -170,8 +171,9 @@ class SecureVaultRepository(
         val entity = vaultDao.getVaultItemById(vaultItemId)
             ?: throw IllegalStateException("Vault item not found in database: $vaultItemId")
 
-        val encryptedFile = File(vaultDirectory, entity.encryptedFileName).canonicalFile
-        val canonicalVault = vaultDirectory.canonicalFile
+        val activeVaultDirectory = directoryFor(entity.isDecoy)
+        val encryptedFile = encryptedFileFor(entity)
+        val canonicalVault = activeVaultDirectory.canonicalFile
         require(isInsideDirectory(encryptedFile, canonicalVault)) {
             "Encrypted vault path escaped the isolated secure vault directory"
         }
@@ -196,7 +198,7 @@ class SecureVaultRepository(
         }
 
         val targetCanonical = targetFile.canonicalFile
-        require(!isInsideDirectory(targetCanonical, canonicalVault)) {
+        require(!isInsideAnyVaultDirectory(targetCanonical)) {
             "Restore destination cannot be inside the isolated secure vault directory"
         }
         require(!targetCanonical.exists()) {
@@ -230,9 +232,8 @@ class SecureVaultRepository(
         destinationFile: File
     ): Result<File> = runCatching {
         val canonicalDest = destinationFile.canonicalFile
-        val canonicalVault = vaultDirectory.canonicalFile
-        require(!isInsideDirectory(canonicalDest, canonicalVault)) {
-            "Export destination cannot be inside the isolated secure vault directory"
+        require(!isInsideAnyVaultDirectory(canonicalDest)) {
+            "Export destination cannot be inside either isolated vault directory"
         }
         require(!canonicalDest.exists()) {
             "Export destination already exists; refusing to overwrite plaintext: ${canonicalDest.absolutePath}"
@@ -240,8 +241,9 @@ class SecureVaultRepository(
 
         val entity = vaultDao.getVaultItemById(vaultItemId)
             ?: throw IllegalStateException("Vault item not found in database: $vaultItemId")
-
-        val encryptedFile = File(vaultDirectory, entity.encryptedFileName).canonicalFile
+        val activeVaultDirectory = directoryFor(entity.isDecoy)
+        val canonicalVault = activeVaultDirectory.canonicalFile
+        val encryptedFile = encryptedFileFor(entity)
         require(isInsideDirectory(encryptedFile, canonicalVault)) {
             "Encrypted vault path escaped the isolated secure vault directory"
         }
@@ -273,8 +275,9 @@ class SecureVaultRepository(
     suspend fun deleteVaultItemPermanently(vaultItemId: String): Result<Boolean> = runCatching {
         val entity = vaultDao.getVaultItemById(vaultItemId)
         if (entity != null) {
-            val encryptedFile = File(vaultDirectory, entity.encryptedFileName).canonicalFile
-            val canonicalVault = vaultDirectory.canonicalFile
+            val activeVaultDirectory = directoryFor(entity.isDecoy)
+            val encryptedFile = encryptedFileFor(entity)
+            val canonicalVault = activeVaultDirectory.canonicalFile
             require(isInsideDirectory(encryptedFile, canonicalVault)) {
                 "Encrypted vault path escaped the isolated secure vault directory"
             }
@@ -304,6 +307,41 @@ class SecureVaultRepository(
     fun setBiometricEnabled(enabled: Boolean) = cryptoManager.setBiometricEnabled(enabled)
     fun getAutoLockTimeoutSeconds(): Int = cryptoManager.getAutoLockTimeoutSeconds()
     fun setAutoLockTimeoutSeconds(seconds: Int) = cryptoManager.setAutoLockTimeoutSeconds(seconds)
+
+    private fun directoryFor(isDecoy: Boolean): File =
+        if (isDecoy) decoyVaultDirectory else vaultDirectory
+
+    private fun isInsideAnyVaultDirectory(file: File): Boolean =
+        listOf(vaultDirectory, decoyVaultDirectory).any { isInsideDirectory(file.canonicalFile, it.canonicalFile) }
+
+    /**
+     * Decoy rows created by older builds lived in the real vault directory.
+     * Move their encrypted files on first access to preserve existing data while
+     * establishing separate real/decoy storage directories.
+     */
+    private fun encryptedFileFor(entity: VaultItemEntity): File {
+        val activeDirectory = directoryFor(entity.isDecoy)
+        val activeCanonical = activeDirectory.canonicalFile
+        val expected = File(activeDirectory, entity.encryptedFileName).canonicalFile
+        require(isInsideDirectory(expected, activeCanonical)) {
+            "Encrypted vault path escaped its isolated storage directory"
+        }
+        if (expected.exists() || !entity.isDecoy) return expected
+
+        val legacy = File(vaultDirectory, entity.encryptedFileName).canonicalFile
+        require(isInsideDirectory(legacy, vaultDirectory.canonicalFile)) {
+            "Legacy decoy path escaped the previous vault directory"
+        }
+        if (legacy.isFile) {
+            require(activeDirectory.exists() || activeDirectory.mkdirs()) {
+                "Unable to create decoy vault directory: ${activeDirectory.absolutePath}"
+            }
+            require(legacy.renameTo(expected)) {
+                "Unable to migrate legacy decoy item into its isolated vault directory"
+            }
+        }
+        return expected
+    }
 
     private fun isInsideDirectory(file: File, directory: File): Boolean {
         val filePath = file.canonicalPath
