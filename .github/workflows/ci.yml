@@ -12,10 +12,10 @@ permissions:
   contents: read
 
 concurrency:
-  # One group per PR/branch. Do NOT cancel-in-progress: ORT can run >5h and mid-flight
-  # cancellation yields non-evidence "cancelled" instead of PASS/FAIL + ort-status.
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}
-  cancel-in-progress: false
+  # Include SHA so a new commit is not queued forever behind a multi-hour ORT run
+  # on a previous SHA of the same PR. Same-SHA duplicates still share one group.
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}-${{ github.sha }}
+  cancel-in-progress: true
 
 env:
   UPLOAD_ARTIFACT_ACTION: b7c566a772e6b6bfb58ed0dc250532a479d7789f
@@ -255,9 +255,6 @@ jobs:
           evaluator = os.environ.get("ORT_EVALUATOR_EXIT_CODE", "")
           advisor = os.environ.get("ORT_ADVISOR_EXIT_CODE", "")
 
-          # A green wrapper is insufficient: require explicit evaluator/advisor
-          # success and non-empty outputs for the scanner, evaluator, advisor,
-          # WebApp report, and both SBOM formats enabled by the pinned ORT action.
           required_paths = {
               "scanner_result": os.environ.get("ORT_SCANNER_RESULT_PATH", ""),
               "evaluator_result": os.environ.get("ORT_EVALUATOR_RESULT_PATH", ""),
