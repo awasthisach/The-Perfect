@@ -1,0 +1,64 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR diff
+        id: diff
+        run: |
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          DIFF=$(git diff origin/${{ github.event.pull_request.base.ref }}...HEAD)
+          echo "diff<<EOF" >> $GITHUB_OUTPUT
+          echo "$DIFF" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: AI Review with OpenRouter
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DIFF="${{ steps.diff.outputs.diff }}"
+          DIFF="${DIFF:0:8000}"
+
+          # API कॉल करें और HTTP स्टेटस कोड भी सेव करें
+          HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" https://openrouter.ai/api/v1/chat/completions \
+            -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg diff "$DIFF" '{
+              model: "meta-llama/llama-4-maverick:free",
+              messages: [{
+                role: "user",
+                content: "Review this code diff. List issues as: [SEVERITY] file:line - description. Severities: ERROR, WARNING, SUGGESTION. Be concise.\n\n" + $diff
+              }]
+            }')")
+
+          HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
+          RESPONSE_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
+
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            # यदि API कॉल विफल हो, तो त्रुटि संदेश निकालें और PR में पोस्ट करें
+            ERROR_MSG=$(echo "$RESPONSE_BODY" | jq -r '.error.message // "Unknown API error"')
+            COMMENT="❌ AI Review failed (HTTP $HTTP_CODE). Reason: $ERROR_MSG"
+          else
+            # सफल होने पर AI का जवाब निकालें
+            COMMENT=$(echo "$RESPONSE_BODY" | jq -r '.choices[0].message.content // "AI returned empty response"')
+          fi
+
+          # PR में कमेंट पोस्ट करें (सुरक्षित तरीके से)
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body "## AI Code Review (Llama 4 Maverick)
+
+          $COMMENT"
