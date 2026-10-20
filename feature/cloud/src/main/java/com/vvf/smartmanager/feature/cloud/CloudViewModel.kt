@@ -242,6 +242,34 @@ class CloudViewModel(
         }
     }
 
+    fun rollbackLastRestore() {
+        val snapshotToken = _uiState.value.lastRestoreSnapshotToken
+        if (snapshotToken.isNullOrBlank()) {
+            _uiState.update { it.copy(statusMessage = "No active restore snapshot is available to roll back.") }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, statusMessage = "Rolling back the last restore...") }
+            val result = cloudSyncUseCase.rollbackRestore(snapshotToken)
+            if (result.isSuccess) {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        lastRestoreSnapshotToken = null,
+                        statusMessage = "Restore rolled back; previous local data was recovered."
+                    )
+                }
+            } else {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        statusMessage = "Rollback failed: ${result.exceptionOrNull()?.message ?: "unknown error"}"
+                    )
+                }
+            }
+        }
+    }
+
     fun clearStatusMessage() {
         _uiState.update { it.copy(statusMessage = null) }
     }
