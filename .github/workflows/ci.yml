@@ -1,5 +1,6 @@
 name: VVF Smart Manager CI & Quality Gate
 # Candidate workflow: ORT is the active license-compliance gate; FOSSA is retired.
+# ORT gate paths follow oss-review-toolkit/ort-ci-github-action@70149d4 action.yml outputs.
 
 on:
   push:
@@ -13,7 +14,6 @@ permissions:
 
 concurrency:
   # A new SHA must run independently of a multi-hour ORT scan on an older SHA.
-  # Same-SHA duplicates share a group; obsolete older runs may need manual cancellation.
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}-${{ github.sha }}
   cancel-in-progress: true
 
@@ -233,6 +233,11 @@ jobs:
             upload-scan-result
           fail-on: 'violations,issues'
 
+      # Gate rules align with ort-ci-github-action@70149d4:
+      # - fail-on violations/issues fails the composite step when evaluator/advisor exit-code is 2
+      # - result files live under $HOME/.ort/ort-results/ (action.yml ort-init)
+      # - step outputs for paths/exit-codes are often empty after a failed composite; fall back to those paths
+      # - upstream advisor step writes evaluate exit-code into its GITHUB_OUTPUT (action.yml bug); do not treat empty advisor code alone as PASS without files
       - name: Record OSS compliance gate status
         if: always()
         env:
@@ -246,44 +251,78 @@ jobs:
           ORT_CYCLONEDX_JSON_PATH: ${{ steps.ort.outputs.results-sbom-cyclonedx-json-path }}
           ORT_SPDX_JSON_PATH: ${{ steps.ort.outputs.results-sbom-spdx-json-path }}
           SCAN_REVISION: ${{ github.sha }}
+          HOME: ${{ env.HOME }}
         run: |
           python3 - <<'PY'
           import json, os
           from pathlib import Path
 
           outcome = os.environ.get("ORT_STEP_OUTCOME", "unknown")
-          evaluator = os.environ.get("ORT_EVALUATOR_EXIT_CODE", "")
-          advisor = os.environ.get("ORT_ADVISOR_EXIT_CODE", "")
+          evaluator = (os.environ.get("ORT_EVALUATOR_EXIT_CODE") or "").strip()
+          advisor = (os.environ.get("ORT_ADVISOR_EXIT_CODE") or "").strip()
 
-          required_paths = {
-              "scanner_result": os.environ.get("ORT_SCANNER_RESULT_PATH", ""),
-              "evaluator_result": os.environ.get("ORT_EVALUATOR_RESULT_PATH", ""),
-              "advisor_result": os.environ.get("ORT_ADVISOR_RESULT_PATH", ""),
-              "web_app_report": os.environ.get("ORT_WEB_APP_PATH", ""),
-              "cyclonedx_json_sbom": os.environ.get("ORT_CYCLONEDX_JSON_PATH", ""),
-              "spdx_json_sbom": os.environ.get("ORT_SPDX_JSON_PATH", ""),
+          # Official default paths from ort-ci-github-action action.yml (ort-init step).
+          results_dir = Path(os.environ.get("HOME", "/home/runner")) / ".ort" / "ort-results"
+          defaults = {
+              "scanner_result": results_dir / "scan-result.json",
+              "evaluator_result": results_dir / "evaluation-result.json",
+              "advisor_result": results_dir / "advisor-result.json",
+              "web_app_report": results_dir / "scan-report-web-app.html",
+              "cyclonedx_json_sbom": results_dir / "bom.cyclonedx.json",
+              "spdx_json_sbom": results_dir / "bom.spdx.json",
           }
+          env_keys = {
+              "scanner_result": "ORT_SCANNER_RESULT_PATH",
+              "evaluator_result": "ORT_EVALUATOR_RESULT_PATH",
+              "advisor_result": "ORT_ADVISOR_RESULT_PATH",
+              "web_app_report": "ORT_WEB_APP_PATH",
+              "cyclonedx_json_sbom": "ORT_CYCLONEDX_JSON_PATH",
+              "spdx_json_sbom": "ORT_SPDX_JSON_PATH",
+          }
+
           missing_outputs = []
           output_evidence = {}
-          for name, raw_path in required_paths.items():
-              path = Path(raw_path) if raw_path else None
-              exists = bool(path and path.is_file() and path.stat().st_size > 0)
-              output_evidence[name] = {"path": raw_path or None, "non_empty_file": exists}
+          for name, default_path in defaults.items():
+              raw = (os.environ.get(env_keys[name]) or "").strip()
+              path = Path(raw) if raw else default_path
+              exists = path.is_file() and path.stat().st_size > 0
+              output_evidence[name] = {
+                  "path": str(path),
+                  "from_step_output": bool(raw),
+                  "non_empty_file": exists,
+              }
               if not exists:
                   missing_outputs.append(name)
 
-          if outcome != "success" or evaluator != "0":
+          # Official action fails the job when exit-code is 2 (severity threshold).
+          policy_fail = evaluator == "2" or advisor == "2"
+
+          if policy_fail:
               status = "BLOCKED"
-              reason = "ORT step failed or evaluator exit code is not 0; review ORT result artifacts"
-          elif advisor != "0":
-              status = "BLOCKED"
-              reason = "ORT advisor exit code is missing or non-zero; a successful wrapper step is insufficient evidence"
+              reason = (
+                  "ORT evaluator/advisor exit code 2: policy violations or security issues "
+                  "exceeded severity threshold (fail-on=violations,issues)"
+              )
           elif missing_outputs:
               status = "BLOCKED"
-              reason = "Required ORT result/SBOM outputs are missing or empty: " + ", ".join(missing_outputs)
+              reason = (
+                  "Required ORT result/SBOM files missing or empty under "
+                  f"{results_dir}: " + ", ".join(missing_outputs)
+              )
+          elif outcome != "success":
+              status = "BLOCKED"
+              reason = (
+                  f"ORT composite step outcome is {outcome!r} with no exit-code=2; "
+                  "review job logs and uploaded ort-results artifacts"
+              )
           else:
+              # outcome success + all required files present.
+              # Empty exit codes: known when composite outputs do not propagate; files are authoritative.
               status = "PASS"
-              reason = "ORT evaluator/advisor exit codes are 0 and required scanner, report, and SBOM outputs are non-empty"
+              reason = (
+                  "ORT step succeeded, fail-on did not trip exit-code 2, and required "
+                  "scanner/evaluator/advisor/WebApp/CycloneDX/SPDX files are non-empty"
+              )
 
           result = {
               "gate_id": "GATE-LICENSE-001",
@@ -292,10 +331,12 @@ jobs:
               "scan_revision": os.environ["SCAN_REVISION"],
               "ort_action_outcome": outcome,
               "evaluator_exit_code": evaluator or None,
-              "advisor_exit_code": advisor if advisor not in ("", "null", "None") else None,
-              "advisor_exit_code_empty": advisor in ("", "null", "None"),
+              "advisor_exit_code": advisor or None,
+              "advisor_exit_code_empty": advisor == "",
+              "policy_threshold_exit_2": policy_fail,
               "required_outputs": output_evidence,
               "missing_required_outputs": missing_outputs,
+              "ort_action_ref": "oss-review-toolkit/ort-ci-github-action@70149d4579e446b0312f8b80fdd8d465a91e4391",
               "reason": reason,
           }
           Path("ort-status.json").write_text(json.dumps(result, indent=2) + "\n")
