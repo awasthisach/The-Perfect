@@ -1,0 +1,79 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check OpenRouter secret
+        id: secret
+        env:
+          KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::OPENROUTER_API_KEY not set; AI review skipped."
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.secret.outputs.present == 'true'
+        with:
+          fetch-depth: 0
+
+      - name: AI Review with OpenRouter
+        if: steps.secret.outputs.present == 'true'
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+
+          git fetch origin "$BASE_REF" --depth=50
+          # Write diff to file — never expand untrusted PR content into the shell
+          git diff "origin/${BASE_REF}...HEAD" > /tmp/pr.diff
+          head -c 12000 /tmp/pr.diff > /tmp/pr.truncated.diff
+
+          HTTP_RESPONSE=$(jq -n --rawfile diff /tmp/pr.truncated.diff '{
+            model: "meta-llama/llama-4-maverick:free",
+            messages: [{
+              role: "user",
+              content: ("Review this code diff. List issues as: [SEVERITY] file:line - description. Severities: ERROR, WARNING, SUGGESTION. Be concise.\n\n" + $diff)
+            }]
+          }' | curl -sS -w "\n%{http_code}" https://openrouter.ai/api/v1/chat/completions \
+            -H "Authorization: Bearer ${OPENROUTER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "HTTP-Referer: https://github.com/${{ github.repository }}" \
+            -d @-)
+
+          HTTP_CODE=$(printf '%s' "$HTTP_RESPONSE" | tail -n1)
+          RESPONSE_BODY=$(printf '%s' "$HTTP_RESPONSE" | sed '$d')
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            ERROR_MSG=$(printf '%s' "$RESPONSE_BODY" | jq -r '.error.message // "Unknown API error"')
+            COMMENT="AI Review failed (HTTP ${HTTP_CODE}). Reason: ${ERROR_MSG}"
+          else
+            COMMENT=$(printf '%s' "$RESPONSE_BODY" | jq -r '.choices[0].message.content // "AI returned empty response"')
+          fi
+
+          {
+            echo "## AI Code Review (Llama 4 Maverick)"
+            echo
+            echo "$COMMENT"
+          } > /tmp/comment.md
+
+          gh pr comment "$PR_NUMBER" --body-file /tmp/comment.md
