@@ -251,7 +251,6 @@ jobs:
           ORT_CYCLONEDX_JSON_PATH: ${{ steps.ort.outputs.results-sbom-cyclonedx-json-path }}
           ORT_SPDX_JSON_PATH: ${{ steps.ort.outputs.results-sbom-spdx-json-path }}
           SCAN_REVISION: ${{ github.sha }}
-          HOME: ${{ env.HOME }}
         run: |
           python3 - <<'PY'
           import json, os
@@ -308,6 +307,18 @@ jobs:
               reason = (
                   "Required ORT result/SBOM files missing or empty under "
                   f"{results_dir}: " + ", ".join(missing_outputs)
+              )
+          elif outcome != "success":
+              status = "BLOCKED"
+              reason = (
+                  f"ORT composite step outcome is {outcome!r}; review job logs and result artifacts"
+              )
+          elif evaluator != "0" or advisor != "0":
+              status = "BLOCKED"
+              reason = (
+                  "ORT exit-code evidence is incomplete or non-zero: "
+                  f"evaluator={evaluator or 'missing'}, advisor={advisor or 'missing'}. "
+                  "Empty upstream advisor output is not sufficient evidence for PASS."
               )
           elif outcome != "success":
               status = "BLOCKED"
