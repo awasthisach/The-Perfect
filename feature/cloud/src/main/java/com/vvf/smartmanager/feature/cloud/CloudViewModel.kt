@@ -234,8 +234,7 @@ class CloudViewModel(
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        statusMessage = "Restore failed: ${result.exceptionOrNull()?.message ?: "unknown error"}",
-                        lastRestoreSnapshotToken = null
+                        statusMessage = "Restore failed: ${result.exceptionOrNull()?.message ?: "unknown error"}"
                     )
                 }
             }
