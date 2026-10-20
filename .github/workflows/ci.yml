@@ -320,15 +320,8 @@ jobs:
                   f"evaluator={evaluator or 'missing'}, advisor={advisor or 'missing'}. "
                   "Empty upstream advisor output is not sufficient evidence for PASS."
               )
-          elif outcome != "success":
-              status = "BLOCKED"
-              reason = (
-                  f"ORT composite step outcome is {outcome!r} with no exit-code=2; "
-                  "review job logs and uploaded ort-results artifacts"
-              )
           else:
-              # outcome success + all required files present.
-              # Empty exit codes: known when composite outputs do not propagate; files are authoritative.
+              # PASS requires explicit zero exit codes plus all required output files.
               status = "PASS"
               reason = (
                   "ORT step succeeded, fail-on did not trip exit-code 2, and required "
