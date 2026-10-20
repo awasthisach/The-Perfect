@@ -19,11 +19,11 @@ jobs:
       - name: Check OpenRouter secret
         id: secret
         env:
-          KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          KEY: ${{ secrets.OPEN_ROUTER_API }}
         run: |
           if [ -z "$KEY" ]; then
             echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::OPENROUTER_API_KEY not set; AI review skipped."
+            echo "::warning::OPEN_ROUTER_API not set; AI review skipped."
           else
             echo "present=true" >> "$GITHUB_OUTPUT"
           fi
@@ -36,7 +36,7 @@ jobs:
       - name: AI Review with OpenRouter
         if: steps.secret.outputs.present == 'true'
         env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPEN_ROUTER_API: ${{ secrets.OPEN_ROUTER_API }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
@@ -55,7 +55,7 @@ jobs:
               content: ("Review this code diff. List issues as: [SEVERITY] file:line - description. Severities: ERROR, WARNING, SUGGESTION. Be concise.\n\n" + $diff)
             }]
           }' | curl -sS -w "\n%{http_code}" https://openrouter.ai/api/v1/chat/completions \
-            -H "Authorization: Bearer ${OPENROUTER_API_KEY}" \
+            -H "Authorization: Bearer ${OPEN_ROUTER_API}" \
             -H "Content-Type: application/json" \
             -H "HTTP-Referer: https://github.com/${{ github.repository }}" \
             -d @-)
