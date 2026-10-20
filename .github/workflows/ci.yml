@@ -274,8 +274,6 @@ jobs:
               "evaluator_exit_code": evaluator or None,
               "advisor_exit_code": advisor if advisor not in ("", "null", "None") else None,
               "advisor_exit_code_empty": advisor in ("", "null", "None"),
-              "ort_result_files_found": has_artifacts,
-              "ort_result_file_count": len(artifact_paths),
               "reason": reason,
           }
           Path("ort-status.json").write_text(json.dumps(result, indent=2) + "\n")
