@@ -18,6 +18,8 @@ import com.vvf.smartmanager.core.model.CloudProviderType
 import com.vvf.smartmanager.core.model.CloudSyncStatus
 import com.vvf.smartmanager.core.model.FileItem
 import java.io.File
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -61,9 +63,14 @@ class CloudSyncUseCaseTest {
             records.add(entity.copy(id = id))
             return id
         }
-        override suspend fun getAll(): List<CloudSyncEntity> = records.toList()
-        override suspend fun deleteByLocalPath(localPath: String, provider: String) {
-            records.removeAll { it.localPath == localPath && it.provider == provider }
+        override fun getRecordsByProvider(provider: String): Flow<List<CloudSyncEntity>> =
+            flowOf(records.filter { it.provider == provider }.sortedByDescending { it.lastSyncedAt })
+
+        override suspend fun getRecordsByStatus(status: String): List<CloudSyncEntity> =
+            records.filter { it.status == status }
+
+        override suspend fun deleteByLocalPath(localPath: String) {
+            records.removeAll { it.localPath == localPath }
         }
     }
 
