@@ -12,9 +12,9 @@ permissions:
   contents: read
 
 concurrency:
-  # Include SHA so a new commit is not queued forever behind a multi-hour ORT run
-  # on a previous SHA of the same PR. Same-SHA duplicates still share one group.
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}-${{ github.sha }}
+  # Keep one run per PR/branch. A newer commit cancels obsolete runs on older SHAs,
+  # including long-running ORT jobs, instead of letting them consume runner time.
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
 
 env:
