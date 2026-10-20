@@ -12,8 +12,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
-  cancel-in-progress: true
+  # One group per PR/branch. Do NOT cancel-in-progress: ORT can run >5h and mid-flight
+  # cancellation yields non-evidence "cancelled" instead of PASS/FAIL + ort-status.
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: false
 
 env:
   UPLOAD_ARTIFACT_ACTION: b7c566a772e6b6bfb58ed0dc250532a479d7789f
@@ -248,8 +250,6 @@ jobs:
           advisor = os.environ.get("ORT_ADVISOR_EXIT_CODE", "")
 
           # Empty advisor-exit-code is NOT proof of success (upstream action bug).
-          # PASS requires: step success + evaluator 0 + (advisor explicitly 0
-          # OR local ORT evaluation/advisor result files present after a successful step).
           artifact_paths = []
           for pattern in ("*evaluation-result*", "*advisor-result*", "ort-results/**", "ort/**/*.json"):
               artifact_paths.extend(str(p) for p in Path(".").glob(pattern) if p.is_file())
