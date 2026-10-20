@@ -98,6 +98,7 @@ class CloudSyncUseCaseTest {
         )
         assertTrue(backup.isFailure)
         assertTrue(restore.isFailure)
+        assertTrue(useCase.rollbackRestore("snapshot-token").isFailure)
         assertEquals(CloudSyncStatus.ERROR, useCase.syncState.value)
     }
 
@@ -152,6 +153,11 @@ class CloudSyncUseCaseTest {
         val restoreResult = result.getOrThrow()
         assertTrue(restoreResult.success)
         assertFalse(restoreResult.snapshotToken.isNullOrBlank())
+        assertEquals(CloudSyncStatus.SUCCESS, useCase.syncState.value)
+
+        val rollbackToken = requireNotNull(restoreResult.snapshotToken)
+        val rollback = useCase.rollbackRestore(rollbackToken)
+        assertTrue(rollback.isSuccess)
         assertEquals(CloudSyncStatus.SUCCESS, useCase.syncState.value)
     }
 }
