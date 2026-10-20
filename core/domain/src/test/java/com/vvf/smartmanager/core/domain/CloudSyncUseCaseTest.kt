@@ -63,12 +63,18 @@ class CloudSyncUseCaseTest {
             records.add(entity.copy(id = id))
             return id
         }
+        override suspend fun update(entity: CloudSyncEntity) {
+            val existing = records.indexOfFirst {
+                it.id == entity.id || (it.localPath == entity.localPath && it.provider == entity.provider)
+            }
+            if (existing >= 0) {
+                records[existing] = entity.copy(id = records[existing].id)
+            }
+        }
         override fun getRecordsByProvider(provider: String): Flow<List<CloudSyncEntity>> =
             flowOf(records.filter { it.provider == provider }.sortedByDescending { it.lastSyncedAt })
-
         override suspend fun getRecordsByStatus(status: String): List<CloudSyncEntity> =
             records.filter { it.status == status }
-
         override suspend fun deleteByLocalPath(localPath: String) {
             records.removeAll { it.localPath == localPath }
         }
