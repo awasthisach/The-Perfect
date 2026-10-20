@@ -239,6 +239,12 @@ jobs:
           ORT_STEP_OUTCOME: ${{ steps.ort.outcome }}
           ORT_EVALUATOR_EXIT_CODE: ${{ steps.ort.outputs.evaluator-exit-code }}
           ORT_ADVISOR_EXIT_CODE: ${{ steps.ort.outputs.advisor-exit-code }}
+          ORT_SCANNER_RESULT_PATH: ${{ steps.ort.outputs.results-scanner-path }}
+          ORT_EVALUATOR_RESULT_PATH: ${{ steps.ort.outputs.results-evaluator-path }}
+          ORT_ADVISOR_RESULT_PATH: ${{ steps.ort.outputs.results-advisor-path }}
+          ORT_WEB_APP_PATH: ${{ steps.ort.outputs.results-web-app-path }}
+          ORT_CYCLONEDX_JSON_PATH: ${{ steps.ort.outputs.results-sbom-cyclonedx-json-path }}
+          ORT_SPDX_JSON_PATH: ${{ steps.ort.outputs.results-sbom-spdx-json-path }}
           SCAN_REVISION: ${{ github.sha }}
         run: |
           python3 - <<'PY'
@@ -249,21 +255,38 @@ jobs:
           evaluator = os.environ.get("ORT_EVALUATOR_EXIT_CODE", "")
           advisor = os.environ.get("ORT_ADVISOR_EXIT_CODE", "")
 
-          # Do not infer a clean scan from unrelated JSON files or a successful
-          # wrapper step. The advisor exit code must be explicitly reported as 0.
-          # Missing output is an upstream/action-contract problem and remains BLOCKED.
+          # A green wrapper is insufficient: require explicit evaluator/advisor
+          # success and non-empty outputs for the scanner, evaluator, advisor,
+          # WebApp report, and both SBOM formats enabled by the pinned ORT action.
+          required_paths = {
+              "scanner_result": os.environ.get("ORT_SCANNER_RESULT_PATH", ""),
+              "evaluator_result": os.environ.get("ORT_EVALUATOR_RESULT_PATH", ""),
+              "advisor_result": os.environ.get("ORT_ADVISOR_RESULT_PATH", ""),
+              "web_app_report": os.environ.get("ORT_WEB_APP_PATH", ""),
+              "cyclonedx_json_sbom": os.environ.get("ORT_CYCLONEDX_JSON_PATH", ""),
+              "spdx_json_sbom": os.environ.get("ORT_SPDX_JSON_PATH", ""),
+          }
+          missing_outputs = []
+          output_evidence = {}
+          for name, raw_path in required_paths.items():
+              path = Path(raw_path) if raw_path else None
+              exists = bool(path and path.is_file() and path.stat().st_size > 0)
+              output_evidence[name] = {"path": raw_path or None, "non_empty_file": exists}
+              if not exists:
+                  missing_outputs.append(name)
+
           if outcome != "success" or evaluator != "0":
               status = "BLOCKED"
               reason = "ORT step failed or evaluator exit code is not 0; review ORT result artifacts"
-          elif advisor == "0":
-              status = "PASS"
-              reason = "ORT evaluator and advisor exit codes are explicitly 0; ORT step succeeded"
-          elif advisor in ("", "null", "None"):
+          elif advisor != "0":
               status = "BLOCKED"
-              reason = "ORT advisor exit code is missing; a successful wrapper step is insufficient evidence"
+              reason = "ORT advisor exit code is missing or non-zero; a successful wrapper step is insufficient evidence"
+          elif missing_outputs:
+              status = "BLOCKED"
+              reason = "Required ORT result/SBOM outputs are missing or empty: " + ", ".join(missing_outputs)
           else:
-              status = "BLOCKED"
-              reason = f"ORT advisor exit code is {advisor!r}; review advisor findings"
+              status = "PASS"
+              reason = "ORT evaluator/advisor exit codes are 0 and required scanner, report, and SBOM outputs are non-empty"
 
           result = {
               "gate_id": "GATE-LICENSE-001",
@@ -274,6 +297,8 @@ jobs:
               "evaluator_exit_code": evaluator or None,
               "advisor_exit_code": advisor if advisor not in ("", "null", "None") else None,
               "advisor_exit_code_empty": advisor in ("", "null", "None"),
+              "required_outputs": output_evidence,
+              "missing_required_outputs": missing_outputs,
               "reason": reason,
           }
           Path("ort-status.json").write_text(json.dumps(result, indent=2) + "\n")
