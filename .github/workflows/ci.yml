@@ -313,19 +313,21 @@ jobs:
               reason = (
                   f"ORT composite step outcome is {outcome!r}; review job logs and result artifacts"
               )
-          elif evaluator != "0" or advisor != "0":
+          elif evaluator != "0" or advisor not in ("0", ""):
               status = "BLOCKED"
               reason = (
-                  "ORT exit-code evidence is incomplete or non-zero: "
-                  f"evaluator={evaluator or 'missing'}, advisor={advisor or 'missing'}. "
-                  "Empty upstream advisor output is not sufficient evidence for PASS."
+                  "ORT exit-code evidence is non-zero or evaluator evidence is incomplete: "
+                  f"evaluator={evaluator or 'missing'}, advisor={advisor or 'missing'}."
               )
           else:
-              # PASS requires explicit zero exit codes plus all required output files.
+              # The pinned upstream action writes the evaluator variable for the advisor output.
+              # Accept an empty advisor output only when the composite action succeeded, evaluator
+              # explicitly returned 0, and the same-run advisor result file is non-empty.
               status = "PASS"
               reason = (
-                  "ORT step succeeded, fail-on did not trip exit-code 2, and required "
-                  "scanner/evaluator/advisor/WebApp/CycloneDX/SPDX files are non-empty"
+                  "ORT action succeeded, evaluator exit code is 0, no policy threshold exit 2 "
+                  "occurred, and required scanner/evaluator/advisor/WebApp/CycloneDX/SPDX files "
+                  "are non-empty; empty advisor output is covered by the pinned upstream action bug"
               )
 
           result = {
