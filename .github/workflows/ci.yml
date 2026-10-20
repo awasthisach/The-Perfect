@@ -249,33 +249,18 @@ jobs:
           evaluator = os.environ.get("ORT_EVALUATOR_EXIT_CODE", "")
           advisor = os.environ.get("ORT_ADVISOR_EXIT_CODE", "")
 
-          # Empty advisor-exit-code is NOT proof of success (upstream action bug).
-          artifact_paths = []
-          for pattern in ("*evaluation-result*", "*advisor-result*", "ort-results/**", "ort/**/*.json"):
-              artifact_paths.extend(str(p) for p in Path(".").glob(pattern) if p.is_file())
-          for d in (Path("ort-results"), Path("ort"), Path("results")):
-              if d.is_dir():
-                  artifact_paths.extend(str(p) for p in d.rglob("*.json") if p.is_file())
-          has_artifacts = len(artifact_paths) > 0
-
+          # Do not infer a clean scan from unrelated JSON files or a successful
+          # wrapper step. The advisor exit code must be explicitly reported as 0.
+          # Missing output is an upstream/action-contract problem and remains BLOCKED.
           if outcome != "success" or evaluator != "0":
               status = "BLOCKED"
               reason = "ORT step failed or evaluator exit code is not 0; review ORT result artifacts"
           elif advisor == "0":
               status = "PASS"
-              reason = "ORT evaluator and advisor exit codes are 0; step succeeded"
-          elif advisor in ("", "null", "None") and has_artifacts and outcome == "success":
-              status = "PASS"
-              reason = (
-                  "advisor-exit-code empty (upstream action bug) but ORT step succeeded "
-                  "with evaluator 0 and local ORT result files present; fail-on=violations,issues already enforced by action"
-              )
+              reason = "ORT evaluator and advisor exit codes are explicitly 0; ORT step succeeded"
           elif advisor in ("", "null", "None"):
               status = "BLOCKED"
-              reason = (
-                  "advisor-exit-code empty and no local ORT evaluation/advisor result files found; "
-                  "not treating empty advisor code as success"
-              )
+              reason = "ORT advisor exit code is missing; a successful wrapper step is insufficient evidence"
           else:
               status = "BLOCKED"
               reason = f"ORT advisor exit code is {advisor!r}; review advisor findings"
