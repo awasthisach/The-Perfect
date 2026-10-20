@@ -221,6 +221,32 @@ class CloudSyncUseCase(
         )
     }
 
+    suspend fun rollbackRestore(snapshotToken: String): Result<Unit> = archiveMutex.withLock {
+        if (snapshotToken.isBlank()) {
+            return Result.failure(IllegalArgumentException("Restore snapshot token is blank"))
+        }
+        val pipeline = restorePipeline
+            ?: return Result.failure(UnsupportedOperationException("Cloud restore rollback is unavailable: no restore pipeline is configured"))
+        return try {
+            pipeline.rollback(snapshotToken).fold(
+                onSuccess = {
+                    _syncState.value = CloudSyncStatus.SUCCESS
+                    Result.success(Unit)
+                },
+                onFailure = { error ->
+                    if (error is CancellationException) throw error
+                    _syncState.value = CloudSyncStatus.ERROR
+                    Result.failure(error)
+                }
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            _syncState.value = CloudSyncStatus.ERROR
+            Result.failure(error)
+        }
+    }
+
     suspend fun syncFileToCloud(
         fileItem: FileItem,
         providerType: CloudProviderType = CloudProviderType.GOOGLE_DRIVE
