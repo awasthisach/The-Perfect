@@ -353,6 +353,38 @@ fun CloudScreen(
                 }
             }
 
+            if (!uiState.lastRestoreSnapshotToken.isNullOrBlank()) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().testTag("restore_rollback_card"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Restore completed", fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "You can revert to the previous local data while this snapshot remains available.",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = { viewModel.rollbackLastRestore() },
+                                enabled = !uiState.isLoading
+                            ) {
+                                Text("Undo restore", fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
             if (uiState.backupHistory.isNotEmpty()) {
                 item {
                     Text(
