@@ -422,7 +422,9 @@ fun CloudScreen(
                             }
                             OutlinedButton(
                                 onClick = { viewModel.restoreBackup(backup) },
-                                enabled = !backup.checksumSha256.isNullOrBlank()
+                                enabled = !backup.checksumSha256.isNullOrBlank() &&
+                                    uiState.lastRestoreSnapshotToken.isNullOrBlank() &&
+                                    !uiState.isLoading
                             ) {
                                 Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
