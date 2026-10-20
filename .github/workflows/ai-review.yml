@@ -1,0 +1,54 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR diff
+        id: diff
+        run: |
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          DIFF=$(git diff origin/${{ github.event.pull_request.base.ref }}...HEAD)
+          echo "diff<<EOF" >> $GITHUB_OUTPUT
+          echo "$DIFF" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: AI Review with OpenRouter
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DIFF="${{ steps.diff.outputs.diff }}"
+          # अगर diff बहुत बड़ा है, तो उसे छोटा करें (मुफ़्त मॉडल की लिमिट के लिए)
+          DIFF="${DIFF:0:8000}"
+
+          RESPONSE=$(curl -s https://openrouter.ai/api/v1/chat/completions \
+            -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg diff "$DIFF" '{
+              model: "meta-llama/llama-4-maverick:free",
+              messages: [{
+                role: "user",
+                content: "Review this code diff. List issues as: [SEVERITY] file:line - description. Severities: ERROR, WARNING, SUGGESTION. Be concise.\n\n" + $diff
+              }]
+            }')")
+
+          COMMENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // "AI review failed - check API key"')
+
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body "## AI Code Review (Llama 4 Maverick)
+
+          $COMMENT"
+          
