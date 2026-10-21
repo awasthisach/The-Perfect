@@ -230,6 +230,7 @@ jobs:
         run: |
           git config --global --add url.https://github.com/.insteadOf ssh://git@github.com/
           git config --global --add url.https://github.com/.insteadOf git@github.com:
+      # Keep restore/save outside the ORT composite action: the save step must run after its bounded timeout.
       - name: Restore reusable ORT scanner cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
