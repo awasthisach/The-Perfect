@@ -27,3 +27,19 @@ curations:
         comment: "ORT scan logs show the retired sqlite4java Google Code SVN URL returning 404; use the versioned Maven source artifact instead."
         source_code_origins:
           - ARTIFACT
+
+    - id: "Maven:org.glassfish.jaxb:jaxb-runtime"
+      curations:
+        comment: "ORT logs show ambiguous VCS tag resolution for jaxb-runtime 2.3.2; prefer the versioned Maven source artifact instead of guessing a VCS revision."
+        source_code_origins:
+          - ARTIFACT
+    - id: "Maven:commons-codec:commons-codec"
+      curations:
+        comment: "ORT logs show the Gitbox VCS redirect is blocked by the downloader; use the versioned Maven source artifact for this package."
+        source_code_origins:
+          - ARTIFACT
+    - id: "Maven:com.android.tools.utp:android-test-plugin-host-emulator-control"
+      curations:
+        comment: "ORT logs show thousands of unrelated Android platform tags and no matching revision for this version; use the versioned Maven source artifact."
+        source_code_origins:
+          - ARTIFACT
