@@ -214,7 +214,12 @@ class SecureVaultRepository(
             cryptoManager.decryptFile(encryptedFile, tempFile)
             publishRestoredFile(tempFile, targetCanonical)
         } catch (e: Exception) {
-            secureDeletePlaintextTemp(tempFile)
+            // Publication may have succeeded before unlinking the temporary hard link failed.
+            // In that case both paths refer to the same inode; shredding tempFile would
+            // corrupt the successfully published destination.
+            if (e !is SharedPlaintextLinkCleanupException) {
+                secureDeletePlaintextTemp(tempFile)
+            }
             throw e
         }
 
