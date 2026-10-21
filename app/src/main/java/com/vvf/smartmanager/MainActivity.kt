@@ -59,7 +59,7 @@ import com.vvf.smartmanager.feature.settings.SettingsScreen
 import com.vvf.smartmanager.ui.navigation.TopLevelDestination
 import com.vvf.smartmanager.ui.theme.VVFSmartManagerTheme
 
-/** Single-Activity entry point. Drive OAuth results use Application SharedFlow (rotation-safe). */
+/** Single-Activity entry point. Drive OAuth results use DriveAuthEvents SharedFlow (rotation-safe). */
 class MainActivity : FragmentActivity() {
     private lateinit var googleDriveAuth: GoogleDriveAuth
 
@@ -111,11 +111,10 @@ class MainActivity : FragmentActivity() {
                         app.prepareDriveIndexForAccount(accountEmail)
                         app.enqueueDriveIndexing()
                     } catch (_: Exception) {
-                        // Authentication remains valid; a later manual sync can retry index setup.
                     }
                 }
             }
-            app.emitDriveAuthResult(result)
+            DriveAuthEvents.emit(result)
         }
     }
 
@@ -178,7 +177,7 @@ fun VVFAppContent(
     val app = context.applicationContext as VVFApplication
 
     LaunchedEffect(Unit) {
-        app.driveAuthResults.collect { result ->
+        DriveAuthEvents.results.collect { result ->
             result.fold(
                 onSuccess = {
                     Toast.makeText(context, "Google Drive connected", Toast.LENGTH_SHORT).show()
@@ -353,7 +352,6 @@ private fun VVFNavHost(
     onImportDriveIndexRequested: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val searchActionScope = rememberCoroutineScope()
     NavHost(
         navController = navController,
         startDestination = TopLevelDestination.SEARCH.route,
@@ -364,15 +362,11 @@ private fun VVFNavHost(
         modifier = modifier
     ) {
         composable(TopLevelDestination.SEARCH.route) {
-            val searchViewModel: SearchViewModel = viewModel(
-                factory = SearchViewModel.factory(app)
-            )
+            val searchViewModel: SearchViewModel = viewModel(factory = SearchViewModel.factory(app))
             SearchScreen(viewModel = searchViewModel)
         }
         composable(TopLevelDestination.CLOUD.route) {
-            val cloudViewModel: CloudViewModel = viewModel(
-                factory = CloudViewModel.factory(app)
-            )
+            val cloudViewModel: CloudViewModel = viewModel(factory = CloudViewModel.factory(app))
             CloudRoute(
                 viewModel = cloudViewModel,
                 onGoogleDriveSignInRequested = onGoogleDriveSignInRequested,
