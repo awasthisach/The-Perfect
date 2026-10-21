@@ -212,10 +212,9 @@ jobs:
   open_source_compliance:
     name: Open Source Compliance (ORT)
     runs-on: ubuntu-24.04
-    # ORT ScanCode exceeded 180 minutes on the latest candidate before
-    # evaluation/advisor/SBOM completed. Keep the full checks enabled and allow
-    # a bounded 330-minute window (below GitHub-hosted runner's 360-minute cap).
-    timeout-minutes: 330
+    # Give the ORT action its own bounded timeout so a follow-up step can
+    # persist partial per-package scan results before the job-level limit.
+    timeout-minutes: 360
     permissions:
       contents: read
     steps:
@@ -231,8 +230,17 @@ jobs:
         run: |
           git config --global --add url.https://github.com/.insteadOf ssh://git@github.com/
           git config --global --add url.https://github.com/.insteadOf git@github.com:
+      - name: Restore reusable ORT scanner cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.ort/scanner/
+          key: ${{ runner.os }}-ort-scan-results-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ runner.os }}-ort-scan-results-v1-
+
       - name: Run OSS Review Toolkit (license, source scan, vulnerability and policy checks)
         id: ort
+        timeout-minutes: 330
         uses: oss-review-toolkit/ort-ci-github-action@70149d4579e446b0312f8b80fdd8d465a91e4391 # pinned commit
         with:
           sw-name: The-Perfect
@@ -242,7 +250,6 @@ jobs:
           ort-cli-args: -P ort.enableRepositoryPackageCurations=true
           run: >-
             cache-dependencies,
-            cache-scan-results,
             labels,
             analyzer,
             scanner,
@@ -254,6 +261,13 @@ jobs:
             upload-advisor-result,
             upload-scan-result
           fail-on: 'violations,issues'
+
+      - name: Persist partial ORT scanner cache even after scan timeout
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.ort/scanner/
+          key: ${{ runner.os }}-ort-scan-results-v1-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Record OSS compliance gate status
         if: always()
