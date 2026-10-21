@@ -10,9 +10,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.io.File
 import java.io.IOException
-import java.nio.file.AtomicMoveNotSupportedException
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
+import android.system.Os
 import java.util.UUID
 
 /**
@@ -263,7 +261,12 @@ class SecureVaultRepository(
             cryptoManager.decryptFile(encryptedFile, tempFile)
             publishRestoredFile(tempFile, canonicalDest)
         } catch (e: Exception) {
-            secureDeletePlaintextTemp(tempFile)
+            // After a successful hard-link publication, the temporary path and target
+            // refer to the same inode. Shredding the temp path would corrupt the restored
+            // destination if unlink cleanup itself failed.
+            if (e !is SharedPlaintextLinkCleanupException) {
+                secureDeletePlaintextTemp(tempFile)
+            }
             throw e
         }
 
@@ -320,22 +323,34 @@ class SecureVaultRepository(
     }
 
     private fun publishRestoredFile(tempFile: File, targetCanonical: File) {
+        // The temporary file is created beside the destination, so both paths share a
+        // filesystem. link(2) publishes the fully-written plaintext atomically and fails
+        // if the destination already exists; unlike rename(2), it cannot clobber a file
+        // created by another process after our earlier existence check. This API is
+        // available on Android API 21+, preserving minSdk 24 without java.nio.file.
+        var linked = false
         try {
-            try {
-                Files.move(
-                    tempFile.toPath(),
-                    targetCanonical.toPath(),
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING
-                )
-            } catch (_: AtomicMoveNotSupportedException) {
-                Files.move(
-                    tempFile.toPath(),
-                    targetCanonical.toPath(),
-                    StandardCopyOption.REPLACE_EXISTING
-                )
-            }
+            Os.link(tempFile.absolutePath, targetCanonical.absolutePath)
+            linked = true
+            // The paths now refer to the same inode. Unlink only the temp directory entry;
+            // never shred it after publication, because that would overwrite the target.
+            Os.remove(tempFile.absolutePath)
         } catch (e: Exception) {
+            if (linked) {
+                // A transient unlink failure is recoverable. Retry once; if it still fails,
+                // preserve the target and signal the outer restore path not to shred this
+                // shared inode through the temporary name.
+                try {
+                    Os.remove(tempFile.absolutePath)
+                    return
+                } catch (retry: Exception) {
+                    e.addSuppressed(retry)
+                    throw SharedPlaintextLinkCleanupException(
+                        "Restore published to ${targetCanonical.absolutePath}, but plaintext temp-link cleanup failed at ${tempFile.absolutePath}",
+                        e
+                    )
+                }
+            }
             secureDeletePlaintextTemp(tempFile)
             throw IllegalStateException(
                 "Failed to publish restored file to ${targetCanonical.absolutePath}: ${e.message}",
@@ -343,6 +358,9 @@ class SecureVaultRepository(
             )
         }
     }
+
+    private class SharedPlaintextLinkCleanupException(message: String, cause: Throwable) :
+        IOException(message, cause)
 
     private fun secureDeletePlaintextTemp(tempFile: File) {
         if (!tempFile.exists()) return
