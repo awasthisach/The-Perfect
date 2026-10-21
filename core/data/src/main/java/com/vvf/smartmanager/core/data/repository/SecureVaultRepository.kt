@@ -10,9 +10,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.io.File
 import java.io.IOException
-import java.nio.file.AtomicMoveNotSupportedException
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
+import android.system.Os
 import java.util.UUID
 
 /**
@@ -320,23 +318,21 @@ class SecureVaultRepository(
     }
 
     private fun publishRestoredFile(tempFile: File, targetCanonical: File) {
+        // The temporary file is created beside the destination, so both paths share a
+        // filesystem. link(2) publishes the fully-written plaintext atomically and fails
+        // if the destination already exists; unlike rename(2), it cannot clobber a file
+        // created by another process after our earlier existence check. This API is
+        // available on Android API 21+, preserving minSdk 24 without java.nio.file.
         try {
-            try {
-                Files.move(
-                    tempFile.toPath(),
-                    targetCanonical.toPath(),
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING
-                )
-            } catch (_: AtomicMoveNotSupportedException) {
-                Files.move(
-                    tempFile.toPath(),
-                    targetCanonical.toPath(),
-                    StandardCopyOption.REPLACE_EXISTING
-                )
-            }
+            Os.link(tempFile.absolutePath, targetCanonical.absolutePath)
+            // Remove only the temporary directory entry. Do not shred it: it now refers
+            // to the same inode as the published destination.
+            Os.remove(tempFile.absolutePath)
         } catch (e: Exception) {
-            secureDeletePlaintextTemp(tempFile)
+            // If linking succeeded but unlinking the temp name failed, the destination
+            // is valid but publication cleanup failed. Preserve the destination and
+            // report failure rather than shredding a shared inode.
+            if (!targetCanonical.exists()) secureDeletePlaintextTemp(tempFile)
             throw IllegalStateException(
                 "Failed to publish restored file to ${targetCanonical.absolutePath}: ${e.message}",
                 e
