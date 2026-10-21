@@ -16,11 +16,8 @@ object DriveAuthEvents {
     val results: Flow<Result<String>> = resultsChannel.receiveAsFlow()
 
     fun emit(result: Result<String>) {
-        val sent = resultsChannel.trySend(result)
-        if (sent.isFailure) {
-            // Do not silently lose authentication state; surface an explicit failure event
-            // if the buffered channel is unexpectedly unavailable.
-            resultsChannel.close(sent.exceptionOrNull())
+        check(resultsChannel.trySend(result).isSuccess) {
+            "Drive OAuth result channel is closed; refusing to silently drop sign-in state"
         }
     }
 }
