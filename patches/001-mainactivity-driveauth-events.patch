@@ -1,0 +1,64 @@
+--- a/app/src/main/java/com/vvf/smartmanager/MainActivity.kt
++++ b/app/src/main/java/com/vvf/smartmanager/MainActivity.kt
+@@ -37,6 +37,7 @@
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.rememberCoroutineScope
+ 
+@@ -79,13 +80,6 @@
+ class MainActivity : FragmentActivity() {
+     private lateinit var googleDriveAuth: GoogleDriveAuth
+ 
+-    /**
+-     * Activity-scoped OAuth completion handler...
+-     */
+-    private var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
+-
+     private val exportDriveIndexLauncher = registerForActivityResult(
+@@ -120,9 +114,6 @@
+     ) { activityResult ->
+         val app = application as VVFApplication
+-        val callback = pendingGoogleDriveSignInCallback
+-        pendingGoogleDriveSignInCallback = null
+-        app.pendingGoogleDriveSignInCallback = null
+         lifecycleScope.launch {
+             val result = googleDriveAuth.handleSignInActivityResult(...)
+             ...
+-            callback?.invoke(result)
++            DriveAuthEvents.emit(result)
+         }
+     }
+ 
+@@ -169,7 +160,6 @@
+                         } else {
+-                            pendingGoogleDriveSignInCallback = callback
+                             googleDriveSignInLauncher.launch(googleDriveAuth.buildDriveSignInIntent())
+                         }
+ 
+@@ -204,6 +194,24 @@
+     val app = context.applicationContext as VVFApplication
+ 
++    LaunchedEffect(Unit) {
++        DriveAuthEvents.results.collect { result ->
++            result.fold(
++                onSuccess = {
++                    Toast.makeText(context, "Google Drive connected", Toast.LENGTH_SHORT).show()
++                },
++                onFailure = { error ->
++                    Toast.makeText(
++                        context,
++                        "Google Drive sign-in failed: ${error.message ?: "unknown"}",
++                        Toast.LENGTH_LONG
++                    ).show()
++                }
++            )
++        }
++    }
++
+     val navController = rememberNavController()
+
+Also remove from VVFApplication.kt:
+    @Volatile
+    var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
