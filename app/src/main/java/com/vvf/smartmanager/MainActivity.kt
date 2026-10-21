@@ -37,7 +37,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.animation.core.tween
@@ -79,13 +82,6 @@ import com.vvf.smartmanager.ui.theme.VVFSmartManagerTheme
 class MainActivity : FragmentActivity() {
     private lateinit var googleDriveAuth: GoogleDriveAuth
 
-    /**
-     * Activity-scoped OAuth completion handler (not Application-held), so config changes
-     * do not leave a stale Application lambda. On success we always apply the token to
-     * [VVFApplication.googleDriveService] even if the UI callback was cleared.
-     */
-    private var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
-
     private val exportDriveIndexLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
@@ -120,9 +116,6 @@ class MainActivity : FragmentActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { activityResult ->
         val app = application as VVFApplication
-        val callback = pendingGoogleDriveSignInCallback
-        pendingGoogleDriveSignInCallback = null
-        app.pendingGoogleDriveSignInCallback = null
         lifecycleScope.launch {
             val result = googleDriveAuth.handleSignInActivityResult(
                 resultCode = activityResult.resultCode,
@@ -141,7 +134,9 @@ class MainActivity : FragmentActivity() {
                     }
                 }
             }
-            callback?.invoke(result)
+            // The UI callback is owned by the Compose tree, not this Activity instance.
+            // This keeps result delivery valid across configuration changes.
+            DriveAuthEvents.emit(result)
         }
     }
 
@@ -169,7 +164,6 @@ class MainActivity : FragmentActivity() {
                                 )
                             )
                         } else {
-                            pendingGoogleDriveSignInCallback = callback
                             googleDriveSignInLauncher.launch(googleDriveAuth.buildDriveSignInIntent())
                         }
                     },
@@ -203,6 +197,22 @@ fun VVFAppContent(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val app = context.applicationContext as VVFApplication
+    val pendingDriveAuthCallback = remember {
+        mutableStateOf<((Result<String>) -> Unit)?>(null)
+    }
+
+    LaunchedEffect(Unit) {
+        DriveAuthEvents.results.collect { result ->
+            val callback = pendingDriveAuthCallback.value
+            pendingDriveAuthCallback.value = null
+            callback?.invoke(result)
+        }
+    }
+
+    val requestGoogleDriveSignIn: (((Result<String>) -> Unit) -> Unit) = { callback ->
+        pendingDriveAuthCallback.value = callback
+        onGoogleDriveSignInRequested(callback)
+    }
 
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -276,7 +286,7 @@ fun VVFAppContent(
                         )
                     }
                 }
-                VVFNavHost(navController = navController, app = app, onGoogleDriveSignInRequested = onGoogleDriveSignInRequested, onGoogleDriveSignOutRequested = onGoogleDriveSignOutRequested, onExportDriveIndexRequested = onExportDriveIndexRequested, onImportDriveIndexRequested = onImportDriveIndexRequested, modifier = Modifier.fillMaxSize())
+                VVFNavHost(navController = navController, app = app, onGoogleDriveSignInRequested = requestGoogleDriveSignIn, onGoogleDriveSignOutRequested = onGoogleDriveSignOutRequested, onExportDriveIndexRequested = onExportDriveIndexRequested, onImportDriveIndexRequested = onImportDriveIndexRequested, modifier = Modifier.fillMaxSize())
             }
         } else {
             Scaffold(
@@ -336,7 +346,7 @@ fun VVFAppContent(
                 VVFNavHost(
                     navController = navController,
                     app = app,
-                    onGoogleDriveSignInRequested = onGoogleDriveSignInRequested,
+                    onGoogleDriveSignInRequested = requestGoogleDriveSignIn,
                     onGoogleDriveSignOutRequested = onGoogleDriveSignOutRequested,
                     onExportDriveIndexRequested = onExportDriveIndexRequested,
                     onImportDriveIndexRequested = onImportDriveIndexRequested,
