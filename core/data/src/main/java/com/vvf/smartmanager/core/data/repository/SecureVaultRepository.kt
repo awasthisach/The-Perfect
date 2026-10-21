@@ -261,7 +261,12 @@ class SecureVaultRepository(
             cryptoManager.decryptFile(encryptedFile, tempFile)
             publishRestoredFile(tempFile, canonicalDest)
         } catch (e: Exception) {
-            secureDeletePlaintextTemp(tempFile)
+            // After a successful hard-link publication, the temporary path and target
+            // refer to the same inode. Shredding the temp path would corrupt the restored
+            // destination if unlink cleanup itself failed.
+            if (e !is SharedPlaintextLinkCleanupException) {
+                secureDeletePlaintextTemp(tempFile)
+            }
             throw e
         }
 
@@ -323,22 +328,39 @@ class SecureVaultRepository(
         // if the destination already exists; unlike rename(2), it cannot clobber a file
         // created by another process after our earlier existence check. This API is
         // available on Android API 21+, preserving minSdk 24 without java.nio.file.
+        var linked = false
         try {
             Os.link(tempFile.absolutePath, targetCanonical.absolutePath)
-            // Remove only the temporary directory entry. Do not shred it: it now refers
-            // to the same inode as the published destination.
+            linked = true
+            // The paths now refer to the same inode. Unlink only the temp directory entry;
+            // never shred it after publication, because that would overwrite the target.
             Os.remove(tempFile.absolutePath)
         } catch (e: Exception) {
-            // If linking succeeded but unlinking the temp name failed, the destination
-            // is valid but publication cleanup failed. Preserve the destination and
-            // report failure rather than shredding a shared inode.
-            if (!targetCanonical.exists()) secureDeletePlaintextTemp(tempFile)
+            if (linked) {
+                // A transient unlink failure is recoverable. Retry once; if it still fails,
+                // preserve the target and signal the outer restore path not to shred this
+                // shared inode through the temporary name.
+                try {
+                    Os.remove(tempFile.absolutePath)
+                    return
+                } catch (retry: Exception) {
+                    e.addSuppressed(retry)
+                    throw SharedPlaintextLinkCleanupException(
+                        "Restore published to ${targetCanonical.absolutePath}, but plaintext temp-link cleanup failed at ${tempFile.absolutePath}",
+                        e
+                    )
+                }
+            }
+            secureDeletePlaintextTemp(tempFile)
             throw IllegalStateException(
                 "Failed to publish restored file to ${targetCanonical.absolutePath}: ${e.message}",
                 e
             )
         }
     }
+
+    private class SharedPlaintextLinkCleanupException(message: String, cause: Throwable) :
+        IOException(message, cause)
 
     private fun secureDeletePlaintextTemp(tempFile: File) {
         if (!tempFile.exists()) return
