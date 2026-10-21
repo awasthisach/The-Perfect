@@ -48,6 +48,35 @@ jobs:
       - name: Install SDK components
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
 
+      - name: Validate Android 35 system image metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="system-images;android-35;google_apis;x86_64"
+          image_dir="${ANDROID_HOME}/system-images/android-35/google_apis/x86_64"
+          valid=false
+          if [ -s "${image_dir}/devices.xml" ] && python3 - "${image_dir}/devices.xml" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+          ET.parse(sys.argv[1])
+          PY
+          then
+            valid=true
+          fi
+          if [ "${valid}" != "true" ]; then
+            echo "::warning::Android 35 system-image devices.xml is missing or invalid; reinstalling the exact SDK package."
+            sdkmanager --uninstall "${image}" || true
+            rm -rf "${image_dir}"
+            sdkmanager "${image}"
+          fi
+          test -s "${image_dir}/devices.xml" || { echo "::error::Android 35 system image still has no devices.xml after reinstall."; exit 1; }
+          python3 - "${image_dir}/devices.xml" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+          ET.parse(sys.argv[1])
+          print("Android 35 system-image devices.xml is present and valid.")
+          PY
+
       - name: Create local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
