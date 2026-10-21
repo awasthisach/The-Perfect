@@ -54,29 +54,34 @@ jobs:
           set -euo pipefail
           image="system-images;android-35;google_apis;x86_64"
           image_dir="${ANDROID_HOME}/system-images/android-35/google_apis/x86_64"
-          valid=false
-          if [ -s "${image_dir}/devices.xml" ] && python3 - "${image_dir}/devices.xml" <<'PY'
+          is_valid_xml() {
+            [ -s "$1" ] && python3 - "$1" <<'PY'
           import sys
           import xml.etree.ElementTree as ET
           ET.parse(sys.argv[1])
           PY
-          then
-            valid=true
-          fi
-          if [ "${valid}" != "true" ]; then
-            echo "::warning::Android 35 system-image devices.xml is missing or invalid; reinstalling the exact SDK package."
+          }
+          if ! is_valid_xml "${image_dir}/devices.xml"; then
+            echo "::warning::Android 35 system-image devices.xml is missing/invalid; reinstalling the exact SDK package once."
             sdkmanager --uninstall "${image}" || true
             rm -rf "${image_dir}"
             sdkmanager "${image}"
           fi
-          test -s "${image_dir}/devices.xml" || { echo "::error::Android 35 system image still has no devices.xml after reinstall."; exit 1; }
-          python3 - "${image_dir}/devices.xml" <<'PY'
-          import sys
-          import xml.etree.ElementTree as ET
-          ET.parse(sys.argv[1])
-          print("Android 35 system-image devices.xml is present and valid.")
-          PY
-
+          if ! is_valid_xml "${image_dir}/devices.xml"; then
+            # Some published system-image archives omit this optional device-profile file.
+            # Older avdmanager builds treat its absence as fatal, despite using built-in profiles.
+            echo "::warning::System image still lacks valid devices.xml; creating an empty schema-namespaced device list so avdmanager can use its built-in profiles."
+            mkdir -p "${image_dir}"
+            cat > "${image_dir}/devices.xml" <<'XML'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <d:devices xmlns:d="http://schemas.android.com/sdk/devices/7"
+                     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+          </d:devices>
+          XML
+          fi
+          is_valid_xml "${image_dir}/devices.xml" || { echo "::error::Android 35 system-image devices.xml remains invalid after repair."; exit 1; }
+          echo "Android 35 system-image devices.xml is present and valid."
+ 
       - name: Create local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
