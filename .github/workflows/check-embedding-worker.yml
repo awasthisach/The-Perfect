@@ -19,7 +19,8 @@ permissions:
 
 concurrency:
   group: embedding-worker-build-${{ github.ref }}
-  cancel-in-progress: true
+  # Let the current security regression/build check finish before processing the newest update.
+  cancel-in-progress: false
 
 jobs:
   worker-build:
