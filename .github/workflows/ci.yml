@@ -251,7 +251,6 @@ jobs:
           ort-cli-args: -P ort.enableRepositoryPackageCurations=true
           run: >-
             cache-dependencies,
-            cache-scan-results,
             labels,
             analyzer,
             scanner,
