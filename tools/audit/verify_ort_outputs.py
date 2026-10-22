@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""Fail closed when a successful ORT action did not produce its core results and SBOMs."""
+"""Fail closed when ORT does not produce valid result reports and SBOMs."""
 from __future__ import annotations
 
 import argparse
 import json
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
-REQUIRED_OUTPUTS = (
+RESULT_JSON_FILES = (
     "analyzer-result.json",
     "scan-result.json",
     "evaluation-result.json",
     "advisor-result.json",
+)
+REQUIRED_OUTPUTS = RESULT_JSON_FILES + (
     "bom.cyclonedx.json",
     "bom.cyclonedx.xml",
     "bom.spdx.json",
@@ -18,12 +21,53 @@ REQUIRED_OUTPUTS = (
 )
 
 
-def missing_outputs(results_dir: Path) -> list[str]:
-    """Return required ORT output names that are missing or empty."""
-    return [
-        name for name in REQUIRED_OUTPUTS
-        if not (results_dir / name).is_file() or (results_dir / name).stat().st_size == 0
-    ]
+def validate_outputs(results_dir: Path) -> list[str]:
+    """Return missing, empty, malformed, or wrong-format ORT outputs."""
+    problems: list[str] = []
+    for name in REQUIRED_OUTPUTS:
+        path = results_dir / name
+        if not path.is_file():
+            problems.append(f"{name}: missing")
+        elif path.stat().st_size == 0:
+            problems.append(f"{name}: empty")
+
+    for name in RESULT_JSON_FILES + ("bom.cyclonedx.json", "bom.spdx.json"):
+        path = results_dir / name
+        if not path.is_file() or path.stat().st_size == 0:
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            problems.append(f"{name}: invalid JSON ({exc})")
+            continue
+        if not isinstance(data, dict) or not data:
+            problems.append(f"{name}: expected a non-empty JSON object")
+        elif name == "bom.cyclonedx.json" and data.get("bomFormat") != "CycloneDX":
+            problems.append(f"{name}: bomFormat is not CycloneDX")
+        elif name == "bom.spdx.json" and not str(data.get("spdxVersion", "")).startswith("SPDX-"):
+            problems.append(f"{name}: missing valid spdxVersion")
+
+    xml_path = results_dir / "bom.cyclonedx.xml"
+    if xml_path.is_file() and xml_path.stat().st_size:
+        try:
+            root = ET.parse(xml_path).getroot()
+            local_name = root.tag.rsplit("}", 1)[-1]
+            if local_name != "bom" or "cyclonedx.org/schema" not in root.tag:
+                problems.append("bom.cyclonedx.xml: root is not a CycloneDX bom")
+        except (OSError, ET.ParseError) as exc:
+            problems.append(f"bom.cyclonedx.xml: invalid XML ({exc})")
+
+    yaml_path = results_dir / "bom.spdx.yml"
+    if yaml_path.is_file() and yaml_path.stat().st_size:
+        try:
+            yaml_text = yaml_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            problems.append(f"bom.spdx.yml: unreadable ({exc})")
+        else:
+            if "spdxVersion: SPDX-" not in yaml_text:
+                problems.append("bom.spdx.yml: missing SPDX version declaration")
+
+    return problems
 
 
 def main() -> int:
@@ -32,19 +76,17 @@ def main() -> int:
     parser.add_argument("--revision", required=True)
     args = parser.parse_args()
 
-    missing = missing_outputs(args.results_dir)
+    problems = validate_outputs(args.results_dir)
     report = {
         "gate_id": "GATE-LICENSE-001",
         "revision": args.revision,
         "results_dir": str(args.results_dir),
         "required_outputs": list(REQUIRED_OUTPUTS),
-        "missing_or_empty_outputs": missing,
-        "status": "PASS" if not missing else "BLOCKED",
+        "validation_problems": problems,
+        "status": "PASS" if not problems else "BLOCKED",
     }
     print(json.dumps(report, indent=2))
-    if missing:
-        return 1
-    return 0
+    return 1 if problems else 0
 
 
 if __name__ == "__main__":
