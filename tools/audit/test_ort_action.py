@@ -77,19 +77,17 @@ class OrtActionRegressionTest(unittest.TestCase):
                     for issue in validate_outputs(results_dir))
             )
 
-    def test_codeql_workflow_is_pinned_and_scans_java_kotlin(self):
-        workflow = (
-            ROOT / ".github" / "workflows" / "codeql-analysis.yml"
-        ).read_text(encoding="utf-8")
-        self.assertIn("languages: java-kotlin", workflow)
-        self.assertIn("security-events: write", workflow)
-        self.assertIn(
-            "github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee",
-            workflow,
-        )
-        self.assertIn(
-            "github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee",
-            workflow,
+    def test_codeql_uses_default_not_advanced_workflow(self):
+        """Rely on GitHub default Code Scanning; advanced workflow must stay absent.
+
+        GitHub docs: use either the default CodeQL setup OR a single advanced
+        workflow — never both. The advanced codeql-analysis.yml was intentionally
+        removed to eliminate dual-setup SARIF conflicts.
+        """
+        workflow_path = ROOT / ".github" / "workflows" / "codeql-analysis.yml"
+        self.assertFalse(
+            workflow_path.exists(),
+            "Advanced codeql-analysis.yml must remain removed to avoid dual CodeQL conflict",
         )
 
     def test_ci_and_release_keep_advisor_findings_fail_closed(self):
