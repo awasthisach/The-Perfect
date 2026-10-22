@@ -86,7 +86,7 @@ jobs:
           fail-on: 'violations,issues'
 
       - name: Verify ORT results and SBOM outputs
-        if: steps.ort.outcome == 'success'
+        if: ${{ always() && steps.ort.outputs.results-path != '' }}
         env:
           ORT_RESULTS_DIR: ${{ steps.ort.outputs.results-path }}
           SCAN_REVISION: ${{ github.sha }}
