@@ -4,7 +4,7 @@ name: Weekly Instrumented Hard Gate
 # emulator continue-on-error skips on the primary CI job.
 on:
   pull_request:
-    branches: [main]
+    branches: [main, fix/p0-vault-nio-publish-phase3]
     paths:
       - "core/database/**"
       - "core/database-compat/**"
