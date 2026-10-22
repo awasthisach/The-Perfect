@@ -103,5 +103,24 @@ class OrtActionRegressionTest(unittest.TestCase):
                 self.assertIn('status = "PASS"', workflow)
 
 
+
+    def test_fossa_is_not_a_repository_compliance_gate(self):
+        """FOSSA is retired in-repo; external GitHub App statuses are owner-managed."""
+        workflow_dir = ROOT / ".github" / "workflows"
+        workflow_files = list(workflow_dir.glob("*.yml")) + list(workflow_dir.glob("*.yaml"))
+        forbidden = ("fossa/fossa-action", "fossa test", "FOSSA_API_KEY", "foss-status.json")
+        for workflow in workflow_files:
+            content = workflow.read_text(encoding="utf-8")
+            for token in forbidden:
+                self.assertNotIn(
+                    token.lower(),
+                    content.lower(),
+                    f"Retired FOSSA integration reference {token!r} remains in {workflow.relative_to(ROOT)}",
+                )
+        self.assertFalse(
+            (ROOT / ".fossa.yml").exists(),
+            "Retired .fossa.yml must not be restored; ORT is the active compliance gate",
+        )
+
 if __name__ == "__main__":
     unittest.main()
