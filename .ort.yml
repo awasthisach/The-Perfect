@@ -43,3 +43,11 @@ curations:
         comment: "ORT logs show thousands of unrelated Android platform tags and no matching revision for this version; use the versioned Maven source artifact."
         source_code_origins:
           - ARTIFACT
+
+    # Observed in CI: Connection reset while downloading org.jacoco.core-*-sources.jar
+    # Prefer Maven source artifact so ScanCode does not hang on flaky VCS/source fetches.
+    - id: "Maven:org.jacoco:org.jacoco.core"
+      curations:
+        comment: "CI ORT scanner hit Maven Central connection reset downloading jacoco sources; use versioned Maven source artifact instead of fragile VCS fetch."
+        source_code_origins:
+          - ARTIFACT
