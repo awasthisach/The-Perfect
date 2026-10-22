@@ -29,6 +29,23 @@ class OrtActionRegressionTest(unittest.TestCase):
             advisor_step,
         )
 
+    def test_html_report_output_uses_its_own_initialized_path(self):
+        init_step = self.action.split("id: ort-init", 1)[1].split(
+            "id: ort-config", 1
+        )[0]
+        self.assertIn(
+            'export ORT_RESULTS_HTML_REPORT_PATH="${ORT_RESULTS_PATH}/scan-report.html"',
+            init_step,
+        )
+        self.assertIn(
+            'echo "results-html-report-path=${ORT_RESULTS_HTML_REPORT_PATH}" >> "$GITHUB_OUTPUT"',
+            init_step,
+        )
+        self.assertNotIn(
+            'echo "results-html-report-path=${ORT_RESULTS_SCANNER_PATH}"',
+            init_step,
+        )
+
     def test_ci_and_release_keep_advisor_findings_fail_closed(self):
         for workflow_name in ("ci.yml", "release.yml"):
             workflow = (
