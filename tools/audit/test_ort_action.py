@@ -65,7 +65,7 @@ class OrtActionRegressionTest(unittest.TestCase):
                 '{"spdxVersion": "SPDX-2.3", "packages": []}', encoding="utf-8"
             )
             (results_dir / "bom.spdx.yml").write_text(
-                "spdxVersion: SPDX-2.3\\n", encoding="utf-8"
+                "spdxVersion: SPDX-2.3\n", encoding="utf-8"
             )
             self.assertEqual([], validate_outputs(results_dir))
 
