@@ -21,7 +21,7 @@ jobs:
   open_source_compliance:
     name: Open Source Compliance (ORT)
     runs-on: ubuntu-24.04
-    timeout-minutes: 330
+    timeout-minutes: 360
     permissions:
       contents: read
     outputs:
@@ -39,7 +39,15 @@ jobs:
         run: |
           git config --global --add url.https://github.com/.insteadOf ssh://git@github.com/
           git config --global --add url.https://github.com/.insteadOf git@github.com:
+      - name: Restore reusable ORT scanner cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.ort/scanner/
+          key: ${{ runner.os }}-ort-scan-results-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ runner.os }}-ort-scan-results-v1-
       - name: OSS Review Toolkit compliance gate (hard fail for release)
+        timeout-minutes: 330
         id: ort
         uses: oss-review-toolkit/ort-ci-github-action@70149d4579e446b0312f8b80fdd8d465a91e4391 # pinned commit
         with:
@@ -61,6 +69,13 @@ jobs:
             upload-advisor-result,
             upload-scan-result
           fail-on: 'violations,issues'
+
+      - name: Persist partial ORT scanner cache even after scan timeout
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.ort/scanner/
+          key: ${{ runner.os }}-ort-scan-results-v1-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Record ORT release gate status
         id: record_ort_status
