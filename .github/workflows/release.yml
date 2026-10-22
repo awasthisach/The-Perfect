@@ -85,6 +85,13 @@ jobs:
             upload-scan-result
           fail-on: 'violations,issues'
 
+      - name: Verify ORT results and SBOM outputs
+        if: steps.ort.outcome == 'success'
+        env:
+          ORT_RESULTS_DIR: ${{ steps.ort.outputs.results-path }}
+          SCAN_REVISION: ${{ github.sha }}
+        run: python3 tools/audit/verify_ort_outputs.py --results-dir "$ORT_RESULTS_DIR" --revision "$SCAN_REVISION"
+
       - name: Persist partial ORT scanner cache even after scan timeout
         if: always()
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
