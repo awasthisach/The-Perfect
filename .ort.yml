@@ -28,17 +28,17 @@ curations:
         source_code_origins:
           - ARTIFACT
 
-    - id: "Maven:org.glassfish.jaxb:jaxb-runtime"
+    - id: "Maven:org.glassfish.jaxb:jaxb-runtime:2.3.2"
       curations:
         comment: "ORT logs show ambiguous VCS tag resolution for jaxb-runtime 2.3.2; prefer the versioned Maven source artifact instead of guessing a VCS revision."
         source_code_origins:
           - ARTIFACT
-    - id: "Maven:commons-codec:commons-codec"
+    - id: "Maven:commons-codec:commons-codec:1.15"
       curations:
         comment: "ORT logs show the Gitbox VCS redirect is blocked by the downloader; use the versioned Maven source artifact for this package."
         source_code_origins:
           - ARTIFACT
-    - id: "Maven:com.android.tools.utp:android-test-plugin-host-emulator-control"
+    - id: "Maven:com.android.tools.utp:android-test-plugin-host-emulator-control:32.1.1"
       curations:
         comment: "ORT logs show thousands of unrelated Android platform tags and no matching revision for this version; use the versioned Maven source artifact."
         source_code_origins:
