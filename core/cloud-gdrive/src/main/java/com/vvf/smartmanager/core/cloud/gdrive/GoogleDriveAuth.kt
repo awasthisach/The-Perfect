@@ -37,6 +37,39 @@ class GoogleDriveAuth(
     private val credentialManager = CredentialManager.create(context)
     private val firebaseAuth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
 
+    // Serializes refresh token installation with sign-out so an older in-flight refresh
+    // cannot restore a bearer after the user has disconnected or switched accounts.
+    private val sessionLock = Any()
+    @Volatile private var sessionGeneration: Long = 0L
+
+    private fun invalidateDriveSession(expectedGeneration: Long? = null): Boolean =
+        synchronized(sessionLock) {
+            if (expectedGeneration != null && sessionGeneration != expectedGeneration) {
+                return@synchronized false
+            }
+            sessionGeneration += 1L
+            driveService?.setAccessToken(null)
+            true
+        }
+
+    private fun installRefreshedTokenIfSessionMatches(
+        expectedGeneration: Long,
+        expectedEmail: String,
+        token: String
+    ): Boolean = synchronized(sessionLock) {
+        if (sessionGeneration != expectedGeneration) return@synchronized false
+        val googleEmail = GoogleSignIn.getLastSignedInAccount(context)?.email
+            ?.trim()?.lowercase()
+        val firebaseEmail = firebaseAuth.currentUser?.email?.trim()?.lowercase()
+        if (googleEmail != expectedEmail || firebaseEmail != expectedEmail) {
+            sessionGeneration += 1L
+            driveService?.setAccessToken(null)
+            return@synchronized false
+        }
+        driveService?.setAccessToken(token)
+        true
+    }
+
     suspend fun requestGoogleIdToken(
         filterByAuthorizedAccounts: Boolean = false
     ): Result<String> = withContext(Dispatchers.Main) {
@@ -166,23 +199,41 @@ class GoogleDriveAuth(
      * Firebase session exist. This method never starts interactive account selection.
      */
     suspend fun silentRefreshDriveAccessToken(): Result<String> = withContext(Dispatchers.IO) {
+        val generation = synchronized(sessionLock) { sessionGeneration }
         val account = GoogleSignIn.getLastSignedInAccount(context)
             ?: run {
-                driveService?.setAccessToken(null)
+                invalidateDriveSession(generation)
                 return@withContext Result.failure(IllegalStateException("No existing Google session; interactive sign-in required"))
             }
         val googleEmail = account.email?.trim()?.lowercase()
         val firebaseEmail = firebaseAuth.currentUser?.email?.trim()?.lowercase()
         if (googleEmail.isNullOrBlank() || firebaseEmail.isNullOrBlank() || googleEmail != firebaseEmail) {
-            driveService?.setAccessToken(null)
-            firebaseAuth.signOut()
+            invalidateDriveSession(generation)
             return@withContext Result.failure(IllegalStateException("Google and Firebase sessions do not match; sign in again"))
         }
-        if (account.account == null) {
-            driveService?.setAccessToken(null)
-            return@withContext Result.failure(IllegalStateException("Existing Google account has no token account"))
+        val tokenAccount = account.account
+            ?: run {
+                invalidateDriveSession(generation)
+                return@withContext Result.failure(IllegalStateException("Existing Google account has no token account"))
+            }
+
+        val token = try {
+            accessTokenForAccount(tokenAccount).getOrElse { error ->
+                // Do not leave an old bearer installed after any refresh failure.
+                invalidateDriveSession(generation)
+                return@withContext Result.failure(error)
+            }
+        } catch (cancelled: CancellationException) {
+            invalidateDriveSession(generation)
+            throw cancelled
         }
-        accessTokenForAccount(account.account)
+
+        if (!installRefreshedTokenIfSessionMatches(generation, googleEmail, token)) {
+            return@withContext Result.failure(
+                IllegalStateException("Drive session changed during token refresh; sign in again")
+            )
+        }
+        Result.success(token)
     }
 
     /** Returns the verified email shared by the existing Google and Firebase sessions. */
@@ -247,8 +298,11 @@ class GoogleDriveAuth(
     }
 
     suspend fun signOut() = withContext(Dispatchers.IO) {
-        // Clear the in-memory Drive bearer before ending either identity session.
-        driveService?.setAccessToken(null)
+        // Invalidate pending refreshes and clear the bearer atomically before sign-out.
+        synchronized(sessionLock) {
+            sessionGeneration += 1L
+            driveService?.setAccessToken(null)
+        }
         firebaseAuth.signOut()
         try {
             val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
