@@ -2,7 +2,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from verify_ort_outputs import REQUIRED_OUTPUTS, missing_outputs
+from verify_ort_outputs import RESULT_JSON_FILES, validate_outputs
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,15 +49,33 @@ class OrtActionRegressionTest(unittest.TestCase):
             init_step,
         )
 
-    def test_ort_output_gate_rejects_missing_or_empty_reports_and_sboms(self):
+    def test_ort_output_gate_validates_result_json_and_sbom_formats(self):
         with tempfile.TemporaryDirectory() as directory:
             results_dir = Path(directory)
-            for name in REQUIRED_OUTPUTS:
-                (results_dir / name).write_text("{}", encoding="utf-8")
-            self.assertEqual([], missing_outputs(results_dir))
+            for name in RESULT_JSON_FILES:
+                (results_dir / name).write_text('{"result": true}', encoding="utf-8")
+            (results_dir / "bom.cyclonedx.json").write_text(
+                '{"bomFormat": "CycloneDX", "components": []}', encoding="utf-8"
+            )
+            (results_dir / "bom.cyclonedx.xml").write_text(
+                '<bom xmlns="http://cyclonedx.org/schema/bom/1.6" version="1"></bom>',
+                encoding="utf-8",
+            )
+            (results_dir / "bom.spdx.json").write_text(
+                '{"spdxVersion": "SPDX-2.3", "packages": []}', encoding="utf-8"
+            )
+            (results_dir / "bom.spdx.yml").write_text(
+                "spdxVersion: SPDX-2.3\\n", encoding="utf-8"
+            )
+            self.assertEqual([], validate_outputs(results_dir))
 
-            (results_dir / "bom.spdx.json").write_text("", encoding="utf-8")
-            self.assertEqual(["bom.spdx.json"], missing_outputs(results_dir))
+            (results_dir / "bom.spdx.json").write_text(
+                '{"spdxVersion": "not-an-spdx-version"}', encoding="utf-8"
+            )
+            self.assertTrue(
+                any("bom.spdx.json: missing valid spdxVersion" in issue
+                    for issue in validate_outputs(results_dir))
+            )
 
     def test_ci_and_release_keep_advisor_findings_fail_closed(self):
         for workflow_name in ("ci.yml", "release.yml"):
