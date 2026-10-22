@@ -77,6 +77,21 @@ class OrtActionRegressionTest(unittest.TestCase):
                     for issue in validate_outputs(results_dir))
             )
 
+    def test_codeql_workflow_is_pinned_and_scans_java_kotlin(self):
+        workflow = (
+            ROOT / ".github" / "workflows" / "codeql-analysis.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("languages: java-kotlin", workflow)
+        self.assertIn("security-events: write", workflow)
+        self.assertIn(
+            "github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee",
+            workflow,
+        )
+        self.assertIn(
+            "github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee",
+            workflow,
+        )
+
     def test_ci_and_release_keep_advisor_findings_fail_closed(self):
         for workflow_name in ("ci.yml", "release.yml"):
             workflow = (
