@@ -40,16 +40,31 @@ jobs:
           git config --global --add url.https://github.com/.insteadOf ssh://git@github.com/
           git config --global --add url.https://github.com/.insteadOf git@github.com:
       - name: Restore reusable ORT scanner cache
+        id: ort_cache_restore
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        continue-on-error: true
         with:
           path: ~/.ort/scanner/
-          key: ${{ runner.os }}-ort-scan-results-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ${{ runner.os }}-ort-scan-results-v2-${{ hashFiles('.ort.yml', 'gradle/libs.versions.toml', '**/build.gradle', '**/build.gradle.kts', '**/settings.gradle', '**/settings.gradle.kts', '**/gradle.lockfile', '**/libs.versions.toml', '**/package-lock.json', '**/pnpm-lock.yaml', '**/pom.xml') }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            ${{ runner.os }}-ort-scan-results-v1-
+            ${{ runner.os }}-ort-scan-results-v2-${{ hashFiles('.ort.yml', 'gradle/libs.versions.toml', '**/build.gradle', '**/build.gradle.kts', '**/settings.gradle', '**/settings.gradle.kts', '**/gradle.lockfile', '**/libs.versions.toml', '**/package-lock.json', '**/pnpm-lock.yaml', '**/pom.xml') }}-
+
+      - name: Record ORT scanner cache restore
+        if: always()
+        env:
+          CACHE_HIT: ${{ steps.ort_cache_restore.outputs.cache-hit }}
+          CACHE_MATCHED_KEY: ${{ steps.ort_cache_restore.outputs.cache-matched-key }}
+        run: |
+          {
+            echo "### ORT scanner cache"
+            echo "- Exact hit: \`${CACHE_HIT:-false}\`"
+            echo "- Restored key: \`${CACHE_MATCHED_KEY:-none}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: OSS Review Toolkit compliance gate (hard fail for release)
         timeout-minutes: 330
         id: ort
-        uses: oss-review-toolkit/ort-ci-github-action@70149d4579e446b0312f8b80fdd8d465a91e4391 # pinned commit
+        uses: ./.github/actions/ort-ci
         with:
           sw-name: The-Perfect
           sw-version: ${{ github.sha }}
@@ -73,9 +88,10 @@ jobs:
       - name: Persist partial ORT scanner cache even after scan timeout
         if: always()
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        continue-on-error: true
         with:
           path: ~/.ort/scanner/
-          key: ${{ runner.os }}-ort-scan-results-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ${{ runner.os }}-ort-scan-results-v2-${{ hashFiles('.ort.yml', 'gradle/libs.versions.toml', '**/build.gradle', '**/build.gradle.kts', '**/settings.gradle', '**/settings.gradle.kts', '**/gradle.lockfile', '**/libs.versions.toml', '**/package-lock.json', '**/pnpm-lock.yaml', '**/pom.xml') }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Record ORT release gate status
         id: record_ort_status
