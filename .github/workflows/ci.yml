@@ -46,6 +46,8 @@ jobs:
       # immediately before instrumentation in weekly-instrumented.yml.
       - name: Verify Gradle wrapper
         run: ./gradlew --no-daemon --version
+      - name: Run ORT vendored-action regression tests
+        run: python3 tools/audit/test_ort_action.py
       - name: Run unit tests
         run: ./gradlew --no-daemon testDebugUnitTest --stacktrace
       - name: Run Android lint
