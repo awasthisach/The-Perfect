@@ -46,7 +46,28 @@ jobs:
           log-accepted-android-sdk-licenses: true
 
       - name: Install SDK components
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35"
+          image="system-images;android-35;google_apis;x86_64"
+          image_dir="${ANDROID_HOME}/system-images/android-35/google_apis/x86_64"
+          installed=false
+          for attempt in 1 2 3; do
+            echo "Installing Android 35 Google APIs system image (attempt ${attempt}/3)."
+            if sdkmanager "${image}"; then
+              installed=true
+              break
+            fi
+            echo "::warning::System-image download/install failed on attempt ${attempt}; removing partial package before retry."
+            sdkmanager --uninstall "${image}" || true
+            rm -rf "${image_dir}"
+            sleep "$((attempt * 10))"
+          done
+          if [ "${installed}" != true ] || [ ! -d "${image_dir}" ]; then
+            echo "::error::Android 35 Google APIs system image could not be installed after 3 attempts."
+            exit 1
+          fi
 
       - name: Validate Android 35 system image metadata
         shell: bash
