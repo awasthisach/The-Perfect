@@ -362,15 +362,37 @@ private fun VVFNavHost(
         modifier = modifier
     ) {
         composable(TopLevelDestination.SEARCH.route) {
-            val searchViewModel: SearchViewModel = viewModel(factory = SearchViewModel.factory(app))
+            val searchViewModel: SearchViewModel = viewModel(
+                factory = SearchViewModel.provideFactory(
+                    searchFilesUseCase = app.searchFilesUseCase,
+                    searchHistoryUseCase = app.searchHistoryUseCase,
+                    tagManagementUseCase = app.tagManagementUseCase,
+                    fileOperationsUseCase = app.fileOperationsUseCase,
+                    searchIndexManagementUseCase = app.searchIndexManagementUseCase,
+                    semanticSearchUseCase = app.semanticSearchUseCase,
+                    aiIntelligenceUseCase = app.aiIntelligenceUseCase
+                )
+            )
             SearchScreen(viewModel = searchViewModel)
         }
         composable(TopLevelDestination.CLOUD.route) {
-            val cloudViewModel: CloudViewModel = viewModel(factory = CloudViewModel.factory(app))
+            val cloudViewModel: CloudViewModel = viewModel(
+                factory = CloudViewModel.provideFactory(
+                    cloudSyncUseCase = app.cloudSyncUseCase,
+                    googleDriveService = app.googleDriveService
+                )
+            )
             CloudRoute(
                 viewModel = cloudViewModel,
-                onGoogleDriveSignInRequested = onGoogleDriveSignInRequested,
-                onGoogleDriveSignOutRequested = onGoogleDriveSignOutRequested
+                onGoogleDriveSignInRequested = {
+                    onGoogleDriveSignInRequested { result ->
+                        cloudViewModel.completeGoogleDriveSignIn(result)
+                    }
+                },
+                onGoogleDriveSignOutRequested = onGoogleDriveSignOutRequested,
+                onExportDriveIndexRequested = onExportDriveIndexRequested,
+                onImportDriveIndexRequested = onImportDriveIndexRequested,
+                driveIndexStatus = app.driveIndexStatus
             )
         }
         composable(TopLevelDestination.OFFLINE.route) {
@@ -378,8 +400,7 @@ private fun VVFNavHost(
         }
         composable(TopLevelDestination.SETTINGS.route) {
             SettingsScreen(
-                onExportDriveIndexRequested = onExportDriveIndexRequested,
-                onImportDriveIndexRequested = onImportDriveIndexRequested,
+                initialEmbeddingConsent = app.isEmbeddingConsentEnabled(),
                 onEmbeddingConsentChange = { enabled -> app.setEmbeddingConsentEnabled(enabled) },
                 onNavigateBack = { navController.popBackStack() }
             )
