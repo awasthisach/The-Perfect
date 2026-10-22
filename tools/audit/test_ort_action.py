@@ -1,5 +1,8 @@
 from pathlib import Path
+import tempfile
 import unittest
+
+from verify_ort_outputs import REQUIRED_OUTPUTS, missing_outputs
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -46,6 +49,16 @@ class OrtActionRegressionTest(unittest.TestCase):
             init_step,
         )
 
+    def test_ort_output_gate_rejects_missing_or_empty_reports_and_sboms(self):
+        with tempfile.TemporaryDirectory() as directory:
+            results_dir = Path(directory)
+            for name in REQUIRED_OUTPUTS:
+                (results_dir / name).write_text("{}", encoding="utf-8")
+            self.assertEqual([], missing_outputs(results_dir))
+
+            (results_dir / "bom.spdx.json").write_text("", encoding="utf-8")
+            self.assertEqual(["bom.spdx.json"], missing_outputs(results_dir))
+
     def test_ci_and_release_keep_advisor_findings_fail_closed(self):
         for workflow_name in ("ci.yml", "release.yml"):
             workflow = (
@@ -55,6 +68,7 @@ class OrtActionRegressionTest(unittest.TestCase):
                 self.assertIn("uses: ./.github/actions/ort-ci", workflow)
                 self.assertIn("fail-on: 'violations,issues'", workflow)
                 self.assertIn("ORT_ADVISOR_EXIT_CODE", workflow)
+                self.assertIn("tools/audit/verify_ort_outputs.py", workflow)
                 self.assertIn('status = "PASS"', workflow)
 
 
