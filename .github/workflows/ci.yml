@@ -11,11 +11,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
-  # ORT scans can run for hours; a newer push must not cancel the active compliance scan.
-  # GitHub keeps the active run and queues the newest pending run for this branch group.
-  cancel-in-progress: false
 
 env:
   UPLOAD_ARTIFACT_ACTION: b7c566a772e6b6bfb58ed0dc250532a479d7789f
@@ -211,6 +206,10 @@ jobs:
 
   open_source_compliance:
     name: Open Source Compliance (ORT)
+    # Serialize long ORT scans per branch without blocking fast compile/test jobs on newer commits.
+    concurrency:
+      group: ort-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     # Give the ORT action its own bounded timeout so a follow-up step can
     # persist partial per-package scan results before the job-level limit.
