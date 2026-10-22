@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, fix/drive-semantic-search-product-alignment]
   pull_request:
-    branches: [main]
+    branches: [main, fix/p0-vault-nio-publish-phase3]
   workflow_dispatch:
 
 permissions:
