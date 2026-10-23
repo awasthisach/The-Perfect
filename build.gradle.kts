@@ -20,36 +20,7 @@ subprojects {
     toolVersion = "0.8.11"
   }
 
-  // Keep known vulnerable transitive libraries on security-fixed versions.
-  // These constraints apply consistently to production and test configurations.
-  configurations.configureEach {
-    resolutionStrategy.eachDependency {
-      when {
-        requested.group == "io.netty" && requested.name.startsWith("netty-") ->
-          useVersion("4.1.139.Final")
-        // Keep the provider, PKIX and utility modules compatible. PKIX <1.84
-        // accepts an empty composite signature (GHSA-wg6q-6289-32hp).
-        requested.group == "org.bouncycastle" &&
-          requested.name in setOf("bcprov-jdk18on", "bcpkix-jdk18on", "bcutil-jdk18on") ->
-          useVersion("1.85")
-        // Compose's lint test stubs still request this vulnerable Android variant.
-        // Preserve the Android API surface and leave newer/JRE requests untouched.
-        requested.group == "com.google.guava" && requested.name == "guava" &&
-          requested.version == "28.1-android" ->
-          useVersion("33.4.8-android")
-        requested.group == "org.apache.commons" && requested.name == "commons-lang3" ->
-          useVersion("3.18.0")
-        requested.group == "org.apache.httpcomponents" && requested.name == "httpclient" ->
-          useVersion("4.5.14")
-        // Align any legacy transitive Firebase request with the current Firebase BoM.
-        requested.group == "com.google.firebase" && requested.name == "firebase-components" ->
-          useVersion("19.0.1")
-        // JetBrains publishes this artifact under Apache-2.0; keep old transitive pins current.
-        requested.group == "org.jetbrains" && requested.name == "annotations" ->
-          useVersion("26.1.0")
-      }
-    }
-  }
+  apply(from = rootProject.file("gradle/security-constraints.gradle.kts"))
 }
 
 tasks.register<Exec>("cpasVerify") {

@@ -61,6 +61,9 @@ jobs:
         run: python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
       - name: Verify Gradle wrapper
         run: ./gradlew --no-daemon --version
+      - name: Verify dependency security floors
+        run: bash tools/audit/test_dependency_constraints.sh
+
       - name: Run unit tests
         run: ./gradlew --no-daemon testDebugUnitTest --stacktrace
       - name: Run Android lint
@@ -129,14 +132,16 @@ jobs:
       - name: Publish gate summary
         if: always()
         run: |
-          echo "## CI gate policy" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Gate | Policy |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Unit tests / lint / assemble | HARD — must pass |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Emulator boot | SOFT — infrastructure failure recorded without failing the job |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| SQLCipher instrumented after boot | HARD — failure fails the job |" >> "$GITHUB_STEP_SUMMARY"
-          echo "Emulator booted: ${{ steps.emulator.outputs.booted || 'false' }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "Instrumented outcome: ${{ steps.sqlcipher_instrumented.outcome || 'skipped' }}" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## CI gate policy"
+            echo "| Gate | Policy |"
+            echo "|---|---|"
+            echo "| Unit tests / lint / assemble | HARD — must pass |"
+            echo "| Emulator boot | SOFT — infrastructure failure recorded without failing the job |"
+            echo "| SQLCipher instrumented after boot | HARD — failure fails the job |"
+            echo "Emulator booted: ${{ steps.emulator.outputs.booted || 'false' }}"
+            echo "Instrumented outcome: ${{ steps.sqlcipher_instrumented.outcome || 'skipped' }}"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Stop Android emulator
         if: always()
         timeout-minutes: 1
