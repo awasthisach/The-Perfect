@@ -291,12 +291,12 @@ export default {
     if (origin && origin !== env.ALLOWED_ORIGIN) return json({ error: "origin_not_allowed" }, 403, cors);
     const uid = await authenticateFirebase(request, env);
     if (!uid) return json({ error: "unauthorized" }, 401, cors);
-    // Rate-limit authenticated identities before App Check/JWKS fetches and body parsing.
-    if (!(await rateLimit(uid, env))) return json({ error: "rate_limited" }, 429, cors);
     // Require App Check on every client, including requests carrying the allowed Origin.
     if (!(await verifyAppCheck(request, env))) {
       return json({ error: "app_check_required" }, 403, cors);
     }
+    // Only fully verified clients consume the UID quota; still limit before reading the body.
+    if (!(await rateLimit(uid, env))) return json({ error: "rate_limited" }, 429, cors);
 
     let rawBody: string | null;
     try {

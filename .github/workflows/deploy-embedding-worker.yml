@@ -62,7 +62,18 @@ jobs:
           CONFIRM_GEMINI_DATA_HANDLING: ${{ inputs.confirm_gemini_data_handling }}
         run: |
           set -euo pipefail
-          if grep -Fq 'GEMINI_PRODUCTION_APPROVED = "true"' cloudflare/drive-semantic-embed/wrangler.toml; then
+          GEMINI_APPROVED="$(python3 - <<'PYCODE'
+          import tomllib
+          from pathlib import Path
+          config = tomllib.loads(Path("cloudflare/drive-semantic-embed/wrangler.toml").read_text())
+          approved = config["vars"]["GEMINI_PRODUCTION_APPROVED"]
+          if approved not in ("true", "false"):
+              raise SystemExit("Invalid production approval flag")
+          print(approved)
+          PYCODE
+          )"
+          echo "GEMINI_APPROVED=$GEMINI_APPROVED" >> "$GITHUB_ENV"
+          if [ "$GEMINI_APPROVED" = "true" ]; then
             if [ "$CONFIRM_GEMINI_DATA_HANDLING" != "yes" ]; then
               echo "::error::Embedding is enabled in wrangler.toml but the dispatch did not confirm paid Gemini billing and provider data handling."
               exit 1
@@ -116,8 +127,6 @@ jobs:
         run: wrangler deploy --config cloudflare/drive-semantic-embed/wrangler.toml
 
       - name: Verify deployed health contract
-        env:
-          GEMINI_APPROVED: ${{ contains(github.event.inputs.confirm_gemini_data_handling, 'yes') }}
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
@@ -133,8 +142,6 @@ jobs:
           NODE
 
       - name: Verify native endpoint fails closed without Firebase credentials
-        env:
-          GEMINI_APPROVED: ${{ contains(github.event.inputs.confirm_gemini_data_handling, 'yes') }}
         run: |
           set -euo pipefail
           status="$(curl --silent --show-error --output /tmp/worker-auth-smoke.json --write-out '%{http_code}' \

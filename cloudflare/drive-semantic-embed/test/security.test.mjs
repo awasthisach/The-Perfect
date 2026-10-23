@@ -187,3 +187,24 @@ test("rejects invalid Firebase Auth even with valid App Check", async () => {
   assert.equal(response.status, 401);
   assert.equal(await responseError(response), "unauthorized");
 });
+
+
+test("invalid App Check cannot exhaust the authenticated user's quota", async () => {
+  const env = makeEnv();
+  let consumed = 0;
+  env.RATE_LIMITER.get = () => ({ fetch: async () => {
+    consumed += 1;
+    return new Response(null, { status: consumed <= 30 ? 204 : 429 });
+  } });
+  for (let i = 0; i < 31; i++) {
+    const headers = { Authorization: `Bearer ${authToken}` };
+    if (i % 2) headers["X-Firebase-AppCheck"] = "invalid";
+    assert.equal((await worker.fetch(makeRequest(headers), env)).status, 403);
+  }
+  assert.equal(consumed, 0);
+  const headers = { Authorization: `Bearer ${authToken}`, "X-Firebase-AppCheck": appCheckToken };
+  assert.equal((await worker.fetch(makeRequest(headers), env)).status, 200);
+  assert.equal(consumed, 1);
+  consumed = 30;
+  assert.equal((await worker.fetch(makeRequest(headers), env)).status, 429);
+});
