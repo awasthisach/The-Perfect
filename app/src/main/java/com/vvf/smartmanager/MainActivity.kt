@@ -39,7 +39,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
@@ -134,8 +133,8 @@ class MainActivity : FragmentActivity() {
                     }
                 }
             }
-            // The UI callback is owned by the Compose tree, not this Activity instance.
-            // This keeps result delivery valid across configuration changes.
+            // Queue the result independently of the Activity/Compose lifecycle.
+            // The CloudViewModel collector consumes it after rotation if necessary.
             DriveAuthEvents.emit(result)
         }
     }

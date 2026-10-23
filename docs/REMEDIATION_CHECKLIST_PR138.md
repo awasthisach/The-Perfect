@@ -2,13 +2,13 @@
 
 **Repository:** `awasthisach/The-Perfect`  
 **Candidate branch:** `candidate/drive-semantic-search-release`  
-**Latest verified PR head:** `59e712d045beffde424dae4c56febe6f0562e74b` (2026-10-17 UTC). On this SHA, the Worker build and SQLCipher hard gate passed; the former FOSSA gate failed with 34 policy findings; the replacement ORT gate has not yet been validated; CPAS failed closed. The Android build/test/lint job was still in progress at the time of this update. Any later code changes require a fresh full gate run.  
+**Historical snapshot:** PR #138 head `59e712d045beffde424dae4c56febe6f0562e74b` (2026-10-17 UTC). This is an archived audit snapshot, not evidence for the current candidate. The integrated hardening changes are tracked in [PR #160](https://github.com/awasthisach/The-Perfect/pull/160); the latest SHA must be verified independently by current GitHub Actions runs.  
 **PR:** [#138](https://github.com/awasthisach/The-Perfect/pull/138)  
 **Decision at audit time:** **BLOCKED — keep Draft**
 
 This checklist is fail-closed. A code change, a green sub-check, a skipped test, or a prose assertion is not sufficient to close a blocker. Each item requires evidence tied to the same candidate SHA that is intended for release.
 
-## Current verified state
+## Historical verified state at snapshot (2026-10-17; not current release evidence)
 
 | Area | Current state | Evidence | Closure condition |
 |---|---|---|---|
@@ -16,7 +16,7 @@ This checklist is fail-closed. A code change, a green sub-check, a skipped test,
 | CodeQL | Passing | PR checks | Re-run on the final candidate SHA |
 | SQLCipher instrumentation | **Passed** on SHA `59e712d045beffde424dae4c56febe6f0562e74b` | [Weekly Instrumented Hard Gate #38979011282](https://github.com/awasthisach/The-Perfect/actions/runs/38979011282) | Keep a non-skipped run on the final candidate SHA |
 | Embedding Worker build/deploy contract | Passing for build/health/unauthenticated rejection | PR checks and Worker workflow | Complete real native Auth + App Check acceptance |
-| Open-source license compliance (ORT) | **Migration committed; validation pending**. Historical FOSSA evidence recorded 34 runtime policy findings on SHA `59e712d045beffde424dae4c56febe6f0562e74b` | [Historical FOSSA CI run #38979011280](https://github.com/awasthisach/The-Perfect/actions/runs/38979011280); issue [#136](https://github.com/awasthisach/The-Perfect/issues/136); current ORT gate in `.github/workflows/ci.yml` | Run ORT on the current candidate SHA, review its license/evaluator/advisor reports, remediate or document evidence-backed decisions, and pass the new gate |
+| Open-source license compliance (ORT) | **Migration committed; validation pending**. Historical FOSSA evidence recorded 34 runtime policy findings on SHA `59e712d045beffde424dae4c56febe6f0562e74b` | [Historical FOSSA CI run #38979011280](https://github.com/awasthisach/The-Perfect/actions/runs/38979011280); issue [#136](https://github.com/awasthisach/The-Perfect/issues/136); current ORT workflow in `.github/workflows/nightly-ort.yml`; release promotion requires successful evidence for the exact release SHA | Run ORT on the current candidate SHA, review its license/evaluator/advisor reports, remediate or document evidence-backed decisions, and pass the new gate |
 | CPAS | **Failed closed** on SHA `59e712d045beffde424dae4c56febe6f0562e74b`; blockers `PROD-008`, `PROD-009`, `PROD-010` | [CPAS Production Gate #38979011368](https://github.com/awasthisach/The-Perfect/actions/runs/38979011368) | Close each finding with current, reproducible evidence |
 | Privacy publication | **Blocked**; draft still contains placeholders | [`PRIVACY_POLICY_DRAFT.md`](PRIVACY_POLICY_DRAFT.md) | Owner/legal review complete and stable HTTPS policy URL published |
 | Release signing / Play Integrity | **Blocked by external setup** | Firebase App Check console and Play Console access check on 2026-10-17 | Firebase App Check says app is unregistered with no SHA-256; connected Google account has no Play Console developer account; paid billing is unlinked |
@@ -44,11 +44,11 @@ This checklist is fail-closed. A code change, a green sub-check, a skipped test,
   - [ ] add a narrowly scoped, reviewable allow-list entry when policy permits;
   - [ ] record a documented exception with owner, rationale, compensating control, and expiry; or
   - [ ] mark as false positive only with supporting evidence.
-- [ ] Re-run ORT on the final SHA and confirm the `Open Source Compliance (ORT)` check passes with evaluator/advisor exit code 0.
+- [ ] Run **Nightly ORT Compliance Scan** on the exact final SHA. Confirm `ort-status.json` is `PASS`, evaluator/advisor exit codes are 0, all required reports/SBOMs validate, and retain the run URL and artifact. ORT is not part of daily PR CI.
 - [ ] Attach ORT report/SBOM links and the disposition inventory to issue #136.
 - [ ] Update `PROD-008` only after current ORT reports and evidence-backed dispositions exist.
 
-**Acceptance:** `ort-status.json` reports `GATE-LICENSE-001/PASS`, the workflow check is green, and every finding has a durable disposition.
+**Acceptance:** `ort-status.json` reports `GATE-LICENSE-001/PASS` for the exact candidate SHA, the nightly workflow and evidence artifact are successful, and every finding has a durable disposition.
 
 ### P0.2 CPAS blocker `PROD-009`: native Worker authentication and App Check
 
@@ -133,7 +133,7 @@ python3 tools/audit/cpas_verify.py --root .
 - [ ] Refresh [`DRIVE_SEMANTIC_SEARCH_IMPLEMENTATION_GAP.md`](DRIVE_SEMANTIC_SEARCH_IMPLEMENTATION_GAP.md) with the final candidate SHA, actual Worker revision, and current check URLs.
 - [ ] Ensure no document claims “production-ready” while any P0 item is open.
 - [ ] Ensure all CPAS risk-register dates and notes describe current evidence, not an older commit.
-- [ ] Confirm branch protection requires CPAS, ORT, build/quality, CodeQL, and instrumentation checks as intended.
+- [ ] Confirm branch protection requires CPAS, build/quality, CodeQL, and instrumentation checks as intended. The release workflow must separately require successful exact-SHA nightly ORT evidence; do not require a nonexistent daily ORT status check.
 - [ ] Keep PR #138 Draft until the release owner confirms every P0 acceptance condition.
 - [ ] Only after evidence review, update risk statuses to `ci_verified`/`closed` according to the CPAS lifecycle; do not edit statuses to force a green result.
 

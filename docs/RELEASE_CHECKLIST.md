@@ -2,14 +2,14 @@
 
 This is a fail-closed checklist. A skipped check is not a pass. Do not mark the app production-ready until each applicable item has linked evidence.
 
-For the current PR #138 candidate, use the prioritized [PR #138 remediation checklist](REMEDIATION_CHECKLIST_PR138.md), which records the verified blockers, owners, acceptance criteria, and human-only actions. The current candidate remains blocked until the CPAS, FOSSA, external-service, signing, privacy, and physical-device evidence is complete.
+For the current integrated hardening work, review [PR #160](https://github.com/awasthisach/The-Perfect/pull/160) and the [production checklist](PRODUCTION_CHECKLIST.md). The candidate remains blocked until CPAS, nightly ORT compliance, external-service, signing, privacy, and physical-device evidence is complete. Historical FOSSA findings are retained only as audit evidence; FOSSA is not an active gate.
 
 ## Automated build and supply chain
 
 - [ ] Current candidate SHA passes `testDebugUnitTest`, `lintDebug`, and `assembleDebug`.
 - [ ] Dedicated SQLCipher instrumentation workflow runs on an Android emulator and passes; do not count a soft emulator skip as success.
 - [ ] CodeQL and CPAS Production Gate pass on the same candidate SHA.
-- [ ] FOSSA analysis and policy test both pass on the same candidate SHA. Review all findings with an API key that can read issue details; triage licenses and vulnerabilities rather than bypassing the gate.
+- [ ] Run **Nightly ORT Compliance Scan** for the exact candidate SHA. Confirm Analyzer, Scanner, Evaluator, Advisor and SBOM reports are present and valid; review findings individually and retain the `ort-status.json` artifact. A missing/skipped scan is not a pass.
 - [ ] Worker TypeScript build and deploy dry-run pass.
 - [ ] The exact release candidate SHA and all evidence URLs are recorded.
 
