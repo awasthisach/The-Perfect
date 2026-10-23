@@ -132,6 +132,13 @@ class DriveIndexBackupManager(private val context: Context) {
                 )
             }
 
+            // Persist preference checkpoint invalidation before replacing Room state. A crash
+            // between these stores may cause a safe full rescan, never resume the old snapshot.
+            check(indexPrefs.edit()
+                .remove("full_list_next_page_token").remove("full_list_changes_cursor")
+                .remove("full_list_indexed_count").remove("full_list_run_id")
+                .remove("changes_cursor").commit()) { "Could not invalidate the old sync checkpoint" }
+
             // Replace the indexed rows, FTS projection and sync cursor atomically. If the FTS
             // rebuild or cursor invalidation fails, Room rolls the index replacement back.
             // Offline files are filesystem state and are cleared only after the DB transaction commits.
@@ -148,9 +155,6 @@ class DriveIndexBackupManager(private val context: Context) {
                 .apply {
                     if (currentEmail.isNullOrBlank() && backupEmail.isNotBlank()) putString("account_email", backupEmail)
                 }
-                .remove("full_list_next_page_token").remove("full_list_changes_cursor")
-                .remove("full_list_indexed_count").remove("full_list_run_id")
-                .remove("changes_cursor")
                 .apply()
             app.publishDriveIndexStatus(
                 "IMPORTED_LOCAL_SNAPSHOT",
