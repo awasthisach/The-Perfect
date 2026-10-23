@@ -94,6 +94,7 @@ class SearchViewModel(
 
     private fun triggerSemanticSearch(query: String, threshold: Float = _semanticSimilarityThreshold.value, filter: SearchFilter = _searchFilter.value) {
         semanticSearchJob?.cancel()
+        _semanticResults.value = emptyList()
         val generation = ++semanticSearchGeneration
         _isSemanticSearching.value = false
         _semanticErrorMessage.value = null

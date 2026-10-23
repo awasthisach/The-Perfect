@@ -3,7 +3,7 @@ package com.vvf.smartmanager.core.model
 /** Shared lexical/neural predicate; preserves existing date, size and category semantics. */
 fun SearchFilter.matches(item: FileItem, now: Long = System.currentTimeMillis()): Boolean {
     if (!includeHidden && item.isHidden || !matchesCategory(item, category)) return false
-    if (item.sizeBytes !in sizeFilter.minBytes..sizeFilter.maxBytes) return false
+    if (sizeFilter != SizeFilter.ANY && item.sizeBytes !in sizeFilter.minBytes..sizeFilter.maxBytes) return false
     val days = when (dateFilter) {
         DateFilter.ANY -> null
         DateFilter.TODAY -> 1
