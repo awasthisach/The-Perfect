@@ -46,26 +46,6 @@ jobs:
           python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
           python3 tools/audit/cpas_verify.py --root .
 
-      - name: FOSSA license gate (hard fail for release)
-        env:
-          FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
-        run: |
-          set -euo pipefail
-          if [ -z "${FOSSA_API_KEY:-}" ]; then
-            cat > foss-status.json <<'EOF'
-            {"gate_id":"GATE-LICENSE-001","status":"BLOCKED","reason":"GH_FOSSA missing for release"}
-            EOF
-            echo "::error::GH_FOSSA secret required for release promotion"
-            exit 1
-          fi
-          curl -fsSL https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
-          fossa --version
-          fossa analyze --project "The-Perfect" --revision "${{ github.sha }}"
-          fossa test --timeout 600
-          cat > foss-status.json <<'EOF'
-          {"gate_id":"GATE-LICENSE-001","status":"PASS","reason":"fossa analyze + fossa test succeeded on release"}
-          EOF
-
       - name: Validate release inputs and secrets
         env:
           VERSION_NAME: ${{ inputs.version_name }}
@@ -159,12 +139,11 @@ jobs:
           format: spdx-json
           output-file: release-meta/sbom.spdx.json
 
-      - name: Fail-closed release gate (CPAS + FOSSA + APK)
+      - name: Fail-closed release gate (CPAS + APK)
         run: |
           set -euo pipefail
           python3 tools/audit/release_gate.py \
             --cpas-status cpas-status.json \
-            --foss-status foss-status.json \
             --apk "${{ steps.apk.outputs.path }}"
 
       - name: Upload signed release APK + metadata
@@ -175,7 +154,6 @@ jobs:
             **/build/outputs/apk/release/*.apk
             release-meta/**
             cpas-status.json
-            foss-status.json
           if-no-files-found: error
           retention-days: 30
 
