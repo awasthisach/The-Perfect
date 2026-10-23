@@ -139,7 +139,10 @@ class OrtActionRegressionTest(unittest.TestCase):
         self.assertIn('status = "PASS" if outcome == "success" and evaluator == "0" and advisor == "0" else "BLOCKED"', release)
         self.assertIn("needs: open_source_compliance", release)
         ort_job = release.split("  release:", 1)[0]
-        self.assertNotIn("continue-on-error: true", ort_job)
+        ort_step = ort_job.split(
+            "- name: OSS Review Toolkit compliance gate (hard fail for release)", 1
+        )[1].split("- name: Verify ORT results and SBOM outputs", 1)[0]
+        self.assertNotIn("continue-on-error: true", ort_step)
         self.assertIn("if status != \"PASS\":", release)
 
     def test_missing_or_invalid_ort_reports_never_validate_as_pass(self):
