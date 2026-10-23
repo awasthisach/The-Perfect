@@ -2,6 +2,13 @@
 
 This checklist records owner-controlled release work. Completing a checkbox requires actual console or device evidence; do not mark a gate complete based on code changes alone.
 
+## Retired FOSSA integration — repository owner action
+
+- [ ] Confirm `.fossa.yml` is absent and no active workflow invokes FOSSA or uploads `foss-status.json`.
+- [ ] In GitHub **Settings → Rules / Branch protection**, remove only obsolete required status contexts that are confirmed to belong to the retired FOSSA integration. Keep unrelated CodeQL, CI, CPAS, and other real security gates.
+- [ ] In GitHub **Settings → Integrations → GitHub Apps**, uninstall the FOSSA app from this repository if it is still installed. Check any organization-wide impact before removing it from other repositories.
+- [ ] Confirm new commits no longer receive FOSSA pending statuses. These account/repository settings cannot be changed by a source-code commit.
+
 ## PROD-008 — Open-source compliance / ORT (Issue #136)
 
 - [ ] Run **Nightly ORT Compliance Scan** on the exact candidate commit (manual dispatch if needed), then review the successful run in GitHub Actions.

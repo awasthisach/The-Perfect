@@ -151,12 +151,12 @@ class MainActivity : FragmentActivity() {
         setContent {
             VVFSmartManagerTheme {
                 VVFAppContent(
-                    onGoogleDriveSignInRequested = { callback ->
+                    onGoogleDriveSignInRequested = {
                         if (
                             BuildConfig.GOOGLE_WEB_CLIENT_ID.isBlank() ||
                             BuildConfig.GOOGLE_WEB_CLIENT_ID == "__UNCONFIGURED__"
                         ) {
-                            callback(
+                            DriveAuthEvents.emit(
                                 Result.failure(
                                     IllegalStateException(
                                         "Google Drive is not configured. Add GOOGLE_WEB_CLIENT_ID through the app secret configuration."
@@ -189,7 +189,7 @@ class MainActivity : FragmentActivity() {
 
 @Composable
 fun VVFAppContent(
-    onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit,
+    onGoogleDriveSignInRequested: () -> Unit,
     onGoogleDriveSignOutRequested: () -> Unit = {},
     onExportDriveIndexRequested: () -> Unit = {},
     onImportDriveIndexRequested: () -> Unit = {}
@@ -197,22 +197,7 @@ fun VVFAppContent(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val app = context.applicationContext as VVFApplication
-    val pendingDriveAuthCallback = remember {
-        mutableStateOf<((Result<String>) -> Unit)?>(null)
-    }
-
-    LaunchedEffect(Unit) {
-        DriveAuthEvents.results.collect { result ->
-            val callback = pendingDriveAuthCallback.value
-            pendingDriveAuthCallback.value = null
-            callback?.invoke(result)
-        }
-    }
-
-    val requestGoogleDriveSignIn: (((Result<String>) -> Unit) -> Unit) = { callback ->
-        pendingDriveAuthCallback.value = callback
-        onGoogleDriveSignInRequested(callback)
-    }
+    val requestGoogleDriveSignIn = onGoogleDriveSignInRequested
 
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -361,7 +346,7 @@ fun VVFAppContent(
 private fun VVFNavHost(
     navController: androidx.navigation.NavHostController,
     app: VVFApplication,
-    onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit,
+    onGoogleDriveSignInRequested: () -> Unit,
     onGoogleDriveSignOutRequested: () -> Unit = {},
     onExportDriveIndexRequested: () -> Unit = {},
     onImportDriveIndexRequested: () -> Unit = {},
@@ -534,13 +519,14 @@ private fun VVFNavHost(
                     googleDriveService = app.googleDriveService
                 )
             )
+            LaunchedEffect(cloudViewModel) {
+                DriveAuthEvents.results.collect { result ->
+                    cloudViewModel.completeGoogleDriveSignIn(result)
+                }
+            }
             CloudRoute(
                 viewModel = cloudViewModel,
-                onGoogleDriveSignInRequested = {
-                    onGoogleDriveSignInRequested { accessTokenResult ->
-                        cloudViewModel.completeGoogleDriveSignIn(accessTokenResult)
-                    }
-                },
+                onGoogleDriveSignInRequested = onGoogleDriveSignInRequested,
                 onDriveIndexRequested = {
                     app.enqueueDriveIndexing()
                     Toast.makeText(app, "Drive search indexing scheduled", Toast.LENGTH_SHORT).show()
