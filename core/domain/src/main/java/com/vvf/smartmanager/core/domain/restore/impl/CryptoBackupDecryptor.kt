@@ -53,12 +53,11 @@ class CryptoBackupDecryptor(
     }
 
     private fun unzip(zipFile: File, targetDir: File) {
-        var totalBytes = 0L
         val names = HashSet<String>()
         ZipInputStream(zipFile.inputStream()).use { zis ->
             while (true) {
                 val entry = zis.nextEntry ?: break
-                require(names.add(entry.name) && names.size <= 100_000) { "Duplicate or excessive archive entries" }
+                require(names.add(entry.name)) { "Duplicate archive entry" }
                 val out = File(targetDir, entry.name)
                 require(out.canonicalFile != zipFile.canonicalFile) { "Archive overwrites input" }
                 val normalized = out.canonicalFile
@@ -70,16 +69,7 @@ class CryptoBackupDecryptor(
                 if (entry.isDirectory) out.mkdirs()
                 else {
                     out.parentFile?.mkdirs()
-                    out.outputStream().use { output ->
-                        val buffer = ByteArray(64 * 1024)
-                        while (true) {
-                            val count = zis.read(buffer)
-                            if (count < 0) break
-                            totalBytes += count
-                            require(totalBytes <= 4L * 1024 * 1024 * 1024) { "Archive exceeds restore limit" }
-                            output.write(buffer, 0, count)
-                        }
-                    }
+                    out.outputStream().use { zis.copyTo(it) }
                 }
                 zis.closeEntry()
             }

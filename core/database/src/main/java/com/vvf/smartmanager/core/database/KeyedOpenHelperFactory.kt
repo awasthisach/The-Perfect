@@ -19,11 +19,17 @@ internal class KeyedOpenHelperFactory(
     fun pause() {
         check(!paused) { "Database maintenance already active" }
         paused = true
-        val databases = helpers.mapNotNull { it.closeForMaintenance() }
-        val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5)
-        while (databases.any { it.isOpen }) {
-            check(System.nanoTime() < deadline) { "Database users did not quiesce; restore refused" }
-            Thread.sleep(10)
+        try {
+            val databases = helpers.mapNotNull { it.closeForMaintenance() }
+            val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5)
+            while (databases.any { it.isOpen }) {
+                check(System.nanoTime() < deadline) { "Database users did not quiesce; restore refused" }
+                Thread.sleep(10)
+            }
+        } catch (error: Throwable) {
+            // No publication has started. A refused maintenance request must allow retry.
+            paused = false
+            throw error
         }
     }
 
