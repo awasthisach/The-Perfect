@@ -21,28 +21,21 @@ class SnapshotSourceTest {
             val result = ReadOnlyDatabaseSnapshotSource(database).snapshot(staging)
 
             assertNotNull(result)
-            assertEquals("db", File(staging, "vvf.db").readText())
-            assertEquals("wal", File(staging, "vvf.db-wal").readText())
-            assertEquals("shm", File(staging, "vvf.db-shm").readText())
+            assertEquals("db", File(staging, "database/vvf.db").readText())
+            assertEquals("wal", File(staging, "database/vvf.db-wal").readText())
+            assertEquals("shm", File(staging, "database/vvf.db-shm").readText())
             assertEquals("db", database.readText())
         } finally {
             root.deleteRecursively()
         }
     }
 
-    @Test
-    fun missingDatabaseStagesEmptyPlaceholder() {
+    @Test(expected = java.io.IOException::class)
+    fun missingDatabaseFailsInsteadOfPublishingEmptyBackup() {
         val root = Files.createTempDirectory("snapshot-missing").toFile()
         try {
-            val staging = File(root, "staging").apply { mkdirs() }
-            val result = ReadOnlyDatabaseSnapshotSource(File(root, "missing.db")).snapshot(staging)
-            assertNotNull(result)
-            assertTrue(result!!.isFile)
-            assertEquals(0L, result.length())
-            assertEquals("missing.db", result.name)
-        } finally {
-            root.deleteRecursively()
-        }
+            ReadOnlyDatabaseSnapshotSource(File(root, "missing.db")).snapshot(File(root, "stage"))
+        } finally { root.deleteRecursively() }
     }
 
     @Test

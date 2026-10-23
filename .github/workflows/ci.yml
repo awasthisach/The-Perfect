@@ -2,9 +2,9 @@ name: VVF Smart Manager CI & Quality Gate
 
 on:
   push:
-    branches: ["main", "develop"]
+    branches: ["main", "develop", "fix/drive-semantic-search-product-alignment"]
   pull_request:
-    branches: ["main", "develop"]
+    branches: ["main", "develop", "fix/p0-vault-nio-publish-phase3"]
   workflow_dispatch:
 
 permissions:
@@ -26,6 +26,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Set up JDK 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
@@ -59,6 +61,9 @@ jobs:
         run: python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
       - name: Verify Gradle wrapper
         run: ./gradlew --no-daemon --version
+      - name: Verify dependency security floors
+        run: bash tools/audit/test_dependency_constraints.sh
+
       - name: Run unit tests
         run: ./gradlew --no-daemon testDebugUnitTest --stacktrace
       - name: Run Android lint
@@ -69,13 +74,13 @@ jobs:
         if: success()
         run: |
           set -euo pipefail
-          python3 tools/audit/generate_evidence.py --commit-sha "${{ github.sha }}" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --environment "github-actions-${{ runner.os }}-unit" --output docs/assurance/cpas-evidence-run.json
+          python3 tools/audit/generate_evidence.py --commit-sha "$(git rev-parse HEAD)" --run-id "${{ github.run_id }}" --scope unit --output cpas-unit
       - name: Upload CPAS unit evidence
         if: success()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: cpas-evidence-run
-          path: docs/assurance/cpas-evidence-run.json
+          path: cpas-unit/
           if-no-files-found: error
           retention-days: 30
 
@@ -93,7 +98,9 @@ jobs:
           export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH"
           echo "no" | avdmanager create avd --force --name vvf-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2" || { echo "booted=false" >> "$GITHUB_OUTPUT"; echo "::warning::AVD creation failed; emulator infrastructure unavailable."; exit 0; }
           adb start-server || true
-          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel off -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          acceleration="$(bash tools/audit/emulator_acceleration.sh)"
+          echo "Emulator acceleration: $acceleration"
+          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel "$acceleration" -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/emulator.pid"
           if ! timeout 180 adb wait-for-device; then
             echo "::warning::adb wait-for-device timed out; treating emulator as an infrastructure skip."
@@ -124,22 +131,19 @@ jobs:
         id: sqlcipher_instrumented
         if: ${{ steps.emulator.outputs.booted == 'true' }}
         run: ./gradlew --no-daemon :core:database-compat:connectedDebugAndroidTest --stacktrace
-      - name: Generate CPAS full DB evidence
-        if: ${{ steps.emulator.outputs.booted == 'true' && steps.sqlcipher_instrumented.outcome == 'success' }}
-        run: |
-          set -euo pipefail
-          python3 tools/audit/generate_evidence.py --commit-sha "${{ github.sha }}" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --include-db --environment "github-actions-API35-emulator" --output docs/assurance/cpas-evidence-full.json
       - name: Publish gate summary
         if: always()
         run: |
-          echo "## CI gate policy" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Gate | Policy |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Unit tests / lint / assemble | HARD — must pass |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Emulator boot | SOFT — infrastructure failure recorded without failing the job |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| SQLCipher instrumented after boot | HARD — failure fails the job |" >> "$GITHUB_STEP_SUMMARY"
-          echo "Emulator booted: ${{ steps.emulator.outputs.booted || 'false' }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "Instrumented outcome: ${{ steps.sqlcipher_instrumented.outcome || 'skipped' }}" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## CI gate policy"
+            echo "| Gate | Policy |"
+            echo "|---|---|"
+            echo "| Unit tests / lint / assemble | HARD — must pass |"
+            echo "| Emulator boot | SOFT — infrastructure failure recorded without failing the job |"
+            echo "| SQLCipher instrumented after boot | HARD — failure fails the job |"
+            echo "Emulator booted: ${{ steps.emulator.outputs.booted || 'false' }}"
+            echo "Instrumented outcome: ${{ steps.sqlcipher_instrumented.outcome || 'skipped' }}"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Stop Android emulator
         if: always()
         timeout-minutes: 1
@@ -186,14 +190,6 @@ jobs:
           path: "**/build/reports/lint-results-*.html"
           if-no-files-found: ignore
           retention-days: 7
-      - name: Upload full CPAS evidence
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: cpas-evidence-full
-          path: docs/assurance/cpas-evidence-full.json
-          if-no-files-found: ignore
-          retention-days: 30
       - name: Upload debug APK
         if: success()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

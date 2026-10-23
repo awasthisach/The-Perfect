@@ -25,7 +25,9 @@ class ArchiveService(
     private val snapshotSources: List<SnapshotSource>,
     private val cryptoSecurityManager: CryptoSecurityManager,
     private val appVersion: String = "unknown",
-    private val schemaVersion: Int = 1
+    private val schemaVersion: Int = 1,
+    private val beforeSnapshot: (() -> Unit)? = null,
+    private val afterSnapshot: (() -> Unit)? = null
 ) {
     private val json = Json { prettyPrint = true; encodeDefaults = true }
 
@@ -37,6 +39,7 @@ class ArchiveService(
         val stagingDir = File(cacheDir, "archive-staging-$timestamp")
         val zipFile = File(cacheDir, "backup-$timestamp.zip")
         val encryptedFile = File(cacheDir, "backup-$timestamp.vvfbak")
+        var maintenance = false
         try {
             if (!cacheDir.exists() && !cacheDir.mkdirs()) {
                 return@withContext Result.failure(ArchiveException("Unable to create archive cache directory"))
@@ -45,6 +48,8 @@ class ArchiveService(
                 return@withContext Result.failure(ArchiveException("Unable to create archive staging directory"))
             }
 
+            beforeSnapshot?.invoke()
+            maintenance = true
             val requestedSources = snapshotSources.filter { source ->
                 (source.sourceName == "vault" && includeVault) ||
                     (source.sourceName == "database" && includeDatabase) ||
@@ -60,8 +65,9 @@ class ArchiveService(
                 )
             }
 
-            // Vault PIN material is Keystore-wrapped ciphertext in prefs — include in archive.
-            val vaultAuth = cryptoSecurityManager.exportVaultAuthMetadata()
+            // Vault PIN material is Keystore-wrapped ciphertext in prefs. Respect the user's
+            // vault exclusion choice; a database-only backup must not contain vault auth material.
+            val vaultAuth = if (includeVault) cryptoSecurityManager.exportVaultAuthMetadata() else emptyMap()
             val includesPreferences = vaultAuth.isNotEmpty()
             if (includesPreferences) {
                 File(stagingDir, "vault_auth.json").writeText(json.encodeToString(MapSerializer(String.serializer(), String.serializer()), vaultAuth))
@@ -77,15 +83,25 @@ class ArchiveService(
                 vaultItemCount = File(stagingDir, "vault").walkTopDown().count { it.isFile },
                 appVersion = appVersion,
                 schemaVersion = schemaVersion,
-                includesVaultAuth = includesPreferences
+                includesVaultAuth = includesPreferences,
+                includesDatabase = snapshots.containsKey("database"),
+                includesVault = snapshots.containsKey("vault")
             )
             File(stagingDir, "metadata.json").writeText(json.encodeToString(metadata))
+            afterSnapshot?.invoke()
+            maintenance = false
             zipDirectory(stagingDir, zipFile)
             cryptoSecurityManager.encryptFile(zipFile, encryptedFile)
             zipFile.delete()
 
             if (!encryptedFile.isFile || encryptedFile.length() == 0L) {
                 return@withContext Result.failure(ArchiveException("Encryption produced no artifact"))
+            }
+            if (encryptedFile.length() > MAX_BACKUP_BYTES) {
+                encryptedFile.delete()
+                return@withContext Result.failure(
+                    ArchiveException("Encrypted backup exceeds the 200 MiB restore safety limit")
+                )
             }
             val checksum = calculateSha256(encryptedFile)
             val backupInfo = CloudBackupInfo(
@@ -110,6 +126,7 @@ class ArchiveService(
             encryptedFile.delete()
             Result.failure(ArchiveException("Archive creation failed", error))
         } finally {
+            if (maintenance) afterSnapshot?.invoke()
             stagingDir.deleteRecursively()
             zipFile.delete()
         }
@@ -143,6 +160,10 @@ class ArchiveService(
 
     private fun formatTimestamp(timestamp: Long): String =
         SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(timestamp))
+
+    private companion object {
+        const val MAX_BACKUP_BYTES = 200L * 1024L * 1024L
+    }
 }
 
 data class ArchiveArtifact(
@@ -162,7 +183,10 @@ data class ArchiveMetadata(
     val vaultItemCount: Int,
     val appVersion: String,
     val schemaVersion: Int,
-    val includesVaultAuth: Boolean = false
+    val includesVaultAuth: Boolean = false,
+    // Defaults preserve the historical full-backup interpretation for older manifests.
+    val includesDatabase: Boolean = true,
+    val includesVault: Boolean = true
 )
 
 class ArchiveException(message: String, cause: Throwable? = null) : Exception(message, cause)

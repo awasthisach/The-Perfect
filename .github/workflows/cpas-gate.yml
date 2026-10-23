@@ -2,16 +2,19 @@ name: CPAS Production Gate
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/drive-semantic-search-product-alignment]
   pull_request:
-    branches: [main]
+    branches: [main, fix/p0-vault-nio-publish-phase3]
+  # Producer completion is awaited within this run. Do not execute candidate code
+  # from workflow_run/pull_request_target (privileged default-branch cache context).
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: cpas-gate-${{ github.ref }}
+  group: cpas-gate-${{ github.event.pull_request.head.sha || github.sha }}
   # Main: serialize (preserve full-green evidence). PR: cancel stale runs.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -19,11 +22,15 @@ jobs:
   cpas-verify:
     name: CPAS Verify (fail-closed)
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 55
+    env:
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout
         # v6 runs on Node 24
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
 
       - name: Verify Python
         run: python3 --version
@@ -33,13 +40,21 @@ jobs:
 
       - name: Run semantic CPAS verification
         id: cpas
-        # Fail-closed: BLOCKED is an expected production state while critical
-        # findings remain open. Emit a warning annotation, not an error, so the
-        # job stays green without hiding the BLOCKED status.
-        # Unexpected verifier crashes (no status file) still fail the job.
+        # Fail closed at the GitHub check level as well as in cpas-status.json.
+        # BLOCKED must not appear as a green "Production Gate" check, or branch
+        # protection could allow a merge while release blockers remain open.
+        # The artifact is still uploaded by the always() step below for diagnosis.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set +e
-          python3 tools/audit/cpas_verify.py --root .
+          rm -f candidate-evidence.json cpas-status.json
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA" || exit 1
+          python3 tools/audit/wait_for_evidence.py --revision "$CANDIDATE_SHA"
+          wait_code=$?
+          python3 tools/audit/collect_evidence.py --revision "$CANDIDATE_SHA" --output candidate-evidence.json
+          collect_code=$?
+          python3 tools/audit/cpas_verify.py --root . --candidate-sha "$CANDIDATE_SHA" --ledger candidate-evidence.json
           code=$?
           set -e
 
@@ -50,18 +65,20 @@ jobs:
 
           status=$(python3 -c 'import json; print(json.load(open("cpas-status.json"))["production_status"]["value"])')
           blockers=$(python3 -c 'import json; print(",".join(json.load(open("cpas-status.json")).get("blocking_findings") or []) or "none")')
-          echo "production_status=$status" >> "$GITHUB_OUTPUT"
-          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
-          echo "blockers=$blockers" >> "$GITHUB_OUTPUT"
+          {
+            echo "production_status=$status"
+            echo "exit_code=$code"
+            echo "blockers=$blockers"
+          } >> "$GITHUB_OUTPUT"
 
-          if [ "$status" = "PASS" ]; then
+          if [ "$status" = "PASS" ] && [ "$code" -eq 0 ] && [ "$wait_code" -eq 0 ] && [ "$collect_code" -eq 0 ]; then
             echo "CPAS production_status=PASS"
             exit 0
           fi
 
           if [ "$status" = "BLOCKED" ]; then
-            echo "::warning::CPAS production_status=BLOCKED (fail-closed). blockers=${blockers}. See cpas-status artifact. Release promotion still requires PASS."
-            exit 0
+            echo "::error::CPAS production_status=BLOCKED (fail-closed). blockers=${blockers}. See cpas-status artifact; this Production Gate cannot pass until blockers are closed."
+            exit 1
           fi
 
           echo "::error::Unexpected CPAS status=${status} exit_code=${code}"
@@ -71,7 +88,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: cpas-status-${{ github.sha }}
+          name: cpas-status-${{ env.CANDIDATE_SHA }}
           path: cpas-status.json
           if-no-files-found: error
           retention-days: 14

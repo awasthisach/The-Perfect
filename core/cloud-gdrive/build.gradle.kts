@@ -13,6 +13,7 @@ android {
   }
 
   compileOptions {
+    isCoreLibraryDesugaringEnabled = true
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
   }
@@ -25,6 +26,7 @@ android {
 }
 
 dependencies {
+  coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
   api(project(":core:model"))
   api(project(":core:common"))
   api(project(":core:plugin-spi"))
@@ -32,6 +34,8 @@ dependencies {
   implementation(libs.androidx.credentials)
   implementation(libs.androidx.credentials.play.services)
   implementation(libs.googleid)
+  implementation(platform(libs.firebase.bom))
+  implementation(libs.firebase.auth)
   implementation(libs.play.services.auth)
   implementation(libs.retrofit)
   implementation(libs.converter.moshi)

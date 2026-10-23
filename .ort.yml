@@ -1,0 +1,53 @@
+# Project-specific ORT metadata corrections.
+# ORT logs for the 2026-10-17 candidate scan showed obsolete SVN-style VCS
+# locations for these dependencies (Google Code / GitHub SVN 404s) and SSH
+# transport attempts that cannot use the runner's SSH-agent socket.
+# Prefer published Maven source artifacts for these packages so ORT scans the
+# actual versioned source archive. This does not conclude licenses or suppress
+# evaluator findings; all license/security findings remain fail-closed.
+curations:
+  packages:
+    - id: "Maven:io.opencensus:opencensus-api"
+      curations:
+        comment: "ORT scan logs show obsolete GitHub SSH VCS provenance for the OpenCensus Java sources; use the versioned Maven source artifact instead."
+        source_code_origins:
+          - ARTIFACT
+    - id: "Maven:io.opencensus:opencensus-proto"
+      curations:
+        comment: "ORT scan logs show a stale GitHub SVN-style source path returning 404 for opencensus-proto; use the versioned Maven source artifact instead."
+        source_code_origins:
+          - ARTIFACT
+    - id: "Maven:com.googlecode.java-diff-utils:diffutils"
+      curations:
+        comment: "ORT scan logs show the retired java-diff-utils Google Code SVN URL returning 404; use the versioned Maven source artifact instead."
+        source_code_origins:
+          - ARTIFACT
+    - id: "Maven:com.almworks.sqlite4java:sqlite4java"
+      curations:
+        comment: "ORT scan logs show the retired sqlite4java Google Code SVN URL returning 404; use the versioned Maven source artifact instead."
+        source_code_origins:
+          - ARTIFACT
+
+    - id: "Maven:org.glassfish.jaxb:jaxb-runtime:2.3.2"
+      curations:
+        comment: "ORT logs show ambiguous VCS tag resolution for jaxb-runtime 2.3.2; prefer the versioned Maven source artifact instead of guessing a VCS revision."
+        source_code_origins:
+          - ARTIFACT
+    - id: "Maven:commons-codec:commons-codec:1.15"
+      curations:
+        comment: "ORT logs show the Gitbox VCS redirect is blocked by the downloader; use the versioned Maven source artifact for this package."
+        source_code_origins:
+          - ARTIFACT
+    - id: "Maven:com.android.tools.utp:android-test-plugin-host-emulator-control:32.1.1"
+      curations:
+        comment: "ORT logs show thousands of unrelated Android platform tags and no matching revision for this version; use the versioned Maven source artifact."
+        source_code_origins:
+          - ARTIFACT
+
+    # Observed in CI: Connection reset while downloading org.jacoco.core-*-sources.jar
+    # Prefer Maven source artifact so ScanCode does not hang on flaky VCS/source fetches.
+    - id: "Maven:org.jacoco:org.jacoco.core"
+      curations:
+        comment: "CI ORT scanner hit Maven Central connection reset downloading jacoco sources; use versioned Maven source artifact instead of fragile VCS fetch."
+        source_code_origins:
+          - ARTIFACT

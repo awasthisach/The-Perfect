@@ -1,8 +1,13 @@
 name: Weekly Instrumented Hard Gate
 
 # Hard (non-advisory) SQLCipher instrumented run — compensates for PR/main
-# emulator continue-on-error skips on the primary CI job.
+# emulator infrastructure skips on the primary CI job. Every automatic CPAS
+# candidate needs fresh native evidence, including changes outside database paths.
 on:
+  pull_request:
+    branches: [main, fix/p0-vault-nio-publish-phase3]
+  push:
+    branches: [main, fix/drive-semantic-search-product-alignment]
   schedule:
     - cron: "0 3 * * 1"
   workflow_dispatch:
@@ -11,7 +16,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: weekly-instrumented
+  group: weekly-instrumented-${{ github.event.pull_request.number || github.ref }}
+  # Preserve an active SQLCipher hard-gate run when a new commit arrives.
   cancel-in-progress: false
 
 jobs:
@@ -22,6 +28,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
@@ -38,14 +46,71 @@ jobs:
           log-accepted-android-sdk-licenses: true
 
       - name: Install SDK components
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35"
+          image="system-images;android-35;google_apis;x86_64"
+          image_dir="${ANDROID_HOME}/system-images/android-35/google_apis/x86_64"
+          installed=false
+          for attempt in 1 2 3; do
+            echo "Installing Android 35 Google APIs system image (attempt ${attempt}/3)."
+            if sdkmanager "${image}"; then
+              installed=true
+              break
+            fi
+            echo "::warning::System-image download/install failed on attempt ${attempt}; removing partial package before retry."
+            sdkmanager --uninstall "${image}" || true
+            rm -rf "${image_dir}"
+            sleep "$((attempt * 10))"
+          done
+          if [ "${installed}" != true ] || [ ! -d "${image_dir}" ]; then
+            echo "::error::Android 35 Google APIs system image could not be installed after 3 attempts."
+            exit 1
+          fi
 
+      - name: Validate Android 35 system image metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="system-images;android-35;google_apis;x86_64"
+          image_dir="${ANDROID_HOME}/system-images/android-35/google_apis/x86_64"
+          is_valid_xml() {
+            [ -s "$1" ] && python3 - "$1" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+          ET.parse(sys.argv[1])
+          PY
+          }
+          if ! is_valid_xml "${image_dir}/devices.xml"; then
+            echo "::warning::Android 35 system-image devices.xml is missing/invalid; reinstalling the exact SDK package once."
+            sdkmanager --uninstall "${image}" || true
+            rm -rf "${image_dir}"
+            sdkmanager "${image}"
+          fi
+          if ! is_valid_xml "${image_dir}/devices.xml"; then
+            # Some published system-image archives omit this optional device-profile file.
+            # Older avdmanager builds treat its absence as fatal, despite using built-in profiles.
+            echo "::warning::System image still lacks valid devices.xml; creating an empty schema-namespaced device list so avdmanager can use its built-in profiles."
+            mkdir -p "${image_dir}"
+            cat > "${image_dir}/devices.xml" <<'XML'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <d:devices xmlns:d="http://schemas.android.com/sdk/devices/7"
+                     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+          </d:devices>
+          XML
+          fi
+          is_valid_xml "${image_dir}/devices.xml" || { echo "::error::Android 35 system-image devices.xml remains invalid after repair."; exit 1; }
+          echo "Android 35 system-image devices.xml is present and valid."
+ 
       - name: Create local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
       - name: Generate SQLCipher 4.5.4 compatibility fixture
         run: |
           set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev tcl-dev zlib1g-dev
           curl -fsSL -o /tmp/sqlcipher.tgz https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz
           tar -xzf /tmp/sqlcipher.tgz -C /tmp
           cd /tmp/sqlcipher-4.5.4
@@ -55,6 +120,15 @@ jobs:
           printf '%s\n' "PRAGMA key = 'vvf-sqlcipher-compatibility-test';" "CREATE TABLE compatibility_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL);" "INSERT INTO compatibility_test (id, value) VALUES (1, 'legacy-4.5.4');" ".quit" | ./sqlcipher "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
           test -s "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
 
+      - name: Grant runner access to KVM
+        run: |
+          set -euo pipefail
+          test -e /dev/kvm
+          sudo chown "$(id -un)":kvm /dev/kvm
+          sudo chmod 660 /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+          ls -l /dev/kvm
+
       - name: Start Android emulator (HARD — no continue-on-error)
         timeout-minutes: 15
         env:
@@ -63,12 +137,12 @@ jobs:
           set -euo pipefail
           mkdir -p "$ANDROID_AVD_HOME"
           export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH"
-          echo "no" | avdmanager create avd --force --name vvf-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2"
+          echo "no" | avdmanager create avd --force --name vvf-api35 --package "system-images;android-35;google_apis;x86_64"
           adb start-server
-          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel off -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel on -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/emulator.pid"
-          timeout 180 adb wait-for-device
-          for _ in $(seq 1 60); do
+          timeout 240 adb wait-for-device
+          for _ in $(seq 1 72); do
             boot_completed="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
             if [ "$boot_completed" = "1" ]; then
               break
@@ -79,31 +153,21 @@ jobs:
           adb devices
 
       - name: SQLCipher instrumentation (HARD)
-        run: ./gradlew --no-daemon :core:database-compat:connectedDebugAndroidTest --stacktrace
+        run: ./gradlew --no-daemon :core:database-compat:connectedDebugAndroidTest :core:database:connectedDebugAndroidTest --stacktrace
 
       # Keep ledger freshness aligned with weekly hard gate (environment must contain "emulator")
       - name: Generate CPAS instrumented evidence
         if: success()
         run: |
           set -euo pipefail
-          python3 tools/audit/generate_evidence.py \
-            --commit-sha "${{ github.sha }}" \
-            --run-id "${{ github.run_id }}" \
-            --job-id "${{ github.job }}" \
-            --result PASS \
-            --include-db \
-            --environment "github-actions-API35-emulator-weekly" \
-            --output docs/assurance/cpas-evidence-weekly.json \
-            --merge-ledger
+          python3 tools/audit/generate_evidence.py --commit-sha "$(git rev-parse HEAD)" --run-id "${{ github.run_id }}" --scope database --output cpas-database
 
       - name: Upload weekly CPAS evidence artifacts
         if: success()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: weekly-cpas-evidence
-          path: |
-            docs/assurance/cpas-evidence-weekly.json
-            docs/assurance/evidence-ledger.json
+          path: cpas-database/
           if-no-files-found: error
           retention-days: 30
 

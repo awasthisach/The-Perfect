@@ -11,6 +11,14 @@ on:
         options:
           - "no"
           - "yes"
+      confirm_gemini_data_handling:
+        description: "Confirm paid Gemini billing and provider data-handling review (required only to enable embeddings)"
+        type: choice
+        required: true
+        default: "no"
+        options:
+          - "no"
+          - "yes"
 
 permissions:
   contents: read
@@ -26,7 +34,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout The-Perfect only
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -36,8 +44,47 @@ jobs:
           node-version: "22"
           package-manager-cache: false
 
+      - name: Require reviewed release-candidate branch
+        env:
+          DEPLOY_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          if [ "$DEPLOY_REF" != "refs/heads/candidate/drive-semantic-search-release" ]; then
+            echo "::error::Production Worker deployment is restricted to candidate/drive-semantic-search-release; selected ref was $DEPLOY_REF."
+            exit 1
+          fi
+
       - name: Install pinned Wrangler
         run: npm install --global wrangler@4.149.0
+
+      - name: Guard production embedding enablement
+        env:
+          CONFIRM_GEMINI_DATA_HANDLING: ${{ inputs.confirm_gemini_data_handling }}
+        run: |
+          set -euo pipefail
+          GEMINI_APPROVED="$(python3 - <<'PYCODE'
+          import tomllib
+          from pathlib import Path
+          config = tomllib.loads(Path("cloudflare/drive-semantic-embed/wrangler.toml").read_text())
+          approved = config["vars"]["GEMINI_PRODUCTION_APPROVED"]
+          if approved not in ("true", "false"):
+              raise SystemExit("Invalid production approval flag")
+          print(approved)
+          PYCODE
+          )"
+          echo "GEMINI_APPROVED=$GEMINI_APPROVED" >> "$GITHUB_ENV"
+          if [ "$GEMINI_APPROVED" = "true" ]; then
+            if [ "$CONFIRM_GEMINI_DATA_HANDLING" != "yes" ]; then
+              echo "::error::Embedding is enabled in wrangler.toml but the dispatch did not confirm paid Gemini billing and provider data handling."
+              exit 1
+            fi
+          else
+            if [ "$CONFIRM_GEMINI_DATA_HANDLING" = "yes" ]; then
+              echo "::error::Dispatch claims Gemini production approval but wrangler.toml still disables embedding. Set the flag only after completing the required review."
+              exit 1
+            fi
+            echo "Worker will deploy with embeddings disabled by default; no Gemini production approval is inferred."
+          fi
 
       - name: Validate required secrets
         env:
@@ -45,12 +92,17 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          CONFIRM_GEMINI_DATA_HANDLING: ${{ inputs.confirm_gemini_data_handling }}
         run: |
           set -euo pipefail
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing repository secret CLOUDFLARE_API_TOKEN"; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing repository secret CLOUDFLARE_ACCOUNT_ID"; exit 1; }
-          test -n "$GEMINI_API_KEY" || { echo "::error::Missing repository secret GEMINI_API_KEY"; exit 1; }
           test -n "$FIREBASE_APP_ID" || { echo "::error::Missing repository secret FIREBASE_APP_ID"; exit 1; }
+          if [ "$CONFIRM_GEMINI_DATA_HANDLING" = "yes" ]; then
+            test -n "$GEMINI_API_KEY" || { echo "::error::GEMINI_API_KEY is required only when explicitly enabling approved production embeddings"; exit 1; }
+          else
+            echo "Embedding remains disabled; a Gemini API key is not required for this deployment."
+          fi
 
       - name: Store server-only Worker secrets
         env:
@@ -58,10 +110,15 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          CONFIRM_GEMINI_DATA_HANDLING: ${{ inputs.confirm_gemini_data_handling }}
         run: |
           set -euo pipefail
-          printf '%s' "$GEMINI_API_KEY" | wrangler secret put GEMINI_API_KEY --config cloudflare/drive-semantic-embed/wrangler.toml
           printf '%s' "$FIREBASE_APP_ID" | wrangler secret put FIREBASE_APP_ID --config cloudflare/drive-semantic-embed/wrangler.toml
+          if [ "$CONFIRM_GEMINI_DATA_HANDLING" = "yes" ]; then
+            printf '%s' "$GEMINI_API_KEY" | wrangler secret put GEMINI_API_KEY --config cloudflare/drive-semantic-embed/wrangler.toml
+          else
+            echo "Gemini API secret was not changed because production embeddings remain disabled."
+          fi
 
       - name: Deploy Worker
         env:
@@ -74,12 +131,14 @@ jobs:
           set -euo pipefail
           node --input-type=module <<'NODE'
           const response = await fetch("https://drive-semantic-embed.awasthi-sach.workers.dev/");
-          if (!response.ok) throw new Error(`Worker health endpoint returned HTTP ${response.status}`);
           const body = await response.json();
-          if (body.ok !== true || body.model !== "gemini-embedding-2" || body.version !== "3" || body.dimension !== 768) {
-            throw new Error("Deployed Worker health contract does not match expected model/version/dimension");
+          const expectedStatus = process.env.GEMINI_APPROVED === "true" ? 200 : 503;
+          const expectedOk = process.env.GEMINI_APPROVED === "true";
+          if (response.status !== expectedStatus || body.ok !== expectedOk ||
+              body.model !== "gemini-embedding-2" || body.version !== "4" || body.dimension !== 768) {
+            throw new Error(`Worker health mismatch: HTTP ${response.status}, body=${JSON.stringify(body)}`);
           }
-          process.stdout.write("Embedding Worker health contract verified.\n");
+          process.stdout.write("Embedding Worker health contract verified for configured approval state.\n");
           NODE
 
       - name: Verify native endpoint fails closed without Firebase credentials
@@ -88,11 +147,19 @@ jobs:
           status="$(curl --silent --show-error --output /tmp/worker-auth-smoke.json --write-out '%{http_code}' \
             --request POST \
             --header 'Content-Type: application/json' \
-            --data '{"texts":["release-gate-auth-smoke"],"mode":"query","version":"3"}' \
+            --data '{"texts":["release-gate-auth-smoke"],"mode":"query","version":"4"}' \
             https://drive-semantic-embed.awasthi-sach.workers.dev/embed)"
-          if [ "$status" != "401" ]; then
-            echo "::error::Native /embed without Authorization must return 401; got HTTP $status. The deployed Worker may still enforce the old Origin-only policy or is misconfigured."
+          if [ "$GEMINI_APPROVED" = "true" ]; then
+            expected_status=401
+            expected_error="unauthorized"
+          else
+            expected_status=503
+            expected_error="production_approval_required"
+          fi
+          if [ "$status" != "$expected_status" ]; then
+            echo "::error::Native /embed expected HTTP $expected_status but got $status."
             cat /tmp/worker-auth-smoke.json
             exit 1
           fi
-          echo "Native endpoint reached Firebase authentication without Origin and rejected missing credentials as expected."
+          node -e 'const x=require("/tmp/worker-auth-smoke.json"); if(x.error!==process.argv[1]) process.exit(1)' "$expected_error"
+          echo "Native endpoint failed closed as expected for the configured approval state."

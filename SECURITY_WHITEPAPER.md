@@ -5,7 +5,7 @@
 - Device loss / untrusted local access → vault and DB encryption
 - Network observers → TLS only (cleartext disabled)
 - Cloud provider → app uses least privilege Drive scope `drive.file` when OAuth wired
-- Supply chain → dependency scanning (Dependabot / FOSSA when configured)
+- Supply chain → dependency scanning (Dependabot and the repository's nightly ORT compliance workflow)
 
 ## Controls
 

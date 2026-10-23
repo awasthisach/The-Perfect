@@ -19,3 +19,17 @@ Skipped, cached, disabled, flaky, locally-only, failed, expired, malformed, or c
 ## Review
 
 A control owner reviews evidence for correctness. A security reviewer is required for critical security, cryptography, storage, database, cloud restore, and release-signing controls. CI-generated evidence may identify the automation as the reviewer only when the verifier has checked the record and the workflow is protected.
+
+## Generated candidate ledger versus historical records
+
+`historical-evidence-ledger.json` preserves earlier audit records; it is not an input to production approval and is not asserted to satisfy the current generated-ledger schema. Never invent artifact provenance to upgrade these records.
+
+The verifier defaults to `candidate-evidence.json` under `--root`. Generate it from completed Actions runs for the checked-out candidate:
+
+```sh
+candidate_sha="$(git rev-parse HEAD)"
+python3 tools/audit/collect_evidence.py --revision "$candidate_sha" --output candidate-evidence.json
+python3 tools/audit/cpas_verify.py --root . --candidate-sha "$candidate_sha" --ledger candidate-evidence.json
+```
+
+Absent candidate evidence remains BLOCKED. Relative `--ledger` paths are resolved under `--root`; absolute paths are also supported. CPAS waits within its run for the candidate's unit/native producers; successful tests still cannot close owner/device risks. Automatic producer triggers cover every CPAS push/PR candidate without path filters. For a manual dispatch, first dispatch CI, native and Worker checks on the same candidate ref; the read-only gate does not create producer runs. Candidate code is never executed through a privileged `workflow_run` or `pull_request_target` trigger.

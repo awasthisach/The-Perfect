@@ -33,13 +33,42 @@ class CloudSyncUseCaseTest {
     val temp = TemporaryFolder()
 
     private class FakeDriveService(
-        private val uploadResult: Result<String> = Result.success("drive-file-id")
+        private val uploadResult: Result<String> = Result.success("drive-file-id"),
+        private val checksumResult: Result<String> = Result.failure(UnsupportedOperationException("no remote checksum configured"))
     ) : GoogleDriveService {
         override suspend fun authenticate(): Result<Boolean> = Result.success(true)
         override suspend fun listDriveFiles(folderId: String): Result<List<FileItem>> = Result.success(emptyList())
         override suspend fun uploadFile(localFile: FileItem, remoteFolderId: String): Result<String> = uploadResult
         override suspend fun downloadFile(fileId: String, destinationPath: String): Result<Boolean> = Result.success(true)
         override suspend fun getStorageQuota(): Result<Pair<Long, Long>> = Result.success(0L to 1L)
+        override suspend fun getFileSha256(fileId: String): Result<String> = checksumResult
+    }
+
+    private class RecordingCloudSyncDao : CloudSyncDao {
+        private val records = mutableListOf<CloudSyncEntity>()
+
+        override suspend fun insertOrUpdate(record: CloudSyncEntity): Long {
+            val existing = records.indexOfFirst { it.localPath == record.localPath && it.provider == record.provider }
+            if (existing >= 0) records.removeAt(existing)
+            val saved = record.copy(id = record.id.takeIf { it != 0L } ?: (records.size + 1L))
+            records.add(saved)
+            return saved.id
+        }
+
+        override suspend fun update(record: CloudSyncEntity) {
+            val existing = records.indexOfFirst { it.localPath == record.localPath && it.provider == record.provider }
+            if (existing >= 0) records[existing] = record
+        }
+
+        override suspend fun getRecord(localPath: String, provider: String): CloudSyncEntity? =
+            records.firstOrNull { it.localPath == localPath && it.provider == provider }
+
+        override suspend fun getRecordByRemoteId(remoteFileId: String, provider: String): CloudSyncEntity? =
+            records.firstOrNull { it.remoteFileId == remoteFileId && it.provider == provider }
+
+        override fun getRecordsByProvider(provider: String): Flow<List<CloudSyncEntity>> = emptyFlow()
+        override suspend fun getRecordsByStatus(status: String): List<CloudSyncEntity> = records.filter { it.status == status }
+        override suspend fun deleteByLocalPath(localPath: String) { records.removeAll { it.localPath == localPath } }
     }
 
     private class FailingCloudSyncDao : CloudSyncDao {
@@ -48,6 +77,7 @@ class CloudSyncUseCaseTest {
 
         override suspend fun update(record: CloudSyncEntity) = Unit
         override suspend fun getRecord(localPath: String, provider: String): CloudSyncEntity? = null
+        override suspend fun getRecordByRemoteId(remoteFileId: String, provider: String): CloudSyncEntity? = null
         override fun getRecordsByProvider(provider: String): Flow<List<CloudSyncEntity>> = emptyFlow()
         override suspend fun getRecordsByStatus(status: String): List<CloudSyncEntity> = emptyList()
         override suspend fun deleteByLocalPath(localPath: String) = Unit
@@ -78,13 +108,27 @@ class CloudSyncUseCaseTest {
 
     @Test
     fun fileSyncUsesDriveUploadResult() = runBlocking {
-        val useCase = CloudSyncUseCase(FakeDriveService(Result.success("remote-123")))
+        val useCase = CloudSyncUseCase(
+            FakeDriveService(Result.success("remote-123")),
+            cloudSyncDao = RecordingCloudSyncDao()
+        )
 
         val result = useCase.syncFileToCloud(sampleFile)
 
         assertTrue(result.isSuccess)
         assertEquals("remote-123", result.getOrThrow().remotePath)
         assertEquals(CloudSyncStatus.SUCCESS, useCase.syncState.value)
+    }
+
+    @Test
+    fun successfulUploadFailsClosedWhenDurableDaoIsMissing() = runBlocking {
+        val useCase = CloudSyncUseCase(FakeDriveService(Result.success("remote-123")))
+
+        val result = useCase.syncFileToCloud(sampleFile)
+
+        assertFalse(result.isSuccess)
+        assertEquals(CloudSyncStatus.ERROR, useCase.syncState.value)
+        assertTrue(result.exceptionOrNull()?.message?.contains("CloudSyncDao is not configured") == true)
     }
 
     @Test
@@ -130,7 +174,8 @@ class CloudSyncUseCaseTest {
 
     @Test
     fun restoreUsesInjectedFailClosedPipeline() = runBlocking {
-        val info = CloudBackupInfo("remote-1", 1L, "backup.vvfbak", 10L, checksumSha256 = "abc")
+        val trustedChecksum = "a".repeat(64)
+        val info = CloudBackupInfo("remote-1", 1L, "backup.vvfbak", 10L, checksumSha256 = trustedChecksum)
         val pipeline = FailClosedRestorePipeline(
             workingDir = temp.newFolder("restore-work"),
             downloader = object : BackupDownloader {
@@ -157,7 +202,10 @@ class CloudSyncUseCaseTest {
                 override suspend fun rollback(snapshot: RestoreSnapshot) = Result.success(Unit)
             }
         )
-        val useCase = CloudSyncUseCase(FakeDriveService(), restorePipeline = pipeline)
+        val useCase = CloudSyncUseCase(
+            FakeDriveService(checksumResult = Result.success(trustedChecksum)),
+            restorePipeline = pipeline
+        )
 
         val result = useCase.restoreCloudBackup(info)
 

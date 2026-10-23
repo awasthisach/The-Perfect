@@ -6,6 +6,7 @@ import com.vvf.smartmanager.core.database.model.VaultItemEntity
 import com.vvf.smartmanager.core.database.model.VaultJournalEntity
 import com.vvf.smartmanager.core.model.VaultItem
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
+import com.vvf.smartmanager.core.security.VaultMaintenance
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.io.File
@@ -35,20 +36,27 @@ class SecureVaultRepository(
     suspend fun getVaultItemById(id: String): VaultItem? =
         vaultDao.getVaultItemById(id)?.toDomainModel()
 
-    suspend fun recoverOrphanedJournals(): Int {
+    /**
+     * Recover journals left PENDING after crash. Only delete vault-side ciphertext that is
+     * still zero-length and older than [ORPHAN_EMPTY_FILE_MIN_AGE_MS] so an in-flight
+     * encrypt cannot race with recovery and lose data.
+     */
+    suspend fun recoverOrphanedJournals(): Int = VaultMaintenance.operation {
         val pendingJournals = vaultJournalDao.getPendingJournals("PENDING")
         val canonicalVault = vaultDirectory.canonicalFile
         var recoveredCount = 0
+        val now = System.currentTimeMillis()
 
         for (journal in pendingJournals) {
             try {
                 when (journal.operationType) {
                     "ENCRYPT" -> {
                         val encFile = File(journal.vaultPath).canonicalFile
-                        // Never trust a persisted journal path for filesystem mutation.
-                        // A corrupted/tampered journal must not become an arbitrary-file delete primitive.
-                        if (isInsideDirectory(encFile, canonicalVault) && encFile.exists() && encFile.length() == 0L) {
-                            encFile.delete()
+                        if (isInsideDirectory(encFile, canonicalVault) && encFile.exists()) {
+                            val ageMs = now - encFile.lastModified()
+                            if (encFile.length() == 0L && ageMs >= ORPHAN_EMPTY_FILE_MIN_AGE_MS) {
+                                encFile.delete()
+                            }
                         }
                         vaultJournalDao.updateJournal(journal.copy(status = "FAILED"))
                         recoveredCount++
@@ -63,8 +71,8 @@ class SecureVaultRepository(
             }
         }
         vaultJournalDao.purgeCompletedJournals()
-        return recoveredCount
-    }
+        recoveredCount
+    }.getOrThrow()
 
     suspend fun lockFileInVault(
         sourceFile: File,
@@ -72,7 +80,7 @@ class SecureVaultRepository(
         notes: String = "",
         deleteOriginal: Boolean = false,
         isDecoy: Boolean = false
-    ): Result<VaultItem> = runCatching {
+    ): Result<VaultItem> = VaultMaintenance.operation {
         require(sourceFile.exists() && sourceFile.isFile) {
             "Source file does not exist or is a directory: ${sourceFile.absolutePath}"
         }
@@ -103,6 +111,7 @@ class SecureVaultRepository(
             )
         ) ?: 0L
 
+        var sourceDestructionStarted = false
         try {
             val result = cryptoManager.encryptFile(sourceFile, destinationFile)
 
@@ -123,6 +132,10 @@ class SecureVaultRepository(
             vaultDao.insertVaultItem(entity)
 
             if (deleteOriginal) {
+                // Persist ciphertext before entering the irreversible phase. Once shredding starts,
+                // cleanup must retain the authenticated recovery copy even when unlink/journaling fails.
+                java.io.RandomAccessFile(destinationFile, "rw").use { it.fd.sync() }
+                sourceDestructionStarted = true
                 require(cryptoManager.secureShredFile(sourceFile)) {
                     "Encrypted vault copy was created, but original plaintext could not be securely removed"
                 }
@@ -142,8 +155,7 @@ class SecureVaultRepository(
 
             entity.toDomainModel()
         } catch (e: Exception) {
-            // Roll back metadata as well as the encrypted artifact. Otherwise a failed
-            // operation can leave a DB row pointing at a file that no longer exists.
+            if (sourceDestructionStarted) throw e
             vaultDao.deleteById(fileId)
             if (journalId > 0L) {
                 vaultJournalDao.updateJournal(
@@ -166,7 +178,7 @@ class SecureVaultRepository(
     suspend fun restoreFileFromVault(
         vaultItemId: String,
         destinationDir: File? = null
-    ): Result<File> = runCatching {
+    ): Result<File> = VaultMaintenance.operation {
         val entity = vaultDao.getVaultItemById(vaultItemId)
             ?: throw IllegalStateException("Vault item not found in database: $vaultItemId")
 
@@ -203,21 +215,20 @@ class SecureVaultRepository(
             "Restore destination already exists; refusing to overwrite plaintext: ${targetCanonical.absolutePath}"
         }
 
-        // GCM authentication is only known after EOF. Decrypt to a same-directory temporary file
-        // and publish it only after authenticated decryption succeeds.
         val tempFile = createSiblingTempFile(targetCanonical)
         try {
             cryptoManager.decryptFile(encryptedFile, tempFile)
-            require(tempFile.renameTo(targetCanonical)) {
-                "Unable to atomically publish restored file: ${targetCanonical.absolutePath}"
-            }
+            publishRestoredFile(tempFile, targetCanonical)
         } catch (e: Exception) {
-            tempFile.delete()
+            // Publication may have succeeded before unlinking the temporary hard link failed.
+            // In that case both paths refer to the same inode; shredding tempFile would
+            // corrupt the successfully published destination.
+            if (e !is SharedPlaintextLinkCleanupException) {
+                secureDeletePlaintextTemp(tempFile)
+            }
             throw e
         }
 
-        // Plaintext is now successfully restored. If secure shredding fails, retain the encrypted
-        // source and DB record rather than creating a false state in which the item disappears.
         if (cryptoManager.secureShredFile(encryptedFile)) {
             vaultDao.deleteById(vaultItemId)
         }
@@ -228,7 +239,7 @@ class SecureVaultRepository(
     suspend fun exportFileFromVault(
         vaultItemId: String,
         destinationFile: File
-    ): Result<File> = runCatching {
+    ): Result<File> = VaultMaintenance.operation {
         val canonicalDest = destinationFile.canonicalFile
         val canonicalVault = vaultDirectory.canonicalFile
         require(!isInsideDirectory(canonicalDest, canonicalVault)) {
@@ -259,18 +270,21 @@ class SecureVaultRepository(
         val tempFile = createSiblingTempFile(canonicalDest)
         try {
             cryptoManager.decryptFile(encryptedFile, tempFile)
-            require(tempFile.renameTo(canonicalDest)) {
-                "Unable to publish exported file: ${canonicalDest.absolutePath}"
-            }
+            publishRestoredFile(tempFile, canonicalDest)
         } catch (e: Exception) {
-            tempFile.delete()
+            // After a successful hard-link publication, the temporary path and target
+            // refer to the same inode. Shredding the temp path would corrupt the restored
+            // destination if unlink cleanup itself failed.
+            if (e !is SharedPlaintextLinkCleanupException) {
+                secureDeletePlaintextTemp(tempFile)
+            }
             throw e
         }
 
         canonicalDest
     }
 
-    suspend fun deleteVaultItemPermanently(vaultItemId: String): Result<Boolean> = runCatching {
+    suspend fun deleteVaultItemPermanently(vaultItemId: String): Result<Boolean> = VaultMaintenance.operation {
         val entity = vaultDao.getVaultItemById(vaultItemId)
         if (entity != null) {
             val encryptedFile = File(vaultDirectory, entity.encryptedFileName).canonicalFile
@@ -319,6 +333,16 @@ class SecureVaultRepository(
         }
     }
 
+    private fun publishRestoredFile(tempFile: File, targetCanonical: File) {
+        AtomicNoClobberPublisher(discardUnpublished = ::secureDeletePlaintextTemp).publish(tempFile, targetCanonical)
+    }
+
+    private fun secureDeletePlaintextTemp(tempFile: File) {
+        if (!tempFile.exists()) return
+        runCatching { check(cryptoManager.secureShredFile(tempFile)) }
+            .onFailure { check(tempFile.delete() || !tempFile.exists()) { "Unable to remove unpublished plaintext" } }
+    }
+
     private fun VaultItemEntity.toDomainModel(): VaultItem {
         return VaultItem(
             id = id,
@@ -354,5 +378,9 @@ class SecureVaultRepository(
             "apk" -> "application/vnd.android.package-archive"
             else -> "application/octet-stream"
         }
+    }
+
+    companion object {
+        private const val ORPHAN_EMPTY_FILE_MIN_AGE_MS = 60_000L
     }
 }

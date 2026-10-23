@@ -46,6 +46,7 @@ object AppCompositionRoot {
         vaultDir: File,
         databaseName: String,
         beforeRestoreApply: (() -> Unit)? = null,
+        afterRestoreApply: (() -> Unit)? = null,
         cloudSyncDao: CloudSyncDao? = null
     ): CloudSyncUseCase {
         val restoreWorkingDir = File(context.cacheDir, "restore-work")
@@ -60,9 +61,17 @@ object AppCompositionRoot {
             applier = LocalRestoreApplier(
                 liveDatabaseFile = context.getDatabasePath(databaseName),
                 liveVaultDir = vaultDir,
-                snapshotRoot = File(restoreWorkingDir, "snapshots"),
+                snapshotRoot = File(context.filesDir, "restore-snapshots"),
                 vaultAuthImporter = { meta -> cryptoSecurityManager.importVaultAuthMetadata(meta) },
-                beforeApply = beforeRestoreApply
+                beforeApply = beforeRestoreApply,
+                afterApply = afterRestoreApply,
+                vaultAuthExporter = { cryptoSecurityManager.exportVaultAuthMetadata() },
+                vaultAuthRestorer = { cryptoSecurityManager.restoreVaultAuthMetadata(it) },
+                validateDatabase = { file ->
+                    com.vvf.smartmanager.core.database.VVFDatabase.validateEncryptedBackup(context, file) {
+                        cryptoSecurityManager.getOrCreateDatabasePassphrase()
+                    }
+                }
             )
         )
         return CloudSyncUseCase(

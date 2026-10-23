@@ -1,4 +1,4 @@
-// Top-level build file where you can add configuration options common to all sub-projects/modules.
+// Top-level build file where you can add configuration options common to all sub-projects.
 plugins {
   alias(libs.plugins.android.application) apply false
   alias(libs.plugins.android.library) apply false
@@ -19,6 +19,8 @@ subprojects {
   jacoco {
     toolVersion = "0.8.11"
   }
+
+  apply(from = rootProject.file("gradle/security-constraints.gradle.kts"))
 }
 
 tasks.register<Exec>("cpasVerify") {
@@ -26,4 +28,3 @@ tasks.register<Exec>("cpasVerify") {
   description = "Validate CPAS assurance contracts and emit cpas-status.json"
   commandLine("python3", file("tools/audit/cpas_verify.py").absolutePath, "--root", rootDir.absolutePath)
 }
-

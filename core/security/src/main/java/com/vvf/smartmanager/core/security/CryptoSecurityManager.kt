@@ -82,7 +82,8 @@ class CryptoSecurityManager(
         private const val DB_PASSPHRASE_TEMP_SUFFIX = ".tmp"
         private const val DB_PASSPHRASE_FORMAT_VERSION: Byte = 2
 
-        private const val PBKDF2_ITERATIONS = 600_000
+        private const val PBKDF2_ITERATIONS = 310_000
+        private const val LEGACY_PBKDF2_ITERATIONS = 600_000
         private val memoryKeyMap = mutableMapOf<String, SecretKey>()
 
         @JvmStatic
@@ -212,25 +213,39 @@ class CryptoSecurityManager(
                 )
             }
 
-            writeV2DatabasePassphraseAtomically(v2File, migratedPassphrase)
-            val verified = readV2DatabasePassphrase(v2File)
-            if (!MessageDigest.isEqual(migratedPassphrase, verified)) {
-                throw SecurityException("Secure database passphrase migration verification failed")
+            try {
+                persistVerifiedPassphrase(v2File,
+                    write = { writeV2DatabasePassphraseAtomically(v2File, migratedPassphrase) },
+                    verify = { verifyPersistedPassphrase(v2File, migratedPassphrase) })
+                check(legacyEncFile.delete()) { "Failed to remove legacy encrypted database passphrase" }
+                check(legacyIvFile.delete()) { "Failed to remove legacy database passphrase IV" }
+                return migratedPassphrase
+            } catch (error: Throwable) {
+                migratedPassphrase.fill(0)
+                throw error
             }
-
-            check(legacyEncFile.delete()) { "Failed to remove legacy encrypted database passphrase" }
-            check(legacyIvFile.delete()) { "Failed to remove legacy database passphrase IV" }
-            return migratedPassphrase
         }
 
         val freshPassphrase = ByteArray(DB_KEY_LENGTH_BYTES)
         SecureRandom().nextBytes(freshPassphrase)
-        writeV2DatabasePassphraseAtomically(v2File, freshPassphrase)
-        val verified = readV2DatabasePassphrase(v2File)
-        if (!MessageDigest.isEqual(freshPassphrase, verified)) {
-            throw SecurityException("Secure database passphrase write verification failed")
+        try {
+            persistVerifiedPassphrase(v2File,
+                write = { writeV2DatabasePassphraseAtomically(v2File, freshPassphrase) },
+                verify = { verifyPersistedPassphrase(v2File, freshPassphrase) })
+            return freshPassphrase
+        } catch (error: Throwable) {
+            freshPassphrase.fill(0)
+            throw error
         }
-        return freshPassphrase
+    }
+
+    private fun verifyPersistedPassphrase(file: File, expected: ByteArray) {
+        val verified = readV2DatabasePassphrase(file)
+        try {
+            check(MessageDigest.isEqual(expected, verified)) { "Secure database passphrase verification failed" }
+        } finally {
+            verified.fill(0)
+        }
     }
 
     private fun readV2DatabasePassphrase(file: File): ByteArray {
@@ -420,36 +435,52 @@ class CryptoSecurityManager(
         val keys = listOf(
             "vault_pin_hash", "vault_pin_hash_iv", "vault_pin_salt", "vault_pin_salt_iv",
             "vault_decoy_pin_hash", "vault_decoy_pin_hash_iv", "vault_decoy_pin_salt", "vault_decoy_pin_salt_iv",
-            "vault_biometric_enabled"
+            "vault_pin_iterations", "vault_decoy_pin_iterations", "vault_biometric_enabled"
         )
         val out = linkedMapOf<String, String>()
         for (key in keys) {
             when (val value = prefs.all[key]) {
                 is String -> out[key] = value
                 is Boolean -> out[key] = value.toString()
+                is Int -> out[key] = value.toString()
             }
         }
         return out
     }
 
-    fun importVaultAuthMetadata(metadata: Map<String, String>): Boolean {
-        if (metadata.isEmpty()) return false
+    /** Replace exactly the Keystore-wrapped auth state captured by restore preparation. */
+    fun restoreVaultAuthMetadata(metadata: Map<String, String>): Boolean {
+        val keys = setOf("vault_pin_hash", "vault_pin_hash_iv", "vault_pin_salt", "vault_pin_salt_iv",
+            "vault_decoy_pin_hash", "vault_decoy_pin_hash_iv", "vault_decoy_pin_salt", "vault_decoy_pin_salt_iv",
+            "vault_pin_iterations", "vault_decoy_pin_iterations", "vault_biometric_enabled")
+        if (metadata.keys.any { it !in keys }) return false
         val editor = prefs.edit()
-        var wrote = false
+        keys.forEach { editor.remove(it) }
         metadata.forEach { (key, value) ->
             when (key) {
-                "vault_biometric_enabled" -> {
-                    editor.putBoolean(key, value.equals("true", ignoreCase = true))
-                    wrote = true
+                "vault_biometric_enabled" -> editor.putBoolean(key, value.toBooleanStrictOrNull() ?: return false)
+                "vault_pin_iterations", "vault_decoy_pin_iterations" -> {
+                    val count = value.toIntOrNull() ?: return false
+                    if (count !in 100_000..1_000_000) return false
+                    editor.putInt(key, count)
                 }
-                "vault_pin_hash", "vault_pin_hash_iv", "vault_pin_salt", "vault_pin_salt_iv",
-                "vault_decoy_pin_hash", "vault_decoy_pin_hash_iv", "vault_decoy_pin_salt", "vault_decoy_pin_salt_iv" -> {
-                    editor.putString(key, value)
-                    wrote = true
-                }
+                else -> editor.putString(key, value)
             }
         }
-        return if (wrote) editor.commit() else false
+        return editor.commit()
+    }
+
+    fun importVaultAuthMetadata(metadata: Map<String, String>): Boolean {
+        if (metadata.isEmpty()) return false
+        for (prefix in listOf("vault_pin", "vault_decoy_pin")) {
+            val fields = listOf("hash", "hash_iv", "salt", "salt_iv").map { "${prefix}_$it" }
+            val present = fields.count { it in metadata }
+            if (present != 0 && present != fields.size) return false
+            if (present == 0 && "${prefix}_iterations" in metadata) return false
+            // Legacy complete PIN snapshots omit iterations; matchesStoredPin uses 600,000.
+        }
+        // Replacement removes absent optional settings; a restore must not mix two PIN states.
+        return restoreVaultAuthMetadata(metadata)
     }
 
     fun setupVaultPin(pin: String): Boolean {
@@ -464,6 +495,7 @@ class CryptoSecurityManager(
             .putString("vault_pin_hash_iv", Base64.encodeToString(hashIv, Base64.NO_WRAP))
             .putString("vault_pin_salt", Base64.encodeToString(encSalt, Base64.NO_WRAP))
             .putString("vault_pin_salt_iv", Base64.encodeToString(saltIv, Base64.NO_WRAP))
+            .putInt("vault_pin_iterations", PBKDF2_ITERATIONS)
             .apply()
         return true
     }
@@ -481,13 +513,15 @@ class CryptoSecurityManager(
             .putString("vault_decoy_pin_hash_iv", Base64.encodeToString(hashIv, Base64.NO_WRAP))
             .putString("vault_decoy_pin_salt", Base64.encodeToString(encSalt, Base64.NO_WRAP))
             .putString("vault_decoy_pin_salt_iv", Base64.encodeToString(saltIv, Base64.NO_WRAP))
+            .putInt("vault_decoy_pin_iterations", PBKDF2_ITERATIONS)
             .apply()
         return true
     }
 
     fun removeDecoyPin(): Boolean {
         prefs.edit().remove("vault_decoy_pin_hash").remove("vault_decoy_pin_hash_iv")
-            .remove("vault_decoy_pin_salt").remove("vault_decoy_pin_salt_iv").apply()
+            .remove("vault_decoy_pin_salt").remove("vault_decoy_pin_salt_iv")
+            .remove("vault_decoy_pin_iterations").apply()
         return true
     }
 
@@ -539,6 +573,9 @@ class CryptoSecurityManager(
         val hashIv = prefs.getString(hashIvKey, null) ?: return false
         val salt = prefs.getString(saltKey, null) ?: return false
         val saltIv = prefs.getString(saltIvKey, null) ?: return false
+        val iterationsKey = if (hashKey == "vault_pin_hash") "vault_pin_iterations" else "vault_decoy_pin_iterations"
+        val iterations = prefs.getInt(iterationsKey, LEGACY_PBKDF2_ITERATIONS)
+            .takeIf { it in 100_000..1_000_000 } ?: LEGACY_PBKDF2_ITERATIONS
         return try {
             val expectedHash = decryptBytes(
                 Base64.decode(hash, Base64.NO_WRAP),
@@ -550,7 +587,7 @@ class CryptoSecurityManager(
                 Base64.decode(saltIv, Base64.NO_WRAP),
                 VAULT_META_KEY_ALIAS
             )
-            MessageDigest.isEqual(expectedHash, hashPin(pin, decodedSalt))
+            MessageDigest.isEqual(expectedHash, hashPin(pin, decodedSalt, iterations))
         } catch (_: Exception) {
             false
         }
@@ -567,10 +604,10 @@ class CryptoSecurityManager(
     fun setAutoLockTimeoutSeconds(seconds: Int) { prefs.edit().putInt("vault_auto_lock_seconds", seconds).apply() }
     fun wipeBuffer(buffer: ByteArray) { buffer.fill(0) }
 
-    private fun hashPin(pin: String, salt: ByteArray): ByteArray {
+    private fun hashPin(pin: String, salt: ByteArray, iterations: Int = PBKDF2_ITERATIONS): ByteArray {
         val pinChars = pin.toCharArray()
         return try {
-            val spec = javax.crypto.spec.PBEKeySpec(pinChars, salt, PBKDF2_ITERATIONS, 256)
+            val spec = javax.crypto.spec.PBEKeySpec(pinChars, salt, iterations, 256)
             try {
                 javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
             } finally {
@@ -580,4 +617,20 @@ class CryptoSecurityManager(
             pinChars.fill('\u0000')
         }
     }
+}
+
+/** Remove only a newly published, unverified key file. Existing keys must never be replaced here. */
+internal fun persistVerifiedPassphrase(file: File, write: () -> Unit, verify: () -> Unit) {
+    check(!file.exists()) { "Database passphrase already exists" }
+    try {
+        write()
+        verify()
+    } catch (error: Throwable) {
+        if (file.exists() && !file.delete()) {
+            error.addSuppressed(java.io.IOException("Cannot remove unverified database passphrase file"))
+        }
+        throw error
+    }
+    // Legacy-file cleanup occurs after this function returns. A failure there must
+    // retain this verified v2 file as the authoritative copy on the next startup.
 }

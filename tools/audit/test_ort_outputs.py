@@ -21,11 +21,11 @@ class OrtOutputValidationTest(unittest.TestCase):
         reports = {
             "analyzer-result.json": {
                 "repository": repository,
-                "analyzer": {"result": {"projects": [], "packages": []}},
+                "analyzer": {"result": {"projects": [{"id": "Gradle::app:1"}], "packages": [{"id": "Maven:synthetic:library:1"}]}},
             },
             "scan-result.json": {
                 "repository": repository,
-                "scanner": {"scanResults": []},
+                "scanner": {"scan_results": []},
             },
             "evaluation-result.json": {
                 "repository": repository,
@@ -39,7 +39,7 @@ class OrtOutputValidationTest(unittest.TestCase):
                 "bomFormat": "CycloneDX",
                 "specVersion": "1.6",
                 "version": 1,
-                "components": [],
+                "components": [{"type": "library", "name": "synthetic", "version": "1"}],
             },
             "bom.spdx.json": {
                 "spdxVersion": "SPDX-2.3",
@@ -47,7 +47,7 @@ class OrtOutputValidationTest(unittest.TestCase):
                 "SPDXID": "SPDXRef-DOCUMENT",
                 "name": "The-Perfect test SBOM",
                 "documentNamespace": "https://example.invalid/sbom/test",
-                "packages": [],
+                "packages": [{"SPDXID": "SPDXRef-synthetic", "name": "synthetic", "downloadLocation": "NOASSERTION"}],
             },
         }
         for name, report in reports.items():
@@ -60,6 +60,43 @@ class OrtOutputValidationTest(unittest.TestCase):
             "spdxVersion: SPDX-2.3\nSPDXID: SPDXRef-DOCUMENT\nname: Test SBOM\ndocumentNamespace: https://example.invalid/sbom/test\npackages: []\n",
             encoding="utf-8",
         )
+
+    def test_actual_ort_97_2_quoted_spdx_namespace_is_accepted(self):
+        # Observed in actual Reporter output, not inferred from a synthetic HTTP fixture.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            namespace = "spdx://e42700c9-3165-461e-bf18-eb2bd5ac2593"
+            report = json.loads((root / "bom.spdx.json").read_text())
+            report["documentNamespace"] = namespace
+            (root / "bom.spdx.json").write_text(json.dumps(report))
+            yaml = (root / "bom.spdx.yml").read_text()
+            (root / "bom.spdx.yml").write_text(yaml.replace("https://example.invalid/sbom/test", '"' + namespace + '"'))
+            self.assertEqual([], validate_outputs(root))
+
+    def test_invalid_matching_spdx_namespaces_fail_closed(self):
+        for namespace in ("", "relative/path", "spdx://", "spdx://uuid#fragment", "spdx://bad space"):
+            with self.subTest(namespace=namespace), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                self.write_valid_reports(root)
+                yaml = (root / "bom.spdx.yml").read_text()
+                (root / "bom.spdx.yml").write_text(yaml.replace("https://example.invalid/sbom/test", '"' + namespace + '"'))
+                report = json.loads((root / "bom.spdx.json").read_text())
+                report["documentNamespace"] = namespace
+                (root / "bom.spdx.json").write_text(json.dumps(report))
+                problems = validate_outputs(root)
+                self.assertIn("bom.spdx.json: invalid documentNamespace URI", problems)
+                self.assertIn("bom.spdx.yml: missing or invalid documentNamespace field", problems)
+
+    def test_valid_but_inconsistent_spdx_namespaces_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            yaml = (root / "bom.spdx.yml").read_text()
+            (root / "bom.spdx.yml").write_text(yaml.replace(
+                "https://example.invalid/sbom/test", "https://different.invalid"))
+            self.assertEqual(["bom.spdx.yml: documentNamespace differs from JSON SBOM"],
+                             validate_outputs(root))
 
     def test_missing_reports_fail_closed(self):
         with tempfile.TemporaryDirectory() as directory:

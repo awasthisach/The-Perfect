@@ -26,6 +26,7 @@ class CloudViewModel(
     init {
         loadAllAccounts()
         observeSyncState()
+        loadBackupHistory()
     }
 
     private fun observeSyncState() {
@@ -44,6 +45,25 @@ class CloudViewModel(
     fun selectProvider(providerType: CloudProviderType) {
         _uiState.update { it.copy(selectedProvider = providerType) }
         loadRemoteFiles(providerType)
+        loadBackupHistory(providerType)
+    }
+
+    /** Reloads backup history from Drive instead of relying on an in-memory session list. */
+    fun loadBackupHistory(providerType: CloudProviderType = _uiState.value.selectedProvider) {
+        viewModelScope.launch {
+            val result = cloudSyncUseCase.listCloudBackups(providerType)
+            if (result.isSuccess) {
+                _uiState.update { state ->
+                    if (state.selectedProvider == providerType) {
+                        state.copy(backupHistory = result.getOrDefault(emptyList()))
+                    } else state
+                }
+            } else {
+                _uiState.update { state ->
+                    if (state.selectedProvider == providerType) state.copy(backupHistory = emptyList()) else state
+                }
+            }
+        }
     }
 
     fun loadAllAccounts() {
@@ -83,7 +103,7 @@ class CloudViewModel(
                 }
                 return@launch
             }
-            googleDriveService.setAccessToken(token)
+
             val authentication = cloudSyncUseCase.authenticateProvider(CloudProviderType.GOOGLE_DRIVE)
             if (authentication.getOrDefault(false)) {
                 val updated = cloudSyncUseCase.getAccount(CloudProviderType.GOOGLE_DRIVE)
@@ -97,6 +117,7 @@ class CloudViewModel(
                     )
                 }
                 loadRemoteFiles(CloudProviderType.GOOGLE_DRIVE)
+                loadBackupHistory(CloudProviderType.GOOGLE_DRIVE)
             } else {
                 googleDriveService.setAccessToken(null)
                 _uiState.update {
@@ -106,6 +127,27 @@ class CloudViewModel(
                     )
                 }
             }
+        }
+    }
+
+    /** Updates UI state after Activity has cleared Google/Firebase sessions and local Drive index. */
+    fun completeGoogleDriveSignOut() {
+        googleDriveService.setAccessToken(null)
+        _uiState.update { state ->
+            val updated = state.accounts.toMutableMap()
+            updated[CloudProviderType.GOOGLE_DRIVE] = CloudAccount(
+                providerType = CloudProviderType.GOOGLE_DRIVE,
+                accountEmail = "",
+                displayName = "Google Drive",
+                isConnected = false,
+                usedBytes = 0L,
+                totalBytes = 0L
+            )
+            state.copy(
+                accounts = updated,
+                remoteFiles = if (state.selectedProvider == CloudProviderType.GOOGLE_DRIVE) emptyList() else state.remoteFiles,
+                statusMessage = "Google Drive disconnected. Its local search index was cleared."
+            )
         }
     }
 
@@ -170,6 +212,7 @@ class CloudViewModel(
                     )
                 }
                 loadAllAccounts()
+                loadBackupHistory(provider)
             } else {
                 _uiState.update {
                     it.copy(

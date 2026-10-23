@@ -15,6 +15,7 @@ on:
 permissions:
   contents: read
   actions: read
+  checks: read
   id-token: write
   attestations: write
 
@@ -28,14 +29,24 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
+      - name: Require candidate build, native, Worker and CodeQL checks
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 tools/audit/require_workflow_runs.py --revision "$GITHUB_SHA"
+
       - name: Require successful ORT evidence for this exact commit
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          RUN_ID="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/nightly-ort.yml/runs?head_sha=${GITHUB_SHA}&status=success&per_page=10" --jq '.workflow_runs[] | select(.head_sha == env.GITHUB_SHA) | .id' | head -n 1)"
+          RUN_ID="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/nightly-ort.yml/runs?head_sha=${GITHUB_SHA}&per_page=100" --jq '.workflow_runs | map(select(.head_sha == env.GITHUB_SHA)) | max_by(.id) | .id // empty')"
           if [ -z "$RUN_ID" ]; then
-            echo "::error::No successful nightly ORT scan exists for exact commit ${GITHUB_SHA}; run Nightly ORT Compliance Scan on this same commit and resolve all findings."
+            echo "::error::No nightly ORT scan exists for exact commit ${GITHUB_SHA}; run Nightly ORT Compliance Scan on this same commit and resolve all findings."
+            exit 1
+          fi
+          RUN_STATE="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" --jq '[.head_sha, .status, .conclusion] | join(" ")')"
+          if [ "$RUN_STATE" != "$GITHUB_SHA completed success" ]; then
+            echo "::error::Latest exact-candidate ORT run is not completed successfully."
             exit 1
           fi
           gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name ort-results-evidence --dir ort-evidence
@@ -67,10 +78,13 @@ jobs:
         run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
       - name: CPAS structural + semantic verification (hard fail)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
-          python3 tools/audit/cpas_verify.py --root .
+          python3 tools/audit/collect_evidence.py --revision "$GITHUB_SHA" --output candidate-evidence.json
+          python3 tools/audit/cpas_verify.py --root . --candidate-sha "$GITHUB_SHA" --ledger candidate-evidence.json
 
       - name: Validate release inputs and secrets
         env:
@@ -125,7 +139,7 @@ jobs:
       - name: Android lint (release hard gate)
         run: ./gradlew --no-daemon lintDebug --stacktrace
 
-      - name: Assemble signed release
+      - name: Assemble signed release APK
         env:
           KEYSTORE_PATH: ${{ github.workspace }}/release-upload-key.jks
           STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -135,31 +149,60 @@ jobs:
           VERSION_CODE: ${{ inputs.version_code }}
         run: ./gradlew --no-daemon assembleRelease --stacktrace
 
-      - name: Verify signed APK + fingerprint + SHA-256
+      - name: Assemble signed Google Play App Bundle
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/release-upload-key.jks
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_CODE: ${{ inputs.version_code }}
+        run: ./gradlew --no-daemon bundleRelease --stacktrace
+
+      - name: Verify signed APK + AAB + fingerprints + SHA-256
         id: apk
         run: |
           set -euo pipefail
           APK="$(find . -path '*/build/outputs/apk/release/*.apk' -type f | head -n 1)"
-          test -n "$APK" || { echo "Signed release APK not found"; exit 1; }
+          AAB="$(find . -path '*/build/outputs/bundle/release/*.aab' -type f | head -n 1)"
+          test -n "$APK" || { echo "::error::Signed release APK not found"; exit 1; }
+          test -n "$AAB" || { echo "::error::Signed Google Play App Bundle not found"; exit 1; }
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK"
-          SHA="$(sha256sum "$APK" | awk '{print $1}')"
+          jarsigner -verify "$AAB" > "$RUNNER_TEMP/aab-signature-verification.txt" 2>&1 || {
+            cat "$RUNNER_TEMP/aab-signature-verification.txt"
+            echo "::error::Google Play App Bundle signature verification failed"
+            exit 1
+          }
+          grep -qi "jar verified" "$RUNNER_TEMP/aab-signature-verification.txt" || {
+            cat "$RUNNER_TEMP/aab-signature-verification.txt"
+            echo "::error::Google Play App Bundle did not report a verified signature"
+            exit 1
+          }
+          APK_SHA="$(sha256sum "$APK" | awk '{print $1}')"
+          AAB_SHA="$(sha256sum "$AAB" | awk '{print $1}')"
           CERT_FP="$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$APK" 2>/dev/null | grep -i 'SHA-256 digest' | head -n1 || true)"
           mkdir -p release-meta
           {
             echo "apk_path=$APK"
-            echo "apk_sha256=$SHA"
-            echo "cert_fingerprint=$CERT_FP"
+            echo "apk_sha256=$APK_SHA"
+            echo "aab_path=$AAB"
+            echo "aab_sha256=$AAB_SHA"
+            echo "apk_signing_certificate_sha256=$CERT_FP"
             echo "version_name=${{ inputs.version_name }}"
             echo "version_code=${{ inputs.version_code }}"
             echo "git_sha=${{ github.sha }}"
             echo "run_id=${{ github.run_id }}"
           } > release-meta/apk-manifest.txt
-          echo "path=$APK" >> "$GITHUB_OUTPUT"
-          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          {
+            echo "path=$APK"
+            echo "sha256=$APK_SHA"
+            echo "aab_path=$AAB"
+            echo "aab_sha256=$AAB_SHA"
+          } >> "$GITHUB_OUTPUT"
           cat release-meta/apk-manifest.txt
 
       - name: Generate SBOM with Syft
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           file: ${{ steps.apk.outputs.path }}
           format: spdx-json
@@ -169,26 +212,30 @@ jobs:
         run: |
           set -euo pipefail
           python3 tools/audit/release_gate.py \
+            --revision "$GITHUB_SHA" \
             --cpas-status cpas-status.json \
             --ort-status ort-status.json \
             --apk "${{ steps.apk.outputs.path }}"
 
-      - name: Upload signed release APK + metadata
+      - name: Upload signed release APK + Play App Bundle + metadata
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: vvf-smartmanager-release-${{ inputs.version_name }}-${{ inputs.version_code }}
           path: |
             **/build/outputs/apk/release/*.apk
+            **/build/outputs/bundle/release/*.aab
             release-meta/**
             cpas-status.json
             ort-status.json
           if-no-files-found: error
           retention-days: 30
 
-      - name: Attest release artifact (SLSA provenance)
+      - name: Attest release APK and Play App Bundle (SLSA provenance)
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
         with:
-          subject-path: "**/build/outputs/apk/release/*.apk"
+          subject-path: |
+            **/build/outputs/apk/release/*.apk
+            **/build/outputs/bundle/release/*.aab
 
       - name: Remove signing and Firebase material
         if: always()

@@ -1,5 +1,11 @@
 package com.vvf.smartmanager.core.domain.restore
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -16,9 +22,14 @@ class FailClosedRestorePipeline(
     private val applier: RestoreApplier
 ) : RestorePipeline {
 
+    private val restoreMutex = Mutex()
+
+    override suspend fun restore(remoteBackupId: String, expectedChecksum: String?): Result<RestoreResult> =
+        withContext(Dispatchers.IO) { restoreMutex.withLock { restoreLocked(remoteBackupId, expectedChecksum) } }
+
     private val preparedSnapshots = ConcurrentHashMap<String, RestoreSnapshot>()
 
-    override suspend fun restore(
+    private suspend fun restoreLocked(
         remoteBackupId: String,
         expectedChecksum: String?
     ): Result<RestoreResult> {
@@ -29,10 +40,12 @@ class FailClosedRestorePipeline(
         val token = UUID.randomUUID().toString()
         val stagingDir = File(workingDir, "restore-$token")
         var snapshot: RestoreSnapshot? = null
+        var downloadedArtifact: DownloadedArtifact? = null
         return try {
             requireWorkingDirectory(stagingDir)
 
             val downloaded = downloader.download(remoteBackupId).getOrElse { return Result.failure(it) }
+            downloadedArtifact = downloaded
             val verified = verifier.verify(downloaded, expectedChecksum).getOrElse { return Result.failure(it) }
             val decrypted = decryptor.decrypt(verified, stagingDir).getOrElse { return Result.failure(it) }
 
@@ -41,8 +54,8 @@ class FailClosedRestorePipeline(
 
             val applied = applier.apply(decrypted).getOrElse { error ->
                 val rollbackResult = applier.rollback(snapshot!!)
-                preparedSnapshots.remove(snapshot!!.token)
                 if (rollbackResult.isFailure) {
+                    // Keep the snapshot reachable so a later recovery attempt can retry rollback.
                     return Result.failure(
                         RestoreException(
                             "Restore failed and rollback also failed",
@@ -50,13 +63,14 @@ class FailClosedRestorePipeline(
                         )
                     )
                 }
+                preparedSnapshots.remove(snapshot!!.token)
                 return Result.failure(error)
             }
 
             if (!applied.success) {
                 val rollbackResult = applier.rollback(snapshot!!)
-                preparedSnapshots.remove(snapshot!!.token)
                 if (rollbackResult.isFailure) {
+                    // Keep the snapshot reachable so a later recovery attempt can retry rollback.
                     return Result.failure(
                         RestoreException(
                             "Restore reported failure and rollback also failed",
@@ -64,10 +78,11 @@ class FailClosedRestorePipeline(
                         )
                     )
                 }
+                preparedSnapshots.remove(snapshot!!.token)
                 return Result.failure(RestoreException(applied.message))
             }
 
-            preparedSnapshots.remove(snapshot!!.token)
+            // Keep the snapshot available for the explicit rollback(token) API.
             Result.success(
                 RestoreResult(
                     success = true,
@@ -81,10 +96,10 @@ class FailClosedRestorePipeline(
             )
         } catch (error: Throwable) {
             if (snapshot != null) {
-                val rollbackAttempt = runCatching { applier.rollback(snapshot!!) }
-                preparedSnapshots.remove(snapshot!!.token)
+                val rollbackAttempt = withContext(NonCancellable) { runCatching { applier.rollback(snapshot!!) } }
                 val rollbackResult = rollbackAttempt.getOrNull()
                 if (rollbackAttempt.isFailure) {
+                    // Retain the snapshot after rollback failure for a retry/recovery attempt.
                     return Result.failure(
                         RestoreException(
                             "Fail-closed restore aborted: rollback also failed",
@@ -100,14 +115,20 @@ class FailClosedRestorePipeline(
                         )
                     )
                 }
+                preparedSnapshots.remove(snapshot!!.token)
             }
+            if (error is CancellationException) throw error
             Result.failure(RestoreException("Fail-closed restore aborted", error))
         } finally {
             stagingDir.deleteRecursively()
+            downloadedArtifact?.file?.delete()
         }
     }
 
-    override suspend fun dryRun(
+    override suspend fun dryRun(remoteBackupId: String, expectedChecksum: String?): Result<DryRunResult> =
+        withContext(Dispatchers.IO) { dryRunOnIo(remoteBackupId, expectedChecksum) }
+
+    private suspend fun dryRunOnIo(
         remoteBackupId: String,
         expectedChecksum: String?
     ): Result<DryRunResult> {
@@ -116,9 +137,11 @@ class FailClosedRestorePipeline(
         }
         val token = UUID.randomUUID().toString()
         val stagingDir = File(workingDir, "dry-run-$token")
+        var downloadedArtifact: DownloadedArtifact? = null
         return try {
             requireWorkingDirectory(stagingDir)
             val downloaded = downloader.download(remoteBackupId).getOrElse { return Result.failure(it) }
+            downloadedArtifact = downloaded
             val verified = verifier.verify(downloaded, expectedChecksum).getOrElse { return Result.failure(it) }
             val decrypted = decryptor.decrypt(verified, stagingDir).getOrElse { return Result.failure(it) }
             val fileCount = decrypted.stagingDir.walkTopDown().count { it.isFile }
@@ -134,20 +157,27 @@ class FailClosedRestorePipeline(
                 )
             )
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             Result.failure(RestoreException("Fail-closed restore dry-run aborted", error))
         } finally {
             stagingDir.deleteRecursively()
+            downloadedArtifact?.file?.delete()
         }
     }
 
-    override suspend fun rollback(snapshotToken: String): Result<Unit> {
+    override suspend fun rollback(snapshotToken: String): Result<Unit> =
+        withContext(Dispatchers.IO) { restoreMutex.withLock { rollbackLocked(snapshotToken) } }
+
+    private suspend fun rollbackLocked(snapshotToken: String): Result<Unit> {
         if (snapshotToken.isBlank()) {
             return Result.failure(VerificationFailedException("Snapshot token is blank"))
         }
         val snapshot = preparedSnapshots[snapshotToken]
             ?: return Result.failure(VerificationFailedException("Snapshot token is not active in this process"))
         return applier.rollback(snapshot).also {
-            if (it.isSuccess) preparedSnapshots.remove(snapshotToken)
+            if (it.isSuccess) {
+                preparedSnapshots.remove(snapshotToken)
+            }
         }
     }
 

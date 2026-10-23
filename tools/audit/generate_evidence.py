@@ -1,177 +1,65 @@
 #!/usr/bin/env python3
-"""Generate CPAS evidence ledger entries from CI metadata.
-
-Writes a machine-readable evidence bundle that can be uploaded as a CI artifact
-and later merged into docs/assurance/evidence-ledger.json after human/automation
-review. Never invents PASS results for gates that did not run.
-"""
-from __future__ import annotations
-
+"""Bundle executed JUnit reports; never infer unrelated controls from job success."""
 import argparse
 import hashlib
 import json
 import os
+import re
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from evidence_contract import CONTROLS, SOURCES, report_classes
 
-
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def iso_z(dt: datetime) -> str:
-    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate CPAS evidence from CI")
-    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
-    parser.add_argument("--commit-sha", default=os.environ.get("GITHUB_SHA", ""))
-    parser.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID", "local"))
-    parser.add_argument("--job-id", default=os.environ.get("GITHUB_JOB", "unit-tests"))
-    parser.add_argument(
-        "--result",
-        choices=("PASS", "FAIL"),
-        default="PASS",
-        help="Overall result of the generating gate",
-    )
-    parser.add_argument(
-        "--environment",
-        default="github-actions-ubuntu-24.04",
-    )
-    parser.add_argument(
-        "--include-db",
-        action="store_true",
-        help="Include DB-INV-001 (use after SQLCipher instrumented tests PASS)",
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=None,
-        help="Output path (default: docs/assurance/cpas-evidence-run.json under --root)",
-    )
-    parser.add_argument(
-        "--merge-ledger",
-        action="store_true",
-        help="Also merge generated entries into docs/assurance/evidence-ledger.json",
-    )
-    return parser.parse_args()
-
-
-UNIT_TEST_CONTROLS = [
-    ("STORAGE-INV-001", "STORAGE-TEST-001"),
-    ("STORAGE-INV-002", "STORAGE-TEST-002"),
-    ("RESTORE-INV-001", "RESTORE-TEST-001"),
-    ("WORK-INV-001", "WORK-TEST-001"),
-]
-
-DB_CONTROL = ("DB-INV-001", "DB-TEST-001")
-
-
-def main() -> int:
-    args = parse_args()
-    root = args.root.resolve()
-    commit = (args.commit_sha or "").strip().lower()
-    if len(commit) != 40 or any(c not in "0123456789abcdef" for c in commit):
-        raise SystemExit(f"commit SHA must be 40 hex chars, got: {commit!r}")
-
-    now = utc_now()
-    expires = now + timedelta(days=180)
-    run_id = str(args.run_id)
-    job_id = str(args.job_id)
-
-    controls = list(UNIT_TEST_CONTROLS)
-    if args.include_db:
-        controls.append(DB_CONTROL)
-
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument('--root', type=Path, default=Path.cwd())
+    p.add_argument('--commit-sha', default=os.environ.get('GITHUB_SHA', ''))
+    p.add_argument('--run-id', default=os.environ.get('GITHUB_RUN_ID', ''))
+    p.add_argument('--scope', choices=SOURCES, required=True)
+    p.add_argument('--output', type=Path, required=True, help='Directory for bundle and reports')
+    a = p.parse_args()
+    if not re.fullmatch('[0-9a-f]{40}', a.commit_sha) or not a.run_id.isdigit():
+        raise SystemExit('exact SHA and numeric Actions run ID required')
+    if a.output.exists():
+        raise SystemExit('output directory must be fresh')
+    a.output.mkdir(parents=True)
+    paths = list(a.root.glob('**/build/test-results/testDebugUnitTest/TEST-*.xml')) if a.scope == 'unit' else list(a.root.glob('core/database/build/outputs/androidTest-results/connected/**/*.xml'))
+    available = []
+    required_classes = {name for control, (_, names) in CONTROLS.items()
+                        if (control == 'DB-INV-001') == (a.scope == 'database') for name in names}
+    for path in paths:
+        raw = path.read_bytes()
+        # Parse before excluding: malformed XML cannot prove it is unrelated.
+        if b'<!DOCTYPE' in raw or b'<!ENTITY' in raw:
+            raise ValueError('XML entities are not evidence')
+        classes = {case.get('classname') for case in ET.fromstring(raw).iter('testcase')}
+        if not classes & required_classes:
+            continue
+        # Any failure/skip in a report for a required class invalidates the bundle,
+        # even if another report claims that class passed.
+        available.append((path, report_classes(raw)))
     entries = []
-    for index, (control_id, test_id) in enumerate(controls, start=1):
-        env = args.environment
-        if control_id == "DB-INV-001" and "emulator" not in env:
-            env = f"{env}-sqlcipher-instrumented"
-        entries.append(
-            {
-                "id": f"EVID-{index:03d}",
-                "control_id": control_id,
-                "test_id": test_id,
-                "source_commit": commit,
-                "ci_run_id": run_id,
-                "ci_job_id": job_id,
-                "executed_at": iso_z(now),
-                "result": args.result,
-                "environment": env,
-                "expires_at": iso_z(expires),
-                "notes": "Generated by tools/audit/generate_evidence.py from CI gate",
-            }
-        )
-
-    bundle = {
-        "schema_version": "1.0",
-        "generated_at": iso_z(now),
-        "generator": "tools/audit/generate_evidence.py",
-        "source": {
-            "commit": commit,
-            "run_id": run_id,
-            "job_id": job_id,
-            "result": args.result,
-            "include_db": args.include_db,
-        },
-        "entries": entries,
-        "policy": {
-            "status_values": ["pending", "verified", "failed"],
-            "production_rule": (
-                "Evidence must be independently reproducible and linked to a requirement, "
-                "control/invariant, verification, and CI run before it can support production PASS."
-            ),
-        },
-    }
-
-    out = args.output
-    if out is None:
-        out = root / "docs" / "assurance" / "cpas-evidence-run.json"
-    elif not out.is_absolute():
-        out = (root / out).resolve()
-    else:
-        out = out.resolve()
-
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(bundle, indent=2) + "\n", encoding="utf-8")
-    digest = hashlib.sha256(out.read_bytes()).hexdigest()
-    try:
-        display = out.relative_to(root)
-    except ValueError:
-        display = out
-    print(f"Wrote {display} sha256={digest} entries={len(entries)}")
-
-    if args.merge_ledger:
-        ledger_path = root / "docs" / "assurance" / "evidence-ledger.json"
-        if ledger_path.is_file():
-            existing = json.loads(ledger_path.read_text(encoding="utf-8"))
-        else:
-            existing = {
-                "schema_version": "1.0",
-                "entries": [],
-                "policy": bundle["policy"],
-            }
-        by_control = {
-            e["control_id"]: e
-            for e in existing.get("entries", [])
-            if isinstance(e, dict) and "control_id" in e
-        }
-        for entry in entries:
-            by_control[entry["control_id"]] = entry
-        merged = []
-        for i, control in enumerate(sorted(by_control.keys()), start=1):
-            item = dict(by_control[control])
-            item["id"] = f"EVID-{i:03d}"
-            merged.append(item)
-        existing["entries"] = merged
-        existing["policy"] = bundle["policy"]
-        ledger_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
-        print(f"Merged {len(merged)} entries into {ledger_path.relative_to(root)}")
-
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    for control, (test, classes) in CONTROLS.items():
+        if (control == 'DB-INV-001') != (a.scope == 'database'):
+            continue
+        selected = [(path, found) for path, found in available if set(classes) & found]
+        if not set(classes).issubset(set().union(*(found for _, found in selected))):
+            raise SystemExit(f'missing executed tests for {control}')
+        reports = []
+        for path, _ in selected:
+            raw = path.read_bytes(); digest = hashlib.sha256(raw).hexdigest()
+            name = f'reports/{digest}.xml'
+            (a.output/'reports').mkdir(exist_ok=True)
+            (a.output/name).write_bytes(raw)
+            reports.append({'path': name, 'sha256': digest})
+        entries.append({'id': f'EVID-{list(CONTROLS).index(control)+1:03d}', 'control_id': control, 'test_id': test,
+            'source_commit': a.commit_sha, 'ci_run_id': a.run_id, 'ci_job_id': SOURCES[a.scope][1],
+            'executed_at': now.isoformat().replace('+00:00','Z'),
+            'expires_at': (now+timedelta(days=14 if a.scope == 'database' else 30)).isoformat().replace('+00:00','Z'),
+            'result': 'PASS', 'environment': 'github-actions-emulator' if a.scope == 'database' else 'github-actions-unit',
+            'scope': a.scope, 'artifact': SOURCES[a.scope][3], 'reports': reports})
+    (a.output/'bundle.json').write_text(json.dumps({'entries': entries}, indent=2)+'\n')
+    print(f'Bundled {len(entries)} controls backed by executed reports')
+if __name__ == '__main__':
+    main()
