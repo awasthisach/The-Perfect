@@ -19,4 +19,4 @@ for scope, (workflow, _, _, _) in SOURCES.items():
 errors = verify_entries(entries, a.revision, CONTROLS)
 if errors:
     raise SystemExit('; '.join(errors))
-a.output.write_text(json.dumps({'schema_version': '1.0', 'policy': {}, 'entries': entries}, indent=2)+'\n')
+a.output.write_text(json.dumps({'schema_version': '1.0', 'policy': {'status_values': ['pending', 'verified', 'failed'], 'production_rule': 'Exact candidate, executed control reports and verified Actions provenance are required.'}, 'entries': entries}, indent=2)+'\n')

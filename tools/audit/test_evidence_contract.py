@@ -12,8 +12,8 @@ class EvidenceContractTest(unittest.TestCase):
     def setUp(self):
         now = datetime.now(timezone.utc)
         self.entry = dict(id='EVID-001', control_id='STORAGE-INV-001', test_id='STORAGE-TEST-001', source_commit=SHA,
-            ci_run_id='123', scope='unit', artifact='cpas-evidence-run', result='PASS',
-            executed_at=(now-timedelta(minutes=1)).isoformat(), expires_at=(now+timedelta(days=1)).isoformat(), reports=[{'path':'report.xml','sha256':'a'*64}])
+            ci_run_id='123', ci_job_id=ec.SOURCES['unit'][1], scope='unit', artifact='cpas-evidence-run', result='PASS',
+            executed_at=(now-timedelta(minutes=1)).isoformat(), expires_at=(now+timedelta(days=1)).isoformat(), reports=[{'path':'reports/'+ 'a'*64 + '.xml','sha256':'a'*64}])
     def check(self, entry):
         return ec.verify_entries([entry], SHA, ['STORAGE-INV-001'], verify=lambda *_: None)
     def test_valid_candidate_contract(self):
@@ -60,7 +60,7 @@ class EvidenceContractTest(unittest.TestCase):
                 ec.remote_bundle('123','unit',SHA)
     def test_unrelated_report_cannot_claim_control(self):
         raw=b'<testsuite><testcase classname="Unrelated" name="test"/></testsuite>'
-        entry=copy.deepcopy(self.entry);entry['reports']=[{'path':'report.xml','sha256':ec.hashlib.sha256(raw).hexdigest()}]
+        entry=copy.deepcopy(self.entry);digest=ec.hashlib.sha256(raw).hexdigest(); entry['reports']=[{'path':f'reports/{digest}.xml','sha256':digest}]
         archive=unittest.mock.Mock();archive.read.return_value=raw
         with patch.object(ec,'remote_bundle',return_value=({'entries':[entry]},archive)),self.assertRaises(ValueError):
             ec.verify_remote(entry,SHA)
@@ -87,3 +87,30 @@ class GeneratorTest(unittest.TestCase):
             result=subprocess.run([sys.executable,str(Path(__file__).with_name('generate_evidence.py')),'--root',str(root),'--commit-sha',SHA,'--run-id','123','--scope','unit','--output',str(out)],capture_output=True)
             self.assertNotEqual(0,result.returncode)
             self.assertFalse((out/'bundle.json').exists())
+
+class OriginalProbeIntegrationTest(unittest.TestCase):
+    def test_actual_verifier_rejects_original_false_pass_with_risks_isolated(self):
+        import tempfile, subprocess, shutil, re, sys
+        from pathlib import Path
+        repo=Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            shutil.copytree(repo/'docs',root/'docs')
+            for directory in repo.iterdir():
+                if directory.is_dir() and directory.name not in {'docs','.git'}:
+                    (root/directory.name).symlink_to(directory,target_is_directory=True)
+            # Resolve the same HEAD without touching the real checkout or tracked documents.
+            gitdir=subprocess.check_output(['git','rev-parse','--absolute-git-dir'],cwd=repo,text=True).strip()
+            (root/'.git').write_text('gitdir: '+gitdir+'\n')
+            risks=root/'docs/assurance/08-risk-register.yaml'
+            risks.write_text(re.sub(r'status: (triaged|repair_implemented)', 'status: closed', risks.read_text()))
+            ledger=root/'docs/assurance/evidence-ledger.json';d=json.loads(ledger.read_text())
+            for entry in d['entries']: entry.update(result='FAIL',source_commit='0'*40)
+            ledger.write_text(json.dumps(d))
+            result=subprocess.run([sys.executable,str(repo/'tools/audit/cpas_verify.py'),'--root',str(root)],text=True,capture_output=True)
+            self.assertEqual(1,result.returncode,result.stderr)
+            status=json.loads(result.stdout)
+            checks={c['name']:c['status'] for c in status['checks']}
+            self.assertEqual('PASS', checks['risk_register_gate'])
+            self.assertEqual('BLOCKED', checks['candidate_control_provenance'])
+            self.assertEqual('BLOCKED', status['production_status']['value'])
