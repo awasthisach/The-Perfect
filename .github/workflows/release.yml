@@ -48,6 +48,8 @@ jobs:
           key: ${{ runner.os }}-ort-scan-results-v2-${{ hashFiles('.ort.yml', 'gradle/libs.versions.toml', '**/build.gradle', '**/build.gradle.kts', '**/settings.gradle', '**/settings.gradle.kts', '**/gradle.lockfile', '**/libs.versions.toml', '**/package-lock.json', '**/pnpm-lock.yaml', '**/pom.xml') }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             ${{ runner.os }}-ort-scan-results-v2-${{ hashFiles('.ort.yml', 'gradle/libs.versions.toml', '**/build.gradle', '**/build.gradle.kts', '**/settings.gradle', '**/settings.gradle.kts', '**/gradle.lockfile', '**/libs.versions.toml', '**/package-lock.json', '**/pnpm-lock.yaml', '**/pom.xml') }}-
+            # Legacy cache fallback: prior runs saved scanner state under v1.
+            ${{ runner.os }}-ort-scan-results-v1-
 
       - name: Record ORT scanner cache restore
         if: always()
