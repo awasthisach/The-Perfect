@@ -20,6 +20,9 @@ interface CloudSyncDao {
     @Query("SELECT * FROM cloud_sync_records WHERE localPath = :localPath AND provider = :provider LIMIT 1")
     suspend fun getRecord(localPath: String, provider: String): CloudSyncEntity?
 
+    @Query("SELECT * FROM cloud_sync_records WHERE remoteFileId = :remoteFileId AND provider = :provider LIMIT 1")
+    suspend fun getRecordByRemoteId(remoteFileId: String, provider: String): CloudSyncEntity?
+
     @Query("SELECT * FROM cloud_sync_records WHERE provider = :provider ORDER BY lastSyncedAt DESC")
     fun getRecordsByProvider(provider: String): Flow<List<CloudSyncEntity>>
 

@@ -2,13 +2,14 @@ name: CPAS Production Gate
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/drive-semantic-search-product-alignment]
   pull_request:
     branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: cpas-gate-${{ github.ref }}
@@ -24,6 +25,8 @@ jobs:
       - name: Checkout
         # v6 runs on Node 24
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Verify Python
         run: python3 --version
@@ -33,13 +36,17 @@ jobs:
 
       - name: Run semantic CPAS verification
         id: cpas
-        # Fail-closed: BLOCKED is an expected production state while critical
-        # findings remain open. Emit a warning annotation, not an error, so the
-        # job stays green without hiding the BLOCKED status.
-        # Unexpected verifier crashes (no status file) still fail the job.
+        # Fail closed at the GitHub check level as well as in cpas-status.json.
+        # BLOCKED must not appear as a green "Production Gate" check, or branch
+        # protection could allow a merge while release blockers remain open.
+        # The artifact is still uploaded by the always() step below for diagnosis.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set +e
-          python3 tools/audit/cpas_verify.py --root .
+          rm -f candidate-evidence.json cpas-status.json
+          python3 tools/audit/collect_evidence.py --revision "$(git rev-parse HEAD)" --output candidate-evidence.json
+          python3 tools/audit/cpas_verify.py --root . --candidate-sha "$(git rev-parse HEAD)" --ledger candidate-evidence.json
           code=$?
           set -e
 
@@ -54,14 +61,14 @@ jobs:
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           echo "blockers=$blockers" >> "$GITHUB_OUTPUT"
 
-          if [ "$status" = "PASS" ]; then
+          if [ "$status" = "PASS" ] && [ "$code" -eq 0 ]; then
             echo "CPAS production_status=PASS"
             exit 0
           fi
 
           if [ "$status" = "BLOCKED" ]; then
-            echo "::warning::CPAS production_status=BLOCKED (fail-closed). blockers=${blockers}. See cpas-status artifact. Release promotion still requires PASS."
-            exit 0
+            echo "::error::CPAS production_status=BLOCKED (fail-closed). blockers=${blockers}. See cpas-status artifact; this Production Gate cannot pass until blockers are closed."
+            exit 1
           fi
 
           echo "::error::Unexpected CPAS status=${status} exit_code=${code}"

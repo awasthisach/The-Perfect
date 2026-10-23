@@ -1,0 +1,29 @@
+# Project-specific ORT metadata corrections.
+# ORT logs for the 2026-10-17 candidate scan showed obsolete SVN-style VCS
+# locations for these dependencies (Google Code / GitHub SVN 404s) and SSH
+# transport attempts that cannot use the runner's SSH-agent socket.
+# Prefer published Maven source artifacts for these packages so ORT scans the
+# actual versioned source archive. This does not conclude licenses or suppress
+# evaluator findings; all license/security findings remain fail-closed.
+curations:
+  packages:
+    - id: "Maven:io.opencensus:opencensus-api"
+      curations:
+        comment: "ORT scan logs show obsolete GitHub SSH VCS provenance for the OpenCensus Java sources; use the versioned Maven source artifact instead."
+        source_code_origins:
+          - ARTIFACT
+    - id: "Maven:io.opencensus:opencensus-proto"
+      curations:
+        comment: "ORT scan logs show a stale GitHub SVN-style source path returning 404 for opencensus-proto; use the versioned Maven source artifact instead."
+        source_code_origins:
+          - ARTIFACT
+    - id: "Maven:com.googlecode.java-diff-utils:diffutils"
+      curations:
+        comment: "ORT scan logs show the retired java-diff-utils Google Code SVN URL returning 404; use the versioned Maven source artifact instead."
+        source_code_origins:
+          - ARTIFACT
+    - id: "Maven:com.almworks.sqlite4java:sqlite4java"
+      curations:
+        comment: "ORT scan logs show the retired sqlite4java Google Code SVN URL returning 404; use the versioned Maven source artifact instead."
+        source_code_origins:
+          - ARTIFACT

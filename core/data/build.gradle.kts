@@ -26,6 +26,7 @@ dependencies {
   api(project(":core:plugin-spi"))
   implementation(libs.androidx.core.ktx)
   implementation(libs.kotlinx.coroutines.core)
+  testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
   testImplementation(libs.junit)
   testImplementation(libs.robolectric)
   testImplementation(libs.androidx.core)

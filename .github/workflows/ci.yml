@@ -26,6 +26,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Set up JDK 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
@@ -63,19 +65,23 @@ jobs:
         run: ./gradlew --no-daemon testDebugUnitTest --stacktrace
       - name: Run Android lint
         run: ./gradlew --no-daemon lintDebug --stacktrace
+      # Emit the resolved release runtime graph as supporting evidence for ORT license review
+      # package metadata and source attribution still require review.
+      - name: Resolve release runtime dependency graph
+        run: ./gradlew --no-daemon :app:dependencies --configuration releaseRuntimeClasspath --console=plain > release-runtime-dependencies.txt
       - name: Assemble debug APK
         run: ./gradlew --no-daemon assembleDebug --stacktrace
       - name: Generate CPAS unit evidence
         if: success()
         run: |
           set -euo pipefail
-          python3 tools/audit/generate_evidence.py --commit-sha "${{ github.sha }}" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --environment "github-actions-${{ runner.os }}-unit" --output docs/assurance/cpas-evidence-run.json
+          python3 tools/audit/generate_evidence.py --commit-sha "$(git rev-parse HEAD)" --run-id "${{ github.run_id }}" --scope unit --output cpas-unit
       - name: Upload CPAS unit evidence
         if: success()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: cpas-evidence-run
-          path: docs/assurance/cpas-evidence-run.json
+          path: cpas-unit/
           if-no-files-found: error
           retention-days: 30
 
@@ -124,11 +130,6 @@ jobs:
         id: sqlcipher_instrumented
         if: ${{ steps.emulator.outputs.booted == 'true' }}
         run: ./gradlew --no-daemon :core:database-compat:connectedDebugAndroidTest --stacktrace
-      - name: Generate CPAS full DB evidence
-        if: ${{ steps.emulator.outputs.booted == 'true' && steps.sqlcipher_instrumented.outcome == 'success' }}
-        run: |
-          set -euo pipefail
-          python3 tools/audit/generate_evidence.py --commit-sha "${{ github.sha }}" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --include-db --environment "github-actions-API35-emulator" --output docs/assurance/cpas-evidence-full.json
       - name: Publish gate summary
         if: always()
         run: |
@@ -178,6 +179,15 @@ jobs:
             ${{ runner.temp }}/emulator.log
           if-no-files-found: ignore
           retention-days: 7
+      - name: Upload release runtime dependency graph
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: release-runtime-dependency-graph
+          path: release-runtime-dependencies.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Upload lint reports
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -186,14 +196,6 @@ jobs:
           path: "**/build/reports/lint-results-*.html"
           if-no-files-found: ignore
           retention-days: 7
-      - name: Upload full CPAS evidence
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: cpas-evidence-full
-          path: docs/assurance/cpas-evidence-full.json
-          if-no-files-found: ignore
-          retention-days: 30
       - name: Upload debug APK
         if: success()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

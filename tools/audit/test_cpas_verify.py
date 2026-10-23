@@ -23,6 +23,12 @@ def write(path: Path, text: str) -> None:
 
 
 class CpasVerifySelfTests(unittest.TestCase):
+    def test_missing_relative_evidence_bundle_emits_blocked_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = subprocess.run([sys.executable, str(VERIFY), "--root", tmp, "--ledger", "candidate-evidence.json"], capture_output=True, text=True)
+            self.assertEqual(1, proc.returncode, proc.stderr)
+            self.assertEqual("BLOCKED", json.loads(proc.stdout)["production_status"]["value"])
+
     def test_empty_ledger_blocks_production(self) -> None:
         """Empty evidence ledger must not produce production PASS."""
         with tempfile.TemporaryDirectory() as tmp:
@@ -73,6 +79,22 @@ class CpasVerifySelfTests(unittest.TestCase):
             self.assertNotEqual(proc.returncode, 0, msg=proc.stdout + proc.stderr)
             status = json.loads((root / "cpas-status.json").read_text(encoding="utf-8"))
             self.assertEqual(status["production_status"]["value"], "BLOCKED")
+
+    def test_local_only_evidence_never_passes_production_quality(self) -> None:
+        """Local/pre-CI evidence must remain blocked even if other findings are closed."""
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("cpas_verify", VERIFY)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+
+        passed, detail = mod.production_evidence_quality(1)
+        self.assertFalse(passed)
+        self.assertIn("cannot support production PASS", detail)
+
+        passed_without_local = mod.production_evidence_quality(0)[0]
+        self.assertTrue(passed_without_local)
 
     def test_invalid_risk_id_fails_grammar_check(self) -> None:
         self.assertTrue(VERIFY.is_file())

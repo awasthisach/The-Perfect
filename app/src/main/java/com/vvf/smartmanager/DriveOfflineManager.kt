@@ -1,0 +1,132 @@
+package com.vvf.smartmanager
+
+import android.content.Context
+import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
+import com.vvf.smartmanager.core.database.model.FileMetadataEntity
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+
+/** App-private Drive pinning with a strict 200 MiB / 80-file quota and oldest-first eviction. */
+class DriveOfflineManager(private val context: Context) {
+    suspend fun toggle(path: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        val app = context.applicationContext as VVFApplication
+        val dao = app.database.fileDao()
+        val item = dao.getByPath(path)
+            ?: return@withContext Result.failure(IllegalArgumentException("Drive search item is no longer indexed"))
+        if (!item.path.startsWith(DRIVE_PREFIX)) {
+            return@withContext Result.failure(IllegalArgumentException("Only Google Drive search results can be pinned"))
+        }
+
+        if (item.offlinePinned) {
+            dao.setOfflinePin(item.path, false, null, null, 0L)
+            item.offlineLocalPath?.let { File(it).delete() }
+            return@withContext Result.success(false)
+        }
+
+        val id = item.path.removePrefix(DRIVE_PREFIX)
+        if (!id.matches(Regex("[A-Za-z0-9_-]{1,200}"))) {
+            return@withContext Result.failure(IllegalArgumentException("Invalid Drive file ID"))
+        }
+        if (BuildConfig.GOOGLE_WEB_CLIENT_ID.isBlank() || BuildConfig.GOOGLE_WEB_CLIENT_ID == "__UNCONFIGURED__") {
+            return@withContext Result.failure(IllegalStateException("Google Drive sign-in is not configured"))
+        }
+
+        val auth = GoogleDriveAuth(context, BuildConfig.GOOGLE_WEB_CLIENT_ID, app.googleDriveService)
+        val token = auth.silentRefreshDriveAccessToken().getOrElse {
+            return@withContext Result.failure(IllegalStateException("Reconnect the same Google account before pinning files offline"))
+        }
+
+
+        val directory = File(app.filesDir, "drive-offline").apply { mkdirs() }
+        val staging = File.createTempFile("drive_pin_", ".staging", directory)
+        var finalFile: File? = null
+        var pinCommitted = false
+        try {
+            val downloaded = app.googleDriveService.downloadFileBounded(
+                id,
+                staging.absolutePath,
+                MAX_OFFLINE_BYTES,
+                item.mimeType
+            )
+            if (downloaded.isFailure) return@withContext Result.failure(downloaded.exceptionOrNull()!!)
+            val actualBytes = staging.length()
+            if (actualBytes <= 0L || actualBytes > MAX_OFFLINE_BYTES) {
+                return@withContext Result.failure(IllegalArgumentException("File is empty or exceeds the 200 MiB offline limit"))
+            }
+
+            val currentCount = dao.getOfflinePinnedCount()
+            val currentBytes = dao.getOfflinePinnedBytes()
+            val existingPins = dao.getOfflinePinnedDriveFiles()
+            val existingTargetPin = existingPins.firstOrNull { it.path == item.path }
+            val evictionCandidates = mutableListOf<FileMetadataEntity>()
+            // Replacing an already pinned file reuses its quota; never select the target
+            // itself for eviction after its replacement has been committed.
+            var projectedCount = (currentCount - if (existingTargetPin != null) 1 else 0).coerceAtLeast(0)
+            var projectedBytes = (currentBytes - (existingTargetPin?.offlineBytes ?: 0L)).coerceAtLeast(0L)
+            // Plan evictions without touching existing offline copies. A failed download,
+            // rename, or new pin must not destroy files the user already pinned.
+            for (oldPin in existingPins) {
+                if (oldPin.path == item.path) continue
+                if (projectedCount < MAX_OFFLINE_FILES &&
+                    projectedBytes + actualBytes <= MAX_OFFLINE_BYTES
+                ) break
+                evictionCandidates += oldPin
+                projectedCount = (projectedCount - 1).coerceAtLeast(0)
+                projectedBytes = (projectedBytes - oldPin.offlineBytes).coerceAtLeast(0L)
+            }
+            if (projectedCount >= MAX_OFFLINE_FILES ||
+                projectedBytes + actualBytes > MAX_OFFLINE_BYTES
+            ) {
+                return@withContext Result.failure(IllegalStateException("Offline quota is full; remove a pinned file and retry"))
+            }
+
+            val extension = when (item.mimeType) {
+                GOOGLE_DOC -> "pdf"
+                GOOGLE_SHEET -> "xlsx"
+                GOOGLE_SLIDES -> "pdf"
+                else -> item.name.substringAfterLast('.', "bin")
+                    .lowercase().filter { it.isLetterOrDigit() }.take(10).ifBlank { "bin" }
+            }
+            val destination = File(directory, "$id.$extension")
+            finalFile = destination
+            if (destination.exists() && !destination.delete()) {
+                return@withContext Result.failure(IllegalStateException("Could not replace a stale offline copy"))
+            }
+            if (!staging.renameTo(destination)) {
+                staging.copyTo(destination, overwrite = true)
+                staging.delete()
+            }
+            dao.setOfflinePin(item.path, true, destination.absolutePath, System.currentTimeMillis(), actualBytes)
+            pinCommitted = true
+
+            // Evict only after the new download is complete and its database pin is recorded.
+            evictionCandidates.forEach { oldPin ->
+                dao.setOfflinePin(oldPin.path, false, null, null, 0L)
+                oldPin.offlineLocalPath?.let { File(it).delete() }
+            }
+            Result.success(true)
+        } catch (e: CancellationException) { throw e } catch (e: Exception) {
+            // Once Room points at the committed pin, preserve its file even if later eviction fails.
+            if (!pinCommitted) finalFile?.delete()
+            Result.failure(e)
+        } finally {
+            staging.delete()
+        }
+    }
+
+    fun clearAllLocalCopies() {
+        File(context.applicationContext.filesDir, "drive-offline").deleteRecursively()
+        File(context.applicationContext.cacheDir, "drive-index-inputs").deleteRecursively()
+    }
+
+    companion object {
+        const val MAX_OFFLINE_FILES = 80
+        const val MAX_OFFLINE_BYTES = 200L * 1024L * 1024L
+        private const val DRIVE_PREFIX = "gdrive://"
+        private const val GOOGLE_DOC = "application/vnd.google-apps.document"
+        private const val GOOGLE_SHEET = "application/vnd.google-apps.spreadsheet"
+        private const val GOOGLE_SLIDES = "application/vnd.google-apps.presentation"
+    }
+}

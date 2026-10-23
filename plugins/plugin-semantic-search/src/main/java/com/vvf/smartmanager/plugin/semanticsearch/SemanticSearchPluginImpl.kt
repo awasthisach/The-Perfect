@@ -7,269 +7,402 @@ import com.vvf.smartmanager.core.model.SemanticCandidate
 import com.vvf.smartmanager.core.model.SemanticSearchOptions
 import com.vvf.smartmanager.core.model.SemanticSearchResult
 import com.vvf.smartmanager.core.plugin.spi.SemanticSearchSPI
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import java.util.concurrent.ConcurrentHashMap
-import kotlin.math.sqrt
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.atomic.AtomicLong
+import java.security.MessageDigest
+import java.util.LinkedHashMap
 
 /**
- * On-device hashed 128-d embeddings for lightweight semantic-style ranking.
- * (Deterministic hashing — not a TFLite neural net.)
+ * Remote neural embedding adapter. Document text leaves the device only after explicit consent.
+ * The Cloudflare worker validates Firebase Auth and App Check; no provider key is stored here.
  */
-class SemanticSearchPluginImpl : SemanticSearchSPI {
+private data class EmbeddingBatchResult(val candidates: List<SemanticCandidate>, val generatedCount: Int)
 
-    @Volatile
-    private var isModelDownloaded: Boolean = true
+class SemanticSearchPluginImpl(
+    client: EmbeddingClient? = null,
+    private val vectorStore: EmbeddingVectorStore? = null,
+    private val isEmbeddingConsentGranted: () -> Boolean = { false },
+    private val isFullContentConsentGranted: () -> Boolean = { false }
+) : SemanticSearchSPI {
 
-    private val embeddingDimension: Int = 128
-    private val embeddingCache = ConcurrentHashMap<String, FloatArray>()
+    // Wire the live consent callback into the transport itself, so revocation during token
+    // refresh cannot dispatch a newly-started document/query upload.
+    private val embeddingClient: EmbeddingClient =
+        client ?: CloudflareEmbeddingClient(isConsentGranted = isEmbeddingConsentGranted)
 
-    override fun isModelReady(): Boolean = isModelDownloaded
+    private val vectorCache = object : LinkedHashMap<String, FloatArray>(CACHE_SIZE, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, FloatArray>?): Boolean =
+            size > CACHE_SIZE
+    }
+
+    override fun isModelReady(): Boolean {
+        if (!isEmbeddingConsentGranted()) {
+            clearCachedEmbeddings()
+            return false
+        }
+        return embeddingClient.hasSignedInUser()
+    }
+
+    private val privacyGeneration = AtomicLong()
+    private val persistenceMutex = Mutex()
+
+    /** Abort active remote calls before clearing vectors when consent is revoked. */
+    fun cancelPendingEmbeddingRequests() {
+        synchronized(vectorCache) { privacyGeneration.incrementAndGet() }
+        embeddingClient.cancelPendingRequests()
+    }
+
+    /** Immediately drop in-memory vectors when the user revokes neural-search consent. */
+    fun clearCachedEmbeddings() {
+        synchronized(vectorCache) { vectorCache.clear() }
+    }
+
+    /** Remove persistent vectors when consent is revoked or the linked account is cleared. */
+    suspend fun clearPersistedEmbeddings() {
+        persistenceMutex.withLock { vectorStore?.clear() }
+    }
 
     override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean = withContext(Dispatchers.IO) {
-        for (i in 1..10) {
-            delay(40)
-            progressCallback(i / 10f)
-        }
-        isModelDownloaded = true
-        true
+        if (!isEmbeddingConsentGranted() || !embeddingClient.hasSignedInUser()) return@withContext false
+        progressCallback(0f)
+        val ready = embeddingClient.healthCheck()
+        ensureConsent()
+        progressCallback(if (ready) 1f else 0f)
+        ready
     }
 
-    override suspend fun generateEmbedding(text: String): FloatArray = withContext(Dispatchers.Default) {
-        val cleanText = text.lowercase().trim()
-        if (cleanText.isEmpty()) {
-            return@withContext FloatArray(embeddingDimension) { 0f }
+    override suspend fun generateEmbedding(text: String): FloatArray = withContext(Dispatchers.IO) {
+        if (!isModelReady() || text.isBlank()) return@withContext FloatArray(0)
+        val generation = privacyGeneration.get()
+        val cleanText = text.take(CloudflareEmbeddingClient.MAX_TEXT_CHARS)
+        val key = cacheKey(cleanText)
+        cached(key)?.let { return@withContext it }
+        try {
+            ensureConsent()
+            val vector = embeddingClient.embed(listOf(cleanText), "document").single()
+            ensureConsent()
+            cache(key, vector, generation)
+            vector
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            // A transport/auth/model failure is not a valid empty embedding. Propagate it so
+            // callers can present retryable failure state instead of silently degrading results.
+            throw error
         }
-
-        embeddingCache[cleanText]?.let { return@withContext it }
-
-        val vector = FloatArray(embeddingDimension) { 0f }
-        val tokens = cleanText.split(Regex("[^\\p{L}\\p{Nd}]+")).filter { it.length >= 2 }
-
-        if (tokens.isEmpty()) {
-            return@withContext vector
-        }
-
-        for (token in tokens) {
-            val tokenHash = token.hashCode()
-            val primaryBucket = safeBucket(tokenHash)
-            val secondaryBucket = safeBucket(tokenHash * 31)
-
-            vector[primaryBucket] += 1.0f
-            vector[secondaryBucket] += 0.5f
-
-            when {
-                token in listOf("invoice", "bill", "receipt", "payment", "tax", "gst", "challan") -> {
-                    vector[10 % embeddingDimension] += 2.0f
-                    vector[11 % embeddingDimension] += 1.5f
-                }
-                token in listOf("medical", "hospital", "doctor", "prescription", "lab", "health", "report") -> {
-                    vector[20 % embeddingDimension] += 2.0f
-                    vector[21 % embeddingDimension] += 1.5f
-                }
-                token in listOf("contract", "agreement", "nda", "legal", "deed", "affidavit", "signature") -> {
-                    vector[30 % embeddingDimension] += 2.0f
-                    vector[31 % embeddingDimension] += 1.5f
-                }
-                token in listOf("resume", "cv", "job", "career", "certificate", "marksheet", "degree") -> {
-                    vector[40 % embeddingDimension] += 2.0f
-                    vector[41 % embeddingDimension] += 1.5f
-                }
-                token in listOf("photo", "camera", "image", "screenshot", "picture", "wallpaper") -> {
-                    vector[50 % embeddingDimension] += 2.0f
-                    vector[51 % embeddingDimension] += 1.5f
-                }
-                token in listOf("travel", "ticket", "boarding", "flight", "train", "hotel", "itinerary") -> {
-                    vector[60 % embeddingDimension] += 2.0f
-                    vector[61 % embeddingDimension] += 1.5f
-                }
-            }
-        }
-
-        var sumSquares = 0.0
-        for (v in vector) {
-            sumSquares += (v * v)
-        }
-        val norm = sqrt(sumSquares).toFloat()
-        if (norm > 0f) {
-            for (i in vector.indices) {
-                vector[i] = vector[i] / norm
-            }
-        }
-
-        embeddingCache[cleanText] = vector
-        vector
-    }
-
-    /** Fold away the sign bit so Int.MIN_VALUE / negative remainders never index the vector. */
-    private fun safeBucket(hash: Int): Int {
-        val normalized = hash and Int.MAX_VALUE
-        return normalized % embeddingDimension
     }
 
     override suspend fun searchSimilar(
         query: String,
         candidates: List<SemanticCandidate>,
         options: SemanticSearchOptions
-    ): List<SemanticSearchResult> = withContext(Dispatchers.Default) {
-        if (query.isBlank() || candidates.isEmpty()) {
-            return@withContext emptyList()
-        }
-
-        val queryEmbedding = generateEmbedding(query)
-        val results = mutableListOf<SemanticSearchResult>()
-
-        for (candidate in candidates) {
-            val candidateEmbedding = candidate.embedding ?: generateEmbedding(candidate.textContent)
-            val score = computeCosineSimilarity(queryEmbedding, candidateEmbedding)
-
-            if (score >= options.similarityThreshold) {
-                results.add(
-                    SemanticSearchResult(
-                        fileItem = candidate.fileItem,
-                        similarityScore = score,
-                        matchedConcept = extractMatchedConcept(query, candidate.textContent)
-                    )
+    ): List<SemanticSearchResult> = withContext(Dispatchers.IO) {
+        if (!isModelReady() || query.isBlank() || candidates.isEmpty()) return@withContext emptyList()
+        try {
+            ensureConsent()
+            val queryVector = embeddingClient.embed(listOf(query.take(500)), "query").single()
+            val embedded = embedCandidates(candidates, embedMissing = candidates.size <= ON_DEMAND_CANDIDATE_LIMIT).candidates
+            ensureConsent()
+            embedded.mapNotNull { candidate ->
+                val vector = candidate.embedding ?: return@mapNotNull null
+                val score = computeCosineSimilarity(queryVector, vector)
+                if (score < options.similarityThreshold.coerceIn(0f, 1f)) null
+                else SemanticSearchResult(
+                    fileItem = candidate.fileItem,
+                    similarityScore = score,
+                    matchedConcept = "Neural embedding match"
                 )
-            }
+            }.sortedByDescending { it.similarityScore }.take(options.maxResults.coerceIn(1, 200))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            // Let the domain layer surface a retryable status while its local-search path remains available.
+            throw error
         }
-
-        results.sortedByDescending { it.similarityScore }.take(options.maxResults)
     }
 
     override fun computeCosineSimilarity(vectorA: FloatArray, vectorB: FloatArray): Float {
         if (vectorA.size != vectorB.size || vectorA.isEmpty()) return 0f
-        var dotProduct = 0f
+        var dotProduct = 0.0
+        var normA = 0.0
+        var normB = 0.0
         for (i in vectorA.indices) {
-            dotProduct += vectorA[i] * vectorB[i]
+            val a = vectorA[i].toDouble()
+            val b = vectorB[i].toDouble()
+            if (!a.isFinite() || !b.isFinite()) return 0f
+            dotProduct += a * b
+            normA += a * a
+            normB += b * b
         }
-        return dotProduct.coerceIn(0f, 1f)
+        if (normA <= 0.0 || normB <= 0.0) return 0f
+        return (dotProduct / (kotlin.math.sqrt(normA) * kotlin.math.sqrt(normB)))
+            .toFloat()
+            .coerceIn(-1f, 1f)
     }
 
     override suspend fun findNearDuplicates(
         candidates: List<SemanticCandidate>,
         similarityThreshold: Float
-    ): List<NearDuplicateCluster> = withContext(Dispatchers.Default) {
-        if (candidates.size < 2) return@withContext emptyList()
+    ): List<NearDuplicateCluster> = withContext(Dispatchers.IO) {
+        // Neural similarity is scoped to the consented Drive corpus; never upload local-device file text.
+        val driveCandidates = candidates.filter { it.fileItem.path.startsWith("gdrive://") }
+        if (!isModelReady() || driveCandidates.size < 2) return@withContext emptyList()
+        try {
+            val embedded = embedCandidates(
+                driveCandidates,
+                embedMissing = driveCandidates.size <= ON_DEMAND_CANDIDATE_LIMIT
+            ).candidates
+            ensureConsent()
+            val visited = mutableSetOf<String>()
+            val clusters = mutableListOf<NearDuplicateCluster>()
+            val threshold = similarityThreshold.coerceIn(0.70f, 0.95f)
 
-        val validThreshold = similarityThreshold.coerceIn(0.70f, 0.95f)
-
-        val candidateWithEmbeddings = candidates.map { candidate ->
-            val emb = candidate.embedding ?: generateEmbedding(candidate.textContent)
-            candidate.copy(embedding = emb)
-        }
-
-        val visited = mutableSetOf<String>()
-        val clusters = mutableListOf<NearDuplicateCluster>()
-
-        for (i in candidateWithEmbeddings.indices) {
-            val base = candidateWithEmbeddings[i]
-            if (visited.contains(base.fileItem.path)) continue
-
-            val baseEmb = base.embedding ?: continue
-            val similarFiles = mutableListOf<FileItem>()
-            var similaritySum = 0f
-
-            for (j in (i + 1) until candidateWithEmbeddings.size) {
-                val target = candidateWithEmbeddings[j]
-                if (visited.contains(target.fileItem.path)) continue
-
-                val targetEmb = target.embedding ?: continue
-                val score = computeCosineSimilarity(baseEmb, targetEmb)
-
-                if (score >= validThreshold) {
-                    similarFiles.add(target.fileItem)
-                    similaritySum += score
-                    visited.add(target.fileItem.path)
+            for (i in embedded.indices) {
+                val base = embedded[i]
+                val baseVector = base.embedding ?: continue
+                if (base.fileItem.path in visited) continue
+                val similar = mutableListOf<FileItem>()
+                var sum = 0f
+                for (j in i + 1 until embedded.size) {
+                    val other = embedded[j]
+                    val vector = other.embedding ?: continue
+                    if (other.fileItem.path in visited) continue
+                    val score = computeCosineSimilarity(baseVector, vector)
+                    if (score >= threshold) {
+                        similar.add(other.fileItem)
+                        sum += score
+                        visited.add(other.fileItem.path)
+                    }
+                }
+                if (similar.isNotEmpty()) {
+                    visited.add(base.fileItem.path)
+                    val all = (listOf(base.fileItem) + similar).sortedBy { it.lastModified }
+                    clusters.add(
+                        NearDuplicateCluster(
+                            id = "cluster_${cacheKey(base.fileItem.path).take(16)}",
+                            baseFile = all.first(),
+                            similarFiles = all.drop(1),
+                            averageSimilarity = sum / similar.size,
+                            selectedPaths = emptySet()
+                        )
+                    )
                 }
             }
+            clusters.sortedByDescending { it.averageSimilarity }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            // Do not misreport an unavailable embedding service as "no duplicate files".
+            throw error
+        }
+    }
 
-            if (similarFiles.isNotEmpty()) {
-                visited.add(base.fileItem.path)
-                val avgScore = similaritySum / similarFiles.size
-                val allSorted = (listOf(base.fileItem) + similarFiles).sortedBy { it.lastModified }
-                val defaultSelected = emptySet<String>()
+    override suspend fun suggestTags(candidate: SemanticCandidate): List<AiSuggestedTag> =
+        withContext(Dispatchers.Default) {
+            // Tag generation is intentionally unavailable until a separately evaluated model
+            // contract is implemented; don't label heuristics as AI output.
+            emptyList()
+        }
 
-                clusters.add(
-                    NearDuplicateCluster(
-                        id = "cluster_${base.fileItem.path.hashCode()}",
-                        baseFile = allSorted.first(),
-                        similarFiles = allSorted.drop(1),
-                        averageSimilarity = avgScore,
-                        selectedPaths = defaultSelected
-                    )
+    /**
+     * Background indexing entry point. Call only from a consent-gated WorkManager job.
+     * It persists each completed batch in the encrypted Room-backed vector store.
+     */
+    suspend fun indexCandidates(candidates: List<SemanticCandidate>): Int {
+        if (!isModelReady() || candidates.isEmpty()) return 0
+        return embedCandidates(candidates, embedMissing = true).generatedCount
+    }
+
+    private suspend fun embedCandidates(
+        candidates: List<SemanticCandidate>,
+        embedMissing: Boolean = true
+    ): EmbeddingBatchResult {
+        val generation = privacyGeneration.get()
+        ensureConsent()
+        val fullContentConsentAtStart = isFullContentConsentGranted()
+        // A search may have loaded rows just before full-content consent was revoked. Sanitize
+        // those candidates here as well as in the background worker, immediately before embedding.
+        val safeCandidates = candidates.map { candidate ->
+            if (fullContentConsentAtStart || !isFullContentFile(candidate.fileItem)) {
+                candidate
+            } else {
+                val safeText = buildString {
+                    append(candidate.fileItem.name)
+                    if (candidate.fileItem.tags.isNotEmpty()) {
+                        append(' ').append(candidate.fileItem.tags.joinToString(" "))
+                    }
+                }.take(CloudflareEmbeddingClient.MAX_TEXT_CHARS)
+                candidate.copy(
+                    fileItem = candidate.fileItem.copy(indexedText = ""),
+                    textContent = safeText,
+                    embedding = null
                 )
             }
         }
+        val output = safeCandidates.toMutableList()
+        val fullContentPaths = safeCandidates.asSequence()
+            .filter { isFullContentFile(it.fileItem) }
+            .map { it.fileItem.path }
+            .toSet()
+        val lookupRequests = safeCandidates.mapNotNull { candidate ->
+            if (candidate.embedding?.size == CloudflareEmbeddingClient.EMBEDDING_DIMENSION) return@mapNotNull null
+            val text = candidate.textContent.take(CloudflareEmbeddingClient.MAX_TEXT_CHARS)
+            if (text.isBlank()) return@mapNotNull null
+            val key = cacheKey(text)
+            if (cached(key) != null) null else EmbeddingVectorLookup(candidate.fileItem.path, key, MODEL_VERSION)
+        }
+        val persistedByPath = vectorStore?.getMany(lookupRequests).orEmpty()
+        val pendingIndices = mutableListOf<Int>()
+        val pendingTexts = mutableListOf<String>()
+        val pendingKeys = mutableListOf<String>()
+        val pendingPaths = mutableListOf<String>()
+        val recordsToPersist = mutableListOf<EmbeddingVectorRecord>()
 
-        clusters.sortedByDescending { it.averageSimilarity }
-    }
+        safeCandidates.forEachIndexed { index, candidate ->
+            val supplied = candidate.embedding?.takeIf { it.size == CloudflareEmbeddingClient.EMBEDDING_DIMENSION }
+            if (supplied != null) {
+                output[index] = candidate.copy(embedding = supplied)
+            } else {
+                val text = candidate.textContent.take(CloudflareEmbeddingClient.MAX_TEXT_CHARS)
+                if (text.isBlank()) return@forEachIndexed
+                val key = cacheKey(text)
+                val inMemory = cached(key)
+                if (inMemory != null) {
+                    output[index] = candidate.copy(embedding = inMemory)
+                    if (vectorStore != null) {
+                        recordsToPersist.add(
+                            EmbeddingVectorRecord(candidate.fileItem.path, key, MODEL_VERSION, inMemory)
+                        )
+                    }
+                } else {
+                    val persisted = persistedByPath[candidate.fileItem.path]
+                    if (persisted != null && persisted.size == CloudflareEmbeddingClient.EMBEDDING_DIMENSION) {
+                        cache(key, persisted, generation)
+                        output[index] = candidate.copy(embedding = persisted)
+                    } else if (embedMissing) {
+                        pendingIndices.add(index)
+                        pendingTexts.add(text)
+                        pendingKeys.add(key)
+                        pendingPaths.add(candidate.fileItem.path)
+                    }
+                }
+            }
+        }
 
-    override suspend fun suggestTags(candidate: SemanticCandidate): List<AiSuggestedTag> = withContext(Dispatchers.Default) {
-        val cleanText = candidate.textContent.lowercase()
-        val tags = mutableListOf<AiSuggestedTag>()
-
-        val conceptDefinitions = mapOf(
-            "invoice" to Pair("Finance", 0.95f),
-            "bill" to Pair("Finance", 0.92f),
-            "receipt" to Pair("Finance", 0.94f),
-            "tax" to Pair("Finance", 0.90f),
-            "gst" to Pair("Finance", 0.91f),
-            "medical" to Pair("Health", 0.96f),
-            "prescription" to Pair("Health", 0.95f),
-            "hospital" to Pair("Health", 0.93f),
-            "report" to Pair("Documents", 0.82f),
-            "contract" to Pair("Legal", 0.96f),
-            "agreement" to Pair("Legal", 0.94f),
-            "nda" to Pair("Legal", 0.95f),
-            "affidavit" to Pair("Legal", 0.93f),
-            "resume" to Pair("Career", 0.95f),
-            "cv" to Pair("Career", 0.94f),
-            "certificate" to Pair("Education", 0.92f),
-            "degree" to Pair("Education", 0.90f),
-            "ticket" to Pair("Travel", 0.94f),
-            "flight" to Pair("Travel", 0.93f),
-            "train" to Pair("Travel", 0.92f),
-            "hotel" to Pair("Travel", 0.90f),
-            "photo" to Pair("Media", 0.85f),
-            "screenshot" to Pair("Media", 0.88f),
-            "id" to Pair("Identity", 0.89f),
-            "aadhaar" to Pair("Identity", 0.97f),
-            "pan" to Pair("Identity", 0.97f),
-            "passport" to Pair("Identity", 0.98f),
-            "urgent" to Pair("Priority", 0.85f),
-            "official" to Pair("Work", 0.82f)
-        )
-
-        for ((keyword, categoryConfidence) in conceptDefinitions) {
-            if (cleanText.contains(keyword)) {
-                tags.add(
-                    AiSuggestedTag(
-                        tagName = keyword,
-                        confidenceScore = categoryConfidence.second,
-                        category = categoryConfidence.first
+        batchIndicesByPayload(pendingTexts).forEach { chunk ->
+            ensureConsent()
+            if (fullContentConsentAtStart && !isFullContentConsentGranted() &&
+                chunk.any { sourceIndex -> isFullContentFile(safeCandidates[pendingIndices[sourceIndex]].fileItem) }
+            ) throw CancellationException("Full-content consent revoked")
+            val vectors = embeddingClient.embed(chunk.map { pendingTexts[it] }, "document")
+            ensureConsent()
+            if (fullContentConsentAtStart && !isFullContentConsentGranted() &&
+                chunk.any { sourceIndex -> isFullContentFile(safeCandidates[pendingIndices[sourceIndex]].fileItem) }
+            ) throw CancellationException("Full-content consent revoked")
+            chunk.forEachIndexed { localIndex, sourceIndex ->
+                val vector = vectors[localIndex]
+                val key = pendingKeys[sourceIndex]
+                cache(key, vector, generation)
+                output[pendingIndices[sourceIndex]] = output[pendingIndices[sourceIndex]].copy(embedding = vector)
+                recordsToPersist.add(
+                    EmbeddingVectorRecord(
+                        filePath = pendingPaths[sourceIndex],
+                        contentHash = key,
+                        modelVersion = MODEL_VERSION,
+                        vector = vector
                     )
                 )
             }
-        }
-
-        if (tags.isEmpty()) {
-            val ext = candidate.fileItem.extension
-            when (ext) {
-                "pdf", "doc", "docx" -> tags.add(AiSuggestedTag("document", 0.80f, "General"))
-                "jpg", "png", "jpeg", "webp" -> tags.add(AiSuggestedTag("photo", 0.80f, "Media"))
-                "mp4", "mkv" -> tags.add(AiSuggestedTag("video", 0.80f, "Media"))
-                "mp3", "wav" -> tags.add(AiSuggestedTag("audio", 0.80f, "Media"))
-                "apk" -> tags.add(AiSuggestedTag("installer", 0.85f, "System"))
-                "zip", "rar" -> tags.add(AiSuggestedTag("archive", 0.80f, "System"))
+            // Commit each completed remote batch so a later retry resumes from persisted vectors.
+            if (recordsToPersist.isNotEmpty()) {
+                ensureConsent()
+                if (fullContentConsentAtStart && !isFullContentConsentGranted() &&
+                    recordsToPersist.any { it.filePath in fullContentPaths }
+                ) throw CancellationException("Full-content consent revoked")
+                persistenceMutex.withLock {
+                    ensureGeneration(generation)
+                    vectorStore?.putAll(recordsToPersist)
+                }
+                recordsToPersist.clear()
             }
         }
-
-        tags.sortedByDescending { it.confidenceScore }.distinctBy { it.tagName }.take(6)
+        recordsToPersist.chunked(CloudflareEmbeddingClient.MAX_TEXTS).forEach { batch ->
+            ensureConsent()
+            if (fullContentConsentAtStart && !isFullContentConsentGranted() &&
+                batch.any { it.filePath in fullContentPaths }
+            ) throw CancellationException("Full-content consent revoked")
+            persistenceMutex.withLock {
+                ensureGeneration(generation)
+                vectorStore?.putAll(batch)
+            }
+        }
+        if (fullContentConsentAtStart && !isFullContentConsentGranted() &&
+            safeCandidates.any { isFullContentFile(it.fileItem) }
+        ) throw CancellationException("Full-content consent revoked")
+        return EmbeddingBatchResult(output, pendingTexts.size)
     }
 
-    private fun extractMatchedConcept(query: String, text: String): String {
-        return "Semantic Match (${query.take(20)})"
+    private fun ensureGeneration(generation: Long) {
+        ensureConsent()
+        if (privacyGeneration.get() != generation) throw CancellationException("Embedding session changed")
+    }
+
+    private fun ensureConsent() {
+        if (!isEmbeddingConsentGranted()) {
+            throw CancellationException("Embedding consent revoked")
+        }
+    }
+
+    private fun isFullContentFile(file: FileItem): Boolean {
+        val mime = file.mimeType.orEmpty().lowercase()
+        val extension = file.name.substringAfterLast('.', "").lowercase()
+        return mime == "application/pdf" ||
+            mime.startsWith("image/") ||
+            mime in setOf("application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation") ||
+            extension in setOf("pdf", "jpg", "jpeg", "png", "webp", "bmp", "heic", "docx", "xlsx", "pptx")
+    }
+
+    private fun batchIndicesByPayload(texts: List<String>): List<List<Int>> {
+        val batches = mutableListOf<List<Int>>()
+        var current = mutableListOf<Int>()
+        var currentBytes = 128
+        texts.forEachIndexed { index, text ->
+            val itemBytes = text.toByteArray(Charsets.UTF_8).size + 64
+            if (current.isNotEmpty() &&
+                (current.size >= CloudflareEmbeddingClient.MAX_TEXTS ||
+                    currentBytes + itemBytes > CloudflareEmbeddingClient.MAX_REQUEST_BYTES)
+            ) {
+                batches.add(current)
+                current = mutableListOf()
+                currentBytes = 128
+            }
+            current.add(index)
+            currentBytes += itemBytes
+        }
+        if (current.isNotEmpty()) batches.add(current)
+        return batches
+    }
+
+    private fun cacheKey(text: String): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(text.toByteArray(Charsets.UTF_8))
+            .joinToString("") { byte -> "%02x".format(byte) }
+
+    private fun cached(key: String): FloatArray? = synchronized(vectorCache) { vectorCache[key]?.copyOf() }
+
+    private fun cache(key: String, vector: FloatArray, generation: Long = privacyGeneration.get()) {
+        synchronized(vectorCache) { ensureGeneration(generation); vectorCache[key] = vector.copyOf() }
+    }
+
+    companion object {
+        private const val CACHE_SIZE = 512
+        private const val MODEL_VERSION = "gemini-embedding-2:4:768"
+        private const val ON_DEMAND_CANDIDATE_LIMIT = 32
     }
 }

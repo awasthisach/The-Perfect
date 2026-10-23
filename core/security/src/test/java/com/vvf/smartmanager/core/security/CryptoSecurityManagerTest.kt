@@ -29,6 +29,42 @@ class CryptoSecurityManagerTest {
     }
 
     @Test
+    fun completeLegacyAuthImportUsesOriginalIterationDefault() {
+        val salt = ByteArray(16) { it.toByte() }
+        val spec = javax.crypto.spec.PBEKeySpec("482951".toCharArray(), salt, 600_000, 256)
+        val hash = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+        spec.clearPassword()
+        val (encryptedHash, hashIv) = cryptoSecurityManager.encryptBytes(hash, "vvf_vault_meta_key_v1")
+        val (encryptedSalt, saltIv) = cryptoSecurityManager.encryptBytes(salt, "vvf_vault_meta_key_v1")
+        fun encode(bytes: ByteArray) = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+        assertTrue(cryptoSecurityManager.importVaultAuthMetadata(mapOf(
+            "vault_pin_hash" to encode(encryptedHash), "vault_pin_hash_iv" to encode(hashIv),
+            "vault_pin_salt" to encode(encryptedSalt), "vault_pin_salt_iv" to encode(saltIv))))
+        assertTrue(cryptoSecurityManager.verifyVaultPin("482951"))
+        assertFalse(cryptoSecurityManager.verifyVaultPin("751923"))
+        hash.fill(0); salt.fill(0)
+    }
+
+    @Test
+    fun partialAuthImportCannotMutateExistingPinAndRollbackReplacesExactState() {
+        assertTrue(cryptoSecurityManager.setupVaultPin("482951"))
+        val before = cryptoSecurityManager.exportVaultAuthMetadata()
+        assertFalse(cryptoSecurityManager.importVaultAuthMetadata(mapOf("vault_pin_hash" to "partial")))
+        assertEquals(before, cryptoSecurityManager.exportVaultAuthMetadata())
+        assertTrue(cryptoSecurityManager.setupVaultPin("751923"))
+        assertTrue(cryptoSecurityManager.restoreVaultAuthMetadata(before))
+        assertTrue(cryptoSecurityManager.verifyVaultPin("482951"))
+        assertFalse(cryptoSecurityManager.verifyVaultPin("751923"))
+    }
+
+    @Test
+    fun vaultPinUsesDerivedHashAndRejectsWrongPin() {
+        assertTrue(cryptoSecurityManager.setupVaultPin("482951"))
+        assertTrue(cryptoSecurityManager.verifyVaultPin("482951"))
+        assertFalse(cryptoSecurityManager.verifyVaultPin("482952"))
+    }
+
+    @Test
     fun testDatabasePassphraseGenerationAndPersistence() {
         val passphrase1 = cryptoSecurityManager.getOrCreateDatabasePassphrase()
         assertNotNull(passphrase1)
@@ -36,6 +72,12 @@ class CryptoSecurityManagerTest {
 
         val passphrase2 = cryptoSecurityManager.getOrCreateDatabasePassphrase()
         assertArrayEquals(passphrase1, passphrase2)
+        assertTrue(passphrase1.any { it != 0.toByte() })
+        passphrase1.fill(0)
+        val reopened = cryptoSecurityManager.getOrCreateDatabasePassphrase()
+        assertArrayEquals(passphrase2, reopened)
+        passphrase2.fill(0)
+        reopened.fill(0)
     }
 
     @Test

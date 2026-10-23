@@ -6,10 +6,12 @@ import com.vvf.smartmanager.core.database.model.VaultItemEntity
 import com.vvf.smartmanager.core.database.model.VaultJournalEntity
 import com.vvf.smartmanager.core.model.VaultItem
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
+import com.vvf.smartmanager.core.security.VaultMaintenance
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.io.File
 import java.io.IOException
+import android.system.Os
 import java.util.UUID
 
 /**
@@ -35,7 +37,7 @@ class SecureVaultRepository(
     suspend fun getVaultItemById(id: String): VaultItem? =
         vaultDao.getVaultItemById(id)?.toDomainModel()
 
-    suspend fun recoverOrphanedJournals(): Int {
+    suspend fun recoverOrphanedJournals(): Int = VaultMaintenance.operation {
         val pendingJournals = vaultJournalDao.getPendingJournals("PENDING")
         val canonicalVault = vaultDirectory.canonicalFile
         var recoveredCount = 0
@@ -63,8 +65,8 @@ class SecureVaultRepository(
             }
         }
         vaultJournalDao.purgeCompletedJournals()
-        return recoveredCount
-    }
+        recoveredCount
+    }.getOrThrow()
 
     suspend fun lockFileInVault(
         sourceFile: File,
@@ -72,7 +74,7 @@ class SecureVaultRepository(
         notes: String = "",
         deleteOriginal: Boolean = false,
         isDecoy: Boolean = false
-    ): Result<VaultItem> = runCatching {
+    ): Result<VaultItem> = VaultMaintenance.operation {
         require(sourceFile.exists() && sourceFile.isFile) {
             "Source file does not exist or is a directory: ${sourceFile.absolutePath}"
         }
@@ -103,6 +105,7 @@ class SecureVaultRepository(
             )
         ) ?: 0L
 
+        var sourceDestructionStarted = false
         try {
             val result = cryptoManager.encryptFile(sourceFile, destinationFile)
 
@@ -123,6 +126,10 @@ class SecureVaultRepository(
             vaultDao.insertVaultItem(entity)
 
             if (deleteOriginal) {
+                // Persist ciphertext before entering the irreversible phase. Once shredding starts,
+                // cleanup must retain the authenticated recovery copy even when unlink/journaling fails.
+                java.io.RandomAccessFile(destinationFile, "rw").use { it.fd.sync() }
+                sourceDestructionStarted = true
                 require(cryptoManager.secureShredFile(sourceFile)) {
                     "Encrypted vault copy was created, but original plaintext could not be securely removed"
                 }
@@ -142,8 +149,8 @@ class SecureVaultRepository(
 
             entity.toDomainModel()
         } catch (e: Exception) {
-            // Roll back metadata as well as the encrypted artifact. Otherwise a failed
-            // operation can leave a DB row pointing at a file that no longer exists.
+            if (sourceDestructionStarted) throw e
+            // Before source destruction, metadata and ciphertext can both be rolled back safely.
             vaultDao.deleteById(fileId)
             if (journalId > 0L) {
                 vaultJournalDao.updateJournal(
@@ -166,7 +173,7 @@ class SecureVaultRepository(
     suspend fun restoreFileFromVault(
         vaultItemId: String,
         destinationDir: File? = null
-    ): Result<File> = runCatching {
+    ): Result<File> = VaultMaintenance.operation {
         val entity = vaultDao.getVaultItemById(vaultItemId)
             ?: throw IllegalStateException("Vault item not found in database: $vaultItemId")
 
@@ -208,11 +215,11 @@ class SecureVaultRepository(
         val tempFile = createSiblingTempFile(targetCanonical)
         try {
             cryptoManager.decryptFile(encryptedFile, tempFile)
-            require(tempFile.renameTo(targetCanonical)) {
-                "Unable to atomically publish restored file: ${targetCanonical.absolutePath}"
-            }
+            publishRestoredFile(tempFile, targetCanonical)
         } catch (e: Exception) {
-            tempFile.delete()
+            if (e !is SharedPlaintextLinkCleanupException) {
+                secureDeletePlaintextTemp(tempFile)
+            }
             throw e
         }
 
@@ -228,7 +235,7 @@ class SecureVaultRepository(
     suspend fun exportFileFromVault(
         vaultItemId: String,
         destinationFile: File
-    ): Result<File> = runCatching {
+    ): Result<File> = VaultMaintenance.operation {
         val canonicalDest = destinationFile.canonicalFile
         val canonicalVault = vaultDirectory.canonicalFile
         require(!isInsideDirectory(canonicalDest, canonicalVault)) {
@@ -259,18 +266,18 @@ class SecureVaultRepository(
         val tempFile = createSiblingTempFile(canonicalDest)
         try {
             cryptoManager.decryptFile(encryptedFile, tempFile)
-            require(tempFile.renameTo(canonicalDest)) {
-                "Unable to publish exported file: ${canonicalDest.absolutePath}"
-            }
+            publishRestoredFile(tempFile, canonicalDest)
         } catch (e: Exception) {
-            tempFile.delete()
+            if (e !is SharedPlaintextLinkCleanupException) {
+                secureDeletePlaintextTemp(tempFile)
+            }
             throw e
         }
 
         canonicalDest
     }
 
-    suspend fun deleteVaultItemPermanently(vaultItemId: String): Result<Boolean> = runCatching {
+    suspend fun deleteVaultItemPermanently(vaultItemId: String): Result<Boolean> = VaultMaintenance.operation {
         val entity = vaultDao.getVaultItemById(vaultItemId)
         if (entity != null) {
             val encryptedFile = File(vaultDirectory, entity.encryptedFileName).canonicalFile
@@ -317,6 +324,52 @@ class SecureVaultRepository(
         return File(parent, ".${target.name}.${UUID.randomUUID()}.tmp").also {
             require(!it.exists()) { "Temporary restore file unexpectedly exists" }
         }
+    }
+
+    private fun publishRestoredFile(tempFile: File, targetCanonical: File) {
+        // The temporary file is created beside the destination, so both paths share a
+        // filesystem. link(2) publishes the fully-written plaintext atomically and fails
+        // if the destination already exists; unlike rename(2), it cannot clobber a file
+        // created by another process after our earlier existence check. This API is
+        // available on Android API 21+, preserving minSdk 24 without java.nio.file.
+        var linked = false
+        try {
+            Os.link(tempFile.absolutePath, targetCanonical.absolutePath)
+            linked = true
+            // The paths now refer to the same inode. Unlink only the temp directory entry;
+            // never shred it after publication, because that would overwrite the target.
+            Os.remove(tempFile.absolutePath)
+        } catch (e: Exception) {
+            if (linked) {
+                // A transient unlink failure is recoverable. Retry once; if it still fails,
+                // preserve the target and signal the outer restore path not to shred this
+                // shared inode through the temporary name.
+                try {
+                    Os.remove(tempFile.absolutePath)
+                    return
+                } catch (retry: Exception) {
+                    e.addSuppressed(retry)
+                    throw SharedPlaintextLinkCleanupException(
+                        "Restore published to ${targetCanonical.absolutePath}, but plaintext temp-link cleanup failed at ${tempFile.absolutePath}",
+                        e
+                    )
+                }
+            }
+            secureDeletePlaintextTemp(tempFile)
+            throw IllegalStateException(
+                "Failed to publish restored file to ${targetCanonical.absolutePath}: ${e.message}",
+                e
+            )
+        }
+    }
+
+    private class SharedPlaintextLinkCleanupException(message: String, cause: Throwable) :
+        IOException(message, cause)
+
+    private fun secureDeletePlaintextTemp(tempFile: File) {
+        if (!tempFile.exists()) return
+        runCatching { cryptoManager.secureShredFile(tempFile) }
+            .onFailure { tempFile.delete() }
     }
 
     private fun VaultItemEntity.toDomainModel(): VaultItem {

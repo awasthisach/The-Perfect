@@ -3,6 +3,7 @@ package com.vvf.smartmanager.core.cloud.gdrive
 import android.content.Context
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -28,6 +29,14 @@ class GoogleDriveServiceImplTest {
     }
 
     @Test
+    fun tokenAcquiredBeforeLogoutCannotBeRepublished() {
+        val generation = service.tokenGeneration()
+        service.setAccessToken(null)
+        assertFalse(service.publishAccessToken("synthetic-stale-token", generation))
+        assertTrue(service.publishAccessToken("synthetic-current-token", service.tokenGeneration()))
+    }
+
+    @Test
     fun authenticate_withoutToken_fails() = runBlocking {
         val result = service.authenticate()
         assertTrue(result.isFailure)
@@ -42,8 +51,26 @@ class GoogleDriveServiceImplTest {
     }
 
     @Test
+    fun listDriveFilesPage_withoutToken_fails() = runBlocking {
+        val result = service.listDriveFilesPage(pageToken = null, pageSize = 1000)
+        assertTrue(result.isFailure)
+    }
+
+    @Test
     fun getStorageQuota_withoutToken_fails() = runBlocking {
         val result = service.getStorageQuota()
+        assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun getFileSha256_withoutToken_failsClosed() = runBlocking {
+        val result = service.getFileSha256("123456789012345678901234567890123")
+        assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun listDriveBackups_withoutToken_failsClosed() = runBlocking {
+        val result = service.listDriveBackups()
         assertTrue(result.isFailure)
     }
 

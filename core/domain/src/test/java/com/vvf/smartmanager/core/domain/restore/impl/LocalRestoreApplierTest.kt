@@ -33,6 +33,84 @@ class LocalRestoreApplierTest {
     )
 
     @Test
+    fun missingAuthUndoFailsBeforeReplacingLiveDatabase() = runBlocking {
+        val db = temp.newFile("missing-auth.db").apply { writeText("old") }
+        val vault = temp.newFolder("missing-auth-vault")
+        val undo = temp.newFolder("missing-auth-undo")
+        val applier = LocalRestoreApplier(db, vault, undo,
+            vaultAuthExporter = { mapOf("vault_pin_hash" to "old") },
+            vaultAuthRestorer = { true })
+        val snapshot = applier.prepare().getOrThrow()
+        db.writeText("new")
+        assertTrue(File(undo, "${snapshot.token}-auth.json").delete())
+        assertTrue(applier.rollback(snapshot).isFailure)
+        assertEquals("new", db.readText())
+        assertTrue(File(undo, "pending.properties").isFile)
+    }
+
+    @Test
+    fun failureAfterAuthImportRollsBackPinAndDatabaseTogether() = runBlocking {
+        val db = temp.newFile("auth-failure.db").apply { writeText("old") }
+        val vault = temp.newFolder("auth-failure-vault")
+        val stage = temp.newFolder("auth-failure-stage")
+        val backupDb = File(stage, "db").apply { writeText("new") }
+        val backupVault = File(stage, "vault").apply { mkdirs() }
+        File(stage, "vault_auth.json").writeText("{\"vault_pin_hash\":\"new\"}")
+        File(stage, "metadata.json").writeText(json.encodeToString(ArchiveMetadata(
+            version=1, timestamp=1, checksumSha256="", databaseSizeBytes=3, vaultSizeBytes=0,
+            fileCount=2, vaultItemCount=0, appVersion="test", schemaVersion=1, includesVaultAuth=true)))
+        var auth = mapOf("vault_pin_hash" to "old")
+        val applier = LocalRestoreApplier(db, vault, temp.newFolder("auth-failure-undo"),
+            vaultAuthImporter = { auth=it; backupDb.delete(); true },
+            vaultAuthExporter = { auth }, vaultAuthRestorer = { auth=it; true })
+        val snapshot = applier.prepare().getOrThrow()
+        assertTrue(applier.apply(DecryptedBackup(stage,backupDb,backupVault,sampleInfo,1)).isFailure)
+        assertEquals("new", auth["vault_pin_hash"])
+        applier.rollback(snapshot).getOrThrow()
+        assertEquals("old", auth["vault_pin_hash"])
+        assertEquals("old", db.readText())
+    }
+
+    @Test
+    fun processRestartRecoversFilesSidecarsAndAuthAfterInterruptedPublication() = runBlocking {
+        val db = temp.newFile("recover.db").apply { writeText("old-db") }
+        File(db.path + "-wal").writeText("old-wal")
+        val vault = temp.newFolder("recover-vault").also { File(it, "old").writeText("old-vault") }
+        val snapshots = temp.newFolder("recover-snapshots")
+        var auth = mapOf("vault_pin_hash" to "old-wrapped-pin")
+        val original = LocalRestoreApplier(db, vault, snapshots,
+            vaultAuthExporter = { auth }, vaultAuthRestorer = { auth = it; true })
+        original.prepare().getOrThrow()
+        db.writeText("partially-published-db")
+        File(db.path + "-wal").writeText("new-wal")
+        File(vault, "old").delete()
+        File(vault, "new").writeText("new-vault")
+        auth = mapOf("vault_pin_hash" to "new-wrapped-pin")
+        val restarted = LocalRestoreApplier(db, vault, snapshots, vaultAuthRestorer = { auth = it; true })
+        restarted.recoverInterrupted().getOrThrow()
+        assertEquals("old-db", db.readText())
+        assertEquals("old-wal", File(db.path + "-wal").readText())
+        assertEquals("old-vault", File(vault, "old").readText())
+        assertFalse(File(vault, "new").exists())
+        assertEquals("old-wrapped-pin", auth["vault_pin_hash"])
+        assertFalse(File(snapshots, "pending.properties").exists())
+        assertTrue(restarted.recoverInterrupted().isSuccess)
+    }
+
+    @Test
+    fun missingUndoFileBlocksRecoveryAndRetainsJournal() = runBlocking {
+        val db = temp.newFile("missing-undo.db").apply { writeText("keep") }
+        val vault = temp.newFolder("missing-undo-vault")
+        val snapshots = temp.newFolder("missing-undo-snapshots")
+        val applier = LocalRestoreApplier(db, vault, snapshots)
+        val snapshot = applier.prepare().getOrThrow()
+        snapshot.databaseSnapshotPath.delete()
+        assertTrue(applier.recoverInterrupted().isFailure)
+        assertEquals("keep", db.readText())
+        assertTrue(File(snapshots, "pending.properties").isFile)
+    }
+
+    @Test
     fun incompleteManifestFailsWithoutMutatingLive() = runBlocking {
         val liveDb = temp.newFile("live.db").apply { writeText("LIVE-DB") }
         val liveVault = temp.newFolder("live-vault").also { File(it, "keep.bin").writeText("KEEP") }
@@ -158,4 +236,102 @@ class LocalRestoreApplierTest {
         assertEquals("LIVE", liveDb.readText())
         assertEquals("X", File(liveVault, "x.bin").readText())
     }
+    @Test
+    fun vaultOnlyRestorePreservesLiveDatabase() = runBlocking {
+        val liveDb = temp.newFile("live-vault-only.db").apply { writeText("KEEP-DB") }
+        val liveVault = temp.newFolder("live-vault-only").also { File(it, "old.bin").writeText("OLD") }
+        val staging = temp.newFolder("staging-vault-only")
+        val vault = File(staging, "vault").also { it.mkdirs(); File(it, "new.bin").writeText("NEW") }
+        val missingDb = File(staging, "database/missing.db")
+        val meta = ArchiveMetadata(
+            version = 1, timestamp = 1L, checksumSha256 = "",
+            databaseSizeBytes = 0L, vaultSizeBytes = 3L,
+            fileCount = 1, vaultItemCount = 1, appVersion = "test", schemaVersion = 1,
+            includesDatabase = false, includesVault = true
+        )
+        File(staging, "metadata.json").writeText(json.encodeToString(meta))
+
+        val applier = LocalRestoreApplier(liveDb, liveVault, temp.newFolder("snap-vault-only"))
+        val result = applier.apply(
+            DecryptedBackup(staging, missingDb, vault, sampleInfo, 1L)
+        )
+
+        assertTrue(result.isSuccess)
+        assertEquals("KEEP-DB", liveDb.readText())
+        assertTrue(File(liveVault, "new.bin").isFile)
+        assertFalse(File(liveVault, "old.bin").exists())
+    }
+
+    @Test
+    fun databaseOnlyRestorePreservesLiveVault() = runBlocking {
+        val liveDb = temp.newFile("live-db-only.db").apply { writeText("OLD-DB") }
+        val liveVault = temp.newFolder("live-db-only-vault").also { File(it, "keep.bin").writeText("KEEP") }
+        val staging = temp.newFolder("staging-db-only")
+        val db = File(staging, "database.db").apply { writeText("NEW-DB") }
+        val vault = File(staging, "vault").also { it.mkdirs() }
+        val meta = ArchiveMetadata(
+            version = 1, timestamp = 1L, checksumSha256 = "",
+            databaseSizeBytes = 6L, vaultSizeBytes = 0L,
+            fileCount = 1, vaultItemCount = 0, appVersion = "test", schemaVersion = 1,
+            includesDatabase = true, includesVault = false
+        )
+        File(staging, "metadata.json").writeText(json.encodeToString(meta))
+
+        val applier = LocalRestoreApplier(liveDb, liveVault, temp.newFolder("snap-db-only"))
+        val result = applier.apply(
+            DecryptedBackup(staging, db, vault, sampleInfo, 1L)
+        )
+
+        assertTrue(result.isSuccess)
+        assertEquals("NEW-DB", liveDb.readText())
+        assertTrue(File(liveVault, "keep.bin").isFile)
+        assertEquals("KEEP", File(liveVault, "keep.bin").readText())
+    }
+
+    @Test
+    fun manifestDeclaringMissingDatabaseFailsWithoutMutatingLive() = runBlocking {
+        val liveDb = temp.newFile("live-missing-db.db").apply { writeText("KEEP-DB") }
+        val liveVault = temp.newFolder("live-missing-db-vault").also { File(it, "keep.bin").writeText("KEEP") }
+        val staging = temp.newFolder("staging-missing-db")
+        val vault = File(staging, "vault").also { it.mkdirs(); File(it, "new.bin").writeText("NEW") }
+        val meta = ArchiveMetadata(
+            version = 1, timestamp = 1L, checksumSha256 = "",
+            databaseSizeBytes = 5L, vaultSizeBytes = 3L,
+            fileCount = 1, vaultItemCount = 1, appVersion = "test", schemaVersion = 1,
+            includesDatabase = true, includesVault = true
+        )
+        File(staging, "metadata.json").writeText(json.encodeToString(meta))
+
+        val applier = LocalRestoreApplier(liveDb, liveVault, temp.newFolder("snap-missing-db"))
+        val result = applier.apply(
+            DecryptedBackup(staging, File(staging, "database/missing.db"), vault, sampleInfo, 1L)
+        )
+
+        assertTrue(result.isFailure)
+        assertEquals("KEEP-DB", liveDb.readText())
+        assertTrue(File(liveVault, "keep.bin").isFile)
+        assertFalse(File(liveVault, "new.bin").exists())
+    }
+
+    @Test
+    fun rollbackRemovesComponentsThatDidNotExistBeforeRestore() = runBlocking {
+        val root = temp.newFolder("rollback-absent")
+        val liveDb = File(root, "previously-absent.db")
+        val liveVault = File(root, "previously-absent-vault")
+        val applier = LocalRestoreApplier(
+            liveDatabaseFile = liveDb,
+            liveVaultDir = liveVault,
+            snapshotRoot = File(root, "snapshots")
+        )
+
+        val snapshot = applier.prepare().getOrThrow()
+        liveDb.writeText("FAILED-RESTORE-DB")
+        liveVault.mkdirs()
+        File(liveVault, "failed.bin").writeText("FAILED-RESTORE-VAULT")
+
+        assertTrue(applier.rollback(snapshot).isSuccess)
+        assertFalse(liveDb.exists())
+        assertFalse(liveVault.exists())
+    }
+
 }
