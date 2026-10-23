@@ -108,7 +108,8 @@ inputs:
       API token for HTTP file server used for caching scan-results and storing file archives.
     required: false
   image:
-    default: 'ghcr.io/oss-review-toolkit/ort:latest'
+    # ORT 97.2.0, source 798e0b28dd74c2001ee62f127347279167073570
+    default: 'ghcr.io/oss-review-toolkit/ort@sha256:4095b20baea5f51e60d38d841ca3e60faae828aff5f74ae3ce213aa223948230'
     description: |
       URL for ORT Docker image to use.
     required: false
@@ -163,7 +164,7 @@ inputs:
       URL to ORT configuration repository to use.
     required: false
   ort-config-revision:
-    default: 'main'
+    default: '0bf40a60180cacc64f8a6520254f3e6bdd4db121'
     description: |
       The Git revision or branch of the ORT configuration repository to use.
     required: false

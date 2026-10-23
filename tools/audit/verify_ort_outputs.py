@@ -34,7 +34,7 @@ def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str
 
     ort_sections = {
         "analyzer-result.json": ("analyzer", "result"),
-        "scan-result.json": ("scanner", "scanResults"),
+        "scan-result.json": ("scanner", "scan_results"),
         "evaluation-result.json": ("evaluator", "violations"),
         "advisor-result.json": ("advisor", "results"),
     }
@@ -82,9 +82,11 @@ def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str
                 continue
             if name == "analyzer-result.json":
                 analyzer_result = section[result_name]
-                if not isinstance(analyzer_result.get("projects"), list) or not isinstance(analyzer_result.get("packages"), list):
-                    problems.append(f"{name}: analyzer result must include projects and packages lists")
+                if not isinstance(analyzer_result.get("projects"), list) or not analyzer_result["projects"] or not isinstance(analyzer_result.get("packages"), list) or not analyzer_result["packages"]:
+                    problems.append(f"{name}: analyzer result must include nonempty projects and packages lists")
         elif name == "bom.cyclonedx.json":
+            if not isinstance(data.get("components"), list) or not data["components"]:
+                problems.append(f"{name}: missing dependency components")
             if data.get("bomFormat") != "CycloneDX":
                 problems.append(f"{name}: bomFormat is not CycloneDX")
             if not isinstance(data.get("specVersion"), str) or not data["specVersion"].strip():
@@ -103,8 +105,8 @@ def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str
                 problems.append(f"{name}: missing valid spdxVersion")
             if data.get("SPDXID") != "SPDXRef-DOCUMENT":
                 problems.append(f"{name}: SPDXID must be SPDXRef-DOCUMENT")
-            if not isinstance(data.get("packages"), list):
-                problems.append(f"{name}: packages must be a list")
+            if not isinstance(data.get("packages"), list) or not data["packages"]:
+                problems.append(f"{name}: packages must be a nonempty list")
 
     xml_path = results_dir / "bom.cyclonedx.xml"
     if xml_path.is_file() and xml_path.stat().st_size:
