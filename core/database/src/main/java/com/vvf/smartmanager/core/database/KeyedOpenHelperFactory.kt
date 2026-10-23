@@ -20,8 +20,12 @@ internal class KeyedOpenHelperFactory(
         check(!paused) { "Database maintenance already active" }
         paused = true
         try {
-            val databases = helpers.mapNotNull { it.closeForMaintenance() }
             val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5)
+            while (helpers.any { it.hasActiveTransactions() }) {
+                check(System.nanoTime() < deadline) { "Database transactions did not quiesce; restore refused" }
+                Thread.sleep(10)
+            }
+            val databases = helpers.mapNotNull { it.closeForMaintenance() }
             while (databases.any { it.isOpen }) {
                 check(System.nanoTime() < deadline) { "Database users did not quiesce; restore refused" }
                 Thread.sleep(10)
@@ -44,6 +48,42 @@ internal class KeyedOpenHelperFactory(
             private var key: ByteArray? = null
             private var delegate: SupportSQLiteOpenHelper? = null
             private var wal = false
+            private var transactions = 0
+            private val transactionDepth = object : ThreadLocal<Int>() { override fun initialValue() = 0 }
+
+            @Synchronized
+            fun hasActiveTransactions() = transactions != 0
+
+            private inner class ManagedDatabase(private val raw: SupportSQLiteDatabase) : SupportSQLiteDatabase by raw {
+                private fun begin(start: () -> Unit) {
+                    synchronized(this@ManagedHelper) {
+                        check(!paused) { "Database maintenance in progress" }
+                        transactions++
+                    }
+                    try {
+                        start()
+                        transactionDepth.set(transactionDepth.get() + 1)
+                    } catch (error: Throwable) {
+                        synchronized(this@ManagedHelper) { transactions-- }
+                        throw error
+                    }
+                }
+                override fun beginTransaction() = begin { raw.beginTransaction() }
+                override fun beginTransactionNonExclusive() = begin { raw.beginTransactionNonExclusive() }
+                override fun beginTransactionWithListener(listener: android.database.sqlite.SQLiteTransactionListener) =
+                    begin { raw.beginTransactionWithListener(listener) }
+                override fun beginTransactionWithListenerNonExclusive(listener: android.database.sqlite.SQLiteTransactionListener) =
+                    begin { raw.beginTransactionWithListenerNonExclusive(listener) }
+                override fun endTransaction() {
+                    try { raw.endTransaction() } finally {
+                        val depth = transactionDepth.get()
+                        if (depth > 0) {
+                            transactionDepth.set(depth - 1)
+                            synchronized(this@ManagedHelper) { transactions-- }
+                        }
+                    }
+                }
+            }
             override val databaseName: String? get() = configuration.name
 
             private fun helper(): SupportSQLiteOpenHelper {
@@ -70,7 +110,7 @@ internal class KeyedOpenHelperFactory(
             }
 
             private fun open(writable: Boolean): SupportSQLiteDatabase = try {
-                (if (writable) helper().writableDatabase else helper().readableDatabase).also { currentDatabase = it }
+                ManagedDatabase(if (writable) helper().writableDatabase else helper().readableDatabase).also { currentDatabase = it }
             } catch (error: Throwable) {
                 close()
                 throw error

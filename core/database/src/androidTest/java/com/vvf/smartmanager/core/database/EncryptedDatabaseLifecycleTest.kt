@@ -28,6 +28,26 @@ class EncryptedDatabaseLifecycleTest {
         } finally { db.close(); secret.fill(0); context.deleteDatabase(name) }
     }
 
+    @Test fun roomDaoRemainsUsableAfterMaintenanceReopen() = kotlinx.coroutines.runBlocking {
+        System.loadLibrary("sqlcipher")
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "dao-maintenance.db"
+        context.deleteDatabase(name)
+        val secret = ByteArray(32).also { SecureRandom().nextBytes(it) }
+        val db = VVFDatabase.buildEncryptedDatabase(context, name) { secret.copyOf() }
+        try {
+            val dao = db.fileDao()
+            val row = com.vvf.smartmanager.core.database.model.FileMetadataEntity(
+                path="gdrive://native", name="before", parentPath="gdrive://root", sizeBytes=1,
+                mimeType="text/plain", isDirectory=false, modifiedDate=1)
+            val id = dao.insertOrUpdate(row)
+            db.pauseForMaintenance()
+            db.resumeAfterMaintenance()
+            assertEquals(id, dao.insertOrUpdate(row.copy(name="after")))
+            assertEquals("after", dao.getByPath(row.path)!!.name)
+        } finally { db.close(); secret.fill(0); context.deleteDatabase(name) }
+    }
+
     @Test fun stagedBackupRequiresValidEncryptedRoomDatabase() {
         System.loadLibrary("sqlcipher")
         val context = ApplicationProvider.getApplicationContext<Context>()
