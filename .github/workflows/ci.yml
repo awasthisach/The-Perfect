@@ -5,15 +5,11 @@ on:
   push:
     branches: ["main", "develop"]
   pull_request:
-    branches: ["main", "develop"]
+    branches: ["main", "develop", "fix/p0-vault-nio-publish-phase3"]
   workflow_dispatch:
 
 permissions:
   contents: read
-
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
-  cancel-in-progress: true
 
 env:
   UPLOAD_ARTIFACT_ACTION: b7c566a772e6b6bfb58ed0dc250532a479d7789f
@@ -23,6 +19,11 @@ jobs:
     name: Build, Test, Lint & Quality
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    # Cancel superseded build/test jobs for this branch, without cancelling the
+    # independently serialized ORT compliance job.
+    concurrency:
+      group: ci-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+      cancel-in-progress: true
     steps:
       - name: Checkout Repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -38,9 +39,8 @@ jobs:
           packages: ""
           accept-android-sdk-licenses: true
       - name: Install required Android SDK components
-        # Keep the PR gate focused on deterministic compile/test/lint/build work.
-        # Emulator packages are installed only by weekly-instrumented.yml, the hard SQLCipher gate.
-        # The emulator step below is intentionally soft and records a skip when its image is absent.
+        # Keep the PR gate focused on deterministic compile/test/lint/debug-APK work.
+        # Emulator + SQLCipher instrumentation are owned by weekly-instrumented.yml.
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
       - name: Create local.properties
         run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
@@ -74,80 +74,8 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # Emulator boot is deliberately SOFT because GitHub-hosted runners may lack KVM.
-      # The step exits successfully on infra failure and exposes booted=false, so no red
-      # error annotation is produced. Instrumentation remains HARD when boot succeeds.
-      - name: Start Android emulator (soft infra gate)
-        id: emulator
-        timeout-minutes: 12
-        env:
-          ANDROID_AVD_HOME: ${{ runner.temp }}/avd
-        run: |
-          set -uo pipefail
-          mkdir -p "$ANDROID_AVD_HOME"
-          export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH"
-          echo "no" | avdmanager create avd --force --name vvf-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2" || { echo "booted=false" >> "$GITHUB_OUTPUT"; echo "::warning::AVD creation failed; emulator infrastructure unavailable."; exit 0; }
-          adb start-server || true
-          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel off -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
-          echo $! > "$RUNNER_TEMP/emulator.pid"
-          if ! timeout 180 adb wait-for-device; then
-            echo "::warning::adb wait-for-device timed out; treating emulator as an infrastructure skip."
-            tail -n 80 "$RUNNER_TEMP/emulator.log" || true
-            echo "booted=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          for _ in $(seq 1 60); do
-            boot_completed="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
-            [ "$boot_completed" = "1" ] && break
-            sleep 5
-          done
-          if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)" != "1" ]; then
-            echo "::warning::Emulator failed to reach sys.boot_completed=1; treating as infrastructure skip."
-            tail -n 120 "$RUNNER_TEMP/emulator.log" || true
-            echo "booted=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          adb shell settings put global window_animation_scale 0 || true
-          adb shell settings put global transition_animation_scale 0 || true
-          adb shell settings put global animator_duration_scale 0 || true
-          adb devices
-          echo "booted=true" >> "$GITHUB_OUTPUT"
-      - name: Annotate SQLCipher instrumented skip
-        if: ${{ steps.emulator.outputs.booted != 'true' }}
-        run: echo "::warning::GATE-DB-001 emulator did not boot — SQLCipher instrumentation SKIPPED (soft). Weekly instrumented workflow remains the hard DB gate."
-      - name: Run SQLCipher compatibility instrumentation test
-        id: sqlcipher_instrumented
-        if: ${{ steps.emulator.outputs.booted == 'true' }}
-        run: ./gradlew --no-daemon :core:database-compat:connectedDebugAndroidTest --stacktrace
-      - name: Generate CPAS full DB evidence
-        if: ${{ steps.emulator.outputs.booted == 'true' && steps.sqlcipher_instrumented.outcome == 'success' }}
-        run: |
-          set -euo pipefail
-          python3 tools/audit/generate_evidence.py --commit-sha "${{ github.sha }}" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --include-db --environment "github-actions-API35-emulator" --output docs/assurance/cpas-evidence-full.json
-      - name: Publish gate summary
-        if: always()
-        run: |
-          echo "## CI gate policy" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Gate | Policy |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Unit tests / lint / assemble | HARD — must pass |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Emulator boot | SOFT — infrastructure failure recorded without failing the job |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| SQLCipher instrumented after boot | HARD — failure fails the job |" >> "$GITHUB_STEP_SUMMARY"
-          echo "Emulator booted: ${{ steps.emulator.outputs.booted || 'false' }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "Instrumented outcome: ${{ steps.sqlcipher_instrumented.outcome || 'skipped' }}" >> "$GITHUB_STEP_SUMMARY"
-      - name: Stop Android emulator
-        if: always()
-        timeout-minutes: 1
-        run: |
-          set +e
-          export PATH="$ANDROID_HOME/platform-tools:$PATH"
-          timeout 10 adb emu kill 2>/dev/null || true
-          if [ -f "$RUNNER_TEMP/emulator.pid" ]; then
-            kill "$(cat "$RUNNER_TEMP/emulator.pid")" 2>/dev/null || true
-            sleep 1
-            kill -9 "$(cat "$RUNNER_TEMP/emulator.pid")" 2>/dev/null || true
-          fi
-          timeout 10 adb kill-server 2>/dev/null || true
+      # SQLCipher instrumentation is owned by weekly-instrumented.yml (hard gate).
+# Keep this PR workflow focused on unit tests, lint, dependency review, and debug APK.
       - name: Upload unit test reports
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -162,15 +90,6 @@ jobs:
         with:
           name: android-test-reports
           path: "**/build/reports/androidTests/**"
-          if-no-files-found: ignore
-          retention-days: 7
-      - name: Upload emulator diagnostics
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: android-emulator-diagnostics
-          path: |
-            ${{ runner.temp }}/emulator.log
           if-no-files-found: ignore
           retention-days: 7
       - name: Upload release runtime dependency graph
@@ -209,6 +128,9 @@ jobs:
 
   open_source_compliance:
     name: Open Source Compliance (ORT)
+    concurrency:
+      group: ort-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     # ORT ScanCode exceeded 180 minutes on the latest candidate before
     # evaluation/advisor/SBOM completed. Keep the full checks enabled and allow
