@@ -129,12 +129,14 @@ class OrtActionRegressionTest(unittest.TestCase):
                 ROOT / ".github" / "workflows" / workflow_name
             ).read_text(encoding="utf-8")
             with self.subTest(workflow=workflow_name):
-                self.assertIn("ort-scan-results-v2-", workflow)
-                self.assertIn("ort-scan-results-v1-", workflow)
+                self.assertIn("restore-keys: |", workflow)
+                restore_keys = workflow.split("restore-keys: |", 1)[1].split("\n\n", 1)[0]
+                self.assertIn("ort-scan-results-v2-", restore_keys)
+                self.assertIn("ort-scan-results-v1-", restore_keys)
                 self.assertLess(
-                    workflow.index("ort-scan-results-v2-"),
-                    workflow.index("ort-scan-results-v1-"),
-                    "Current cache must be preferred before the legacy fallback",
+                    restore_keys.index("ort-scan-results-v2-"),
+                    restore_keys.index("ort-scan-results-v1-"),
+                    "Current dependency-scoped cache must be preferred before legacy fallback",
                 )
                 self.assertIn(
                     "Legacy cache fallback: prior runs saved scanner state under v1.",
