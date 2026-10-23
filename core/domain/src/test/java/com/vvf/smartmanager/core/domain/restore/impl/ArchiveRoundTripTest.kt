@@ -41,4 +41,24 @@ class ArchiveRoundTripTest {
             assertEquals("snapshot-wal", File(target.path + "-wal").readText())
         } finally { root.deleteRecursively() }
     }
+    @Test fun canonicalDuplicateArchiveDestinationsCannotOverwritePriorEntries() = runBlocking {
+        val root = Files.createTempDirectory("archive-alias").toFile()
+        try {
+            val archive = File(root,"archive.zip")
+            java.util.zip.ZipOutputStream(archive.outputStream()).use { zip ->
+                for ((name,body) in listOf("database/file.db" to "first", "database/./file.db" to "second")) {
+                    zip.putNextEntry(java.util.zip.ZipEntry(name));zip.write(body.toByteArray());zip.closeEntry()
+                }
+            }
+            val crypto = mock<CryptoSecurityManager>()
+            whenever(crypto.decryptFile(any(),any())).thenAnswer {
+                val from=it.getArgument<File>(0);from.copyTo(it.getArgument(1),overwrite=true);from.length()
+            }
+            val info = CloudBackupInfo(backupId="synthetic",timestamp=1,backupName="test",backupSizeBytes=archive.length())
+            val stage = File(root,"stage")
+            assertTrue(CryptoBackupDecryptor(crypto).decrypt(VerifiedArtifact(archive,info,"fixture"),stage).isFailure)
+            assertEquals("first",File(stage,"database/file.db").readText())
+        } finally { root.deleteRecursively() }
+    }
+
 }

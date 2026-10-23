@@ -214,8 +214,9 @@ class CryptoSecurityManager(
             }
 
             try {
-                writeV2DatabasePassphraseAtomically(v2File, migratedPassphrase)
-                verifyPersistedPassphrase(v2File, migratedPassphrase)
+                persistVerifiedPassphrase(v2File,
+                    write = { writeV2DatabasePassphraseAtomically(v2File, migratedPassphrase) },
+                    verify = { verifyPersistedPassphrase(v2File, migratedPassphrase) })
                 check(legacyEncFile.delete()) { "Failed to remove legacy encrypted database passphrase" }
                 check(legacyIvFile.delete()) { "Failed to remove legacy database passphrase IV" }
                 return migratedPassphrase
@@ -228,8 +229,9 @@ class CryptoSecurityManager(
         val freshPassphrase = ByteArray(DB_KEY_LENGTH_BYTES)
         SecureRandom().nextBytes(freshPassphrase)
         try {
-            writeV2DatabasePassphraseAtomically(v2File, freshPassphrase)
-            verifyPersistedPassphrase(v2File, freshPassphrase)
+            persistVerifiedPassphrase(v2File,
+                write = { writeV2DatabasePassphraseAtomically(v2File, freshPassphrase) },
+                verify = { verifyPersistedPassphrase(v2File, freshPassphrase) })
             return freshPassphrase
         } catch (error: Throwable) {
             freshPassphrase.fill(0)
@@ -615,4 +617,20 @@ class CryptoSecurityManager(
             pinChars.fill('\u0000')
         }
     }
+}
+
+/** Remove only a newly published, unverified key file. Existing keys must never be replaced here. */
+internal fun persistVerifiedPassphrase(file: File, write: () -> Unit, verify: () -> Unit) {
+    check(!file.exists()) { "Database passphrase already exists" }
+    try {
+        write()
+        verify()
+    } catch (error: Throwable) {
+        if (file.exists() && !file.delete()) {
+            error.addSuppressed(java.io.IOException("Cannot remove unverified database passphrase file"))
+        }
+        throw error
+    }
+    // Legacy-file cleanup occurs after this function returns. A failure there must
+    // retain this verified v2 file as the authoritative copy on the next startup.
 }

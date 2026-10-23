@@ -31,7 +31,7 @@ class LocalRestoreApplier(
     private var active: RestoreSnapshot? = null
     private var maintenanceStarted = false
 
-    /** Safe to retry: snapshots are retained until every component has been recovered. */
+    /** Startup-only, before new restore requests. Failed recovery retains its journal and snapshots. */
     fun recoverInterrupted(): Result<Unit> = runCatching {
         if (journal.isFile) {
             val p = Properties().apply { journal.inputStream().use { load(it) } }
@@ -41,6 +41,12 @@ class LocalRestoreApplier(
                 File(snapshotRoot, "$token-vault"), p.getProperty("databaseExisted").toBooleanStrict(),
                 p.getProperty("vaultExisted").toBooleanStrict()))
         }
+        // Completed restores have only process-local rollback tokens. After restart,
+        // discard their unreachable undo copies, including WAL/SHM and wrapped auth.
+        check(!journal.exists())
+        snapshotRoot.listFiles().orEmpty().filter {
+            it.name.matches(Regex("[a-f0-9-]{36}-(db(?:-wal|-shm)?|vault|auth\\.json)")) || it.name == "pending.tmp"
+        }.forEach(::remove)
     }
 
     override suspend fun prepare(): Result<RestoreSnapshot> = runCatching {
@@ -121,6 +127,9 @@ class LocalRestoreApplier(
         active = null
         maintenanceStarted = false
         afterApply?.invoke()
+        databaseFiles(snapshot.databaseSnapshotPath).forEach(::remove)
+        remove(snapshot.vaultSnapshotPath)
+        remove(authFile(snapshot))
     }
 
     private fun authFile(snapshot: RestoreSnapshot) = File(snapshotRoot, "${snapshot.token}-auth.json")
@@ -149,7 +158,7 @@ class LocalRestoreApplier(
     private fun copyTree(source: File, target: File) {
         check(target.isDirectory || target.mkdirs())
         source.walkTopDown().forEach { from ->
-            require(from.canonicalPath == from.absolutePath) { "Symlinks are not restore payloads" }
+            require(from.canonicalFile == File(from.parentFile!!.canonicalFile, from.name)) { "Symlinks are not restore payloads" }
             val to = File(target, from.relativeTo(source).path)
             if (from.isDirectory) check(to.isDirectory || to.mkdirs()) else copyFile(from, to)
         }
@@ -163,6 +172,11 @@ class LocalRestoreApplier(
         FileOutputStream(file).use { it.write(bytes); it.fd.sync() }
     }
     private fun remove(file: File) {
+        // A cleanup entry must never cause traversal through a link outside snapshots.
+        if (file.canonicalFile != File(file.parentFile!!.canonicalFile, file.name)) {
+            check(file.delete()) { "Cannot remove restore symlink" }
+            return
+        }
         if (file.exists()) check(if (file.isDirectory) file.deleteRecursively() else file.delete()) { "Cannot remove restore path" }
     }
 }

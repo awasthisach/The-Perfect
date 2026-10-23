@@ -30,6 +30,7 @@ interface RestoreApplier {
 
     suspend fun apply(decryptedBackup: DecryptedBackup): Result<AppliedRestore>
 
+    /** Restore first, then remove all applier-owned snapshot files only after successful recovery. */
     suspend fun rollback(snapshot: RestoreSnapshot): Result<Unit>
 }
 

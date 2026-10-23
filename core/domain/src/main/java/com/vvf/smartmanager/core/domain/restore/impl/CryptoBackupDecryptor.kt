@@ -53,14 +53,14 @@ class CryptoBackupDecryptor(
     }
 
     private fun unzip(zipFile: File, targetDir: File) {
-        val names = HashSet<String>()
+        val destinations = HashSet<File>()
         ZipInputStream(zipFile.inputStream()).use { zis ->
             while (true) {
                 val entry = zis.nextEntry ?: break
-                require(names.add(entry.name)) { "Duplicate archive entry" }
                 val out = File(targetDir, entry.name)
                 require(out.canonicalFile != zipFile.canonicalFile) { "Archive overwrites input" }
                 val normalized = out.canonicalFile
+                require(destinations.add(normalized)) { "Duplicate archive destination" }
                 if (!normalized.path.startsWith(targetDir.canonicalFile.path + File.separator) &&
                     normalized != targetDir.canonicalFile
                 ) {

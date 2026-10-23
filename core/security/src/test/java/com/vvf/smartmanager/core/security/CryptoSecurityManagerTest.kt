@@ -181,4 +181,28 @@ class CryptoSecurityManagerTest {
             )
         }
     }
+    @Test
+    fun unverifiedNewKeyFilesAreRemovedButVerifiedAndExistingKeysArePreserved() {
+        val directory = java.nio.file.Files.createTempDirectory("key-publication").toFile()
+        try {
+            val file = java.io.File(directory,"key")
+            for (failDuringWrite in listOf(true,false)) {
+                val result = runCatching {
+                    persistVerifiedPassphrase(file, write={
+                        file.writeText("bad")
+                        if (failDuringWrite) error("injected write failure")
+                    }, verify={error("injected verification failure")})
+                }
+                assertTrue(result.isFailure)
+                assertFalse(file.exists())
+            }
+            persistVerifiedPassphrase(file, write={file.writeText("verified")}, verify={assertEquals("verified",file.readText())})
+            // A subsequent cleanup error must not delete a verified key.
+            runCatching { error("legacy cleanup failure") }
+            assertEquals("verified",file.readText())
+            assertTrue(runCatching { persistVerifiedPassphrase(file,write={error("must not overwrite")},verify={}) }.isFailure)
+            assertEquals("verified",file.readText())
+        } finally { directory.deleteRecursively() }
+    }
+
 }

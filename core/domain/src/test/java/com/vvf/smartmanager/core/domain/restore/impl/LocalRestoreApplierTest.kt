@@ -334,4 +334,45 @@ class LocalRestoreApplierTest {
         assertFalse(liveVault.exists())
     }
 
+    @Test
+    fun symlinkedAndroidStyleParentIsAcceptedButVaultEntrySymlinksAreRejected() = runBlocking {
+        val physical = temp.newFolder("physical-data")
+        val alias = File(temp.root, "user-data")
+        java.nio.file.Files.createSymbolicLink(alias.toPath(), physical.toPath())
+        val db = File(alias, "database.db").apply { writeText("old") }
+        val vault = File(alias, "vault").apply { mkdirs() }
+        File(vault, "safe").writeText("ciphertext")
+        val undo = File(alias, "undo")
+        val applier = LocalRestoreApplier(db,vault,undo)
+        val snapshot = applier.prepare().getOrThrow()
+        db.writeText("changed")
+        applier.rollback(snapshot).getOrThrow()
+        assertEquals("old",db.readText())
+        assertEquals(0,undo.listFiles()!!.size)
+        val outside = temp.newFile("outside").apply { writeText("untouched") }
+        java.nio.file.Files.createSymbolicLink(File(vault,"link").toPath(),outside.toPath())
+        assertTrue(applier.prepare().isFailure)
+        assertEquals("untouched",outside.readText())
+    }
+
+    @Test
+    fun rollbackCleansAllSidecarsAndAuthAndStartupRemovesOnlyOwnedOrphans() = runBlocking {
+        val db = temp.newFile("cleanup.db").apply { writeText("db") }
+        File(db.path+"-wal").writeText("wal")
+        File(db.path+"-shm").writeText("shm")
+        val undo = temp.newFolder("cleanup-undo")
+        val vault = temp.newFolder("cleanup-vault")
+        val applier = LocalRestoreApplier(db,vault,undo,
+            vaultAuthExporter={mapOf("wrapped" to "fixture")},vaultAuthRestorer={true})
+        val snapshot = applier.prepare().getOrThrow()
+        applier.rollback(snapshot).getOrThrow()
+        assertEquals(0,undo.listFiles()!!.size)
+        val token = java.util.UUID.randomUUID().toString()
+        for (suffix in listOf("db","db-wal","db-shm","auth.json")) File(undo,"$token-$suffix").writeText("orphan")
+        File(undo,"$token-vault").mkdirs()
+        val unrelated = File(undo,"keep.txt").apply { writeText("unrelated") }
+        LocalRestoreApplier(db,vault,undo).recoverInterrupted().getOrThrow()
+        assertEquals(listOf(unrelated),undo.listFiles()!!.toList())
+    }
+
 }

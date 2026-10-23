@@ -1,5 +1,6 @@
 package com.vvf.smartmanager.core.domain.restore
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -24,7 +25,7 @@ class FailClosedRestorePipeline(
     private val restoreMutex = Mutex()
 
     override suspend fun restore(remoteBackupId: String, expectedChecksum: String?): Result<RestoreResult> =
-        restoreMutex.withLock { restoreLocked(remoteBackupId, expectedChecksum) }
+        withContext(Dispatchers.IO) { restoreMutex.withLock { restoreLocked(remoteBackupId, expectedChecksum) } }
 
     private val preparedSnapshots = ConcurrentHashMap<String, RestoreSnapshot>()
 
@@ -63,7 +64,6 @@ class FailClosedRestorePipeline(
                     )
                 }
                 preparedSnapshots.remove(snapshot!!.token)
-                deleteSnapshotFiles(snapshot!!)
                 return Result.failure(error)
             }
 
@@ -79,7 +79,6 @@ class FailClosedRestorePipeline(
                     )
                 }
                 preparedSnapshots.remove(snapshot!!.token)
-                deleteSnapshotFiles(snapshot!!)
                 return Result.failure(RestoreException(applied.message))
             }
 
@@ -117,7 +116,6 @@ class FailClosedRestorePipeline(
                     )
                 }
                 preparedSnapshots.remove(snapshot!!.token)
-                deleteSnapshotFiles(snapshot!!)
             }
             if (error is CancellationException) throw error
             Result.failure(RestoreException("Fail-closed restore aborted", error))
@@ -127,7 +125,10 @@ class FailClosedRestorePipeline(
         }
     }
 
-    override suspend fun dryRun(
+    override suspend fun dryRun(remoteBackupId: String, expectedChecksum: String?): Result<DryRunResult> =
+        withContext(Dispatchers.IO) { dryRunOnIo(remoteBackupId, expectedChecksum) }
+
+    private suspend fun dryRunOnIo(
         remoteBackupId: String,
         expectedChecksum: String?
     ): Result<DryRunResult> {
@@ -165,7 +166,7 @@ class FailClosedRestorePipeline(
     }
 
     override suspend fun rollback(snapshotToken: String): Result<Unit> =
-        restoreMutex.withLock { rollbackLocked(snapshotToken) }
+        withContext(Dispatchers.IO) { restoreMutex.withLock { rollbackLocked(snapshotToken) } }
 
     private suspend fun rollbackLocked(snapshotToken: String): Result<Unit> {
         if (snapshotToken.isBlank()) {
@@ -176,16 +177,7 @@ class FailClosedRestorePipeline(
         return applier.rollback(snapshot).also {
             if (it.isSuccess) {
                 preparedSnapshots.remove(snapshotToken)
-                deleteSnapshotFiles(snapshot)
             }
-        }
-    }
-
-    private fun deleteSnapshotFiles(snapshot: RestoreSnapshot) {
-        runCatching { snapshot.databaseSnapshotPath.delete() }
-        runCatching {
-            if (snapshot.vaultSnapshotPath.isDirectory) snapshot.vaultSnapshotPath.deleteRecursively()
-            else snapshot.vaultSnapshotPath.delete()
         }
     }
 
