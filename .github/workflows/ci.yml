@@ -12,7 +12,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # CI is per-ref and only the newest revision needs a build. Nightly ORT has its own non-cancelling concurrency group.
+  cancel-in-progress: true
 
 env:
   UPLOAD_ARTIFACT_ACTION: b7c566a772e6b6bfb58ed0dc250532a479d7789f
