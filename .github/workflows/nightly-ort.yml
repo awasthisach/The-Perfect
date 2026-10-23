@@ -1,0 +1,85 @@
+name: Nightly ORT Compliance Scan
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-ort-${ github.ref }
+  cancel-in-progress: false
+
+jobs:
+  ort-scan:
+    name: ORT Analyzer, Scanner, Evaluator, Advisor & SBOM
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Run ORT compliance pipeline
+        uses: oss-review-toolkit/ort-ci-github-action@70149d4579e446b0312f8b80fdd8d465a91e4391
+        with:
+          sw-name: The-Perfect
+          sw-version: ${ github.sha }
+          run: >-
+            cache-dependencies,
+            cache-scan-results,
+            analyzer,
+            scanner,
+            evaluator,
+            advisor,
+            reporter,
+            upload-results
+
+      - name: Verify required ORT reports exist and are valid
+        if: always()
+        run: |
+          set -euo pipefail
+          RESULTS_DIR="$HOME/.ort/ort-results"
+          test -d "$RESULTS_DIR" || { echo "::error::ORT results directory missing: $RESULTS_DIR"; exit 1; }
+          python3 - "$RESULTS_DIR" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+          required = (
+              "analyzer-result.json",
+              "scan-result.json",
+              "evaluation-result.json",
+              "advisor-result.json",
+          )
+          failures = []
+          for name in required:
+              path = root / name
+              if not path.is_file() or path.stat().st_size == 0:
+                  failures.append(f"{name}: missing or empty")
+                  continue
+              try:
+                  value = json.loads(path.read_text(encoding="utf-8"))
+              except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                  failures.append(f"{name}: invalid JSON: {exc}")
+                  continue
+              if not isinstance(value, dict) or not value:
+                  failures.append(f"{name}: expected non-empty JSON object")
+          if failures:
+              print("\n".join(failures), file=sys.stderr)
+              raise SystemExit(1)
+          print("Required ORT stage reports are present and parse as JSON.")
+          PY
+
+      - name: Upload ORT reports and diagnostics
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: ort-results-${ github.sha }
+          path: |
+            ~/.ort/ort-results/**
+            ~/.ort/config/**
+          if-no-files-found: error
+          retention-days: 90
