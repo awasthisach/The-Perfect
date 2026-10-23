@@ -128,6 +128,11 @@ class OrtActionRegressionTest(unittest.TestCase):
 
 
 
+    def test_min_sdk_remains_24(self):
+        gradle = (ROOT / "app" / "build.gradle.kts").read_text(encoding="utf-8")
+        self.assertRegex(gradle, r"(?m)^\s*minSdk = 24\s*$")
+        self.assertNotRegex(gradle, r"(?m)^\s*minSdk = (?:25|26|[3-9]\d)\s*$")
+
     def test_worker_deployment_does_not_require_gemini_key_while_embeddings_disabled(self):
         workflow = (
             ROOT / ".github" / "workflows" / "deploy-embedding-worker.yml"
