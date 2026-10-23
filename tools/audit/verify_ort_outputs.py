@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -21,7 +22,7 @@ REQUIRED_OUTPUTS = RESULT_JSON_FILES + (
 )
 
 
-def validate_outputs(results_dir: Path) -> list[str]:
+def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str]:
     """Return missing, empty, malformed, or wrong-format ORT outputs."""
     problems: list[str] = []
     for name in REQUIRED_OUTPUTS:
@@ -60,6 +61,16 @@ def validate_outputs(results_dir: Path) -> list[str]:
                 problems.append(f"{name}: missing valid ORT repository metadata")
                 continue
 
+            vcs_revision = repository["vcs"].get("revision")
+            if not isinstance(vcs_revision, str) or not vcs_revision.strip():
+                problems.append(f"{name}: ORT repository VCS revision is missing")
+                continue
+            if revision is not None and vcs_revision != revision:
+                problems.append(
+                    f"{name}: ORT repository VCS revision {vcs_revision!r} does not match expected {revision!r}"
+                )
+                continue
+
             section_name, result_name = ort_sections[name]
             section = data.get(section_name)
             expected_type = dict if name in ("analyzer-result.json", "advisor-result.json") else list
@@ -73,10 +84,27 @@ def validate_outputs(results_dir: Path) -> list[str]:
                 analyzer_result = section[result_name]
                 if not isinstance(analyzer_result.get("projects"), list) or not isinstance(analyzer_result.get("packages"), list):
                     problems.append(f"{name}: analyzer result must include projects and packages lists")
-        elif name == "bom.cyclonedx.json" and data.get("bomFormat") != "CycloneDX":
-            problems.append(f"{name}: bomFormat is not CycloneDX")
-        elif name == "bom.spdx.json" and not str(data.get("spdxVersion", "")).startswith("SPDX-"):
-            problems.append(f"{name}: missing valid spdxVersion")
+        elif name == "bom.cyclonedx.json":
+            if data.get("bomFormat") != "CycloneDX":
+                problems.append(f"{name}: bomFormat is not CycloneDX")
+            if not isinstance(data.get("specVersion"), str) or not data["specVersion"].strip():
+                problems.append(f"{name}: missing valid specVersion")
+            if not isinstance(data.get("version"), int) or data["version"] < 1:
+                problems.append(f"{name}: missing valid positive BOM version")
+        elif name == "bom.spdx.json":
+            required_spdx_strings = ("spdxVersion", "dataLicense", "SPDXID", "name", "documentNamespace")
+            missing_fields = [
+                field for field in required_spdx_strings
+                if not isinstance(data.get(field), str) or not data[field].strip()
+            ]
+            if missing_fields:
+                problems.append(f"{name}: missing required SPDX fields: {', '.join(missing_fields)}")
+            if not str(data.get("spdxVersion", "")).startswith("SPDX-"):
+                problems.append(f"{name}: missing valid spdxVersion")
+            if data.get("SPDXID") != "SPDXRef-DOCUMENT":
+                problems.append(f"{name}: SPDXID must be SPDXRef-DOCUMENT")
+            if not isinstance(data.get("packages"), list):
+                problems.append(f"{name}: packages must be a list")
 
     xml_path = results_dir / "bom.cyclonedx.xml"
     if xml_path.is_file() and xml_path.stat().st_size:
@@ -95,8 +123,16 @@ def validate_outputs(results_dir: Path) -> list[str]:
         except (OSError, UnicodeError) as exc:
             problems.append(f"bom.spdx.yml: unreadable ({exc})")
         else:
-            if "spdxVersion: SPDX-" not in yaml_text:
-                problems.append("bom.spdx.yml: missing SPDX version declaration")
+            required_yaml_patterns = {
+                "spdxVersion": r"(?m)^spdxVersion:\s*['\"]?SPDX-\d+\.\d+['\"]?\s*$",
+                "SPDXID": r"(?m)^SPDXID:\s*['\"]?SPDXRef-DOCUMENT['\"]?\s*$",
+                "name": r"(?m)^name:\s*\S",
+                "documentNamespace": r"(?m)^documentNamespace:\s*https?://\S+",
+                "packages": r"(?m)^packages:\s*(?:\[\]|\s*)$",
+            }
+            for field, pattern in required_yaml_patterns.items():
+                if not re.search(pattern, yaml_text):
+                    problems.append(f"bom.spdx.yml: missing or invalid {field} field")
 
     return problems
 
@@ -107,7 +143,7 @@ def main() -> int:
     parser.add_argument("--revision", required=True)
     args = parser.parse_args()
 
-    problems = validate_outputs(args.results_dir)
+    problems = validate_outputs(args.results_dir, args.revision)
     report = {
         "gate_id": "GATE-LICENSE-001",
         "revision": args.revision,
