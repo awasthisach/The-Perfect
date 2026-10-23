@@ -108,6 +108,9 @@ class LocalRestoreApplier(
         if (snapshot.databaseExisted) require(snapshot.databaseSnapshotPath.isFile) { "Database undo snapshot missing" }
         if (snapshot.vaultExisted) require(snapshot.vaultSnapshotPath.isDirectory) { "Vault undo snapshot missing" }
         val auth = authFile(snapshot)
+        if (vaultAuthRestorer != null || vaultAuthExporter != null) {
+            require(auth.isFile) { "Vault auth undo snapshot missing" }
+        }
         val metadata = if (auth.isFile) json.decodeFromString(mapSerializer, auth.readText()) else null
         if (metadata != null) require(vaultAuthRestorer != null) { "Vault auth recovery unavailable" }
         if (snapshot.databaseExisted) publishDatabase(snapshot.databaseSnapshotPath, liveDatabaseFile)
@@ -126,6 +129,7 @@ class LocalRestoreApplier(
         databaseFiles(source).zip(databaseFiles(target)).forEach { (from, to) -> if (from.isFile) copyFile(from, to) }
     }
     private fun publishDatabase(source: File, target: File) {
+        require(source.isFile) { "Database publication source disappeared" }
         val staged = File(target.parentFile, "${target.name}.restore-new")
         databaseFiles(staged).forEach(::remove)
         copyDatabase(source, staged)

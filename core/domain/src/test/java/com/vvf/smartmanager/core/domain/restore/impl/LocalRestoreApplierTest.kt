@@ -33,6 +33,45 @@ class LocalRestoreApplierTest {
     )
 
     @Test
+    fun missingAuthUndoFailsBeforeReplacingLiveDatabase() = runBlocking {
+        val db = temp.newFile("missing-auth.db").apply { writeText("old") }
+        val vault = temp.newFolder("missing-auth-vault")
+        val undo = temp.newFolder("missing-auth-undo")
+        val applier = LocalRestoreApplier(db, vault, undo,
+            vaultAuthExporter = { mapOf("vault_pin_hash" to "old") },
+            vaultAuthRestorer = { true })
+        val snapshot = applier.prepare().getOrThrow()
+        db.writeText("new")
+        assertTrue(File(undo, "${snapshot.token}-auth.json").delete())
+        assertTrue(applier.rollback(snapshot).isFailure)
+        assertEquals("new", db.readText())
+        assertTrue(File(undo, "pending.properties").isFile)
+    }
+
+    @Test
+    fun failureAfterAuthImportRollsBackPinAndDatabaseTogether() = runBlocking {
+        val db = temp.newFile("auth-failure.db").apply { writeText("old") }
+        val vault = temp.newFolder("auth-failure-vault")
+        val stage = temp.newFolder("auth-failure-stage")
+        val backupDb = File(stage, "db").apply { writeText("new") }
+        val backupVault = File(stage, "vault").apply { mkdirs() }
+        File(stage, "vault_auth.json").writeText("{\"vault_pin_hash\":\"new\"}")
+        File(stage, "metadata.json").writeText(json.encodeToString(ArchiveMetadata(
+            version=1, timestamp=1, checksumSha256="", databaseSizeBytes=3, vaultSizeBytes=0,
+            fileCount=2, vaultItemCount=0, appVersion="test", schemaVersion=1, includesVaultAuth=true)))
+        var auth = mapOf("vault_pin_hash" to "old")
+        val applier = LocalRestoreApplier(db, vault, temp.newFolder("auth-failure-undo"),
+            vaultAuthImporter = { auth=it; backupDb.delete(); true },
+            vaultAuthExporter = { auth }, vaultAuthRestorer = { auth=it; true })
+        val snapshot = applier.prepare().getOrThrow()
+        assertTrue(applier.apply(DecryptedBackup(stage,backupDb,backupVault,sampleInfo,1)).isFailure)
+        assertEquals("new", auth["vault_pin_hash"])
+        applier.rollback(snapshot).getOrThrow()
+        assertEquals("old", auth["vault_pin_hash"])
+        assertEquals("old", db.readText())
+    }
+
+    @Test
     fun processRestartRecoversFilesSidecarsAndAuthAfterInterruptedPublication() = runBlocking {
         val db = temp.newFile("recover.db").apply { writeText("old-db") }
         File(db.path + "-wal").writeText("old-wal")

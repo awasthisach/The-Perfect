@@ -397,9 +397,7 @@ class VVFApplication : Application(), Configuration.Provider {
             searchFtsDao = database.searchFtsDao(),
             fileDao = database.fileDao(),
             storageManager = storageManager,
-            cryptoSecurityManager = cryptoSecurityManager,
-            beforeSnapshot = { pauseStorageForMaintenance() },
-            afterSnapshot = { resumeStorageAfterMaintenance() }
+            cryptoSecurityManager = cryptoSecurityManager
         )
         ocrPlugin = OcrPluginImpl(this)
         getStorageOverviewUseCase = GetStorageOverviewUseCase(fileManagerRepository)
@@ -511,7 +509,9 @@ class VVFApplication : Application(), Configuration.Provider {
                 ),
                 InjectedVaultSnapshotSource(vaultDir)
             ),
-            cryptoSecurityManager = cryptoSecurityManager
+            cryptoSecurityManager = cryptoSecurityManager,
+            beforeSnapshot = { pauseStorageForMaintenance() },
+            afterSnapshot = { resumeStorageAfterMaintenance() }
         )
         cloudSyncUseCase = AppCompositionRoot.cloudSyncUseCase(
             context = this,

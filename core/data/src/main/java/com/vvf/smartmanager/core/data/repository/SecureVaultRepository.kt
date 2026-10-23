@@ -37,7 +37,7 @@ class SecureVaultRepository(
     suspend fun getVaultItemById(id: String): VaultItem? =
         vaultDao.getVaultItemById(id)?.toDomainModel()
 
-    suspend fun recoverOrphanedJournals(): Int {
+    suspend fun recoverOrphanedJournals(): Int = VaultMaintenance.operation {
         val pendingJournals = vaultJournalDao.getPendingJournals("PENDING")
         val canonicalVault = vaultDirectory.canonicalFile
         var recoveredCount = 0
@@ -65,8 +65,8 @@ class SecureVaultRepository(
             }
         }
         vaultJournalDao.purgeCompletedJournals()
-        return recoveredCount
-    }
+        recoveredCount
+    }.getOrThrow()
 
     suspend fun lockFileInVault(
         sourceFile: File,

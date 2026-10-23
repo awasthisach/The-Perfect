@@ -458,29 +458,15 @@ class CryptoSecurityManager(
 
     fun importVaultAuthMetadata(metadata: Map<String, String>): Boolean {
         if (metadata.isEmpty()) return false
-        val editor = prefs.edit()
-        var wrote = false
-        metadata.forEach { (key, value) ->
-            when (key) {
-                "vault_biometric_enabled" -> {
-                    editor.putBoolean(key, value.equals("true", ignoreCase = true))
-                    wrote = true
-                }
-                "vault_pin_iterations", "vault_decoy_pin_iterations" -> {
-                    val iterations = value.toIntOrNull()
-                    if (iterations != null && iterations in 100_000..1_000_000) {
-                        editor.putInt(key, iterations)
-                        wrote = true
-                    }
-                }
-                "vault_pin_hash", "vault_pin_hash_iv", "vault_pin_salt", "vault_pin_salt_iv",
-                "vault_decoy_pin_hash", "vault_decoy_pin_hash_iv", "vault_decoy_pin_salt", "vault_decoy_pin_salt_iv" -> {
-                    editor.putString(key, value)
-                    wrote = true
-                }
-            }
+        for (prefix in listOf("vault_pin", "vault_decoy_pin")) {
+            val fields = listOf("hash", "hash_iv", "salt", "salt_iv").map { "${prefix}_$it" }
+            val present = fields.count { it in metadata }
+            if (present != 0 && present != fields.size) return false
+            if (present == 0 && "${prefix}_iterations" in metadata) return false
+            // Legacy complete PIN snapshots omit iterations; matchesStoredPin uses 600,000.
         }
-        return if (wrote) editor.commit() else false
+        // Replacement removes absent optional settings; a restore must not mix two PIN states.
+        return restoreVaultAuthMetadata(metadata)
     }
 
     fun setupVaultPin(pin: String): Boolean {
