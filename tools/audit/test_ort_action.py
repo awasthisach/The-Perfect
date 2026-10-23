@@ -162,6 +162,14 @@ class OrtActionRegressionTest(unittest.TestCase):
         self.assertIn('wrangler secret put FIREBASE_APP_ID', storage)
         self.assertIn('wrangler secret put GEMINI_API_KEY', storage)
 
+    def test_candidate_ort_bootstrap_is_separate_from_daily_ci(self):
+        nightly = (ROOT / ".github" / "workflows" / "nightly-ort.yml").read_text(encoding="utf-8")
+        ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        self.assertIn("candidate/drive-semantic-search-release", nightly)
+        self.assertIn("gradle/libs.versions.toml", nightly)
+        self.assertNotIn("uses: ./.github/actions/ort-ci", ci)
+        self.assertNotIn("open_source_compliance:", ci)
+
     def test_ort_cache_is_versioned_and_restores_legacy_cache(self):
         action = self.action
         nightly = (ROOT / ".github" / "workflows" / "nightly-ort.yml").read_text(encoding="utf-8")

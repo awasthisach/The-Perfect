@@ -4,6 +4,19 @@ on:
   schedule:
     - cron: "0 2 * * *"
   workflow_dispatch:
+  # Bootstrap exact-SHA ORT evidence for the release candidate in a separate
+  # workflow; this does not add ORT to the daily build/test/lint CI job.
+  push:
+    branches:
+      - candidate/drive-semantic-search-release
+    paths:
+      - ".ort.yml"
+      - "**/build.gradle.kts"
+      - "gradle/libs.versions.toml"
+      - "gradle/wrapper/gradle-wrapper.properties"
+      - ".github/workflows/nightly-ort.yml"
+      - ".github/actions/ort-ci/**"
+      - "tools/audit/verify_ort_outputs.py"
 
 permissions:
   contents: read
