@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.io.File
 import java.io.IOException
-import android.system.Os
 import java.util.UUID
 
 /**
@@ -335,49 +334,13 @@ class SecureVaultRepository(
     }
 
     private fun publishRestoredFile(tempFile: File, targetCanonical: File) {
-        // The temporary file is created beside the destination, so both paths share a
-        // filesystem. link(2) publishes the fully-written plaintext atomically and fails
-        // if the destination already exists; unlike rename(2), it cannot clobber a file
-        // created by another process after our earlier existence check. This API is
-        // available on Android API 21+, preserving minSdk 24 without java.nio.file.
-        var linked = false
-        try {
-            Os.link(tempFile.absolutePath, targetCanonical.absolutePath)
-            linked = true
-            // The paths now refer to the same inode. Unlink only the temp directory entry;
-            // never shred it after publication, because that would overwrite the target.
-            Os.remove(tempFile.absolutePath)
-        } catch (e: Exception) {
-            if (linked) {
-                // A transient unlink failure is recoverable. Retry once; if it still fails,
-                // preserve the target and signal the outer restore path not to shred this
-                // shared inode through the temporary name.
-                try {
-                    Os.remove(tempFile.absolutePath)
-                    return
-                } catch (retry: Exception) {
-                    e.addSuppressed(retry)
-                    throw SharedPlaintextLinkCleanupException(
-                        "Restore published to ${targetCanonical.absolutePath}, but plaintext temp-link cleanup failed at ${tempFile.absolutePath}",
-                        e
-                    )
-                }
-            }
-            secureDeletePlaintextTemp(tempFile)
-            throw IllegalStateException(
-                "Failed to publish restored file to ${targetCanonical.absolutePath}: ${e.message}",
-                e
-            )
-        }
+        AtomicNoClobberPublisher(discardUnpublished = ::secureDeletePlaintextTemp).publish(tempFile, targetCanonical)
     }
-
-    private class SharedPlaintextLinkCleanupException(message: String, cause: Throwable) :
-        IOException(message, cause)
 
     private fun secureDeletePlaintextTemp(tempFile: File) {
         if (!tempFile.exists()) return
-        runCatching { cryptoManager.secureShredFile(tempFile) }
-            .onFailure { tempFile.delete() }
+        runCatching { check(cryptoManager.secureShredFile(tempFile)) }
+            .onFailure { check(tempFile.delete() || !tempFile.exists()) { "Unable to remove unpublished plaintext" } }
     }
 
     private fun VaultItemEntity.toDomainModel(): VaultItem {
