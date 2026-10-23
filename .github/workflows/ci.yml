@@ -1,5 +1,4 @@
 name: VVF Smart Manager CI & Quality Gate
-# Candidate workflow: daily build/test/lint; ORT compliance runs in the separate nightly workflow.
 
 on:
   push:
@@ -12,7 +11,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # CI is per-ref and only the newest revision needs a build. Nightly ORT has its own non-cancelling concurrency group.
   cancel-in-progress: true
 
 env:
@@ -33,29 +33,36 @@ jobs:
           distribution: "temurin"
           cache: gradle
       - name: Setup Android SDK
-        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
         with:
           packages: ""
           accept-android-sdk-licenses: true
       - name: Install required Android SDK components
-        # Keep the PR gate focused on deterministic compile/test/lint/build work.
-        # Emulator packages are installed only by weekly-instrumented.yml, the hard SQLCipher gate.
-        # The emulator step below is intentionally soft and records a skip when its image is absent.
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
       - name: Create local.properties
         run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
-      # SQLCipher fixture generation is only needed by connectedAndroidTest.
-      # This PR job intentionally has no emulator; the weekly hard gate builds the fixture
-      # immediately before instrumentation in weekly-instrumented.yml.
+      - name: Generate SQLCipher 4.5.4 compatibility fixture
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev tcl-dev zlib1g-dev
+          mkdir -p core/database-compat/src/androidTest/assets
+          curl -fsSL https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz -o /tmp/sqlcipher-4.5.4.tar.gz
+          tar -xzf /tmp/sqlcipher-4.5.4.tar.gz -C /tmp
+          cd /tmp/sqlcipher-4.5.4
+          ./configure --enable-tempstore=yes --enable-fts5 CFLAGS="-DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL" LDFLAGS="-lcrypto"
+          make -j2
+          test -x ./sqlcipher
+          printf '%s\n' "PRAGMA key = 'vvf-sqlcipher-compatibility-test';" "CREATE TABLE compatibility_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL);" "INSERT INTO compatibility_test (id, value) VALUES (1, 'legacy-4.5.4');" ".quit" | ./sqlcipher "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
+          test -s "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
       - name: Run ORT report validator unit tests
-        run: python3 -m unittest discover -s tools/audit -p 'test_ort_action.py' -v
+        run: python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
       - name: Verify Gradle wrapper
         run: ./gradlew --no-daemon --version
       - name: Run unit tests
         run: ./gradlew --no-daemon testDebugUnitTest --stacktrace
       - name: Run Android lint
         run: ./gradlew --no-daemon lintDebug --stacktrace
-
       # Emit the resolved release runtime graph as supporting evidence for ORT license review
       # package metadata and source attribution still require review.
       - name: Resolve release runtime dependency graph

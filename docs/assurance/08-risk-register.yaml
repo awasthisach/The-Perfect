@@ -1,69 +1,51 @@
 schema_version: 1
 finding_lifecycle: [discovered, triaged, reproduced, root_cause_verified, repair_implemented, tested, ci_verified, closed]
 
-# Current release blockers remain open until evidence-backed closure.
+# Production blockers remain open until evidence-backed closure.
 open_findings:
   - id: PROD-008
     severity: high
     title: Open-source license compliance and attribution require resolution
     status: triaged
     notes: >
-      Paid FOSSA service has been removed from the candidate CI workflow and
-      replaced with the open-source OSS Review Toolkit (ORT) GitHub Action,
-      pinned to immutable action and configuration commits. The previous FOSSA
-      scan found 34 unresolved runtime license-policy findings (30 policy_flag
-      and 4 policy_conflict) on the earlier candidate revision; those findings
-      remain historical evidence and are NOT considered resolved by changing
-      scanners. The ORT gate must run on the current candidate SHA, produce
-      evaluator/advisor results and SBOM artifacts, and all license findings
-      must be reviewed against package metadata and source evidence before this
-      risk can be closed. No blanket allowlist or suppressions are authorized.
-      Historical evidence: https://github.com/awasthisach/The-Perfect/actions/runs/38969699459
-      Related issue #136.
+      The ORT workflow replacement does not itself resolve historical runtime
+      license-policy findings. Keep open until a complete ORT Analyzer, Scanner,
+      Evaluator, Advisor and Reporter run produces valid CycloneDX and SPDX SBOMs
+      for the exact candidate SHA and each license finding is reviewed against
+      package-specific source evidence. No blanket allowlist or suppression is
+      authorized. Related issue #136.
     residual_risk: high
     related_issue: 136
-    last_updated: "2026-10-17"
+    last_updated: "2026-10-23"
 
   - id: PROD-009
     severity: high
     title: Native Worker v4 authentication and App Check acceptance is incomplete
     status: repair_implemented
     notes: >
-      Protected deployment workflow #38676382484 verified the v4 health contract
-      and rejection of /embed without Firebase credentials. Firebase Console
-      inspection on 2026-10-17 confirmed the Android app is Unregistered with
-      App Check; Play Integrity is not configured and no SHA-256 fingerprint
-      is registered. The connected Google account has no Play Console developer
-      account, so the actual Play App Signing fingerprint is not available.
-      Worker build success is not deployment or native acceptance evidence.
-      Invalid App Check rejection and successful real Android request with valid
-      Firebase Auth + App Check remain unverified. Keep open until registration
-      and both authenticated acceptance paths are recorded. Related issue #140.
+      Code changes and worker build/health checks are not proof of Firebase App
+      Check registration or native acceptance. Keep open until the production
+      Android app is registered with the actual Play App Signing SHA-256, Play
+      Integrity is enabled, and a physical-device test proves valid Firebase
+      Auth plus App Check is accepted while missing/invalid tokens are rejected.
+      Related issue #140.
     residual_risk: high
     related_issue: 140
-    last_updated: "2026-10-15"
+    last_updated: "2026-10-23"
 
   - id: PROD-010
     severity: high
     title: Real-account OAuth, privacy, signing, and device acceptance are unverified
     status: triaged
     notes: >
-      Read-only Google Cloud inspection on 2026-10-17 confirmed the Firebase
-      Android app ID 1:1058219630435:android:759d656a98d3b50aee3d56 and an Android
-      OAuth client for package com.vvf.smartmanager. Google Auth Platform is
-      External + Testing and not verified; Data Access explicitly shows
-      "No scopes configured", so neither drive.readonly nor drive.file is
-      declared on the consent configuration. Cloud Billing is not linked.
-      Firebase App Check says the Android app is Unregistered and no SHA-256
-      fingerprint is configured; the connected account has no Play Console
-      developer account and no actual Play App Signing fingerprint is available.
-      Privacy policy remains a draft with owner/legal/contact placeholders.
-      Public release remains blocked until scopes, applicable restricted-scope
-      verification, billing/data handling, privacy publication, signing and
-      physical-device acceptance are completed. Related issue #141.
+      Keep open until OAuth scopes and applicable verification are configured,
+      the privacy policy is published and Play disclosures are complete, release
+      signing/provenance is verified, and the exact candidate passes real-account
+      and physical-device acceptance tests. Repository CI alone cannot establish
+      owner-controlled Google/Firebase/Play configuration. Related issue #141.
     residual_risk: high
     related_issue: 141
-    last_updated: "2026-10-15"
+    last_updated: "2026-10-23"
 
 closed_findings:
   - id: PROD-001
