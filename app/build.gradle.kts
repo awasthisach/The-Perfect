@@ -17,7 +17,7 @@ android {
 
   defaultConfig {
     applicationId = "com.vvf.smartmanager"
-    minSdk = 26
+    minSdk = 24
     targetSdk = 36
 
     val configuredVersionCode = providers.environmentVariable("VERSION_CODE").orNull?.toIntOrNull() ?: 1
@@ -33,13 +33,24 @@ android {
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
+  val releaseSigningVariables = listOf(
+    "KEYSTORE_PATH",
+    "STORE_PASSWORD",
+    "KEY_ALIAS",
+    "KEY_PASSWORD",
+  )
+  val releaseSigningConfigured = releaseSigningVariables.all {
+    !providers.environmentVariable(it).orNull.isNullOrBlank()
+  }
+
   signingConfigs {
-    create("release") {
-      val keystorePath = providers.environmentVariable("KEYSTORE_PATH").orNull
-      if (!keystorePath.isNullOrBlank()) storeFile = file(keystorePath)
-      storePassword = providers.environmentVariable("STORE_PASSWORD").orNull
-      keyAlias = providers.environmentVariable("KEY_ALIAS").orNull
-      keyPassword = providers.environmentVariable("KEY_PASSWORD").orNull
+    if (releaseSigningConfigured) {
+      create("release") {
+        storeFile = file(providers.environmentVariable("KEYSTORE_PATH").orNull!!)
+        storePassword = providers.environmentVariable("STORE_PASSWORD").orNull
+        keyAlias = providers.environmentVariable("KEY_ALIAS").orNull
+        keyPassword = providers.environmentVariable("KEY_PASSWORD").orNull
+      }
     }
   }
 
@@ -49,7 +60,9 @@ android {
       isMinifyEnabled = true
       isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = signingConfigs.getByName("release")
+      if (releaseSigningConfigured) {
+        signingConfig = signingConfigs.getByName("release")
+      }
     }
     debug {
       signingConfig = signingConfigs.getByName("debug")
@@ -80,7 +93,7 @@ secrets {
 // Validate production-only prerequisites only when the user explicitly requests a
 // release artifact task. Looking at every task in the resolved graph is unsafe here:
 // Gradle can add release-named dependency/report tasks when inspecting
-// releaseRuntimeClasspath, which must remain usable by CI/FOSSA diagnostics.
+// releaseRuntimeClasspath, which must remain usable by CI dependency diagnostics.
 gradle.taskGraph.whenReady {
   val releaseArtifactTaskPattern = Regex(
     """(?i)^(assemble|bundle|package|validateSigning|sign|publish)([A-Za-z0-9]*Release)([A-Za-z0-9]*)$"""

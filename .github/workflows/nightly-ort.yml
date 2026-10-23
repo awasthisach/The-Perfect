@@ -1,0 +1,99 @@
+name: Nightly ORT Compliance Scan
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-ort-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ort-scan:
+    name: ORT Analyzer, Scanner, Evaluator, Advisor & SBOM (fail-closed)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Run ORT compliance pipeline
+        id: ort
+        uses: ./.github/actions/ort-ci
+        with:
+          sw-name: The-Perfect
+          sw-version: ${{ github.sha }}
+          fail-on: 'violations,issues'
+          run: >-
+            cache-dependencies,
+            cache-scan-results,
+            analyzer,
+            scanner,
+            evaluator,
+            advisor,
+            reporter,
+            upload-results
+
+      - name: Verify required ORT reports and SBOMs
+        id: verify_ort_reports
+        if: always()
+        run: |
+          set -euo pipefail
+          RESULTS_DIR="$HOME/.ort/ort-results"
+          python3 tools/audit/verify_ort_outputs.py --results-dir "$RESULTS_DIR" --revision "$GITHUB_SHA"
+
+      - name: Record ORT status
+        if: always()
+        env:
+          ORT_OUTCOME: ${{ steps.ort.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify_ort_reports.outcome }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          outcome = os.environ.get("ORT_OUTCOME", "unknown")
+          verified = os.environ.get("VERIFY_OUTCOME", "unknown")
+          status = "PASS" if outcome == "success" and verified == "success" else "BLOCKED"
+          result = {
+              "gate_id": "GATE-LICENSE-001",
+              "scanner": "OSS Review Toolkit (ORT)",
+              "status": status,
+              "scan_revision": os.environ["GITHUB_SHA"],
+              "ort_action_outcome": outcome,
+              "report_validation_outcome": verified,
+              "reason": "ORT stages and all required reports passed" if status == "PASS" else "ORT failed, findings exceeded policy thresholds, or required reports were invalid/missing"
+          }
+          Path("ort-status.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps(result))
+          if status != "PASS":
+              raise SystemExit(1)
+          PY
+
+      - name: Package ORT evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p ort-evidence/results
+          if [ -d "$HOME/.ort/ort-results" ]; then
+            cp -a "$HOME/.ort/ort-results/." ort-evidence/results/
+          fi
+          if [ -s ort-status.json ]; then
+            cp ort-status.json ort-evidence/ort-status.json
+          else
+            printf '%s\n' '{"gate_id":"GATE-LICENSE-001","scanner":"OSS Review Toolkit (ORT)","status":"BLOCKED","scan_revision":"${{ github.sha }}","reason":"ORT status was not generated"}' > ort-evidence/ort-status.json
+          fi
+
+      - name: Upload ORT evidence artifact
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: ort-results-evidence
+          path: ort-evidence/
+          if-no-files-found: error
+          retention-days: 90

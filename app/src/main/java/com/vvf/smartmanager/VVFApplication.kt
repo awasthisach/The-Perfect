@@ -122,9 +122,6 @@ class VVFApplication : Application(), Configuration.Provider {
     lateinit var ocrPlugin: OcrPluginImpl
     lateinit var semanticSearchPlugin: ISemanticSearchEngine
 
-    @Volatile
-    var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
-
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var embeddingClearJob: Job? = null
     private val _driveIndexStatus = MutableStateFlow(DriveIndexStatus())

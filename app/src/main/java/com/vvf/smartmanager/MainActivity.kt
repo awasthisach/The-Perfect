@@ -37,7 +37,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.animation.core.tween
@@ -79,13 +81,6 @@ import com.vvf.smartmanager.ui.theme.VVFSmartManagerTheme
 class MainActivity : FragmentActivity() {
     private lateinit var googleDriveAuth: GoogleDriveAuth
 
-    /**
-     * Activity-scoped OAuth completion handler (not Application-held), so config changes
-     * do not leave a stale Application lambda. On success we always apply the token to
-     * [VVFApplication.googleDriveService] even if the UI callback was cleared.
-     */
-    private var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
-
     private val exportDriveIndexLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
@@ -120,9 +115,6 @@ class MainActivity : FragmentActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { activityResult ->
         val app = application as VVFApplication
-        val callback = pendingGoogleDriveSignInCallback
-        pendingGoogleDriveSignInCallback = null
-        app.pendingGoogleDriveSignInCallback = null
         lifecycleScope.launch {
             val result = googleDriveAuth.handleSignInActivityResult(
                 resultCode = activityResult.resultCode,
@@ -141,7 +133,9 @@ class MainActivity : FragmentActivity() {
                     }
                 }
             }
-            callback?.invoke(result)
+            // Queue the result independently of the Activity/Compose lifecycle.
+            // The CloudViewModel collector consumes it after rotation if necessary.
+            DriveAuthEvents.emit(result)
         }
     }
 
@@ -156,12 +150,12 @@ class MainActivity : FragmentActivity() {
         setContent {
             VVFSmartManagerTheme {
                 VVFAppContent(
-                    onGoogleDriveSignInRequested = { callback ->
+                    onGoogleDriveSignInRequested = {
                         if (
                             BuildConfig.GOOGLE_WEB_CLIENT_ID.isBlank() ||
                             BuildConfig.GOOGLE_WEB_CLIENT_ID == "__UNCONFIGURED__"
                         ) {
-                            callback(
+                            DriveAuthEvents.emit(
                                 Result.failure(
                                     IllegalStateException(
                                         "Google Drive is not configured. Add GOOGLE_WEB_CLIENT_ID through the app secret configuration."
@@ -169,7 +163,6 @@ class MainActivity : FragmentActivity() {
                                 )
                             )
                         } else {
-                            pendingGoogleDriveSignInCallback = callback
                             googleDriveSignInLauncher.launch(googleDriveAuth.buildDriveSignInIntent())
                         }
                     },
@@ -195,7 +188,7 @@ class MainActivity : FragmentActivity() {
 
 @Composable
 fun VVFAppContent(
-    onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit,
+    onGoogleDriveSignInRequested: () -> Unit,
     onGoogleDriveSignOutRequested: () -> Unit = {},
     onExportDriveIndexRequested: () -> Unit = {},
     onImportDriveIndexRequested: () -> Unit = {}
@@ -203,6 +196,7 @@ fun VVFAppContent(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val app = context.applicationContext as VVFApplication
+    val requestGoogleDriveSignIn = onGoogleDriveSignInRequested
 
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -276,7 +270,7 @@ fun VVFAppContent(
                         )
                     }
                 }
-                VVFNavHost(navController = navController, app = app, onGoogleDriveSignInRequested = onGoogleDriveSignInRequested, onGoogleDriveSignOutRequested = onGoogleDriveSignOutRequested, onExportDriveIndexRequested = onExportDriveIndexRequested, onImportDriveIndexRequested = onImportDriveIndexRequested, modifier = Modifier.fillMaxSize())
+                VVFNavHost(navController = navController, app = app, onGoogleDriveSignInRequested = requestGoogleDriveSignIn, onGoogleDriveSignOutRequested = onGoogleDriveSignOutRequested, onExportDriveIndexRequested = onExportDriveIndexRequested, onImportDriveIndexRequested = onImportDriveIndexRequested, modifier = Modifier.fillMaxSize())
             }
         } else {
             Scaffold(
@@ -336,7 +330,7 @@ fun VVFAppContent(
                 VVFNavHost(
                     navController = navController,
                     app = app,
-                    onGoogleDriveSignInRequested = onGoogleDriveSignInRequested,
+                    onGoogleDriveSignInRequested = requestGoogleDriveSignIn,
                     onGoogleDriveSignOutRequested = onGoogleDriveSignOutRequested,
                     onExportDriveIndexRequested = onExportDriveIndexRequested,
                     onImportDriveIndexRequested = onImportDriveIndexRequested,
@@ -351,7 +345,7 @@ fun VVFAppContent(
 private fun VVFNavHost(
     navController: androidx.navigation.NavHostController,
     app: VVFApplication,
-    onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit,
+    onGoogleDriveSignInRequested: () -> Unit,
     onGoogleDriveSignOutRequested: () -> Unit = {},
     onExportDriveIndexRequested: () -> Unit = {},
     onImportDriveIndexRequested: () -> Unit = {},
@@ -524,13 +518,14 @@ private fun VVFNavHost(
                     googleDriveService = app.googleDriveService
                 )
             )
+            LaunchedEffect(cloudViewModel) {
+                DriveAuthEvents.results.collect { result ->
+                    cloudViewModel.completeGoogleDriveSignIn(result)
+                }
+            }
             CloudRoute(
                 viewModel = cloudViewModel,
-                onGoogleDriveSignInRequested = {
-                    onGoogleDriveSignInRequested { accessTokenResult ->
-                        cloudViewModel.completeGoogleDriveSignIn(accessTokenResult)
-                    }
-                },
+                onGoogleDriveSignInRequested = onGoogleDriveSignInRequested,
                 onDriveIndexRequested = {
                     app.enqueueDriveIndexing()
                     Toast.makeText(app, "Drive search indexing scheduled", Toast.LENGTH_SHORT).show()

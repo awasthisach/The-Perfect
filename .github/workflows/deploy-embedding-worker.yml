@@ -81,12 +81,17 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          CONFIRM_GEMINI_DATA_HANDLING: ${{ inputs.confirm_gemini_data_handling }}
         run: |
           set -euo pipefail
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing repository secret CLOUDFLARE_API_TOKEN"; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing repository secret CLOUDFLARE_ACCOUNT_ID"; exit 1; }
-          test -n "$GEMINI_API_KEY" || { echo "::error::Missing repository secret GEMINI_API_KEY"; exit 1; }
           test -n "$FIREBASE_APP_ID" || { echo "::error::Missing repository secret FIREBASE_APP_ID"; exit 1; }
+          if [ "$CONFIRM_GEMINI_DATA_HANDLING" = "yes" ]; then
+            test -n "$GEMINI_API_KEY" || { echo "::error::GEMINI_API_KEY is required only when explicitly enabling approved production embeddings"; exit 1; }
+          else
+            echo "Embedding remains disabled; a Gemini API key is not required for this deployment."
+          fi
 
       - name: Store server-only Worker secrets
         env:
@@ -94,10 +99,15 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          CONFIRM_GEMINI_DATA_HANDLING: ${{ inputs.confirm_gemini_data_handling }}
         run: |
           set -euo pipefail
-          printf '%s' "$GEMINI_API_KEY" | wrangler secret put GEMINI_API_KEY --config cloudflare/drive-semantic-embed/wrangler.toml
           printf '%s' "$FIREBASE_APP_ID" | wrangler secret put FIREBASE_APP_ID --config cloudflare/drive-semantic-embed/wrangler.toml
+          if [ "$CONFIRM_GEMINI_DATA_HANDLING" = "yes" ]; then
+            printf '%s' "$GEMINI_API_KEY" | wrangler secret put GEMINI_API_KEY --config cloudflare/drive-semantic-embed/wrangler.toml
+          else
+            echo "Gemini API secret was not changed because production embeddings remain disabled."
+          fi
 
       - name: Deploy Worker
         env:
