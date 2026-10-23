@@ -63,6 +63,10 @@ jobs:
           result = {
               "gate_id": "GATE-LICENSE-001",
               "scanner": "OSS Review Toolkit (ORT)",
+              "ort_version": "97.2.0",
+              "ort_image": "sha256:4095b20baea5f51e60d38d841ca3e60faae828aff5f74ae3ce213aa223948230",
+              "ort_source": "798e0b28dd74c2001ee62f127347279167073570",
+              "policy_revision": "0bf40a60180cacc64f8a6520254f3e6bdd4db121",
               "status": status,
               "scan_revision": os.environ["GITHUB_SHA"],
               "ort_action_outcome": outcome,

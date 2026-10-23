@@ -21,11 +21,11 @@ class OrtOutputValidationTest(unittest.TestCase):
         reports = {
             "analyzer-result.json": {
                 "repository": repository,
-                "analyzer": {"result": {"projects": [], "packages": []}},
+                "analyzer": {"result": {"projects": [{"id": "Gradle::app:1"}], "packages": [{"id": "Maven:synthetic:library:1"}]}},
             },
             "scan-result.json": {
                 "repository": repository,
-                "scanner": {"scanResults": []},
+                "scanner": {"scan_results": []},
             },
             "evaluation-result.json": {
                 "repository": repository,
@@ -39,7 +39,7 @@ class OrtOutputValidationTest(unittest.TestCase):
                 "bomFormat": "CycloneDX",
                 "specVersion": "1.6",
                 "version": 1,
-                "components": [],
+                "components": [{"type": "library", "name": "synthetic", "version": "1"}],
             },
             "bom.spdx.json": {
                 "spdxVersion": "SPDX-2.3",
@@ -47,7 +47,7 @@ class OrtOutputValidationTest(unittest.TestCase):
                 "SPDXID": "SPDXRef-DOCUMENT",
                 "name": "The-Perfect test SBOM",
                 "documentNamespace": "https://example.invalid/sbom/test",
-                "packages": [],
+                "packages": [{"SPDXID": "SPDXRef-synthetic", "name": "synthetic", "downloadLocation": "NOASSERTION"}],
             },
         }
         for name, report in reports.items():
