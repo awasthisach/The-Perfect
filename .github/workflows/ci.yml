@@ -1,18 +1,15 @@
 name: VVF Smart Manager CI & Quality Gate
+# Candidate workflow: ORT is the active license-compliance gate; FOSSA is retired.
 
 on:
   push:
     branches: ["main", "develop"]
   pull_request:
-    branches: ["main", "develop"]
+    branches: ["main", "develop", "fix/p0-vault-nio-publish-phase3"]
   workflow_dispatch:
 
 permissions:
   contents: read
-
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   UPLOAD_ARTIFACT_ACTION: b7c566a772e6b6bfb58ed0dc250532a479d7789f
@@ -22,6 +19,11 @@ jobs:
     name: Build, Test, Lint & Quality
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    # Cancel superseded build/test jobs for this branch, without cancelling the
+    # independently serialized ORT compliance job.
+    concurrency:
+      group: ci-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+      cancel-in-progress: true
     steps:
       - name: Checkout Repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -32,34 +34,30 @@ jobs:
           distribution: "temurin"
           cache: gradle
       - name: Setup Android SDK
-        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
         with:
           packages: ""
           accept-android-sdk-licenses: true
       - name: Install required Android SDK components
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+        # Keep the PR gate focused on deterministic compile/test/lint/debug-APK work.
+        # Emulator + SQLCipher instrumentation are owned by weekly-instrumented.yml.
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
       - name: Create local.properties
         run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
-      - name: Generate SQLCipher 4.5.4 compatibility fixture
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y build-essential libssl-dev tcl-dev zlib1g-dev
-          mkdir -p core/database-compat/src/androidTest/assets
-          curl -fsSL https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz -o /tmp/sqlcipher-4.5.4.tar.gz
-          tar -xzf /tmp/sqlcipher-4.5.4.tar.gz -C /tmp
-          cd /tmp/sqlcipher-4.5.4
-          ./configure --enable-tempstore=yes --enable-fts5 CFLAGS="-DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL" LDFLAGS="-lcrypto"
-          make -j2
-          test -x ./sqlcipher
-          printf '%s\n' "PRAGMA key = 'vvf-sqlcipher-compatibility-test';" "CREATE TABLE compatibility_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL);" "INSERT INTO compatibility_test (id, value) VALUES (1, 'legacy-4.5.4');" ".quit" | ./sqlcipher "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
-          test -s "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
+      # SQLCipher fixture generation is only needed by connectedAndroidTest.
+      # This PR job intentionally has no emulator; the weekly hard gate builds the fixture
+      # immediately before instrumentation in weekly-instrumented.yml.
       - name: Verify Gradle wrapper
         run: ./gradlew --no-daemon --version
       - name: Run unit tests
         run: ./gradlew --no-daemon testDebugUnitTest --stacktrace
       - name: Run Android lint
         run: ./gradlew --no-daemon lintDebug --stacktrace
+
+      # Emit the resolved release runtime graph as supporting evidence for ORT license review
+      # package metadata and source attribution still require review.
+      - name: Resolve release runtime dependency graph
+        run: ./gradlew --no-daemon :app:dependencies --configuration releaseRuntimeClasspath --console=plain > release-runtime-dependencies.txt
       - name: Assemble debug APK
         run: ./gradlew --no-daemon assembleDebug --stacktrace
       - name: Generate CPAS unit evidence
@@ -76,80 +74,8 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # Emulator boot is deliberately SOFT because GitHub-hosted runners may lack KVM.
-      # The step exits successfully on infra failure and exposes booted=false, so no red
-      # error annotation is produced. Instrumentation remains HARD when boot succeeds.
-      - name: Start Android emulator (soft infra gate)
-        id: emulator
-        timeout-minutes: 12
-        env:
-          ANDROID_AVD_HOME: ${{ runner.temp }}/avd
-        run: |
-          set -uo pipefail
-          mkdir -p "$ANDROID_AVD_HOME"
-          export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH"
-          echo "no" | avdmanager create avd --force --name vvf-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2" || { echo "booted=false" >> "$GITHUB_OUTPUT"; echo "::warning::AVD creation failed; emulator infrastructure unavailable."; exit 0; }
-          adb start-server || true
-          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel off -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
-          echo $! > "$RUNNER_TEMP/emulator.pid"
-          if ! timeout 180 adb wait-for-device; then
-            echo "::warning::adb wait-for-device timed out; treating emulator as an infrastructure skip."
-            tail -n 80 "$RUNNER_TEMP/emulator.log" || true
-            echo "booted=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          for _ in $(seq 1 60); do
-            boot_completed="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
-            [ "$boot_completed" = "1" ] && break
-            sleep 5
-          done
-          if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)" != "1" ]; then
-            echo "::warning::Emulator failed to reach sys.boot_completed=1; treating as infrastructure skip."
-            tail -n 120 "$RUNNER_TEMP/emulator.log" || true
-            echo "booted=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          adb shell settings put global window_animation_scale 0 || true
-          adb shell settings put global transition_animation_scale 0 || true
-          adb shell settings put global animator_duration_scale 0 || true
-          adb devices
-          echo "booted=true" >> "$GITHUB_OUTPUT"
-      - name: Annotate SQLCipher instrumented skip
-        if: ${{ steps.emulator.outputs.booted != 'true' }}
-        run: echo "::warning::GATE-DB-001 emulator did not boot — SQLCipher instrumentation SKIPPED (soft). Weekly instrumented workflow remains the hard DB gate."
-      - name: Run SQLCipher compatibility instrumentation test
-        id: sqlcipher_instrumented
-        if: ${{ steps.emulator.outputs.booted == 'true' }}
-        run: ./gradlew --no-daemon :core:database-compat:connectedDebugAndroidTest --stacktrace
-      - name: Generate CPAS full DB evidence
-        if: ${{ steps.emulator.outputs.booted == 'true' && steps.sqlcipher_instrumented.outcome == 'success' }}
-        run: |
-          set -euo pipefail
-          python3 tools/audit/generate_evidence.py --commit-sha "${{ github.sha }}" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --include-db --environment "github-actions-API35-emulator" --output docs/assurance/cpas-evidence-full.json
-      - name: Publish gate summary
-        if: always()
-        run: |
-          echo "## CI gate policy" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Gate | Policy |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Unit tests / lint / assemble | HARD — must pass |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Emulator boot | SOFT — infrastructure failure recorded without failing the job |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| SQLCipher instrumented after boot | HARD — failure fails the job |" >> "$GITHUB_STEP_SUMMARY"
-          echo "Emulator booted: ${{ steps.emulator.outputs.booted || 'false' }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "Instrumented outcome: ${{ steps.sqlcipher_instrumented.outcome || 'skipped' }}" >> "$GITHUB_STEP_SUMMARY"
-      - name: Stop Android emulator
-        if: always()
-        timeout-minutes: 1
-        run: |
-          set +e
-          export PATH="$ANDROID_HOME/platform-tools:$PATH"
-          timeout 10 adb emu kill 2>/dev/null || true
-          if [ -f "$RUNNER_TEMP/emulator.pid" ]; then
-            kill "$(cat "$RUNNER_TEMP/emulator.pid")" 2>/dev/null || true
-            sleep 1
-            kill -9 "$(cat "$RUNNER_TEMP/emulator.pid")" 2>/dev/null || true
-          fi
-          timeout 10 adb kill-server 2>/dev/null || true
+      # SQLCipher instrumentation is owned by weekly-instrumented.yml (hard gate).
+# Keep this PR workflow focused on unit tests, lint, dependency review, and debug APK.
       - name: Upload unit test reports
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -166,15 +92,15 @@ jobs:
           path: "**/build/reports/androidTests/**"
           if-no-files-found: ignore
           retention-days: 7
-      - name: Upload emulator diagnostics
+      - name: Upload release runtime dependency graph
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: android-emulator-diagnostics
-          path: |
-            ${{ runner.temp }}/emulator.log
+          name: release-runtime-dependency-graph
+          path: release-runtime-dependencies.txt
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 14
+
       - name: Upload lint reports
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -200,68 +126,92 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  license_compliance:
-    name: Open Source License Compliance
+  open_source_compliance:
+    name: Open Source Compliance (ORT)
+    concurrency:
+      group: ort-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    env:
-      FOSSA_ENABLED: ${{ secrets.GH_FOSSA != '' }}
-      FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
+    # ORT ScanCode exceeded 180 minutes on the latest candidate before
+    # evaluation/advisor/SBOM completed. Keep the full checks enabled and allow
+    # a bounded 330-minute window (below GitHub-hosted runner's 360-minute cap).
+    timeout-minutes: 330
+    permissions:
+      contents: read
     steps:
-      - name: Checkout Repository
+      - name: Checkout exact candidate revision
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - name: Record missing FOSSA credential
-        if: ${{ env.FOSSA_ENABLED != 'true' }}
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      # ORT's embedded Git/JGit downloader cannot use the ephemeral runner SSH agent.
+      # Rewrite GitHub SSH clone URLs to HTTPS before ORT starts, as recommended by ORT.
+      - name: Use HTTPS instead of SSH for GitHub source downloads
         run: |
-          cat > foss-status.json <<'EOF'
-          {"gate_id":"GATE-LICENSE-001","status":"BLOCKED","reason":"GH_FOSSA secret is not configured","policy":"CI records BLOCKED; release promotion requires FOSSA PASS"}
-          EOF
-          echo "::warning::GH_FOSSA missing — GATE-LICENSE-001 BLOCKED for release."
-      - name: Install FOSSA CLI
-        if: ${{ env.FOSSA_ENABLED == 'true' }}
-        run: |
-          set -euo pipefail
-          curl -fsSL https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
-          fossa --version
-      - name: FOSSA analyze
-        id: fossa_analyze
-        if: ${{ env.FOSSA_ENABLED == 'true' }}
+          git config --global --add url.https://github.com/.insteadOf ssh://git@github.com/
+          git config --global --add url.https://github.com/.insteadOf git@github.com:
+      - name: Run OSS Review Toolkit (license, source scan, vulnerability and policy checks)
+        id: ort
+        uses: oss-review-toolkit/ort-ci-github-action@70149d4579e446b0312f8b80fdd8d465a91e4391 # pinned commit
+        with:
+          sw-name: The-Perfect
+          sw-version: ${{ github.event.pull_request.head.sha || github.sha }}
+          ort-config-revision: 5075f4308109384c98a6a2fab53246f7b60d59f4
+          # Enable project-scoped .ort.yml package curations; default ORT config disables them.
+          ort-cli-args: -P ort.enableRepositoryPackageCurations=true
+          run: >-
+            cache-dependencies,
+            cache-scan-results,
+            labels,
+            analyzer,
+            scanner,
+            evaluator,
+            advisor,
+            reporter,
+            upload-results,
+            upload-evaluation-result,
+            upload-advisor-result,
+            upload-scan-result
+          fail-on: 'violations,issues'
+
+      - name: Record OSS compliance gate status
+        if: always()
         env:
-          FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
-        run: fossa analyze --project "The-Perfect" --revision "${{ github.sha }}"
-      - name: FOSSA test (advisory)
-        id: fossa_test
-        if: ${{ env.FOSSA_ENABLED == 'true' && success() }}
-        continue-on-error: true
-        env:
-          FOSSA_API_KEY: ${{ secrets.GH_FOSSA }}
-        run: fossa test --timeout 600
-      - name: Record FOSSA gate status
-        if: ${{ always() }}
+          ORT_STEP_OUTCOME: ${{ steps.ort.outcome }}
+          ORT_EVALUATOR_EXIT_CODE: ${{ steps.ort.outputs.evaluator-exit-code }}
+          ORT_ADVISOR_EXIT_CODE: ${{ steps.ort.outputs.advisor-exit-code }}
+          SCAN_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          set -euo pipefail
-          if [ "${{ env.FOSSA_ENABLED }}" != "true" ]; then
-            exit 0
-          fi
-          ANALYZE="${{ steps.fossa_analyze.outcome }}"
-          TEST="${{ steps.fossa_test.outcome }}"
-          if [ "$ANALYZE" = "success" ]; then
-            if [ "$TEST" = "success" ]; then
-              echo '{"gate_id":"GATE-LICENSE-001","status":"PASS","reason":"fossa analyze + fossa test succeeded"}' > foss-status.json
-            else
-              echo '{"gate_id":"GATE-LICENSE-001","status":"PASS","reason":"fossa analyze succeeded; fossa test advisory fail (outdated dependencies)"}' > foss-status.json
-              echo "::warning::FOSSA test advisory fail; analyze gate remains PASS."
-            fi
-          else
-            echo '{"gate_id":"GATE-LICENSE-001","status":"BLOCKED","reason":"FOSSA analyze failed"}' > foss-status.json
-            echo "::error::FOSSA analyze failed; license gate is BLOCKED."
-            exit 1
-          fi
-      - name: Upload FOSSA gate status
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          outcome = os.environ.get("ORT_STEP_OUTCOME", "unknown")
+          evaluator = os.environ.get("ORT_EVALUATOR_EXIT_CODE", "")
+          advisor = os.environ.get("ORT_ADVISOR_EXIT_CODE", "")
+          status = "PASS" if outcome == "success" and evaluator == "0" and advisor == "0" else "BLOCKED"
+          result = {
+              "gate_id": "GATE-LICENSE-001",
+              "scanner": "OSS Review Toolkit (ORT)",
+              "status": status,
+              "scan_revision": os.environ["SCAN_REVISION"],
+              "ort_action_outcome": outcome,
+              "evaluator_exit_code": evaluator or None,
+              "advisor_exit_code": advisor or None,
+              "reason": "ORT evaluator and advisor completed successfully" if status == "PASS" else "ORT failed or reported policy/security findings; review ORT result artifacts"
+          }
+          Path("ort-status.json").write_text(json.dumps(result, indent=2) + "\n")
+          print(json.dumps(result))
+          if status != "PASS":
+              raise SystemExit(1)
+          PY
+
+      - name: Upload OSS compliance gate status
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: foss-status
-          path: foss-status.json
+          name: ort-status
+          path: ort-status.json
           if-no-files-found: error
           retention-days: 30

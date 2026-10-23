@@ -161,7 +161,38 @@ class OfflineSearchRepository(
                 originalPath = entity.originalPath,
                 deletedTimestamp = entity.deletedTimestamp,
                 md5Hash = entity.md5Hash,
-                tags = tagList
+                localFileId = entity.path.removePrefix("gdrive://").takeIf { entity.path.startsWith("gdrive://") },
+                canonicalUri = entity.canonicalUri,
+                isOfflinePinned = entity.offlinePinned,
+                offlineLocalPath = entity.offlineLocalPath,
+                tags = tagList,
+                indexedText = entity.contentText.take(4_000)
+            )
+        }
+    }
+
+    override suspend fun getRecentDriveIndexedFiles(limit: Int): List<FileItem> = withContext(Dispatchers.IO) {
+        val entities = fileDao.getRecentDriveFiles(limit.coerceIn(1, 2_000)).first()
+        entities.map { entity ->
+            val tagList = entity.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            FileItem(
+                path = entity.path,
+                name = entity.name,
+                sizeBytes = entity.sizeBytes,
+                lastModified = entity.modifiedDate,
+                isDirectory = entity.isDirectory,
+                mimeType = entity.mimeType,
+                isFavorite = entity.isFavorite,
+                isTrash = entity.isTrash,
+                originalPath = entity.originalPath,
+                deletedTimestamp = entity.deletedTimestamp,
+                md5Hash = entity.md5Hash,
+                localFileId = entity.path.removePrefix("gdrive://"),
+                canonicalUri = entity.canonicalUri,
+                isOfflinePinned = entity.offlinePinned,
+                offlineLocalPath = entity.offlineLocalPath,
+                tags = tagList,
+                indexedText = entity.contentText.take(4_000)
             )
         }
     }
@@ -217,6 +248,10 @@ class OfflineSearchRepository(
                     originalPath = entity.originalPath,
                     deletedTimestamp = entity.deletedTimestamp,
                     md5Hash = entity.md5Hash,
+                    localFileId = entity.path.removePrefix("gdrive://").takeIf { entity.path.startsWith("gdrive://") },
+                    canonicalUri = entity.canonicalUri,
+                    isOfflinePinned = entity.offlinePinned,
+                    offlineLocalPath = entity.offlineLocalPath,
                     tags = tagList
                 )
                 if (!filter.includeHidden && fileItem.isHidden) return@mapNotNull null

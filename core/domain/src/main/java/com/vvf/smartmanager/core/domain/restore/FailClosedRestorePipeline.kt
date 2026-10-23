@@ -1,5 +1,8 @@
 package com.vvf.smartmanager.core.domain.restore
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -29,10 +32,12 @@ class FailClosedRestorePipeline(
         val token = UUID.randomUUID().toString()
         val stagingDir = File(workingDir, "restore-$token")
         var snapshot: RestoreSnapshot? = null
+        var downloadedArtifact: DownloadedArtifact? = null
         return try {
             requireWorkingDirectory(stagingDir)
 
             val downloaded = downloader.download(remoteBackupId).getOrElse { return Result.failure(it) }
+            downloadedArtifact = downloaded
             val verified = verifier.verify(downloaded, expectedChecksum).getOrElse { return Result.failure(it) }
             val decrypted = decryptor.decrypt(verified, stagingDir).getOrElse { return Result.failure(it) }
 
@@ -41,8 +46,8 @@ class FailClosedRestorePipeline(
 
             val applied = applier.apply(decrypted).getOrElse { error ->
                 val rollbackResult = applier.rollback(snapshot!!)
-                preparedSnapshots.remove(snapshot!!.token)
                 if (rollbackResult.isFailure) {
+                    // Keep the snapshot reachable so a later recovery attempt can retry rollback.
                     return Result.failure(
                         RestoreException(
                             "Restore failed and rollback also failed",
@@ -50,13 +55,15 @@ class FailClosedRestorePipeline(
                         )
                     )
                 }
+                preparedSnapshots.remove(snapshot!!.token)
+                deleteSnapshotFiles(snapshot!!)
                 return Result.failure(error)
             }
 
             if (!applied.success) {
                 val rollbackResult = applier.rollback(snapshot!!)
-                preparedSnapshots.remove(snapshot!!.token)
                 if (rollbackResult.isFailure) {
+                    // Keep the snapshot reachable so a later recovery attempt can retry rollback.
                     return Result.failure(
                         RestoreException(
                             "Restore reported failure and rollback also failed",
@@ -64,10 +71,12 @@ class FailClosedRestorePipeline(
                         )
                     )
                 }
+                preparedSnapshots.remove(snapshot!!.token)
+                deleteSnapshotFiles(snapshot!!)
                 return Result.failure(RestoreException(applied.message))
             }
 
-            preparedSnapshots.remove(snapshot!!.token)
+            // Keep the snapshot available for the explicit rollback(token) API.
             Result.success(
                 RestoreResult(
                     success = true,
@@ -81,10 +90,10 @@ class FailClosedRestorePipeline(
             )
         } catch (error: Throwable) {
             if (snapshot != null) {
-                val rollbackAttempt = runCatching { applier.rollback(snapshot!!) }
-                preparedSnapshots.remove(snapshot!!.token)
+                val rollbackAttempt = withContext(NonCancellable) { runCatching { applier.rollback(snapshot!!) } }
                 val rollbackResult = rollbackAttempt.getOrNull()
                 if (rollbackAttempt.isFailure) {
+                    // Retain the snapshot after rollback failure for a retry/recovery attempt.
                     return Result.failure(
                         RestoreException(
                             "Fail-closed restore aborted: rollback also failed",
@@ -100,10 +109,14 @@ class FailClosedRestorePipeline(
                         )
                     )
                 }
+                preparedSnapshots.remove(snapshot!!.token)
+                deleteSnapshotFiles(snapshot!!)
             }
+            if (error is CancellationException) throw error
             Result.failure(RestoreException("Fail-closed restore aborted", error))
         } finally {
             stagingDir.deleteRecursively()
+            downloadedArtifact?.file?.delete()
         }
     }
 
@@ -116,9 +129,11 @@ class FailClosedRestorePipeline(
         }
         val token = UUID.randomUUID().toString()
         val stagingDir = File(workingDir, "dry-run-$token")
+        var downloadedArtifact: DownloadedArtifact? = null
         return try {
             requireWorkingDirectory(stagingDir)
             val downloaded = downloader.download(remoteBackupId).getOrElse { return Result.failure(it) }
+            downloadedArtifact = downloaded
             val verified = verifier.verify(downloaded, expectedChecksum).getOrElse { return Result.failure(it) }
             val decrypted = decryptor.decrypt(verified, stagingDir).getOrElse { return Result.failure(it) }
             val fileCount = decrypted.stagingDir.walkTopDown().count { it.isFile }
@@ -134,9 +149,11 @@ class FailClosedRestorePipeline(
                 )
             )
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             Result.failure(RestoreException("Fail-closed restore dry-run aborted", error))
         } finally {
             stagingDir.deleteRecursively()
+            downloadedArtifact?.file?.delete()
         }
     }
 
@@ -147,7 +164,18 @@ class FailClosedRestorePipeline(
         val snapshot = preparedSnapshots[snapshotToken]
             ?: return Result.failure(VerificationFailedException("Snapshot token is not active in this process"))
         return applier.rollback(snapshot).also {
-            if (it.isSuccess) preparedSnapshots.remove(snapshotToken)
+            if (it.isSuccess) {
+                preparedSnapshots.remove(snapshotToken)
+                deleteSnapshotFiles(snapshot)
+            }
+        }
+    }
+
+    private fun deleteSnapshotFiles(snapshot: RestoreSnapshot) {
+        runCatching { snapshot.databaseSnapshotPath.delete() }
+        runCatching {
+            if (snapshot.vaultSnapshotPath.isDirectory) snapshot.vaultSnapshotPath.deleteRecursively()
+            else snapshot.vaultSnapshotPath.delete()
         }
     }
 

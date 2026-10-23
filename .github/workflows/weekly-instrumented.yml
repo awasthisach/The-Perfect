@@ -3,6 +3,13 @@ name: Weekly Instrumented Hard Gate
 # Hard (non-advisory) SQLCipher instrumented run — compensates for PR/main
 # emulator continue-on-error skips on the primary CI job.
 on:
+  pull_request:
+    branches: [main, fix/p0-vault-nio-publish-phase3]
+    paths:
+      - "core/database/**"
+      - "core/database-compat/**"
+      - ".github/workflows/weekly-instrumented.yml"
+      - ".github/workflows/release.yml"
   schedule:
     - cron: "0 3 * * 1"
   workflow_dispatch:
@@ -11,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: weekly-instrumented
+  group: weekly-instrumented-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -46,6 +53,8 @@ jobs:
       - name: Generate SQLCipher 4.5.4 compatibility fixture
         run: |
           set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev tcl-dev zlib1g-dev
           curl -fsSL -o /tmp/sqlcipher.tgz https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz
           tar -xzf /tmp/sqlcipher.tgz -C /tmp
           cd /tmp/sqlcipher-4.5.4
@@ -55,6 +64,15 @@ jobs:
           printf '%s\n' "PRAGMA key = 'vvf-sqlcipher-compatibility-test';" "CREATE TABLE compatibility_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL);" "INSERT INTO compatibility_test (id, value) VALUES (1, 'legacy-4.5.4');" ".quit" | ./sqlcipher "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
           test -s "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
 
+      - name: Grant runner access to KVM
+        run: |
+          set -euo pipefail
+          test -e /dev/kvm
+          sudo chown "$(id -un)":kvm /dev/kvm
+          sudo chmod 660 /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+          ls -l /dev/kvm
+
       - name: Start Android emulator (HARD — no continue-on-error)
         timeout-minutes: 15
         env:
@@ -63,12 +81,12 @@ jobs:
           set -euo pipefail
           mkdir -p "$ANDROID_AVD_HOME"
           export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH"
-          echo "no" | avdmanager create avd --force --name vvf-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2"
+          echo "no" | avdmanager create avd --force --name vvf-api35 --package "system-images;android-35;google_apis;x86_64"
           adb start-server
-          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel off -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel on -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/emulator.pid"
-          timeout 180 adb wait-for-device
-          for _ in $(seq 1 60); do
+          timeout 240 adb wait-for-device
+          for _ in $(seq 1 72); do
             boot_completed="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
             if [ "$boot_completed" = "1" ]; then
               break

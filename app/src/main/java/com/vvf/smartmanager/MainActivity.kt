@@ -2,6 +2,8 @@ package com.vvf.smartmanager
 
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
@@ -9,6 +11,7 @@ import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
 import kotlinx.coroutines.launch
 import android.os.Bundle
 import androidx.fragment.app.FragmentActivity
+import androidx.core.content.FileProvider
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -34,7 +37,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -71,39 +78,75 @@ import com.vvf.smartmanager.ui.theme.BhagwaOrange
 import com.vvf.smartmanager.ui.theme.CosmicBlue
 import com.vvf.smartmanager.ui.theme.VVFSmartManagerTheme
 
-/** Single-Activity Entry Point for VVF Smart Manager. */
+/** Single-Activity entry point for Drive Semantic Search. */
 class MainActivity : FragmentActivity() {
     private lateinit var googleDriveAuth: GoogleDriveAuth
 
-    /**
-     * Activity-scoped OAuth completion handler (not Application-held), so config changes
-     * do not leave a stale Application lambda. On success we always apply the token to
-     * [VVFApplication.googleDriveService] even if the UI callback was cleared.
-     */
-    private var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
+    private val exportDriveIndexLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) lifecycleScope.launch {
+            DriveIndexBackupManager(this@MainActivity).export(uri).fold(
+                onSuccess = { count ->
+                    Toast.makeText(this@MainActivity, "Exported $count Drive index entries", Toast.LENGTH_LONG).show()
+                },
+                onFailure = { error ->
+                    Toast.makeText(this@MainActivity, "Index export failed: ${error.message ?: "unknown error"}", Toast.LENGTH_LONG).show()
+                }
+            )
+        }
+    }
+
+    private val importDriveIndexLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) lifecycleScope.launch {
+            DriveIndexBackupManager(this@MainActivity).import(uri).fold(
+                onSuccess = { count ->
+                    Toast.makeText(this@MainActivity, "Imported $count local index entries. Run Drive sync to reconcile.", Toast.LENGTH_LONG).show()
+                },
+                onFailure = { error ->
+                    Toast.makeText(this@MainActivity, "Index import failed: ${error.message ?: "unknown error"}", Toast.LENGTH_LONG).show()
+                }
+            )
+        }
+    }
 
     private val googleDriveSignInLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { activityResult ->
         val app = application as VVFApplication
-        val callback = pendingGoogleDriveSignInCallback
-        pendingGoogleDriveSignInCallback = null
-        app.pendingGoogleDriveSignInCallback = null
         lifecycleScope.launch {
             val result = googleDriveAuth.handleSignInActivityResult(
                 resultCode = activityResult.resultCode,
                 data = activityResult.data
             )
-            result.onSuccess { token ->
-                runCatching { app.googleDriveService.setAccessToken(token) }
+            val token = result.getOrNull()
+            if (token != null) {
+                app.googleDriveService.setAccessToken(token)
+                val accountEmail = googleDriveAuth.getMatchingAccountEmail().getOrNull()
+                if (!accountEmail.isNullOrBlank()) {
+                    try {
+                        app.prepareDriveIndexForAccount(accountEmail)
+                        app.enqueueDriveIndexing()
+                    } catch (_: Exception) {
+                        // Authentication remains valid; a later manual sync can retry index setup.
+                    }
+                }
             }
-            callback?.invoke(result)
+            // The UI callback is owned by the Compose tree, not this Activity instance.
+            // This keeps result delivery valid across configuration changes.
+            DriveAuthEvents.emit(result)
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        googleDriveAuth = GoogleDriveAuth(this, BuildConfig.GOOGLE_WEB_CLIENT_ID)
+        googleDriveAuth = GoogleDriveAuth(
+            this,
+            BuildConfig.GOOGLE_WEB_CLIENT_ID,
+            (application as VVFApplication).googleDriveService
+        )
         enableEdgeToEdge()
         setContent {
             VVFSmartManagerTheme {
@@ -121,9 +164,22 @@ class MainActivity : FragmentActivity() {
                                 )
                             )
                         } else {
-                            pendingGoogleDriveSignInCallback = callback
                             googleDriveSignInLauncher.launch(googleDriveAuth.buildDriveSignInIntent())
                         }
+                    },
+                    onGoogleDriveSignOutRequested = {
+                        val app = application as VVFApplication
+                        lifecycleScope.launch {
+                            googleDriveAuth.signOut()
+                            runCatching { app.clearDriveIndexOnSignOut() }
+                            Toast.makeText(this@MainActivity, "Google Drive disconnected and local Drive index cleared", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onExportDriveIndexRequested = {
+                        exportDriveIndexLauncher.launch("drive-semantic-search-index.json")
+                    },
+                    onImportDriveIndexRequested = {
+                        importDriveIndexLauncher.launch(arrayOf("application/json", "text/json"))
                     }
                 )
             }
@@ -133,22 +189,42 @@ class MainActivity : FragmentActivity() {
 
 @Composable
 fun VVFAppContent(
-    onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit
+    onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit,
+    onGoogleDriveSignOutRequested: () -> Unit = {},
+    onExportDriveIndexRequested: () -> Unit = {},
+    onImportDriveIndexRequested: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val app = context.applicationContext as VVFApplication
+    val pendingDriveAuthCallback = remember {
+        mutableStateOf<((Result<String>) -> Unit)?>(null)
+    }
+
+    LaunchedEffect(Unit) {
+        DriveAuthEvents.results.collect { result ->
+            val callback = pendingDriveAuthCallback.value
+            pendingDriveAuthCallback.value = null
+            callback?.invoke(result)
+        }
+    }
+
+    val requestGoogleDriveSignIn: (((Result<String>) -> Unit) -> Unit) = { callback ->
+        pendingDriveAuthCallback.value = callback
+        onGoogleDriveSignInRequested(callback)
+    }
 
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry?.destination?.route ?: TopLevelDestination.EXPLORER.route
+    val currentRoute = navBackStackEntry?.destination?.route ?: TopLevelDestination.SEARCH.route
 
+    // Keep the primary navigation focused on the Drive Semantic Search product.
+    // Legacy local-file-manager screens remain unlinked until they are redesigned for Drive.
     val destinations = listOf(
-        TopLevelDestination.EXPLORER,
-        TopLevelDestination.VAULT,
-        TopLevelDestination.CLEANER,
         TopLevelDestination.SEARCH,
-        TopLevelDestination.CLOUD
+        TopLevelDestination.CLOUD,
+        TopLevelDestination.OFFLINE,
+        TopLevelDestination.SETTINGS
     )
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize().testTag("vvf_main_container")) {
@@ -210,7 +286,7 @@ fun VVFAppContent(
                         )
                     }
                 }
-                VVFNavHost(navController = navController, app = app, onGoogleDriveSignInRequested = onGoogleDriveSignInRequested, modifier = Modifier.fillMaxSize())
+                VVFNavHost(navController = navController, app = app, onGoogleDriveSignInRequested = requestGoogleDriveSignIn, onGoogleDriveSignOutRequested = onGoogleDriveSignOutRequested, onExportDriveIndexRequested = onExportDriveIndexRequested, onImportDriveIndexRequested = onImportDriveIndexRequested, modifier = Modifier.fillMaxSize())
             }
         } else {
             Scaffold(
@@ -270,7 +346,10 @@ fun VVFAppContent(
                 VVFNavHost(
                     navController = navController,
                     app = app,
-                    onGoogleDriveSignInRequested = onGoogleDriveSignInRequested,
+                    onGoogleDriveSignInRequested = requestGoogleDriveSignIn,
+                    onGoogleDriveSignOutRequested = onGoogleDriveSignOutRequested,
+                    onExportDriveIndexRequested = onExportDriveIndexRequested,
+                    onImportDriveIndexRequested = onImportDriveIndexRequested,
                     modifier = Modifier.fillMaxSize().padding(innerPadding)
                 )
             }
@@ -283,11 +362,15 @@ private fun VVFNavHost(
     navController: androidx.navigation.NavHostController,
     app: VVFApplication,
     onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit,
+    onGoogleDriveSignOutRequested: () -> Unit = {},
+    onExportDriveIndexRequested: () -> Unit = {},
+    onImportDriveIndexRequested: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val searchActionScope = rememberCoroutineScope()
     NavHost(
         navController = navController,
-        startDestination = TopLevelDestination.EXPLORER.route,
+        startDestination = TopLevelDestination.SEARCH.route,
         enterTransition = { fadeIn(animationSpec = tween(250)) + slideInHorizontally(animationSpec = tween(250), initialOffsetX = { it / 4 }) },
         exitTransition = { fadeOut(animationSpec = tween(200)) + slideOutHorizontally(animationSpec = tween(200), targetOffsetX = { -it / 4 }) },
         popEnterTransition = { fadeIn(animationSpec = tween(250)) + slideInHorizontally(animationSpec = tween(250), initialOffsetX = { -it / 4 }) },
@@ -350,7 +433,99 @@ private fun VVFNavHost(
                     aiIntelligenceUseCase = app.aiIntelligenceUseCase
                 )
             )
-            SearchScreen(viewModel = searchViewModel)
+            SearchScreen(
+                viewModel = searchViewModel,
+                onToggleDriveStar = { item ->
+                    val fileId = item.localFileId
+                        ?: item.path.removePrefix("gdrive://").takeIf { it.isNotBlank() }
+                    if (fileId.isNullOrBlank()) {
+                        Toast.makeText(app, "Could not identify this Drive file", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val desiredStarred = !item.isFavorite
+                        searchActionScope.launch {
+                            app.googleDriveService.setStarred(fileId, desiredStarred).fold(
+                                onSuccess = { updated ->
+                                    if (updated) {
+                                        searchViewModel.toggleFavorite(item)
+                                    } else {
+                                        Toast.makeText(app, "Google Drive did not confirm the star change", Toast.LENGTH_LONG).show()
+                                    }
+                                },
+                                onFailure = {
+                                    Toast.makeText(app, "Could not update the Google Drive star. Check connection and permissions.", Toast.LENGTH_LONG).show()
+                                }
+                            )
+                        }
+                    }
+                },
+                onToggleOfflinePin = { item ->
+                    searchActionScope.launch {
+                        DriveOfflineManager(app).toggle(item.path).fold(
+                            onSuccess = { pinned ->
+                                Toast.makeText(
+                                    app,
+                                    if (pinned) "File pinned for offline use" else "Offline pin removed",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            },
+                            onFailure = { error ->
+                                Toast.makeText(
+                                    app,
+                                    "Offline pin failed: ${error.message ?: "unknown error"}",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        )
+                    }
+                },
+                onOpenFile = { item ->
+                    val driveUrl = item.canonicalUri?.takeIf { raw ->
+                        runCatching {
+                            val parsed = Uri.parse(raw)
+                            parsed.scheme == "https" && parsed.host in setOf("drive.google.com", "docs.google.com")
+                        }.getOrDefault(false)
+                    } ?: item.localFileId?.let { id ->
+                        Uri.parse("https://drive.google.com/open").buildUpon()
+                            .appendQueryParameter("id", id)
+                            .build()
+                            .toString()
+                    }
+                    val offlineFile = item.offlineLocalPath?.let { java.io.File(it) }
+                    if (item.path.startsWith("gdrive://") && item.isOfflinePinned && offlineFile?.isFile == true) {
+                        runCatching {
+                            val contentUri = FileProvider.getUriForFile(
+                                app,
+                                "${BuildConfig.APPLICATION_ID}.fileprovider",
+                                offlineFile
+                            )
+                            val offlineMime = when (offlineFile.extension.lowercase()) {
+                                "pdf" -> "application/pdf"
+                                "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                                "txt", "csv", "md", "json", "xml" -> "text/plain"
+                                else -> item.mimeType?.takeIf { !it.startsWith("application/vnd.google-apps.") }
+                                    ?: "application/octet-stream"
+                            }
+                            app.startActivity(
+                                Intent(Intent.ACTION_VIEW)
+                                    .setDataAndType(contentUri, offlineMime)
+                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        }.onFailure {
+                            Toast.makeText(app, "Could not open the offline copy", Toast.LENGTH_SHORT).show()
+                        }
+                    } else if (item.path.startsWith("gdrive://") && !driveUrl.isNullOrBlank()) {
+                        runCatching {
+                            app.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(driveUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        }.onFailure {
+                            Toast.makeText(app, "No app available to open this Drive file", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        Toast.makeText(app, "This result is not a Drive link", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            )
         }
         composable(TopLevelDestination.CLOUD.route) {
             val cloudViewModel: CloudViewModel = viewModel(
@@ -365,8 +540,19 @@ private fun VVFNavHost(
                     onGoogleDriveSignInRequested { accessTokenResult ->
                         cloudViewModel.completeGoogleDriveSignIn(accessTokenResult)
                     }
-                }
+                },
+                onDriveIndexRequested = {
+                    app.enqueueDriveIndexing()
+                    Toast.makeText(app, "Drive search indexing scheduled", Toast.LENGTH_SHORT).show()
+                },
+                onGoogleDriveSignOutRequested = onGoogleDriveSignOutRequested,
+                onExportDriveIndexRequested = onExportDriveIndexRequested,
+                onImportDriveIndexRequested = onImportDriveIndexRequested,
+                driveIndexStatus = app.driveIndexStatus
             )
+        }
+        composable(TopLevelDestination.OFFLINE.route) {
+            OfflineFilesScreen(app = app)
         }
         composable(TopLevelDestination.PLUGINS.route) {
             val pluginsViewModel: PluginsViewModel = viewModel(
@@ -383,8 +569,12 @@ private fun VVFNavHost(
             SettingsScreen(
                 initialAutoIndexOcr = app.isAutoIndexOcrEnabled(),
                 onAutoIndexOcrChange = { enabled -> app.setAutoIndexOcrEnabled(enabled) },
+                initialDriveFullContentConsent = app.isDriveFullContentConsentEnabled(),
+                onDriveFullContentConsentChange = { enabled -> app.setDriveFullContentConsentEnabled(enabled) },
                 initialOfflineOnlyMode = app.isOfflineOnlyModeEnabled(),
                 onOfflineOnlyModeChange = { enabled -> app.setOfflineOnlyModeEnabled(enabled) },
+                initialEmbeddingConsent = app.isEmbeddingConsentEnabled(),
+                onEmbeddingConsentChange = { enabled -> app.setEmbeddingConsentEnabled(enabled) },
                 onNavigateBack = { navController.popBackStack() }
             )
         }

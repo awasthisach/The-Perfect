@@ -74,6 +74,22 @@ class CpasVerifySelfTests(unittest.TestCase):
             status = json.loads((root / "cpas-status.json").read_text(encoding="utf-8"))
             self.assertEqual(status["production_status"]["value"], "BLOCKED")
 
+    def test_local_only_evidence_never_passes_production_quality(self) -> None:
+        """Local/pre-CI evidence must remain blocked even if other findings are closed."""
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("cpas_verify", VERIFY)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+
+        passed, detail = mod.production_evidence_quality(1)
+        self.assertFalse(passed)
+        self.assertIn("cannot support production PASS", detail)
+
+        passed_without_local = mod.production_evidence_quality(0)[0]
+        self.assertTrue(passed_without_local)
+
     def test_invalid_risk_id_fails_grammar_check(self) -> None:
         self.assertTrue(VERIFY.is_file())
         # Live repo should reject non-PROD risk IDs if introduced; smoke the regex path
