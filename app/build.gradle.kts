@@ -17,7 +17,7 @@ android {
 
   defaultConfig {
     applicationId = "com.vvf.smartmanager"
-    minSdk = 26
+    minSdk = 24
     targetSdk = 36
 
     val configuredVersionCode = providers.environmentVariable("VERSION_CODE").orNull?.toIntOrNull() ?: 1
