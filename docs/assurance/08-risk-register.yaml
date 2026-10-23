@@ -1,8 +1,51 @@
 schema_version: 1
 finding_lifecycle: [discovered, triaged, reproduced, root_cause_verified, repair_implemented, tested, ci_verified, closed]
 
-# No open critical/high findings. Residual risks for cloud E2E are documented on closed items.
-open_findings: []
+# Production blockers remain open until evidence-backed closure.
+open_findings:
+  - id: PROD-008
+    severity: high
+    title: Open-source license compliance and attribution require resolution
+    status: triaged
+    notes: >
+      The ORT workflow replacement does not itself resolve historical runtime
+      license-policy findings. Keep open until a complete ORT Analyzer, Scanner,
+      Evaluator, Advisor and Reporter run produces valid CycloneDX and SPDX SBOMs
+      for the exact candidate SHA and each license finding is reviewed against
+      package-specific source evidence. No blanket allowlist or suppression is
+      authorized. Related issue #136.
+    residual_risk: high
+    related_issue: 136
+    last_updated: "2026-10-23"
+
+  - id: PROD-009
+    severity: high
+    title: Native Worker v4 authentication and App Check acceptance is incomplete
+    status: repair_implemented
+    notes: >
+      Code changes and worker build/health checks are not proof of Firebase App
+      Check registration or native acceptance. Keep open until the production
+      Android app is registered with the actual Play App Signing SHA-256, Play
+      Integrity is enabled, and a physical-device test proves valid Firebase
+      Auth plus App Check is accepted while missing/invalid tokens are rejected.
+      Related issue #140.
+    residual_risk: high
+    related_issue: 140
+    last_updated: "2026-10-23"
+
+  - id: PROD-010
+    severity: high
+    title: Real-account OAuth, privacy, signing, and device acceptance are unverified
+    status: triaged
+    notes: >
+      Keep open until OAuth scopes and applicable verification are configured,
+      the privacy policy is published and Play disclosures are complete, release
+      signing/provenance is verified, and the exact candidate passes real-account
+      and physical-device acceptance tests. Repository CI alone cannot establish
+      owner-controlled Google/Firebase/Play configuration. Related issue #141.
+    residual_risk: high
+    related_issue: 141
+    last_updated: "2026-10-23"
 
 closed_findings:
   - id: PROD-001
