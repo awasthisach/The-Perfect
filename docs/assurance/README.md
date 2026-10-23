@@ -11,7 +11,7 @@ This directory is the repository's assurance control plane. It defines how produ
 5. [`07-test-matrix.yaml`](07-test-matrix.yaml) defines test levels and minimum traceability.
 6. [`08-risk-register.yaml`](08-risk-register.yaml) tracks findings through CI-verified closure.
 7. [`09-gate-catalog.yaml`](09-gate-catalog.yaml) defines gate owners, commands, thresholds, evidence, and blocking behavior.
-8. [`evidence-ledger.schema.json`](evidence-ledger.schema.json) defines the evidence record contract; [`evidence-ledger.json`](evidence-ledger.json) stores records.
+8. [`evidence-ledger.schema.json`](evidence-ledger.schema.json) defines the evidence record contract; `candidate-evidence.json` is generated for the exact candidate. [`historical-evidence-ledger.json`](historical-evidence-ledger.json) preserves older records and is not production evidence.
 9. [`FINAL_CPAS_SHEET.md`](FINAL_CPAS_SHEET.md) is the human-readable policy/index and must not be treated as a manually maintained live-status database.
 
 ## Rule

@@ -67,7 +67,7 @@ class CpasVerifySelfTests(unittest.TestCase):
             )
             write(assurance / "evidence-ledger.schema.json", "{}\n")
             write(
-                assurance / "evidence-ledger.json",
+                root / "candidate-evidence.json",
                 json.dumps({"schema_version": "1.0", "entries": [], "policy": {}}),
             )
 

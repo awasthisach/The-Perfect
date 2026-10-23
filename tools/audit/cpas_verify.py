@@ -12,7 +12,7 @@ import json
 import re
 import sys
 import subprocess
-from evidence_contract import verify_entries
+from evidence_contract import verify_entries, validate_entry
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -71,6 +71,10 @@ def required_ledger_fields(entry: object) -> bool:
     if entry["result"] != "PASS":
         return False
     if not DATETIME_RE.fullmatch(str(entry["executed_at"])) or not DATETIME_RE.fullmatch(str(entry["expires_at"])):
+        return False
+    try:
+        validate_entry(entry, entry['source_commit'])
+    except (ValueError, KeyError, TypeError):
         return False
     return True
 
@@ -144,7 +148,7 @@ def main() -> int:
     traceability_path = assurance / "06-requirements-traceability.yaml"
     gate_path = assurance / "09-gate-catalog.yaml"
     tech_path = assurance / "04-technology-registry.yaml"
-    ledger_path = (args.ledger if args.ledger.is_absolute() else root / args.ledger).resolve() if args.ledger else assurance / "evidence-ledger.json"
+    ledger_path = (args.ledger if args.ledger.is_absolute() else root / args.ledger).resolve() if args.ledger else root / "candidate-evidence.json"
     output_path = root / "cpas-status.json"
 
     required = [
@@ -230,7 +234,7 @@ def main() -> int:
     checks.append(check("technology_registry_pins", tech_ok, tech_detail))
 
     ledger_ok = False
-    ledger_detail = "missing evidence-ledger.json"
+    ledger_detail = "missing generated candidate evidence ledger"
     entries: object = None
     local_only_count = 0
     if ledger_path.is_file():

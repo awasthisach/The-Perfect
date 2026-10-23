@@ -3,7 +3,7 @@
 ## #3 — Storage boundary + no demo-data mutation
 - [ ] Full-green CI run ID attached (unit + lint + assemble + SQLCipher instrumented)
 - [ ] `cpas-status.json` artifact shows PASS for storage checks
-- [ ] EVID-001 / EVID-002 present in `evidence-ledger.json`
+- [ ] EVID-001 / EVID-002 present in the generated exact-candidate `candidate-evidence.json`
 - **Status:** code closed (PROD-001/004); close GitHub issue when next full-green run is linked in a comment
 
 ## #20 — PROD-007 storage permission / Play policy

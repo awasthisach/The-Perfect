@@ -43,6 +43,11 @@ jobs:
             echo "::error::No nightly ORT scan exists for exact commit ${GITHUB_SHA}; run Nightly ORT Compliance Scan on this same commit and resolve all findings."
             exit 1
           fi
+          RUN_STATE="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" --jq '[.head_sha, .status, .conclusion] | join(" ")')"
+          if [ "$RUN_STATE" != "$GITHUB_SHA completed success" ]; then
+            echo "::error::Latest exact-candidate ORT run is not completed successfully."
+            exit 1
+          fi
           gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name ort-results-evidence --dir ort-evidence
           test -s ort-evidence/ort-status.json || { echo "::error::ORT status artifact is missing"; exit 1; }
           python3 - <<'PY'

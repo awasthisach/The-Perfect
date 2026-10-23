@@ -2,7 +2,7 @@
 """Release preflight: actual jobs/steps for the exact SHA, never status-name inference."""
 import argparse
 import re
-from evidence_contract import gh_json, latest_candidate_run
+from evidence_contract import gh_json, latest_candidate_run, workflow_path_matches
 
 REQUIRED = {
     'nightly-ort.yml': ('ORT Analyzer, Scanner, Evaluator, Advisor & SBOM (fail-closed)', ['Run ORT compliance pipeline', 'Verify required ORT reports and SBOMs', 'Record ORT status']),
@@ -13,7 +13,7 @@ REQUIRED = {
 
 def validate_run(run, jobs, revision, workflow, job_name, steps):
     if (run.get('head_sha') != revision or run.get('status') != 'completed' or run.get('conclusion') != 'success'
-        or run.get('path') != '.github/workflows/'+workflow):
+        or not workflow_path_matches(run.get('path'), workflow)):
         return False
     matching = [j for j in jobs if j.get('name') == job_name and j.get('status') == 'completed' and j.get('conclusion') == 'success']
     return len(matching) == 1 and all(any(s.get('name') == required and s.get('status') == 'completed' and s.get('conclusion') == 'success' for s in matching[0].get('steps', [])) for required in steps)

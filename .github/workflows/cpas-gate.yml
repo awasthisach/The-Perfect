@@ -5,6 +5,9 @@ on:
     branches: [main, fix/drive-semantic-search-product-alignment]
   pull_request:
     branches: [main, fix/p0-vault-nio-publish-phase3]
+  workflow_run:
+    workflows: ["VVF Smart Manager CI & Quality Gate", "Weekly Instrumented Hard Gate"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -12,7 +15,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: cpas-gate-${{ github.ref }}
+  group: cpas-gate-${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
   # Main: serialize (preserve full-green evidence). PR: cancel stale runs.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -20,13 +23,16 @@ jobs:
   cpas-verify:
     name: CPAS Verify (fail-closed)
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.head_repository.full_name == github.repository
+    timeout-minutes: 55
+    env:
+      CANDIDATE_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout
         # v6 runs on Node 24
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ env.CANDIDATE_SHA }}
 
       - name: Verify Python
         run: python3 --version
@@ -45,8 +51,12 @@ jobs:
         run: |
           set +e
           rm -f candidate-evidence.json cpas-status.json
-          python3 tools/audit/collect_evidence.py --revision "$(git rev-parse HEAD)" --output candidate-evidence.json
-          python3 tools/audit/cpas_verify.py --root . --candidate-sha "$(git rev-parse HEAD)" --ledger candidate-evidence.json
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA" || exit 1
+          python3 tools/audit/wait_for_evidence.py --revision "$CANDIDATE_SHA"
+          wait_code=$?
+          python3 tools/audit/collect_evidence.py --revision "$CANDIDATE_SHA" --output candidate-evidence.json
+          collect_code=$?
+          python3 tools/audit/cpas_verify.py --root . --candidate-sha "$CANDIDATE_SHA" --ledger candidate-evidence.json
           code=$?
           set -e
 
@@ -61,7 +71,7 @@ jobs:
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           echo "blockers=$blockers" >> "$GITHUB_OUTPUT"
 
-          if [ "$status" = "PASS" ] && [ "$code" -eq 0 ]; then
+          if [ "$status" = "PASS" ] && [ "$code" -eq 0 ] && [ "$wait_code" -eq 0 ] && [ "$collect_code" -eq 0 ]; then
             echo "CPAS production_status=PASS"
             exit 0
           fi
@@ -78,7 +88,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: cpas-status-${{ github.sha }}
+          name: cpas-status-${{ env.CANDIDATE_SHA }}
           path: cpas-status.json
           if-no-files-found: error
           retention-days: 14

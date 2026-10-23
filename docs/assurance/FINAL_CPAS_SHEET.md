@@ -76,7 +76,7 @@ CURRENT
   docs/assurance/09-gate-catalog.yaml
   docs/assurance/10-remediation-policy.md
   docs/assurance/evidence-ledger.schema.json
-  docs/assurance/evidence-ledger.json
+  candidate-evidence.json (generated, never a historical ledger)
   docs/assurance/FINAL_CPAS_SHEET.md
   tools/audit/cpas_verify.py
   tools/audit/test_cpas_verify.py

@@ -5,7 +5,7 @@ import hashlib
 import json
 import os
 import re
-import shutil
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from evidence_contract import CONTROLS, SOURCES, report_classes
@@ -25,8 +25,18 @@ def main():
     a.output.mkdir(parents=True)
     paths = list(a.root.glob('**/build/test-results/testDebugUnitTest/TEST-*.xml')) if a.scope == 'unit' else list(a.root.glob('core/database/build/outputs/androidTest-results/connected/**/*.xml'))
     available = []
+    required_classes = {name for control, (_, names) in CONTROLS.items()
+                        if (control == 'DB-INV-001') == (a.scope == 'database') for name in names}
     for path in paths:
         raw = path.read_bytes()
+        # Parse before excluding: malformed XML cannot prove it is unrelated.
+        if b'<!DOCTYPE' in raw or b'<!ENTITY' in raw:
+            raise ValueError('XML entities are not evidence')
+        classes = {case.get('classname') for case in ET.fromstring(raw).iter('testcase')}
+        if not classes & required_classes:
+            continue
+        # Any failure/skip in a report for a required class invalidates the bundle,
+        # even if another report claims that class passed.
         available.append((path, report_classes(raw)))
     entries = []
     now = datetime.now(timezone.utc).replace(microsecond=0)

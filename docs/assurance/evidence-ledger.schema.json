@@ -81,7 +81,7 @@
         },
         "ci_run_id": {
           "type": "string",
-          "minLength": 1
+          "pattern": "^[0-9]+$"
         },
         "ci_job_id": {
           "type": "string",

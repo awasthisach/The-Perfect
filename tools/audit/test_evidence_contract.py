@@ -12,7 +12,7 @@ class EvidenceContractTest(unittest.TestCase):
     def setUp(self):
         now = datetime.now(timezone.utc)
         self.entry = dict(id='EVID-001', control_id='STORAGE-INV-001', test_id='STORAGE-TEST-001', source_commit=SHA,
-            ci_run_id='123', ci_job_id=ec.SOURCES['unit'][1], scope='unit', artifact='cpas-evidence-run', result='PASS',
+            ci_run_id='123', ci_job_id=ec.SOURCES['unit'][1], scope='unit', artifact='cpas-evidence-run', result='PASS', environment='github-actions-unit',
             executed_at=(now-timedelta(minutes=1)).isoformat(), expires_at=(now+timedelta(days=1)).isoformat(), reports=[{'path':'reports/'+ 'a'*64 + '.xml','sha256':'a'*64}])
     def check(self, entry):
         return ec.verify_entries([entry], SHA, ['STORAGE-INV-001'], verify=lambda *_: None)
@@ -21,7 +21,7 @@ class EvidenceContractTest(unittest.TestCase):
     def test_negative_contract_cases(self):
         for field, values in {'result':['FAIL',None,'SKIP','success',[],{}], 'source_commit':['b'*40,None],
           'control_id':['DB-INV-001','UNKNOWN'], 'test_id':['DB-TEST-001'], 'scope':['database'],
-          'artifact':['unrelated'], 'reports':[[],None], 'ci_run_id':['local-1'],
+          'artifact':['unrelated'], 'environment':['',None], 'id':['bad',False], 'unexpected':['value'], 'reports':[[],None], 'ci_run_id':['local-1'],
           'executed_at':['2099-01-01T00:00:00Z','2000-01-01T00:00:00Z','invalid',None],
           'expires_at':['2000-01-01T00:00:00Z','2099-01-01T00:00:00Z','invalid']}.items():
             for value in values:
@@ -30,7 +30,6 @@ class EvidenceContractTest(unittest.TestCase):
                     self.assertTrue(self.check(entry))
     def test_missing_field_and_coverage(self):
         for field in self.entry:
-            if field == 'id': continue
             entry = copy.deepcopy(self.entry); del entry[field]
             self.assertTrue(self.check(entry), field)
         self.assertTrue(ec.verify_entries([],SHA,ec.CONTROLS))
@@ -114,10 +113,10 @@ class OriginalProbeIntegrationTest(unittest.TestCase):
             (root/'.git').write_text('gitdir: '+gitdir+'\n')
             risks=root/'docs/assurance/08-risk-register.yaml'
             risks.write_text(re.sub(r'status: (triaged|repair_implemented)', 'status: closed', risks.read_text()))
-            ledger=root/'docs/assurance/evidence-ledger.json';d=json.loads(ledger.read_text())
+            ledger=root/'docs/assurance/historical-evidence-ledger.json';d=json.loads(ledger.read_text())
             for entry in d['entries']: entry.update(result='FAIL',source_commit='0'*40)
             ledger.write_text(json.dumps(d))
-            result=subprocess.run([sys.executable,str(repo/'tools/audit/cpas_verify.py'),'--root',str(root)],text=True,capture_output=True)
+            result=subprocess.run([sys.executable,str(repo/'tools/audit/cpas_verify.py'),'--root',str(root),'--ledger',str(ledger)],text=True,capture_output=True)
             self.assertEqual(1,result.returncode,result.stderr)
             status=json.loads(result.stdout)
             checks={c['name']:c['status'] for c in status['checks']}
@@ -127,6 +126,22 @@ class OriginalProbeIntegrationTest(unittest.TestCase):
             # CI-only verification does not close owner-controlled high risks.
             opened, closed = risks.read_text().split('closed_findings:', 1)
             risks.write_text(opened.replace('status: closed', 'status: ci_verified') + 'closed_findings:' + closed)
-            result=subprocess.run([sys.executable,str(repo/'tools/audit/cpas_verify.py'),'--root',str(root)],text=True,capture_output=True)
+            result=subprocess.run([sys.executable,str(repo/'tools/audit/cpas_verify.py'),'--root',str(root),'--ledger',str(ledger)],text=True,capture_output=True)
             self.assertEqual(1,result.returncode,result.stderr)
             self.assertIn('PROD-008',json.loads(result.stdout)['blocking_findings'])
+
+class GeneratorIsolationTest(unittest.TestCase):
+    def test_unrelated_skip_is_ignored_but_required_skip_and_malformed_xml_block(self):
+        import tempfile, subprocess, sys
+        from pathlib import Path
+        for extra, succeeds in [('<testsuite><testcase classname="Unrelated"><skipped/></testcase></testsuite>',True),
+                                ('<testsuite><testcase classname="com.vvf.smartmanager.core.database.EncryptedDatabaseLifecycleTest"><skipped/></testcase></testsuite>',False),
+                                ('<broken',False)]:
+            with self.subTest(extra=extra), tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp); reports=root/'core/database/build/outputs/androidTest-results/connected/device';reports.mkdir(parents=True)
+                (reports/'valid.xml').write_text('<testsuite><testcase classname="com.vvf.smartmanager.core.database.EncryptedDatabaseLifecycleTest" name="lifecycle"/></testsuite>')
+                (reports/'extra.xml').write_text(extra)
+                out=root/'bundle'
+                result=subprocess.run([sys.executable,str(Path(__file__).with_name('generate_evidence.py')),'--root',str(root),'--commit-sha',SHA,'--run-id','123','--scope','database','--output',str(out)],capture_output=True)
+                self.assertEqual(succeeds,result.returncode==0,result.stderr)
+                self.assertEqual(succeeds,(out/'bundle.json').exists())

@@ -9,6 +9,11 @@ class RequiredRunsTest(unittest.TestCase):
         def check(r=run,jobs=None):
             return validate_run(r,[job] if jobs is None else jobs,'a'*40,'ci.yml','job',['test'])
         self.assertTrue(check())
+        self.assertTrue(check(dict(run, path='.github/workflows/ci.yml@main')))
+        self.assertTrue(check(dict(run, path='.github/workflows/ci.yml@refs/heads/candidate/test')))
+        self.assertFalse(check(dict(run, path='.github/workflows/ci.yml@')))
+        self.assertFalse(check(dict(run, path='.github/workflows/other.yml@main')))
+        self.assertFalse(check(dict(run, path=None)))
         self.assertFalse(check(jobs=[]))
         self.assertFalse(check(jobs=[dict(job,steps=[])]))
         self.assertFalse(check(dict(run,head_sha='b'*40)))

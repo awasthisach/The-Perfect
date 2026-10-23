@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import re
 import subprocess
 import zipfile
 import xml.etree.ElementTree as ET
@@ -44,6 +45,19 @@ def validate_entry(entry, candidate: str, now=None) -> None:
     now = now or datetime.now(timezone.utc)
     if not isinstance(entry, dict) or entry.get('result') != 'PASS':
         raise ValueError('evidence result must be PASS')
+    required = {'id', 'control_id', 'test_id', 'source_commit', 'ci_run_id', 'ci_job_id',
+                'executed_at', 'expires_at', 'result', 'environment', 'scope', 'artifact', 'reports'}
+    optional = {'artifact_sha256', 'reviewer', 'notes'}
+    if not required.issubset(entry) or set(entry) - required - optional:
+        raise ValueError('unsupported or missing evidence fields')
+    if any(not isinstance(entry[key], str) or not entry[key] for key in required - {'reports'}):
+        raise ValueError('invalid evidence field type')
+    if not re.fullmatch(r'EVID-[0-9]{3,}', entry['id']) or not re.fullmatch(r'[0-9a-f]{40}', entry['source_commit']):
+        raise ValueError('invalid evidence identity')
+    if any(not isinstance(entry[key], str) or (key != 'notes' and not entry[key]) for key in optional & entry.keys()):
+        raise ValueError('invalid optional evidence field')
+    if 'artifact_sha256' in entry and not re.fullmatch('[0-9a-f]{64}', entry['artifact_sha256']):
+        raise ValueError('invalid artifact digest')
     control = entry.get('control_id')
     if control not in CONTROLS or entry.get('test_id') != CONTROLS[control][0]:
         raise ValueError('unsupported control/test mapping')
@@ -58,7 +72,7 @@ def validate_entry(entry, candidate: str, now=None) -> None:
     if entry.get('scope') != scope or entry.get('artifact') != SOURCES[scope][3] or entry.get('ci_job_id') != SOURCES[scope][1]:
         raise ValueError('job cannot claim this control')
     for report in entry.get('reports', []) or []:
-        if not isinstance(report, dict) or not isinstance(report.get('sha256'), str) or len(report['sha256']) != 64 or any(c not in '0123456789abcdef' for c in report['sha256']) or report.get('path') != f"reports/{report['sha256']}.xml":
+        if not isinstance(report, dict) or set(report) != {'path', 'sha256'} or not isinstance(report.get('sha256'), str) or len(report['sha256']) != 64 or any(c not in '0123456789abcdef' for c in report['sha256']) or report.get('path') != f"reports/{report['sha256']}.xml":
             raise ValueError('invalid report identity')
     if not str(entry.get('ci_run_id', '')).isdigit() or not isinstance(entry.get('reports'), list) or not entry['reports']:
         raise ValueError('missing run or reports')
@@ -77,11 +91,18 @@ def latest_candidate_run(workflow: str, candidate: str):
     return max(matching, key=lambda run: int(run['id']))
 
 
+def workflow_path_matches(path, workflow):
+    if not isinstance(path, str):
+        return False
+    filename, separator, ref = path.partition('@')
+    return filename == f'.github/workflows/{workflow}' and (not separator or bool(ref))
+
+
 @lru_cache(maxsize=32)
 def remote_bundle(run_id: str, scope: str, candidate: str):
     workflow, job_name, step_name, artifact_name = SOURCES[scope]
     run = gh_json(f'actions/runs/{run_id}')
-    if run.get('head_sha') != candidate or run.get('status') != 'completed' or run.get('conclusion') != 'success' or run.get('path') != f'.github/workflows/{workflow}':
+    if run.get('head_sha') != candidate or run.get('status') != 'completed' or run.get('conclusion') != 'success' or not workflow_path_matches(run.get('path'), workflow):
         raise ValueError('run is not successful exact-candidate evidence from required workflow')
     if str(latest_candidate_run(workflow, candidate)['id']) != str(run_id):
         raise ValueError('evidence run was superseded')
