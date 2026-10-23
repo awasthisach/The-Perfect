@@ -87,6 +87,19 @@ class OrtActionRegressionTest(unittest.TestCase):
         # The nightly workflow runs the vendored, patched ORT action and fails closed.
         self.assertIn("uses: ./.github/actions/ort-ci", nightly)
         self.assertIn("fail-on: 'violations,issues'", nightly)
+        # Duplicate YAML mapping keys can make GitHub create a failed workflow run
+        # with zero jobs. Guard against recurrence of the duplicate fail-on input.
+        self.assertEqual(
+            nightly.count("          fail-on:"),
+            1,
+            "nightly-ort.yml must define the ORT fail-on input exactly once",
+        )
+        self.assertFalse(
+            (ROOT / ".fossa.yml").exists(),
+            "The retired FOSSA configuration must stay deleted",
+        )
+        self.assertNotRegex(ci, r"(?i)fossa|foss-status")
+        self.assertNotRegex(release, r"(?i)fossa|foss-status")
         self.assertIn("cache-scan-results", nightly)
         self.assertIn("tools/audit/verify_ort_outputs.py", nightly)
         self.assertIn('status = "PASS" if outcome == "success" and verified == "success" else "BLOCKED"', nightly)
