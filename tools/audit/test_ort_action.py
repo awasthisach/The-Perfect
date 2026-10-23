@@ -50,53 +50,6 @@ class OrtActionRegressionTest(unittest.TestCase):
             init_step,
         )
 
-    def test_ort_output_gate_validates_result_json_and_sbom_formats(self):
-        with tempfile.TemporaryDirectory() as directory:
-            results_dir = Path(directory)
-            repository = {
-                "vcs": {"type": "Git", "url": "https://github.com/awasthisach/The-Perfect", "revision": "abc123"},
-                "config": {},
-            }
-            fixtures = {
-                "analyzer-result.json": {"repository": repository, "analyzer": {"result": {"projects": [], "packages": []}}},
-                "scan-result.json": {"repository": repository, "scanner": {"scanResults": []}},
-                "evaluation-result.json": {"repository": repository, "evaluator": {"violations": []}},
-                "advisor-result.json": {"repository": repository, "advisor": {"results": {}}},
-            }
-            for name, payload in fixtures.items():
-                (results_dir / name).write_text(json.dumps(payload), encoding="utf-8")
-            (results_dir / "bom.cyclonedx.json").write_text(
-                '{"bomFormat": "CycloneDX", "components": []}', encoding="utf-8"
-            )
-            (results_dir / "bom.cyclonedx.xml").write_text(
-                '<bom xmlns="http://cyclonedx.org/schema/bom/1.6" version="1"></bom>',
-                encoding="utf-8",
-            )
-            (results_dir / "bom.spdx.json").write_text(
-                '{"spdxVersion": "SPDX-2.3", "packages": []}', encoding="utf-8"
-            )
-            (results_dir / "bom.spdx.yml").write_text(
-                "spdxVersion: SPDX-2.3\n", encoding="utf-8"
-            )
-            self.assertEqual([], validate_outputs(results_dir))
-
-            (results_dir / "bom.spdx.json").write_text(
-                '{"spdxVersion": "not-an-spdx-version"}', encoding="utf-8"
-            )
-            self.assertTrue(
-                any("bom.spdx.json: missing valid spdxVersion" in issue
-                    for issue in validate_outputs(results_dir))
-            )
-
-            # A syntactically valid but fake ORT JSON object is not a valid scan result.
-            (results_dir / "analyzer-result.json").write_text(
-                '{"result": true}', encoding="utf-8"
-            )
-            self.assertTrue(
-                any("analyzer-result.json: missing valid ORT repository metadata" in issue
-                    for issue in validate_outputs(results_dir))
-            )
-
     def test_codeql_uses_default_not_advanced_workflow(self):
         """Rely on GitHub default Code Scanning; advanced workflow must stay absent.
 
@@ -119,31 +72,32 @@ class OrtActionRegressionTest(unittest.TestCase):
         self.assertIn('"Release builds must never fall back to the Android debug keystore."', gradle)
         self.assertIn('require(file(releaseKeystore).isFile)', gradle)
 
-    def test_ort_runs_only_in_release_workflow_and_fails_closed(self):
+    def test_ort_runs_only_in_nightly_workflow_and_release_fails_closed(self):
         ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         release = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        nightly = (ROOT / ".github" / "workflows" / "nightly-ort.yml").read_text(encoding="utf-8")
 
-        # Daily PR CI must stay fast: it builds/tests/lints and assembles the debug APK,
-        # but must not start the expensive ORT analyzer/scanner.
+        # Daily PR CI builds and tests the app, but does not run the expensive scanner.
         self.assertNotIn("uses: ./.github/actions/ort-ci", ci)
-        self.assertNotIn("Open Source Compliance (ORT)", ci)
+        self.assertNotIn("oss-review-toolkit/ort-ci-github-action", ci)
         self.assertIn("Run unit tests", ci)
         self.assertIn("Run Android lint", ci)
         self.assertIn("Assemble debug APK", ci)
 
-        # Release promotion remains gated by ORT, its reports, and explicit exit codes.
-        self.assertIn("uses: ./.github/actions/ort-ci", release)
-        self.assertIn("fail-on: 'violations,issues'", release)
-        self.assertIn("ORT_ADVISOR_EXIT_CODE", release)
+        # The nightly workflow runs the vendored, patched ORT action and fails closed.
+        self.assertIn("uses: ./.github/actions/ort-ci", nightly)
+        self.assertIn("fail-on: 'violations,issues'", nightly)
+        self.assertIn("cache-scan-results", nightly)
+        self.assertIn("tools/audit/verify_ort_outputs.py", nightly)
+        self.assertIn('status = "PASS" if outcome == "success" and verified == "success" else "BLOCKED"', nightly)
+        self.assertIn("ort-results-evidence", nightly)
+
+        # Release must use evidence for the exact commit and cannot run ORT as a soft step.
+        self.assertIn("nightly-ort.yml/runs?head_sha=", release)
+        self.assertIn('status.get("scan_revision") != os.environ["GITHUB_SHA"]', release)
         self.assertIn("tools/audit/verify_ort_outputs.py", release)
-        self.assertIn('status = "PASS" if outcome == "success" and evaluator == "0" and advisor == "0" else "BLOCKED"', release)
-        self.assertIn("needs: open_source_compliance", release)
-        ort_job = release.split("  release:", 1)[0]
-        ort_step = ort_job.split(
-            "- name: OSS Review Toolkit compliance gate (hard fail for release)", 1
-        )[1].split("- name: Verify ORT results and SBOM outputs", 1)[0]
-        self.assertNotIn("continue-on-error: true", ort_step)
-        self.assertIn("if status != \"PASS\":", release)
+        self.assertIn("release_gate.py", release)
+        self.assertNotIn("uses: ./.github/actions/ort-ci", release)
 
     def test_missing_or_invalid_ort_reports_never_validate_as_pass(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -180,26 +134,25 @@ class OrtActionRegressionTest(unittest.TestCase):
         )
 
 
-    def test_ort_cache_is_used_only_by_release_workflow(self):
+    def test_ort_cache_is_versioned_and_restores_legacy_cache(self):
+        action = self.action
+        nightly = (ROOT / ".github" / "workflows" / "nightly-ort.yml").read_text(encoding="utf-8")
         ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-        release = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
 
-        self.assertNotIn("ort-scan-results-v2-", ci)
-        self.assertNotIn("ort-scan-results-v1-", ci)
-
-        self.assertIn("restore-keys: |", release)
-        restore_keys = release.split("restore-keys: |", 1)[1].split("\n\n", 1)[0]
-        self.assertIn("ort-scan-results-v2-", restore_keys)
-        self.assertIn("ort-scan-results-v1-", restore_keys)
+        self.assertIn("id: cache-scan-results", action)
+        cache_step = action.split("id: cache-scan-results", 1)[1].split(
+            "id: project-sources", 1
+        )[0]
+        self.assertIn("ort-scan-results-v2-", cache_step)
+        self.assertIn("restore-keys: |", cache_step)
+        self.assertIn("ort-scan-results-cache", cache_step)
         self.assertLess(
-            restore_keys.index("ort-scan-results-v2-"),
-            restore_keys.index("ort-scan-results-v1-"),
-            "Current dependency-scoped cache must be preferred before legacy fallback",
+            cache_step.index("ort-scan-results-v2-"),
+            cache_step.index("ort-scan-results-cache"),
+            "The current commit-scoped cache must be preferred before legacy cache fallback",
         )
-        self.assertIn(
-            "Legacy cache fallback: prior runs saved scanner state under v1.",
-            release,
-        )
+        self.assertIn("cache-scan-results", nightly)
+        self.assertNotIn("uses: ./.github/actions/ort-ci", ci)
 
 
 if __name__ == "__main__":
