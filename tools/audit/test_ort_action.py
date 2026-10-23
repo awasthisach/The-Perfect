@@ -146,7 +146,7 @@ class OrtActionRegressionTest(unittest.TestCase):
         self.assertNotIn("ort-scan-results-v2-", ci)
         self.assertNotIn("ort-scan-results-v1-", release)
         self.assertIn("restore-keys: |", nightly)
-        restore_keys = nightly.split("restore-keys: |", 1)[1].split("\\n\\n", 1)[0]
+        restore_keys = nightly.split("restore-keys: |", 1)[1].split("\n\n", 1)[0]
         self.assertIn("ort-scan-results-v2-", restore_keys)
         self.assertIn("ort-scan-results-v1-", restore_keys)
         self.assertLess(
