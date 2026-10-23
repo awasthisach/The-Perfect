@@ -119,31 +119,45 @@ class OrtActionRegressionTest(unittest.TestCase):
         self.assertIn('"Release builds must never fall back to the Android debug keystore."', gradle)
         self.assertIn('require(file(releaseKeystore).isFile)', gradle)
 
-    def test_ort_runs_only_in_release_workflow_and_fails_closed(self):
+    def test_ort_runs_nightly_not_in_daily_ci_or_release(self):
         ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         release = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        nightly_path = ROOT / ".github" / "workflows" / "nightly-ort.yml"
+        self.assertTrue(nightly_path.is_file(), "Nightly ORT workflow must exist")
+        nightly = nightly_path.read_text(encoding="utf-8")
 
-        # Daily PR CI must stay fast: it builds/tests/lints and assembles the debug APK,
-        # but must not start the expensive ORT analyzer/scanner.
         self.assertNotIn("uses: ./.github/actions/ort-ci", ci)
-        self.assertNotIn("Open Source Compliance (ORT)", ci)
-        self.assertIn("Run unit tests", ci)
-        self.assertIn("Run Android lint", ci)
-        self.assertIn("Assemble debug APK", ci)
+        self.assertNotIn("uses: ./.github/actions/ort-ci", release)
+        self.assertIn("uses: ./.github/actions/ort-ci", nightly)
+        self.assertIn("schedule:", nightly)
+        self.assertIn("workflow_dispatch:", nightly)
+        self.assertIn("fail-on: 'violations,issues'", nightly)
+        self.assertIn("tools/audit/verify_ort_outputs.py", nightly)
+        self.assertIn("ort-results-evidence", nightly)
+        self.assertIn("Require successful ORT evidence for this exact commit", release)
+        self.assertIn("scan_revision", release)
+        self.assertIn("ORT evidence SHA does not match this release commit", release)
 
-        # Release promotion remains gated by ORT, its reports, and explicit exit codes.
-        self.assertIn("uses: ./.github/actions/ort-ci", release)
-        self.assertIn("fail-on: 'violations,issues'", release)
-        self.assertIn("ORT_ADVISOR_EXIT_CODE", release)
-        self.assertIn("tools/audit/verify_ort_outputs.py", release)
-        self.assertIn('status = "PASS" if outcome == "success" and evaluator == "0" and advisor == "0" else "BLOCKED"', release)
-        self.assertIn("needs: open_source_compliance", release)
-        ort_job = release.split("  release:", 1)[0]
-        ort_step = ort_job.split(
-            "- name: OSS Review Toolkit compliance gate (hard fail for release)", 1
-        )[1].split("- name: Verify ORT results and SBOM outputs", 1)[0]
-        self.assertNotIn("continue-on-error: true", ort_step)
-        self.assertIn("if status != \"PASS\":", release)
+    def test_ort_cache_is_used_only_by_nightly_workflow(self):
+        ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        release = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        nightly = (ROOT / ".github" / "workflows" / "nightly-ort.yml").read_text(encoding="utf-8")
+
+        self.assertNotIn("ort-scan-results-v2-", ci)
+        self.assertNotIn("ort-scan-results-v1-", release)
+        self.assertIn("restore-keys: |", nightly)
+        restore_keys = nightly.split("restore-keys: |", 1)[1].split("\\n\\n", 1)[0]
+        self.assertIn("ort-scan-results-v2-", restore_keys)
+        self.assertIn("ort-scan-results-v1-", restore_keys)
+        self.assertLess(
+            restore_keys.index("ort-scan-results-v2-"),
+            restore_keys.index("ort-scan-results-v1-"),
+            "Current dependency-scoped cache must be preferred before legacy fallback",
+        )
+        self.assertIn(
+            "Legacy cache fallback: prior runs saved scanner state under v1.",
+            nightly,
+        )
 
     def test_missing_or_invalid_ort_reports_never_validate_as_pass(self):
         with tempfile.TemporaryDirectory() as directory:
