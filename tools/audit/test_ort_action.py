@@ -122,5 +122,25 @@ class OrtActionRegressionTest(unittest.TestCase):
             "Retired .fossa.yml must not be restored; ORT is the active compliance gate",
         )
 
+
+    def test_ort_cache_restores_versioned_cache_then_legacy_fallback(self):
+        for workflow_name in ("ci.yml", "release.yml"):
+            workflow = (
+                ROOT / ".github" / "workflows" / workflow_name
+            ).read_text(encoding="utf-8")
+            with self.subTest(workflow=workflow_name):
+                self.assertIn("ort-scan-results-v2-", workflow)
+                self.assertIn("ort-scan-results-v1-", workflow)
+                self.assertLess(
+                    workflow.index("ort-scan-results-v2-"),
+                    workflow.index("ort-scan-results-v1-"),
+                    "Current cache must be preferred before the legacy fallback",
+                )
+                self.assertIn(
+                    "Legacy cache fallback: prior runs saved scanner state under v1.",
+                    workflow,
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
