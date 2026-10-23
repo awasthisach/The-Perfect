@@ -1,15 +1,13 @@
 name: Weekly Instrumented Hard Gate
 
 # Hard (non-advisory) SQLCipher instrumented run — compensates for PR/main
-# emulator continue-on-error skips on the primary CI job.
+# emulator infrastructure skips on the primary CI job. Every automatic CPAS
+# candidate needs fresh native evidence, including changes outside database paths.
 on:
   pull_request:
     branches: [main, fix/p0-vault-nio-publish-phase3]
-    paths:
-      - "core/database/**"
-      - "core/database-compat/**"
-      - ".github/workflows/weekly-instrumented.yml"
-      - ".github/workflows/release.yml"
+  push:
+    branches: [main, fix/drive-semantic-search-product-alignment]
   schedule:
     - cron: "0 3 * * 1"
   workflow_dispatch:

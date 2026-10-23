@@ -2,9 +2,9 @@ name: VVF Smart Manager CI & Quality Gate
 
 on:
   push:
-    branches: ["main", "develop"]
+    branches: ["main", "develop", "fix/drive-semantic-search-product-alignment"]
   pull_request:
-    branches: ["main", "develop"]
+    branches: ["main", "develop", "fix/p0-vault-nio-publish-phase3"]
   workflow_dispatch:
 
 permissions:

@@ -2,18 +2,10 @@ name: Embedding Worker Build Gate
 
 on:
   workflow_dispatch:
+  # Release approval requires Worker evidence for the exact candidate SHA.
   pull_request:
-    paths:
-      - "cloudflare/drive-semantic-embed/**"
-      - ".github/workflows/check-embedding-worker.yml"
-      - ".github/workflows/deploy-embedding-worker.yml"
   push:
-    branches:
-      - main
-    paths:
-      - "cloudflare/drive-semantic-embed/**"
-      - ".github/workflows/check-embedding-worker.yml"
-      - ".github/workflows/deploy-embedding-worker.yml"
+    branches: [main, fix/drive-semantic-search-product-alignment]
 
 permissions:
   contents: read

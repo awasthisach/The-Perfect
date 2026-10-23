@@ -32,4 +32,4 @@ python3 tools/audit/collect_evidence.py --revision "$candidate_sha" --output can
 python3 tools/audit/cpas_verify.py --root . --candidate-sha "$candidate_sha" --ledger candidate-evidence.json
 ```
 
-Absent candidate evidence remains BLOCKED. Relative `--ledger` paths are resolved under `--root`; absolute paths are also supported. CPAS waits for the candidate's unit/native producers and reruns on their completion; successful tests still cannot close owner/device risks.
+Absent candidate evidence remains BLOCKED. Relative `--ledger` paths are resolved under `--root`; absolute paths are also supported. CPAS waits within its run for the candidate's unit/native producers; successful tests still cannot close owner/device risks. Automatic producer triggers cover every CPAS push/PR candidate without path filters. For a manual dispatch, first dispatch CI, native and Worker checks on the same candidate ref; the read-only gate does not create producer runs. Candidate code is never executed through a privileged `workflow_run` or `pull_request_target` trigger.
