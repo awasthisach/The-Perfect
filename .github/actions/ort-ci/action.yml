@@ -421,7 +421,12 @@ runs:
       if: contains(inputs.run, 'cache-scan-results') && startsWith(runner.os, 'Linux')
       with:
         path: '${{ env.HOME}}/${{ env.ORT_HOME_PATH }}/scanner/'
-        key: ${{ runner.os }}-ort-scan-results-cache
+        # Version each scan cache by commit so updated scanner state can be saved.
+        # Prefer the current versioned cache; fall back to the legacy static key.
+        key: ${{ runner.os }}-ort-scan-results-v2-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-ort-scan-results-v2-
+          ${{ runner.os }}-ort-scan-results-cache
     - name: Download project sources if vcs-url is set
       id: project-sources
       shell: bash
