@@ -17,6 +17,7 @@
 # License-Filename: LICENSE
 # Vendored from oss-review-toolkit/ort-ci-github-action at
 # 70149d4579e446b0312f8b80fdd8d465a91e4391; local patch fixes Advisor exit-code output.
+# Additional local patch enforces Analyzer issue failures.
 
 name: 'GitHub Action for ORT'
 description: 'A GitHub Action workflow to run ORT.'
@@ -643,9 +644,14 @@ runs:
       run: |
         echo -e "\e[1;31m Failing action as Evaluator exceeded severity threshold... "
         exit 2
-    - name: Conditionally fail action if returned issues from Advisor exceeds severity threshold
-      if: contains(inputs.fail-on, 'issues') && contains(steps.ort-advisor.outputs.exit-code, 2)
+    - name: Fail on Analyzer or Advisor issues
+      if: contains(inputs.fail-on, 'issues')
       shell: bash
+      env:
+        ANALYZER_EXIT_CODE: ${{ env.ORT_CLI_ANALYZE_EXIT_CODE }}
+        ADVISOR_EXIT_CODE: ${{ steps.ort-advisor.outputs.exit-code }}
       run: |
-        echo -e "\e[1;31m Failing action as Advisor exceeded severity threshold... "
-        exit 2
+        if [[ "$ANALYZER_EXIT_CODE" == "2" || "$ADVISOR_EXIT_CODE" == "2" ]]; then
+          echo "Failing action: Analyzer or Advisor exceeded the issue severity threshold."
+          exit 2
+        fi
