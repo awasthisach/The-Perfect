@@ -30,6 +30,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="CPAS + ORT + APK release gate")
     parser.add_argument("--cpas-status", type=Path, default=Path("cpas-status.json"))
     parser.add_argument("--ort-status", type=Path, default=Path("ort-status.json"))
+    parser.add_argument("--revision", required=True)
     parser.add_argument("--apk", type=Path, default=None)
     args = parser.parse_args()
 
@@ -37,6 +38,8 @@ def main() -> int:
 
     try:
         cpas = load_json(args.cpas_status)
+        if cpas.get("source_commit") != args.revision:
+            failures.append("CPAS revision mismatch")
         status = cpas.get("production_status", {})
         value = status.get("value") if isinstance(status, dict) else None
         if value != "PASS":
@@ -48,6 +51,8 @@ def main() -> int:
 
     try:
         ort = load_json(args.ort_status)
+        if ort.get("scan_revision") != args.revision:
+            failures.append("ORT revision mismatch")
         if ort.get("status") != "PASS":
             failures.append(
                 f"ORT status is {ort.get('status')!r}, expected PASS "

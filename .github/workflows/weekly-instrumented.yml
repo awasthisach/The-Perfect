@@ -29,6 +29,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
@@ -97,31 +99,21 @@ jobs:
           adb devices
 
       - name: SQLCipher instrumentation (HARD)
-        run: ./gradlew --no-daemon :core:database-compat:connectedDebugAndroidTest --stacktrace
+        run: ./gradlew --no-daemon :core:database-compat:connectedDebugAndroidTest :core:database:connectedDebugAndroidTest --stacktrace
 
       # Keep ledger freshness aligned with weekly hard gate (environment must contain "emulator")
       - name: Generate CPAS instrumented evidence
         if: success()
         run: |
           set -euo pipefail
-          python3 tools/audit/generate_evidence.py \
-            --commit-sha "${{ github.sha }}" \
-            --run-id "${{ github.run_id }}" \
-            --job-id "${{ github.job }}" \
-            --result PASS \
-            --include-db \
-            --environment "github-actions-API35-emulator-weekly" \
-            --output docs/assurance/cpas-evidence-weekly.json \
-            --merge-ledger
+          python3 tools/audit/generate_evidence.py --commit-sha "$(git rev-parse HEAD)" --run-id "${{ github.run_id }}" --scope database --output cpas-database
 
       - name: Upload weekly CPAS evidence artifacts
         if: success()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: weekly-cpas-evidence
-          path: |
-            docs/assurance/cpas-evidence-weekly.json
-            docs/assurance/evidence-ledger.json
+          path: cpas-database/
           if-no-files-found: error
           retention-days: 30
 
