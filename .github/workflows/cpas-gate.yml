@@ -5,9 +5,8 @@ on:
     branches: [main, fix/drive-semantic-search-product-alignment]
   pull_request:
     branches: [main, fix/p0-vault-nio-publish-phase3]
-  workflow_run:
-    workflows: ["VVF Smart Manager CI & Quality Gate", "Weekly Instrumented Hard Gate"]
-    types: [completed]
+  # Producer completion is awaited within this run. Do not execute candidate code
+  # from workflow_run/pull_request_target (privileged default-branch cache context).
   workflow_dispatch:
 
 permissions:
@@ -15,7 +14,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: cpas-gate-${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
+  group: cpas-gate-${{ github.event.pull_request.head.sha || github.sha }}
   # Main: serialize (preserve full-green evidence). PR: cancel stale runs.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -23,10 +22,9 @@ jobs:
   cpas-verify:
     name: CPAS Verify (fail-closed)
     runs-on: ubuntu-24.04
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.head_repository.full_name == github.repository
     timeout-minutes: 55
     env:
-      CANDIDATE_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout
         # v6 runs on Node 24
