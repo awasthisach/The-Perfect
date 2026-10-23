@@ -70,9 +70,14 @@ import com.vvf.smartmanager.ui.navigation.TopLevelDestination
 import com.vvf.smartmanager.ui.theme.BhagwaOrange
 import com.vvf.smartmanager.ui.theme.CosmicBlue
 import com.vvf.smartmanager.ui.theme.VVFSmartManagerTheme
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 /** Single-Activity Entry Point for VVF Smart Manager. */
+@AndroidEntryPoint
 class MainActivity : FragmentActivity() {
+    @Inject lateinit var storagePermissionGate: StoragePermissionGate
+
     private lateinit var googleDriveAuth: GoogleDriveAuth
 
     /**
@@ -108,6 +113,7 @@ class MainActivity : FragmentActivity() {
         setContent {
             VVFSmartManagerTheme {
                 VVFAppContent(
+                    storagePermissionGate = storagePermissionGate,
                     onGoogleDriveSignInRequested = { callback ->
                         if (
                             BuildConfig.GOOGLE_WEB_CLIENT_ID.isBlank() ||
@@ -133,6 +139,7 @@ class MainActivity : FragmentActivity() {
 
 @Composable
 fun VVFAppContent(
+    storagePermissionGate: StoragePermissionGate,
     onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit
 ) {
     val context = LocalContext.current
@@ -210,7 +217,13 @@ fun VVFAppContent(
                         )
                     }
                 }
-                VVFNavHost(navController = navController, app = app, onGoogleDriveSignInRequested = onGoogleDriveSignInRequested, modifier = Modifier.fillMaxSize())
+                VVFNavHost(
+                    navController = navController,
+                    app = app,
+                    storagePermissionGate = storagePermissionGate,
+                    onGoogleDriveSignInRequested = onGoogleDriveSignInRequested,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         } else {
             Scaffold(
@@ -270,6 +283,7 @@ fun VVFAppContent(
                 VVFNavHost(
                     navController = navController,
                     app = app,
+                    storagePermissionGate = storagePermissionGate,
                     onGoogleDriveSignInRequested = onGoogleDriveSignInRequested,
                     modifier = Modifier.fillMaxSize().padding(innerPadding)
                 )
@@ -282,6 +296,7 @@ fun VVFAppContent(
 private fun VVFNavHost(
     navController: androidx.navigation.NavHostController,
     app: VVFApplication,
+    storagePermissionGate: StoragePermissionGate,
     onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -333,7 +348,7 @@ private fun VVFNavHost(
                     duplicateCleanerUseCase = app.duplicateCleanerUseCase,
                     junkCleanerUseCase = app.junkCleanerUseCase,
                     aiIntelligenceUseCase = app.aiIntelligenceUseCase,
-                    canScanPrimaryStorage = { StoragePermissionGate(app).evaluate().canBrowsePrimaryTree }
+                    canScanPrimaryStorage = { storagePermissionGate.evaluate().canBrowsePrimaryTree }
                 )
             )
             CleanerScreen(viewModel = cleanerViewModel)

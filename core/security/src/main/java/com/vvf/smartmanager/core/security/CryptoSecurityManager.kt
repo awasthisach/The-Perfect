@@ -20,7 +20,6 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
-import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
@@ -42,9 +41,6 @@ class CryptoSecurityManager(
     private val context: Context,
     private val keyStoreProvider: String = ANDROID_KEYSTORE
 ) {
-
-    @Inject
-    constructor(context: Context) : this(context, ANDROID_KEYSTORE)
 
     companion object {
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
@@ -82,7 +78,7 @@ class CryptoSecurityManager(
         private const val DB_PASSPHRASE_TEMP_SUFFIX = ".tmp"
         private const val DB_PASSPHRASE_FORMAT_VERSION: Byte = 2
 
-        private const val PBKDF2_ITERATIONS = 600_000
+        internal const val PBKDF2_ITERATIONS = 600_000
         private val memoryKeyMap = mutableMapOf<String, SecretKey>()
 
         @JvmStatic

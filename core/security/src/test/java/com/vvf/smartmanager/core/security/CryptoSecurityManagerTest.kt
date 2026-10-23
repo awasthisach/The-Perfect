@@ -1,6 +1,8 @@
 package com.vvf.smartmanager.core.security
 
+import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -13,116 +15,195 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33])
 class CryptoSecurityManagerTest {
-
-    private lateinit var cryptoSecurityManager: CryptoSecurityManager
+    private lateinit var context: Context
+    private lateinit var crypto: CryptoSecurityManager
 
     @Before
-    fun setup() {
-        cryptoSecurityManager = CryptoSecurityManager(
-            ApplicationProvider.getApplicationContext(),
-            "Robolectric"
-        )
+    fun setUp() {
+        context = ApplicationProvider.getApplicationContext()
+        clearTestState()
+        crypto = CryptoSecurityManager(context, "Robolectric")
+    }
+
+    @After
+    fun tearDown() {
+        clearTestState()
     }
 
     @Test
-    fun testDatabasePassphraseGenerationAndPersistence() {
-        val passphrase1 = cryptoSecurityManager.getOrCreateDatabasePassphrase()
-        assertNotNull(passphrase1)
-        assertEquals(32, passphrase1.size)
+    fun databasePassphraseIsGeneratedAndPersistsAcrossInstances() {
+        val first = crypto.getOrCreateDatabasePassphrase()
+        assertEquals(32, first.size)
 
-        val passphrase2 = cryptoSecurityManager.getOrCreateDatabasePassphrase()
-        assertArrayEquals(passphrase1, passphrase2)
+        val second = CryptoSecurityManager(context, "Robolectric")
+            .getOrCreateDatabasePassphrase()
+        assertArrayEquals(first, second)
     }
 
     @Test
-    fun testByteEncryptionDecryptionRoundtrip() {
-        val originalBytes = "VVF Smart Manager Ultra Confidential Note #12345".toByteArray(Charsets.UTF_8)
+    fun pinHashUsesConfiguredPbkdf2IterationCount() {
+        assertEquals(600_000, CryptoSecurityManager.PBKDF2_ITERATIONS)
+    }
 
-        val (encryptedBytes, iv) = cryptoSecurityManager.encryptBytes(originalBytes)
-        assertNotNull(encryptedBytes)
+    @Test
+    fun byteEncryptionDecryptsToOriginalPayload() {
+        val original = "VVF Smart Manager confidential metadata".toByteArray(Charsets.UTF_8)
+        val (encrypted, iv) = crypto.encryptBytes(original)
+
         assertEquals(12, iv.size)
-
-        assertArrayEquals(originalBytes, cryptoSecurityManager.decryptBytes(encryptedBytes, iv))
+        assertArrayEquals(original, crypto.decryptBytes(encrypted, iv))
     }
 
     @Test
-    fun testEncryptionUsesUniqueIvForRepeatedPayloads() {
+    fun repeatedPayloadUsesUniqueIv() {
         val payload = "same secret payload".toByteArray(Charsets.UTF_8)
-        val (_, iv1) = cryptoSecurityManager.encryptBytes(payload)
-        val (_, iv2) = cryptoSecurityManager.encryptBytes(payload)
+        val firstIv = crypto.encryptBytes(payload).second
+        val secondIv = crypto.encryptBytes(payload).second
 
-        assertFalse(iv1.contentEquals(iv2))
+        assertFalse(firstIv.contentEquals(secondIv))
     }
 
     @Test
-    fun testTamperedCiphertextFailsAuthentication() {
-        val payload = "tamper detection".toByteArray(Charsets.UTF_8)
-        val (encrypted, iv) = cryptoSecurityManager.encryptBytes(payload)
-        encrypted[encrypted.lastIndex] = (encrypted.last().toInt() xor 0x01).toByte()
+    fun tamperedCiphertextFailsAuthentication() {
+        val (encrypted, iv) = crypto.encryptBytes("tamper detection".toByteArray())
+        encrypted[encrypted.lastIndex] = (encrypted.last().toInt() xor 1).toByte()
 
-        assertThrowsSecurityFailure {
-            cryptoSecurityManager.decryptBytes(encrypted, iv)
-        }
+        assertThrowsSecurityFailure { crypto.decryptBytes(encrypted, iv) }
     }
 
     @Test
-    fun testTamperedIvFailsAuthentication() {
-        val payload = "tamper detection".toByteArray(Charsets.UTF_8)
-        val (encrypted, iv) = cryptoSecurityManager.encryptBytes(payload)
-        iv[0] = (iv[0].toInt() xor 0x01).toByte()
+    fun tamperedIvFailsAuthentication() {
+        val (encrypted, iv) = crypto.encryptBytes("tamper detection".toByteArray())
+        iv[0] = (iv[0].toInt() xor 1).toByte()
 
-        assertThrowsSecurityFailure {
-            cryptoSecurityManager.decryptBytes(encrypted, iv)
-        }
+        assertThrowsSecurityFailure { crypto.decryptBytes(encrypted, iv) }
     }
 
     @Test
-    fun testStreamingEncryptionDecryptionRoundtrip() {
-        val payload = "Testing AES-256-GCM Streaming File Encryption for Secure Vault.\n".repeat(500)
-        val originalBytes = payload.toByteArray(Charsets.UTF_8)
+    fun streamingEncryptionDecryptsToOriginalPayload() {
+        val original = "Streaming AES-GCM vault content.\n".repeat(500).toByteArray(Charsets.UTF_8)
+        val encryptedOutput = ByteArrayOutputStream()
+        val result = crypto.encryptStream(ByteArrayInputStream(original), encryptedOutput)
 
-        val encryptedOut = ByteArrayOutputStream()
-        val result = cryptoSecurityManager.encryptStream(
-            ByteArrayInputStream(originalBytes),
-            encryptedOut
-        )
-        assertTrue(result.totalBytesEncrypted == originalBytes.size.toLong())
+        assertEquals(original.size.toLong(), result.totalBytesEncrypted)
         assertNotNull(result.ivBase64)
 
-        val encryptedBytes = encryptedOut.toByteArray()
-        assertTrue(encryptedBytes.size > originalBytes.size)
-
-        val decryptedOut = ByteArrayOutputStream()
-        val totalDecrypted = cryptoSecurityManager.decryptStream(
-            ByteArrayInputStream(encryptedBytes),
-            decryptedOut
+        val decryptedOutput = ByteArrayOutputStream()
+        val decryptedBytes = crypto.decryptStream(
+            ByteArrayInputStream(encryptedOutput.toByteArray()),
+            decryptedOutput
         )
-        assertEquals(originalBytes.size.toLong(), totalDecrypted)
-        assertArrayEquals(originalBytes, decryptedOut.toByteArray())
+        assertEquals(original.size.toLong(), decryptedBytes)
+        assertArrayEquals(original, decryptedOutput.toByteArray())
     }
 
     @Test
-    fun testTruncatedStreamingHeaderIsRejected() {
+    fun truncatedStreamingHeaderIsRejected() {
         assertThrowsSecurityFailure {
-            cryptoSecurityManager.decryptStream(
-                ByteArrayInputStream(ByteArray(11)),
-                ByteArrayOutputStream()
-            )
+            crypto.decryptStream(ByteArrayInputStream(ByteArray(11)), ByteArrayOutputStream())
         }
     }
 
     @Test
-    fun testPinFormatIsStrictlyBounded() {
-        assertTrue(cryptoSecurityManager.isValidPinFormat("1234"))
-        assertTrue(cryptoSecurityManager.isValidPinFormat("123456"))
-        assertFalse(cryptoSecurityManager.isValidPinFormat("123"))
-        assertFalse(cryptoSecurityManager.isValidPinFormat("1234567"))
-        assertFalse(cryptoSecurityManager.isValidPinFormat("12a4"))
-        assertFalse(cryptoSecurityManager.isValidPinFormat(""))
+    fun pinFormatIsStrictlyBounded() {
+        assertTrue(crypto.isValidPinFormat("1234"))
+        assertTrue(crypto.isValidPinFormat("123456"))
+        assertFalse(crypto.isValidPinFormat("123"))
+        assertFalse(crypto.isValidPinFormat("1234567"))
+        assertFalse(crypto.isValidPinFormat("12a4"))
+        assertFalse(crypto.isValidPinFormat(""))
+    }
+
+    @Test
+    fun realAndDecoyPinsRemainDistinct() {
+        assertTrue(crypto.setupVaultPin("2468"))
+        assertFalse("A decoy PIN must not equal the real PIN", crypto.setupDecoyPin("2468"))
+        assertFalse(crypto.isDecoyVaultConfigured())
+        assertTrue(crypto.setupDecoyPin("654321"))
+
+        assertEquals(
+            CryptoSecurityManager.VaultAuthResult.SUCCESS_REAL,
+            crypto.verifyVaultPinWithResult("2468")
+        )
+        assertEquals(
+            CryptoSecurityManager.VaultAuthResult.SUCCESS_DECOY,
+            crypto.verifyVaultPinWithResult("654321")
+        )
+        assertFalse(crypto.verifyDecoyPin("2468"))
+        assertTrue(crypto.verifyDecoyPin("654321"))
+        assertTrue(crypto.verifyVaultPinWithResult("1357") is CryptoSecurityManager.VaultAuthResult.INVALID_PIN)
+    }
+
+    @Test
+    fun pinMetadataPersistsAcrossFreshManagerInstance() {
+        assertTrue(crypto.setupVaultPin("2468"))
+        assertTrue(crypto.setupDecoyPin("654321"))
+
+        val freshManager = CryptoSecurityManager(context, "Robolectric")
+        assertEquals(
+            CryptoSecurityManager.VaultAuthResult.SUCCESS_REAL,
+            freshManager.verifyVaultPinWithResult("2468")
+        )
+        assertEquals(
+            CryptoSecurityManager.VaultAuthResult.SUCCESS_DECOY,
+            freshManager.verifyVaultPinWithResult("654321")
+        )
+    }
+
+    @Test
+    fun removingDecoyPinDisablesDecoyAuthentication() {
+        assertTrue(crypto.setupVaultPin("2468"))
+        assertTrue(crypto.setupDecoyPin("654321"))
+        assertTrue(crypto.verifyDecoyPin("654321"))
+
+        assertTrue(crypto.removeDecoyPin())
+        assertFalse(crypto.isDecoyVaultConfigured())
+        assertFalse(crypto.verifyDecoyPin("654321"))
+    }
+
+    @Test
+    fun repeatedInvalidPinsTriggerConfiguredLockout() {
+        assertTrue(crypto.setupVaultPin("2468"))
+
+        var lastFailure: CryptoSecurityManager.VaultAuthResult.INVALID_PIN? = null
+        repeat(5) {
+            val result = crypto.verifyVaultPinWithResult("1357")
+            assertTrue(result is CryptoSecurityManager.VaultAuthResult.INVALID_PIN)
+            lastFailure = result as CryptoSecurityManager.VaultAuthResult.INVALID_PIN
+        }
+        assertEquals(5, lastFailure?.failedAttempts)
+        assertEquals(30, lastFailure?.lockoutSeconds)
+
+        val blockedCorrectPin = crypto.verifyVaultPinWithResult("2468")
+        assertTrue(blockedCorrectPin is CryptoSecurityManager.VaultAuthResult.LOCKED_OUT)
+        assertTrue(crypto.getRemainingLockoutSeconds() in 1..30)
+    }
+
+    @Test
+    fun wipeBufferOverwritesEveryByte() {
+        val buffer = byteArrayOf(1, 2, 3)
+        crypto.wipeBuffer(buffer)
+
+        assertTrue(buffer.all { it == 0.toByte() })
+    }
+
+    private fun clearTestState() {
+        CryptoSecurityManager.clearInMemoryKeysForTests()
+        context.getSharedPreferences("vvf_secure_vault_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+        listOf(
+            "vvf_db_enc_passphrase_v2.bin",
+            "vvf_db_enc_passphrase.bin",
+            "vvf_db_passphrase_iv.bin",
+            "vvf_db_enc_passphrase_v2.bin.tmp"
+        ).forEach { File(context.filesDir, it).delete() }
     }
 
     private fun assertThrowsSecurityFailure(block: () -> Unit) {
