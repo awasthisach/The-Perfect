@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
   id-token: write
   attestations: write
 
@@ -26,6 +27,31 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Require successful ORT evidence for this exact commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          RUN_ID="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/nightly-ort.yml/runs?head_sha=${GITHUB_SHA}&status=success&per_page=10" --jq '.workflow_runs[] | select(.head_sha == env.GITHUB_SHA) | .id' | head -n 1)"
+          if [ -z "$RUN_ID" ]; then
+            echo "::error::No successful nightly ORT scan exists for exact commit ${GITHUB_SHA}; run Nightly ORT Compliance Scan on this same commit and resolve all findings."
+            exit 1
+          fi
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name ort-results-evidence --dir ort-evidence
+          test -s ort-evidence/ort-status.json || { echo "::error::ORT status artifact is missing"; exit 1; }
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          status = json.loads(Path("ort-evidence/ort-status.json").read_text(encoding="utf-8"))
+          if status.get("status") != "PASS":
+              raise SystemExit(f"ORT is not PASS: {status.get('status')!r}; {status.get('reason')!r}")
+          if status.get("scan_revision") != os.environ["GITHUB_SHA"]:
+              raise SystemExit("ORT evidence SHA does not match this release commit")
+          PY
+          python3 tools/audit/verify_ort_outputs.py --results-dir ort-evidence/results --revision "$GITHUB_SHA"
+          cp ort-evidence/ort-status.json ort-status.json
 
       - name: Set up JDK 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
@@ -139,11 +165,12 @@ jobs:
           format: spdx-json
           output-file: release-meta/sbom.spdx.json
 
-      - name: Fail-closed release gate (CPAS + APK)
+      - name: Fail-closed release gate (CPAS + ORT + APK)
         run: |
           set -euo pipefail
           python3 tools/audit/release_gate.py \
             --cpas-status cpas-status.json \
+            --ort-status ort-status.json \
             --apk "${{ steps.apk.outputs.path }}"
 
       - name: Upload signed release APK + metadata
@@ -154,6 +181,7 @@ jobs:
             **/build/outputs/apk/release/*.apk
             release-meta/**
             cpas-status.json
+            ort-status.json
           if-no-files-found: error
           retention-days: 30
 
