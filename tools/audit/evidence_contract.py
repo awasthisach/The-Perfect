@@ -16,7 +16,7 @@ REPOSITORY = 'awasthisach/The-Perfect'
 # Explicit test classes, not a job-wide PASS flag. Adding claims requires review.
 CONTROLS = {
     'STORAGE-INV-001': ('STORAGE-TEST-001', ['com.vvf.smartmanager.core.data.storage.StorageBoundaryTest']),
-    'STORAGE-INV-002': ('STORAGE-TEST-002', ['com.vvf.smartmanager.core.data.storage.StorageBoundaryTest']),
+    'STORAGE-INV-002': ('STORAGE-TEST-002', ['com.vvf.smartmanager.core.data.storage.StorageReadPathTest']),
     'RESTORE-INV-001': ('RESTORE-TEST-001', ['com.vvf.smartmanager.core.domain.restore.FailClosedRestorePipelineTest', 'com.vvf.smartmanager.core.domain.restore.impl.LocalRestoreApplierTest', 'com.vvf.smartmanager.core.domain.restore.impl.Sha256BackupVerifierTest']),
     'WORK-INV-001': ('WORK-TEST-001', ['com.vvf.smartmanager.core.background.BackgroundSyncManagerTest', 'com.vvf.smartmanager.core.domain.cloud.DurableUploadContractTest']),
     'DB-INV-001': ('DB-TEST-001', ['com.vvf.smartmanager.core.database.EncryptedDatabaseLifecycleTest']),
@@ -55,8 +55,11 @@ def validate_entry(entry, candidate: str, now=None) -> None:
     if not start.tzinfo or not end.tzinfo or not start <= now < end or now-start > max_age or end-start > max_age:
         raise ValueError('stale, future or invalid evidence dates')
     scope = 'database' if control == 'DB-INV-001' else 'unit'
-    if entry.get('scope') != scope or entry.get('artifact') != SOURCES[scope][3]:
+    if entry.get('scope') != scope or entry.get('artifact') != SOURCES[scope][3] or entry.get('ci_job_id') != SOURCES[scope][1]:
         raise ValueError('job cannot claim this control')
+    for report in entry.get('reports', []) or []:
+        if not isinstance(report, dict) or not isinstance(report.get('sha256'), str) or len(report['sha256']) != 64 or any(c not in '0123456789abcdef' for c in report['sha256']) or report.get('path') != f"reports/{report['sha256']}.xml":
+            raise ValueError('invalid report identity')
     if not str(entry.get('ci_run_id', '')).isdigit() or not isinstance(entry.get('reports'), list) or not entry['reports']:
         raise ValueError('missing run or reports')
 
