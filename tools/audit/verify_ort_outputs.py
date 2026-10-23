@@ -31,6 +31,13 @@ def validate_outputs(results_dir: Path) -> list[str]:
         elif path.stat().st_size == 0:
             problems.append(f"{name}: empty")
 
+    ort_sections = {
+        "analyzer-result.json": ("analyzer", "result"),
+        "scan-result.json": ("scanner", "scanResults"),
+        "evaluation-result.json": ("evaluator", "violations"),
+        "advisor-result.json": ("advisor", "results"),
+    }
+
     for name in RESULT_JSON_FILES + ("bom.cyclonedx.json", "bom.spdx.json"):
         path = results_dir / name
         if not path.is_file() or path.stat().st_size == 0:
@@ -42,6 +49,32 @@ def validate_outputs(results_dir: Path) -> list[str]:
             continue
         if not isinstance(data, dict) or not data:
             problems.append(f"{name}: expected a non-empty JSON object")
+            continue
+
+        if name in ort_sections:
+            # ORT serializes each stage as an OrtResult with a repository and the
+            # stage-specific run. A generic JSON object such as {"result": true}
+            # is not evidence that ORT actually ran.
+            repository = data.get("repository")
+            if not isinstance(repository, dict) or not isinstance(repository.get("vcs"), dict) or not isinstance(repository.get("config"), dict):
+                problems.append(f"{name}: missing valid ORT repository metadata")
+                continue
+
+            section_name, result_name = ort_sections[name]
+            section = data.get(section_name)
+            if not isinstance(section, dict) or not isinstance(section.get(result_name), (dict, list)):
+                problems.append(f"{name}: missing valid ORT {section_name}.{result_name} data")
+                continue
+            if name == "analyzer-result.json":
+                analyzer_result = section[result_name]
+                if not isinstance(analyzer_result.get("projects"), list) or not isinstance(analyzer_result.get("packages"), list):
+                    problems.append(f"{name}: analyzer result must include projects and packages lists")
+            elif name == "scan-result.json" and not isinstance(section[result_name], list):
+                problems.append(f"{name}: scanner scanResults must be a list")
+            elif name == "evaluation-result.json" and not isinstance(section[result_name], list):
+                problems.append(f"{name}: evaluator violations must be a list")
+            elif name == "advisor-result.json" and not isinstance(section[result_name], dict):
+                problems.append(f"{name}: advisor results must be an object")
         elif name == "bom.cyclonedx.json" and data.get("bomFormat") != "CycloneDX":
             problems.append(f"{name}: bomFormat is not CycloneDX")
         elif name == "bom.spdx.json" and not str(data.get("spdxVersion", "")).startswith("SPDX-"):
