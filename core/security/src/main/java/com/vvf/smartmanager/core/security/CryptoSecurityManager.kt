@@ -213,25 +213,37 @@ class CryptoSecurityManager(
                 )
             }
 
-            writeV2DatabasePassphraseAtomically(v2File, migratedPassphrase)
-            val verified = readV2DatabasePassphrase(v2File)
-            if (!MessageDigest.isEqual(migratedPassphrase, verified)) {
-                throw SecurityException("Secure database passphrase migration verification failed")
+            try {
+                writeV2DatabasePassphraseAtomically(v2File, migratedPassphrase)
+                verifyPersistedPassphrase(v2File, migratedPassphrase)
+                check(legacyEncFile.delete()) { "Failed to remove legacy encrypted database passphrase" }
+                check(legacyIvFile.delete()) { "Failed to remove legacy database passphrase IV" }
+                return migratedPassphrase
+            } catch (error: Throwable) {
+                migratedPassphrase.fill(0)
+                throw error
             }
-
-            check(legacyEncFile.delete()) { "Failed to remove legacy encrypted database passphrase" }
-            check(legacyIvFile.delete()) { "Failed to remove legacy database passphrase IV" }
-            return migratedPassphrase
         }
 
         val freshPassphrase = ByteArray(DB_KEY_LENGTH_BYTES)
         SecureRandom().nextBytes(freshPassphrase)
-        writeV2DatabasePassphraseAtomically(v2File, freshPassphrase)
-        val verified = readV2DatabasePassphrase(v2File)
-        if (!MessageDigest.isEqual(freshPassphrase, verified)) {
-            throw SecurityException("Secure database passphrase write verification failed")
+        try {
+            writeV2DatabasePassphraseAtomically(v2File, freshPassphrase)
+            verifyPersistedPassphrase(v2File, freshPassphrase)
+            return freshPassphrase
+        } catch (error: Throwable) {
+            freshPassphrase.fill(0)
+            throw error
         }
-        return freshPassphrase
+    }
+
+    private fun verifyPersistedPassphrase(file: File, expected: ByteArray) {
+        val verified = readV2DatabasePassphrase(file)
+        try {
+            check(MessageDigest.isEqual(expected, verified)) { "Secure database passphrase verification failed" }
+        } finally {
+            verified.fill(0)
+        }
     }
 
     private fun readV2DatabasePassphrase(file: File): ByteArray {

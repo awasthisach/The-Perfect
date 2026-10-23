@@ -72,6 +72,12 @@ class CryptoSecurityManagerTest {
 
         val passphrase2 = cryptoSecurityManager.getOrCreateDatabasePassphrase()
         assertArrayEquals(passphrase1, passphrase2)
+        assertTrue(passphrase1.any { it != 0.toByte() })
+        passphrase1.fill(0)
+        val reopened = cryptoSecurityManager.getOrCreateDatabasePassphrase()
+        assertArrayEquals(passphrase2, reopened)
+        passphrase2.fill(0)
+        reopened.fill(0)
     }
 
     @Test
