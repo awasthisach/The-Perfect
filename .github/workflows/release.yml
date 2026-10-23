@@ -15,6 +15,7 @@ on:
 permissions:
   contents: read
   actions: read
+  checks: read
   id-token: write
   attestations: write
 
@@ -28,7 +29,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - name: Require all candidate build, native and Worker checks
+      - name: Require candidate build, native, Worker and CodeQL checks
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python3 tools/audit/require_workflow_runs.py --revision "$GITHUB_SHA"
