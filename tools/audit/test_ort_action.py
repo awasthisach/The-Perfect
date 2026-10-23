@@ -155,25 +155,26 @@ class OrtActionRegressionTest(unittest.TestCase):
         )
 
 
-    def test_ort_cache_restores_versioned_cache_then_legacy_fallback(self):
-        for workflow_name in ("ci.yml", "release.yml"):
-            workflow = (
-                ROOT / ".github" / "workflows" / workflow_name
-            ).read_text(encoding="utf-8")
-            with self.subTest(workflow=workflow_name):
-                self.assertIn("restore-keys: |", workflow)
-                restore_keys = workflow.split("restore-keys: |", 1)[1].split("\n\n", 1)[0]
-                self.assertIn("ort-scan-results-v2-", restore_keys)
-                self.assertIn("ort-scan-results-v1-", restore_keys)
-                self.assertLess(
-                    restore_keys.index("ort-scan-results-v2-"),
-                    restore_keys.index("ort-scan-results-v1-"),
-                    "Current dependency-scoped cache must be preferred before legacy fallback",
-                )
-                self.assertIn(
-                    "Legacy cache fallback: prior runs saved scanner state under v1.",
-                    workflow,
-                )
+    def test_ort_cache_is_used_only_by_release_workflow(self):
+        ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        release = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+
+        self.assertNotIn("ort-scan-results-v2-", ci)
+        self.assertNotIn("ort-scan-results-v1-", ci)
+
+        self.assertIn("restore-keys: |", release)
+        restore_keys = release.split("restore-keys: |", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("ort-scan-results-v2-", restore_keys)
+        self.assertIn("ort-scan-results-v1-", restore_keys)
+        self.assertLess(
+            restore_keys.index("ort-scan-results-v2-"),
+            restore_keys.index("ort-scan-results-v1-"),
+            "Current dependency-scoped cache must be preferred before legacy fallback",
+        )
+        self.assertIn(
+            "Legacy cache fallback: prior runs saved scanner state under v1.",
+            release,
+        )
 
 
 if __name__ == "__main__":
