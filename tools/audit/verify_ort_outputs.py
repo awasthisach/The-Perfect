@@ -7,6 +7,7 @@ import json
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from urllib.parse import urlsplit
 
 RESULT_JSON_FILES = (
     "analyzer-result.json",
@@ -20,6 +21,18 @@ REQUIRED_OUTPUTS = RESULT_JSON_FILES + (
     "bom.spdx.json",
     "bom.spdx.yml",
 )
+
+
+def valid_document_namespace(value: object) -> bool:
+    # SPDX uses an absolute URI without a fragment, not necessarily an HTTP URL.
+    # ORT 97.2.0 emits spdx://<uuid> by default.
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9+.-]*:[^\s\"'<>#]+", value):
+        return False
+    try:
+        uri = urlsplit(value)
+    except ValueError:
+        return False
+    return bool(uri.netloc) if value.partition(":")[2].startswith("//") else bool(uri.path)
 
 
 def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str]:
@@ -101,6 +114,8 @@ def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str
             ]
             if missing_fields:
                 problems.append(f"{name}: missing required SPDX fields: {', '.join(missing_fields)}")
+            if not valid_document_namespace(data.get("documentNamespace")):
+                problems.append(f"{name}: invalid documentNamespace URI")
             if not str(data.get("spdxVersion", "")).startswith("SPDX-"):
                 problems.append(f"{name}: missing valid spdxVersion")
             if data.get("SPDXID") != "SPDXRef-DOCUMENT":
@@ -129,9 +144,22 @@ def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str
                 "spdxVersion": r"(?m)^spdxVersion:\s*['\"]?SPDX-\d+\.\d+['\"]?\s*$",
                 "SPDXID": r"(?m)^SPDXID:\s*['\"]?SPDXRef-DOCUMENT['\"]?\s*$",
                 "name": r"(?m)^name:\s*\S",
-                "documentNamespace": r"(?m)^documentNamespace:\s*https?://\S+",
                 "packages": r"(?m)^packages:\s*(?:\[\]|\s*)$",
             }
+            namespace_match = re.search(
+                r"""(?m)^documentNamespace:[ \t]*(?:"([^"\r\n]*)"|'([^'\r\n]*)'|([^ \t\r\n#]+))[ \t]*$""",
+                yaml_text,
+            )
+            namespace = next((value for value in namespace_match.groups() if value is not None), None) if namespace_match else None
+            if not valid_document_namespace(namespace):
+                problems.append("bom.spdx.yml: missing or invalid documentNamespace field")
+            else:
+                try:
+                    json_namespace = json.loads((results_dir / "bom.spdx.json").read_text(encoding="utf-8")).get("documentNamespace")
+                except (OSError, UnicodeError, ValueError, AttributeError):
+                    json_namespace = None
+                if namespace != json_namespace:
+                    problems.append("bom.spdx.yml: documentNamespace differs from JSON SBOM")
             for field, pattern in required_yaml_patterns.items():
                 if not re.search(pattern, yaml_text):
                     problems.append(f"bom.spdx.yml: missing or invalid {field} field")

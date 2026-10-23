@@ -61,6 +61,28 @@ class OrtOutputValidationTest(unittest.TestCase):
             encoding="utf-8",
         )
 
+    def test_actual_ort_97_2_quoted_spdx_namespace_is_accepted(self):
+        # Observed in actual Reporter output, not inferred from a synthetic HTTP fixture.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            namespace = "spdx://e42700c9-3165-461e-bf18-eb2bd5ac2593"
+            report = json.loads((root / "bom.spdx.json").read_text())
+            report["documentNamespace"] = namespace
+            (root / "bom.spdx.json").write_text(json.dumps(report))
+            yaml = (root / "bom.spdx.yml").read_text()
+            (root / "bom.spdx.yml").write_text(yaml.replace("https://example.invalid/sbom/test", '"' + namespace + '"'))
+            self.assertEqual([], validate_outputs(root))
+
+    def test_invalid_or_inconsistent_spdx_namespaces_fail_closed(self):
+        for namespace in ("", "relative/path", "spdx://", "spdx://uuid#fragment", "spdx://bad space", "https://different.invalid"):
+            with self.subTest(namespace=namespace), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                self.write_valid_reports(root)
+                yaml = (root / "bom.spdx.yml").read_text()
+                (root / "bom.spdx.yml").write_text(yaml.replace("https://example.invalid/sbom/test", '"' + namespace + '"'))
+                self.assertTrue(any("documentNamespace" in p for p in validate_outputs(root)))
+
     def test_missing_reports_fail_closed(self):
         with tempfile.TemporaryDirectory() as directory:
             problems = validate_outputs(Path(directory))
