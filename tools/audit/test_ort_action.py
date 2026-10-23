@@ -52,8 +52,18 @@ class OrtActionRegressionTest(unittest.TestCase):
     def test_ort_output_gate_validates_result_json_and_sbom_formats(self):
         with tempfile.TemporaryDirectory() as directory:
             results_dir = Path(directory)
-            for name in RESULT_JSON_FILES:
-                (results_dir / name).write_text('{"result": true}', encoding="utf-8")
+            repository = {
+                "vcs": {"type": "Git", "url": "https://github.com/awasthisach/The-Perfect", "revision": "abc123"},
+                "config": {},
+            }
+            fixtures = {
+                "analyzer-result.json": {"repository": repository, "analyzer": {"result": {"projects": [], "packages": []}}},
+                "scan-result.json": {"repository": repository, "scanner": {"scanResults": []}},
+                "evaluation-result.json": {"repository": repository, "evaluator": {"violations": []}},
+                "advisor-result.json": {"repository": repository, "advisor": {"results": {}}},
+            }
+            for name, payload in fixtures.items():
+                (results_dir / name).write_text(json.dumps(payload), encoding="utf-8")
             (results_dir / "bom.cyclonedx.json").write_text(
                 '{"bomFormat": "CycloneDX", "components": []}', encoding="utf-8"
             )
@@ -74,6 +84,15 @@ class OrtActionRegressionTest(unittest.TestCase):
             )
             self.assertTrue(
                 any("bom.spdx.json: missing valid spdxVersion" in issue
+                    for issue in validate_outputs(results_dir))
+            )
+
+            # A syntactically valid but fake ORT JSON object is not a valid scan result.
+            (results_dir / "analyzer-result.json").write_text(
+                '{"result": true}', encoding="utf-8"
+            )
+            self.assertTrue(
+                any("analyzer-result.json: missing valid ORT repository metadata" in issue
                     for issue in validate_outputs(results_dir))
             )
 
