@@ -74,14 +74,29 @@ class OrtOutputValidationTest(unittest.TestCase):
             (root / "bom.spdx.yml").write_text(yaml.replace("https://example.invalid/sbom/test", '"' + namespace + '"'))
             self.assertEqual([], validate_outputs(root))
 
-    def test_invalid_or_inconsistent_spdx_namespaces_fail_closed(self):
-        for namespace in ("", "relative/path", "spdx://", "spdx://uuid#fragment", "spdx://bad space", "https://different.invalid"):
+    def test_invalid_matching_spdx_namespaces_fail_closed(self):
+        for namespace in ("", "relative/path", "spdx://", "spdx://uuid#fragment", "spdx://bad space"):
             with self.subTest(namespace=namespace), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 self.write_valid_reports(root)
                 yaml = (root / "bom.spdx.yml").read_text()
                 (root / "bom.spdx.yml").write_text(yaml.replace("https://example.invalid/sbom/test", '"' + namespace + '"'))
-                self.assertTrue(any("documentNamespace" in p for p in validate_outputs(root)))
+                report = json.loads((root / "bom.spdx.json").read_text())
+                report["documentNamespace"] = namespace
+                (root / "bom.spdx.json").write_text(json.dumps(report))
+                problems = validate_outputs(root)
+                self.assertIn("bom.spdx.json: invalid documentNamespace URI", problems)
+                self.assertIn("bom.spdx.yml: missing or invalid documentNamespace field", problems)
+
+    def test_valid_but_inconsistent_spdx_namespaces_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            yaml = (root / "bom.spdx.yml").read_text()
+            (root / "bom.spdx.yml").write_text(yaml.replace(
+                "https://example.invalid/sbom/test", "https://different.invalid"))
+            self.assertEqual(["bom.spdx.yml: documentNamespace differs from JSON SBOM"],
+                             validate_outputs(root))
 
     def test_missing_reports_fail_closed(self):
         with tempfile.TemporaryDirectory() as directory:
