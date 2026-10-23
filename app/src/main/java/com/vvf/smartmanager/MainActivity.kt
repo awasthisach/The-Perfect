@@ -122,7 +122,7 @@ class MainActivity : FragmentActivity() {
             )
             val token = result.getOrNull()
             if (token != null) {
-                app.googleDriveService.setAccessToken(token)
+
                 val accountEmail = googleDriveAuth.getMatchingAccountEmail().getOrNull()
                 if (!accountEmail.isNullOrBlank()) {
                     try {

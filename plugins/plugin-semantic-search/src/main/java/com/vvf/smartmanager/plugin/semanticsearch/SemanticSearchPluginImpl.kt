@@ -10,6 +10,9 @@ import com.vvf.smartmanager.core.plugin.spi.SemanticSearchSPI
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.atomic.AtomicLong
 import java.security.MessageDigest
 import java.util.LinkedHashMap
 
@@ -44,8 +47,12 @@ class SemanticSearchPluginImpl(
         return embeddingClient.hasSignedInUser()
     }
 
+    private val privacyGeneration = AtomicLong()
+    private val persistenceMutex = Mutex()
+
     /** Abort active remote calls before clearing vectors when consent is revoked. */
     fun cancelPendingEmbeddingRequests() {
+        synchronized(vectorCache) { privacyGeneration.incrementAndGet() }
         embeddingClient.cancelPendingRequests()
     }
 
@@ -56,7 +63,7 @@ class SemanticSearchPluginImpl(
 
     /** Remove persistent vectors when consent is revoked or the linked account is cleared. */
     suspend fun clearPersistedEmbeddings() {
-        vectorStore?.clear()
+        persistenceMutex.withLock { vectorStore?.clear() }
     }
 
     override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean = withContext(Dispatchers.IO) {
@@ -70,6 +77,7 @@ class SemanticSearchPluginImpl(
 
     override suspend fun generateEmbedding(text: String): FloatArray = withContext(Dispatchers.IO) {
         if (!isModelReady() || text.isBlank()) return@withContext FloatArray(0)
+        val generation = privacyGeneration.get()
         val cleanText = text.take(CloudflareEmbeddingClient.MAX_TEXT_CHARS)
         val key = cacheKey(cleanText)
         cached(key)?.let { return@withContext it }
@@ -77,7 +85,7 @@ class SemanticSearchPluginImpl(
             ensureConsent()
             val vector = embeddingClient.embed(listOf(cleanText), "document").single()
             ensureConsent()
-            cache(key, vector)
+            cache(key, vector, generation)
             vector
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -213,6 +221,7 @@ class SemanticSearchPluginImpl(
         candidates: List<SemanticCandidate>,
         embedMissing: Boolean = true
     ): EmbeddingBatchResult {
+        val generation = privacyGeneration.get()
         ensureConsent()
         val fullContentConsentAtStart = isFullContentConsentGranted()
         // A search may have loaded rows just before full-content consent was revoked. Sanitize
@@ -272,7 +281,7 @@ class SemanticSearchPluginImpl(
                 } else {
                     val persisted = persistedByPath[candidate.fileItem.path]
                     if (persisted != null && persisted.size == CloudflareEmbeddingClient.EMBEDDING_DIMENSION) {
-                        cache(key, persisted)
+                        cache(key, persisted, generation)
                         output[index] = candidate.copy(embedding = persisted)
                     } else if (embedMissing) {
                         pendingIndices.add(index)
@@ -297,7 +306,7 @@ class SemanticSearchPluginImpl(
             chunk.forEachIndexed { localIndex, sourceIndex ->
                 val vector = vectors[localIndex]
                 val key = pendingKeys[sourceIndex]
-                cache(key, vector)
+                cache(key, vector, generation)
                 output[pendingIndices[sourceIndex]] = output[pendingIndices[sourceIndex]].copy(embedding = vector)
                 recordsToPersist.add(
                     EmbeddingVectorRecord(
@@ -314,7 +323,10 @@ class SemanticSearchPluginImpl(
                 if (fullContentConsentAtStart && !isFullContentConsentGranted() &&
                     recordsToPersist.any { it.filePath in fullContentPaths }
                 ) throw CancellationException("Full-content consent revoked")
-                vectorStore?.putAll(recordsToPersist)
+                persistenceMutex.withLock {
+                    ensureGeneration(generation)
+                    vectorStore?.putAll(recordsToPersist)
+                }
                 recordsToPersist.clear()
             }
         }
@@ -323,12 +335,20 @@ class SemanticSearchPluginImpl(
             if (fullContentConsentAtStart && !isFullContentConsentGranted() &&
                 batch.any { it.filePath in fullContentPaths }
             ) throw CancellationException("Full-content consent revoked")
-            vectorStore?.putAll(batch)
+            persistenceMutex.withLock {
+                ensureGeneration(generation)
+                vectorStore?.putAll(batch)
+            }
         }
         if (fullContentConsentAtStart && !isFullContentConsentGranted() &&
             safeCandidates.any { isFullContentFile(it.fileItem) }
         ) throw CancellationException("Full-content consent revoked")
         return EmbeddingBatchResult(output, pendingTexts.size)
+    }
+
+    private fun ensureGeneration(generation: Long) {
+        ensureConsent()
+        if (privacyGeneration.get() != generation) throw CancellationException("Embedding session changed")
     }
 
     private fun ensureConsent() {
@@ -376,8 +396,8 @@ class SemanticSearchPluginImpl(
 
     private fun cached(key: String): FloatArray? = synchronized(vectorCache) { vectorCache[key]?.copyOf() }
 
-    private fun cache(key: String, vector: FloatArray) {
-        synchronized(vectorCache) { vectorCache[key] = vector.copyOf() }
+    private fun cache(key: String, vector: FloatArray, generation: Long = privacyGeneration.get()) {
+        synchronized(vectorCache) { ensureGeneration(generation); vectorCache[key] = vector.copyOf() }
     }
 
     companion object {

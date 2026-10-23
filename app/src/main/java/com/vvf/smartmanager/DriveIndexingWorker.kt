@@ -17,6 +17,7 @@ import com.vvf.smartmanager.core.model.OcrOptions
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withLock
 
 /**
  * User-authorized Google Drive index sync. Tokens are reacquired silently from the existing
@@ -30,7 +31,7 @@ class DriveIndexingWorker(
     workerParams: WorkerParameters
 ) : CoroutineWorker(appContext, workerParams) {
 
-    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+    override suspend fun doWork(): Result = DriveIndexCoordinator.mutex.withLock { withContext(Dispatchers.IO) {
         val app = applicationContext as? VVFApplication
             ?: return@withContext Result.failure(workDataOf("reason" to "Application composition root unavailable"))
         if (BuildConfig.GOOGLE_WEB_CLIENT_ID.isBlank() ||
@@ -45,7 +46,7 @@ class DriveIndexingWorker(
             saveStatus(app, "SIGN_IN_REQUIRED", 0, false, "Google Drive sign-in is required to continue indexing.")
             return@withContext Result.failure(workDataOf("reason" to "Sign in to Google Drive again to resume indexing"))
         }
-        app.googleDriveService.setAccessToken(token)
+
         app.publishDriveIndexStatus("SYNCING", 0, false, "Preparing Drive index sync")
 
         try {
@@ -228,6 +229,8 @@ class DriveIndexingWorker(
             if (runAttemptCount < 5) Result.retry()
             else Result.failure(workDataOf("reason" to "Drive indexing failed; last committed cursor was preserved"))
         }
+    }
+
     }
 
     private suspend fun upsertDriveFile(

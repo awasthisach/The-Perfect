@@ -41,11 +41,22 @@ data class FilePathSnapshot(
 @Dao
 interface FileDao {
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertOrUpdate(file: FileMetadataEntity): Long
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertNew(file: FileMetadataEntity): Long
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertAll(files: List<FileMetadataEntity>)
+    /** Preserve the parent row identity: REPLACE deletes it and cascades vector deletion. */
+    @Transaction
+    suspend fun insertOrUpdate(file: FileMetadataEntity): Long {
+        val existing = getByPath(file.path)
+        if (existing == null) return insertNew(file)
+        update(file.copy(id = existing.id))
+        return existing.id
+    }
+
+    @Transaction
+    suspend fun insertAll(files: List<FileMetadataEntity>) {
+        files.forEach { insertOrUpdate(it) }
+    }
 
     @Update
     suspend fun update(file: FileMetadataEntity)

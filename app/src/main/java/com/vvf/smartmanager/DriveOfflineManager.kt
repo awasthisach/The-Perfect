@@ -37,7 +37,7 @@ class DriveOfflineManager(private val context: Context) {
         val token = auth.silentRefreshDriveAccessToken().getOrElse {
             return@withContext Result.failure(IllegalStateException("Reconnect the same Google account before pinning files offline"))
         }
-        app.googleDriveService.setAccessToken(token)
+
 
         val directory = File(app.filesDir, "drive-offline").apply { mkdirs() }
         val staging = File.createTempFile("drive_pin_", ".staging", directory)

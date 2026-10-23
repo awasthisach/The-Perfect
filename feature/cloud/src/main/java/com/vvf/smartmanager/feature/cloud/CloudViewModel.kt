@@ -103,7 +103,7 @@ class CloudViewModel(
                 }
                 return@launch
             }
-            googleDriveService.setAccessToken(token)
+
             val authentication = cloudSyncUseCase.authenticateProvider(CloudProviderType.GOOGLE_DRIVE)
             if (authentication.getOrDefault(false)) {
                 val updated = cloudSyncUseCase.getAccount(CloudProviderType.GOOGLE_DRIVE)

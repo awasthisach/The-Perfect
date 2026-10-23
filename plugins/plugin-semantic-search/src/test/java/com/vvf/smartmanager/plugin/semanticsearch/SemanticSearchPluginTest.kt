@@ -5,6 +5,8 @@ import com.vvf.smartmanager.core.model.SemanticCandidate
 import com.vvf.smartmanager.core.model.SemanticSearchOptions
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -13,6 +15,38 @@ import java.io.IOException
 import org.junit.Test
 
 class SemanticSearchPluginTest {
+
+    @Test
+    fun revocationWaitsForRegisteredWriterThenDeletesAllVectors() = runBlocking {
+        var consent = true
+        var rows = 0
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val store = object : EmbeddingVectorStore {
+            override suspend fun get(filePath: String, contentHash: String, modelVersion: String): FloatArray? = null
+            override suspend fun put(filePath: String, contentHash: String, modelVersion: String, vector: FloatArray) {
+                entered.complete(Unit); release.await(); rows++
+            }
+            override suspend fun clear() { rows = 0 }
+        }
+        val client = object : EmbeddingClient {
+            override fun cancelPendingRequests() = Unit
+            override fun hasSignedInUser() = true
+            override suspend fun healthCheck() = true
+            override suspend fun embed(texts: List<String>, mode: String) = texts.map { floatArrayOf(1f, 0f) }
+        }
+        val plugin = SemanticSearchPluginImpl(client, store, { consent })
+        val writer = launch { plugin.indexCandidates(listOf(SemanticCandidate(
+            FileItem(path="gdrive://synthetic", name="a.txt", sizeBytes=1, lastModified=1, isDirectory=false), "text"))) }
+        entered.await()
+        consent = false
+        plugin.cancelPendingEmbeddingRequests()
+        plugin.clearCachedEmbeddings()
+        val cleanup = launch { plugin.clearPersistedEmbeddings() }
+        release.complete(Unit)
+        writer.join(); cleanup.join()
+        assertEquals(0, rows)
+    }
 
     @Test
     fun cloudflareTransportDefaultsToDeniedUntilExplicitConsent() = runBlocking {

@@ -50,7 +50,21 @@ class GoogleDriveServiceImpl(
         totalBytes = 0L
     )
 
+    private var generation = 0L
+
+    @Synchronized
+    override fun tokenGeneration(): Long = generation
+
+    @Synchronized
+    override fun publishAccessToken(token: String, generation: Long): Boolean {
+        if (this.generation != generation) return false
+        setAccessToken(token)
+        return true
+    }
+
+    @Synchronized
     override fun setAccessToken(token: String?) {
+        generation++
         accessToken = token
         tokenIssuedAtMs = if (token.isNullOrBlank()) 0L else System.currentTimeMillis()
         DriveNetwork.setDefaultAccessToken(token)

@@ -1,5 +1,6 @@
 package com.vvf.smartmanager.core.domain
 
+import com.vvf.smartmanager.core.model.matches
 import com.vvf.smartmanager.core.data.FileManagerRepository
 import com.vvf.smartmanager.core.data.SearchRepository
 import com.vvf.smartmanager.core.model.FileItem
@@ -35,7 +36,8 @@ class SemanticSearchUseCase(
 
     suspend fun searchSemantically(
         query: String,
-        options: SemanticSearchOptions = SemanticSearchOptions()
+        options: SemanticSearchOptions = SemanticSearchOptions(),
+        filter: SearchFilter = SearchFilter()
     ): List<SemanticSearchResult> {
         lastSemanticSearchUnavailable = false
         val cleanQuery = query.trim().take(500)
@@ -43,7 +45,7 @@ class SemanticSearchUseCase(
 
         // Local keyword/metadata results are the reliability baseline and remain available offline.
         val lexical = try {
-            searchRepository.searchFiles(cleanQuery, SearchFilter()).first()
+            searchRepository.searchFiles(cleanQuery, filter).first()
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -67,7 +69,7 @@ class SemanticSearchUseCase(
                 lastSemanticSearchUnavailable = true
                 emptyList()
             } else {
-                val recent = searchRepository.getRecentDriveIndexedFiles(CANDIDATE_LIMIT)
+                val recent = searchRepository.getRecentDriveIndexedFiles(CANDIDATE_LIMIT).filter { filter.matches(it) }
                 if (recent.isEmpty()) emptyList()
                 else {
                     val candidates = recent.map { file ->
@@ -79,7 +81,7 @@ class SemanticSearchUseCase(
                             if (file.indexedText.isNotBlank()) append(" ").append(file.indexedText.take(MAX_CANDIDATE_TEXT_CHARS))
                         })
                     }
-                    semanticPlugin.searchSimilar(cleanQuery, candidates, options)
+                    semanticPlugin.searchSimilar(cleanQuery, candidates, options).filter { filter.matches(it.fileItem) }
                 }
             }
         } catch (e: CancellationException) {
