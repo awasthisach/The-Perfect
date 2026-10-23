@@ -62,19 +62,17 @@ def validate_outputs(results_dir: Path) -> list[str]:
 
             section_name, result_name = ort_sections[name]
             section = data.get(section_name)
-            if not isinstance(section, dict) or not isinstance(section.get(result_name), (dict, list)):
-                problems.append(f"{name}: missing valid ORT {section_name}.{result_name} data")
+            expected_type = dict if name in ("analyzer-result.json", "advisor-result.json") else list
+            if not isinstance(section, dict) or not isinstance(section.get(result_name), expected_type):
+                expected_label = "object" if expected_type is dict else "list"
+                problems.append(
+                    f"{name}: missing valid ORT {section_name}.{result_name} {expected_label}"
+                )
                 continue
             if name == "analyzer-result.json":
                 analyzer_result = section[result_name]
                 if not isinstance(analyzer_result.get("projects"), list) or not isinstance(analyzer_result.get("packages"), list):
                     problems.append(f"{name}: analyzer result must include projects and packages lists")
-            elif name == "scan-result.json" and not isinstance(section[result_name], list):
-                problems.append(f"{name}: scanner scanResults must be a list")
-            elif name == "evaluation-result.json" and not isinstance(section[result_name], list):
-                problems.append(f"{name}: evaluator violations must be a list")
-            elif name == "advisor-result.json" and not isinstance(section[result_name], dict):
-                problems.append(f"{name}: advisor results must be an object")
         elif name == "bom.cyclonedx.json" and data.get("bomFormat") != "CycloneDX":
             problems.append(f"{name}: bomFormat is not CycloneDX")
         elif name == "bom.spdx.json" and not str(data.get("spdxVersion", "")).startswith("SPDX-"):
