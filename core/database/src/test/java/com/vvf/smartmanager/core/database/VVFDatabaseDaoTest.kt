@@ -49,6 +49,24 @@ class VVFDatabaseDaoTest {
 
 
     @Test
+    fun unchangedMetadataPreservesVectorAndIdentityWhileDeletionCascades() = runBlocking {
+        val file = FileMetadataEntity(path = "gdrive://account-file", name = "a.txt", parentPath = "gdrive://root",
+            sizeBytes = 1, mimeType = "text/plain", isDirectory = false, modifiedDate = 10, contentText = "same")
+        val id = fileDao.insertOrUpdate(file)
+        val vector = SemanticEmbeddingEntity(file.path, "content-hash", "v4", byteArrayOf(1, 2))
+        database.semanticEmbeddingDao().upsert(vector)
+        assertEquals(id, fileDao.insertOrUpdate(file.copy(isFavorite = true)))
+        assertArrayEquals(vector.vector, database.semanticEmbeddingDao().getByPath(file.path)!!.vector)
+        // A changed hash/version is handled by the vector store; no parent DELETE occurs on update.
+        fileDao.insertOrUpdate(file.copy(contentText = "changed"))
+        assertEquals(id, fileDao.getByPath(file.path)!!.id)
+        fileDao.deleteAllDriveIndexRows()
+        assertNull(database.semanticEmbeddingDao().getByPath(file.path))
+        fileDao.insertOrUpdate(file)
+        assertNull(database.semanticEmbeddingDao().getByPath(file.path))
+    }
+
+    @Test
     fun semanticVectorsPersistInEncryptedRoomTableAndCanBeCleared() = runBlocking {
         val dao = database.semanticEmbeddingDao()
         fileDao.insertOrUpdate(

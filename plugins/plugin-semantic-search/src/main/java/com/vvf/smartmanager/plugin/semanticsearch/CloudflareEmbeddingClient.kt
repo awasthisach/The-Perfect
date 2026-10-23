@@ -43,11 +43,16 @@ class CloudflareEmbeddingClient(
 ) : EmbeddingClient {
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
+    private val dispatchLock = Any()
+    private var consentGeneration = 0L
     private val activeCalls = ConcurrentHashMap.newKeySet<Call>()
 
     /** Cancels active HTTP requests immediately when neural-search consent is revoked. */
     override fun cancelPendingRequests() {
-        activeCalls.forEach { it.cancel() }
+        synchronized(dispatchLock) {
+            consentGeneration++
+            activeCalls.forEach { it.cancel() }
+        }
     }
 
     override fun hasSignedInUser(): Boolean = runCatching { firebaseAuthProvider().currentUser != null }.getOrDefault(false)
@@ -71,6 +76,7 @@ class CloudflareEmbeddingClient(
     }
 
     override suspend fun embed(texts: List<String>, mode: String): List<FloatArray> = withContext(Dispatchers.IO) {
+        val generation = synchronized(dispatchLock) { consentGeneration }
         require(texts.isNotEmpty() && texts.size <= MAX_TEXTS) { "Embedding batch must contain 1–$MAX_TEXTS texts" }
         require(mode == "query" || mode == "document") { "Unsupported embedding mode" }
         require(texts.all { it.isNotBlank() && it.length <= MAX_TEXT_CHARS }) { "Embedding text is empty or too long" }
@@ -105,7 +111,7 @@ class CloudflareEmbeddingClient(
 
         // Keep this check adjacent to dispatch as well as after token refresh.
         if (!isConsentGranted()) throw CancellationException("Embedding consent revoked")
-        execute(request).use { response ->
+        execute(request, generation).use { response ->
             val responseText = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 // Never include tokens or document text in exceptions/logs.
@@ -134,7 +140,12 @@ class CloudflareEmbeddingClient(
     }
 
 
-    private suspend fun execute(request: Request): Response = suspendCancellableCoroutine { continuation ->
+    private suspend fun execute(request: Request, generation: Long? = null): Response = suspendCancellableCoroutine { continuation ->
+        synchronized(dispatchLock) {
+        if (generation != null && (generation != consentGeneration || !isConsentGranted())) {
+            continuation.cancel(CancellationException("Embedding consent revoked"))
+            return@suspendCancellableCoroutine
+        }
         val call = http.newCall(request)
         activeCalls.add(call)
         continuation.invokeOnCancellation {
@@ -152,6 +163,7 @@ class CloudflareEmbeddingClient(
                 continuation.resume(response) { _, value, _ -> value.close() }
             }
         })
+        }
     }
 
     companion object {

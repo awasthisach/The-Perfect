@@ -221,6 +221,7 @@ class GoogleDriveAuth(
     }
 
     private fun accessTokenForAccount(acct: android.accounts.Account?): Result<String> {
+        val generation = driveService?.tokenGeneration()
         if (acct == null) {
             driveService?.setAccessToken(null)
             firebaseAuth.signOut()
@@ -233,15 +234,21 @@ class GoogleDriveAuth(
                 "oauth2:$DRIVE_READONLY_SCOPE $DRIVE_FILE_SCOPE"
             )
             if (token.isNullOrBlank()) {
+                driveService?.setAccessToken(null)
                 Result.failure(
                     IllegalStateException(
                         "No access token. Ensure Drive scope was granted and Play Services is available."
                     )
                 )
             } else {
-                Result.success(token)
+                val currentEmail = firebaseAuth.currentUser?.email?.trim()?.lowercase()
+                if (currentEmail != acct.name.trim().lowercase() || generation == null ||
+                    driveService?.publishAccessToken(token, generation) != true) {
+                    Result.failure(IllegalStateException("Session changed during token acquisition"))
+                } else Result.success(token)
             }
-        } catch (e: CancellationException) { throw e } catch (e: Exception) {
+        } catch (e: CancellationException) { driveService?.setAccessToken(null); throw e } catch (e: Exception) {
+            driveService?.setAccessToken(null)
             Result.failure(e)
         }
     }

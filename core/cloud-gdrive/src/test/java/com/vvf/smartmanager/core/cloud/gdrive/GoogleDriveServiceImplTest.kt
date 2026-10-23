@@ -3,6 +3,7 @@ package com.vvf.smartmanager.core.cloud.gdrive
 import android.content.Context
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -25,6 +26,14 @@ class GoogleDriveServiceImplTest {
         context = RuntimeEnvironment.getApplication()
         service = GoogleDriveServiceImpl(context)
         service.disconnect()
+    }
+
+    @Test
+    fun tokenAcquiredBeforeLogoutCannotBeRepublished() {
+        val generation = service.tokenGeneration()
+        service.setAccessToken(null)
+        assertFalse(service.publishAccessToken("synthetic-stale-token", generation))
+        assertTrue(service.publishAccessToken("synthetic-current-token", service.tokenGeneration()))
     }
 
     @Test

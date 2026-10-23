@@ -126,6 +126,18 @@ class SemanticSearchUseCaseTest {
     }
 
     @Test
+    fun selectedCategoryAlsoRestrictsNeuralCandidatesAndResults() = runBlocking {
+        val text = FileItem("gdrive://text", "a.txt", 10, 1, false, mimeType = "text/plain")
+        val image = FileItem("gdrive://image", "b.jpg", 10, 1, false, mimeType = "image/jpeg")
+        val engine = FakeSemanticEngine()
+        val repo = FakeSearchRepo(recentIndexedFiles = listOf(text, image))
+        val useCase = SemanticSearchUseCase(engine, repo, FakeFileManagerRepo(), { true })
+        val result = useCase.searchSemantically("document", filter = SearchFilter(category = FileCategory.DOCUMENTS))
+        assertEquals(listOf(text.path), engine.capturedCandidates.map { it.fileItem.path })
+        assertEquals(listOf(text.path), result.map { it.fileItem.path })
+    }
+
+    @Test
     fun semanticResultsStayEmptyWhenEngineIsDisabledAndLocalResultsRemainAvailable() = runBlocking {
         val file = FileItem(
             path = "gdrive://drive-file-1",

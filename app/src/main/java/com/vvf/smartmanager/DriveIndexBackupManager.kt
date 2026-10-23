@@ -7,6 +7,7 @@ import com.vvf.smartmanager.core.database.model.FileMetadataEntity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -67,7 +68,7 @@ class DriveIndexBackupManager(private val context: Context) {
         }
     }
 
-    suspend fun import(uri: Uri): Result<Int> = withContext(Dispatchers.IO) {
+    suspend fun import(uri: Uri): Result<Int> = DriveIndexCoordinator.mutex.withLock { withContext(Dispatchers.IO) {
         try {
             val input = context.contentResolver.openInputStream(uri)
                 ?: throw IllegalArgumentException("Could not open the selected index backup")
@@ -147,6 +148,8 @@ class DriveIndexBackupManager(private val context: Context) {
                 .apply {
                     if (currentEmail.isNullOrBlank() && backupEmail.isNotBlank()) putString("account_email", backupEmail)
                 }
+                .remove("full_list_next_page_token").remove("full_list_changes_cursor")
+                .remove("full_list_indexed_count").remove("full_list_run_id")
                 .remove("changes_cursor")
                 .apply()
             app.publishDriveIndexStatus(
@@ -159,6 +162,8 @@ class DriveIndexBackupManager(private val context: Context) {
         } catch (e: CancellationException) { throw e } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
     }
 
     private fun readBounded(input: InputStream, maxBytes: Int): ByteArray {

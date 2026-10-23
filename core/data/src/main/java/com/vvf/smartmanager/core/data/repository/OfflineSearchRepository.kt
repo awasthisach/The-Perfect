@@ -1,5 +1,6 @@
 package com.vvf.smartmanager.core.data.repository
 
+import com.vvf.smartmanager.core.model.matches
 import android.content.Context
 import com.vvf.smartmanager.core.data.SearchRepository
 import com.vvf.smartmanager.core.data.search.EncryptedSearchHistoryStore
@@ -254,28 +255,7 @@ class OfflineSearchRepository(
                     offlineLocalPath = entity.offlineLocalPath,
                     tags = tagList
                 )
-                if (!filter.includeHidden && fileItem.isHidden) return@mapNotNull null
-                if (!matchesCategory(fileItem, filter.category)) return@mapNotNull null
-                if (filter.sizeFilter != SizeFilter.ANY) {
-                    if (fileItem.sizeBytes < filter.sizeFilter.minBytes || fileItem.sizeBytes > filter.sizeFilter.maxBytes) {
-                        return@mapNotNull null
-                    }
-                }
-                if (filter.dateFilter != DateFilter.ANY) {
-                    val cutoff = when (filter.dateFilter) {
-                        DateFilter.TODAY -> now - dayMillis
-                        DateFilter.LAST_7_DAYS -> now - (7 * dayMillis)
-                        DateFilter.LAST_30_DAYS -> now - (30 * dayMillis)
-                        DateFilter.LAST_YEAR -> now - (365 * dayMillis)
-                        DateFilter.ANY -> 0L
-                    }
-                    if (fileItem.lastModified < cutoff) return@mapNotNull null
-                }
-                if (filter.selectedTags.isNotEmpty()) {
-                    val fileTagSet = tagList.map { it.lowercase() }.toSet()
-                    val requiredTagSet = filter.selectedTags.map { it.lowercase() }.toSet()
-                    if (!fileTagSet.containsAll(requiredTagSet)) return@mapNotNull null
-                }
+                if (!filter.matches(fileItem, now)) return@mapNotNull null
                 val matchType = determineMatchType(fileItem, trimmedQuery)
                 SearchResultItem(
                     fileItem = fileItem,
@@ -295,24 +275,6 @@ class OfflineSearchRepository(
         }
         if (tokens.isEmpty()) return ""
         return tokens.joinToString(" ") { "$it*" }
-    }
-
-    private fun matchesCategory(item: FileItem, category: FileCategory): Boolean {
-        if (category == FileCategory.ALL) return true
-        if (category == FileCategory.FAVORITES) return item.isFavorite
-        if (category == FileCategory.TRASH) return item.isTrash
-        val ext = item.extension.lowercase()
-        val mime = item.mimeType?.lowercase() ?: ""
-        return when (category) {
-            FileCategory.IMAGES -> mime.startsWith("image/") || ext in listOf("jpg", "jpeg", "png", "webp", "gif", "bmp", "svg", "heic")
-            FileCategory.VIDEOS -> mime.startsWith("video/") || ext in listOf("mp4", "mkv", "avi", "mov", "webm", "3gp", "flv")
-            FileCategory.AUDIO -> mime.startsWith("audio/") || ext in listOf("mp3", "wav", "aac", "flac", "ogg", "m4a", "wma")
-            FileCategory.DOCUMENTS -> mime.startsWith("text/") || mime.contains("pdf") || mime.contains("document") || mime.contains("sheet") || mime.contains("presentation") || ext in listOf("pdf", "doc", "docx", "txt", "xlsx", "xls", "pptx", "ppt", "csv", "json", "xml", "epub", "md")
-            FileCategory.ARCHIVES -> mime.contains("zip") || mime.contains("compressed") || mime.contains("tar") || ext in listOf("zip", "rar", "7z", "tar", "gz", "bz2", "xz")
-            FileCategory.APKS -> mime.contains("package-archive") || ext in listOf("apk", "xapk", "apks")
-            FileCategory.VAULT -> item.isEncrypted
-            else -> true
-        }
     }
 
     private fun determineMatchType(item: FileItem, query: String): SearchMatchType {

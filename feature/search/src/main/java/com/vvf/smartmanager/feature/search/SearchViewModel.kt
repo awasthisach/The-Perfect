@@ -85,14 +85,14 @@ class SearchViewModel(
                 flowOf(emptyList())
             } else {
                 _isSearching.value = true
-                triggerSemanticSearch(query, threshold)
+                triggerSemanticSearch(query, threshold, filter)
                 searchFilesUseCase(query, filter).onEach {
                     _isSearching.value = false
                 }
             }
         }
 
-    private fun triggerSemanticSearch(query: String, threshold: Float = _semanticSimilarityThreshold.value) {
+    private fun triggerSemanticSearch(query: String, threshold: Float = _semanticSimilarityThreshold.value, filter: SearchFilter = _searchFilter.value) {
         semanticSearchJob?.cancel()
         val generation = ++semanticSearchGeneration
         _isSemanticSearching.value = false
@@ -113,6 +113,7 @@ class SearchViewModel(
             try {
                 val results = semanticSearchUseCase.searchSemantically(
                     query = query,
+                    filter = filter,
                     options = SemanticSearchOptions(
                         similarityThreshold = threshold,
                         maxResults = 15

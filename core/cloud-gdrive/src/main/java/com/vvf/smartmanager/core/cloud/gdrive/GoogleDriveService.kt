@@ -6,6 +6,8 @@ import com.vvf.smartmanager.core.model.FileItem
 /** Google Drive synchronization and explicitly user-confirmed mutations. */
 interface GoogleDriveService {
     fun setAccessToken(token: String?) = Unit
+    fun tokenGeneration(): Long = 0
+    fun publishAccessToken(token: String, generation: Long): Boolean = false
     suspend fun authenticate(): Result<Boolean>
     suspend fun listDriveFiles(folderId: String = "root"): Result<List<FileItem>>
     suspend fun uploadFile(localFile: FileItem, remoteFolderId: String = "root"): Result<String>
