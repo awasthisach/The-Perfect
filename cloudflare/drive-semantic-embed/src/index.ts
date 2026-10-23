@@ -312,6 +312,9 @@ export default {
     } catch {
       return json({ error: "invalid_json" }, 400, cors);
     }
+    if (body === null || typeof body !== "object" || Array.isArray(body)) {
+      return json({ error: "invalid_body" }, 400, cors);
+    }
     if (!Array.isArray(body.texts) || body.texts.length < 1 || body.texts.length > MAX_TEXTS) {
       return json({ error: "invalid_text_count" }, 400, cors);
     }
@@ -320,7 +323,10 @@ export default {
     }
     const mode = body.mode === "query" ? "query" : body.mode === "document" ? "document" : null;
     if (!mode) return json({ error: "invalid_mode" }, 400, cors);
-    const version = String(body.version ?? env.EMBEDDING_VERSION ?? "4");
+    if (body.version !== undefined && typeof body.version !== "string") {
+      return json({ error: "invalid_version" }, 400, cors);
+    }
+    const version = body.version ?? env.EMBEDDING_VERSION ?? "4";
     if (version !== "2" && version !== "3" && version !== "4") return json({ error: "invalid_version" }, 400, cors);
     const model = env.EMBEDDING_MODEL || "gemini-embedding-2";
     const dimension = Number(env.EMBEDDING_DIMENSION || 768);
