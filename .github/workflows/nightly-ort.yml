@@ -27,7 +27,7 @@ jobs:
         with:
           sw-name: The-Perfect
           sw-version: ${{ github.sha }}
-          fail-on: "violations,issues"
+          fail-on: "issues,violations"
           run: >-
             cache-dependencies,
             cache-scan-results,
