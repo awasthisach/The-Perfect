@@ -20,6 +20,11 @@ jobs:
     name: Build, Test, Lint & Quality
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    # Cancel superseded build/test jobs for this branch, without cancelling the
+    # independently serialized ORT compliance job.
+    concurrency:
+      group: ci-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+      cancel-in-progress: true
     steps:
       - name: Checkout Repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -35,9 +40,8 @@ jobs:
           packages: ""
           accept-android-sdk-licenses: true
       - name: Install required Android SDK components
-        # Keep the PR gate focused on deterministic compile/test/lint/build work.
-        # Emulator packages are installed only by weekly-instrumented.yml, the hard SQLCipher gate.
-        # The emulator step below is intentionally soft and records a skip when its image is absent.
+        # Keep the PR gate focused on deterministic compile/test/lint/debug-APK work.
+        # Emulator + SQLCipher instrumentation are owned by weekly-instrumented.yml.
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
       - name: Create local.properties
         run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
