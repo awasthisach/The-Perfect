@@ -144,7 +144,7 @@ def main() -> int:
     traceability_path = assurance / "06-requirements-traceability.yaml"
     gate_path = assurance / "09-gate-catalog.yaml"
     tech_path = assurance / "04-technology-registry.yaml"
-    ledger_path = args.ledger or assurance / "evidence-ledger.json"
+    ledger_path = (args.ledger if args.ledger.is_absolute() else root / args.ledger).resolve() if args.ledger else assurance / "evidence-ledger.json"
     output_path = root / "cpas-status.json"
 
     required = [
@@ -163,7 +163,7 @@ def main() -> int:
     ]
     checks: list[dict[str, str]] = []
 
-    missing = [str(path.relative_to(root)) for path in required if not path.is_file()]
+    missing = [str(path.relative_to(root) if path.is_relative_to(root) else path) for path in required if not path.is_file()]
     checks.append(check("required_assurance_files", not missing,
                         "all required files present" if not missing else "missing: " + ", ".join(missing)))
 
@@ -207,7 +207,7 @@ def main() -> int:
         st = item.get("status")
         if sev == "critical" and st != "closed":
             open_blockers.append(item)
-        elif sev == "high" and st not in {"closed", "ci_verified"}:
+        elif sev == "high" and st != "closed":
             open_blockers.append(item)
     checks.append(check("risk_register_gate", not open_blockers,
                         "no open critical/high findings" if not open_blockers else
