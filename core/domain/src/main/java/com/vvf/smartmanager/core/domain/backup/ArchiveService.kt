@@ -25,7 +25,9 @@ class ArchiveService(
     private val snapshotSources: List<SnapshotSource>,
     private val cryptoSecurityManager: CryptoSecurityManager,
     private val appVersion: String = "unknown",
-    private val schemaVersion: Int = 1
+    private val schemaVersion: Int = 1,
+    private val beforeSnapshot: (() -> Unit)? = null,
+    private val afterSnapshot: (() -> Unit)? = null
 ) {
     private val json = Json { prettyPrint = true; encodeDefaults = true }
 
@@ -37,6 +39,7 @@ class ArchiveService(
         val stagingDir = File(cacheDir, "archive-staging-$timestamp")
         val zipFile = File(cacheDir, "backup-$timestamp.zip")
         val encryptedFile = File(cacheDir, "backup-$timestamp.vvfbak")
+        var maintenance = false
         try {
             if (!cacheDir.exists() && !cacheDir.mkdirs()) {
                 return@withContext Result.failure(ArchiveException("Unable to create archive cache directory"))
@@ -45,6 +48,8 @@ class ArchiveService(
                 return@withContext Result.failure(ArchiveException("Unable to create archive staging directory"))
             }
 
+            beforeSnapshot?.invoke()
+            maintenance = true
             val requestedSources = snapshotSources.filter { source ->
                 (source.sourceName == "vault" && includeVault) ||
                     (source.sourceName == "database" && includeDatabase) ||
@@ -83,6 +88,8 @@ class ArchiveService(
                 includesVault = snapshots.containsKey("vault")
             )
             File(stagingDir, "metadata.json").writeText(json.encodeToString(metadata))
+            afterSnapshot?.invoke()
+            maintenance = false
             zipDirectory(stagingDir, zipFile)
             cryptoSecurityManager.encryptFile(zipFile, encryptedFile)
             zipFile.delete()
@@ -119,6 +126,7 @@ class ArchiveService(
             encryptedFile.delete()
             Result.failure(ArchiveException("Archive creation failed", error))
         } finally {
+            if (maintenance) afterSnapshot?.invoke()
             stagingDir.deleteRecursively()
             zipFile.delete()
         }

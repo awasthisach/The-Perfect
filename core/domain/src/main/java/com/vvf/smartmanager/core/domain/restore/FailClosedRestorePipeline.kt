@@ -3,6 +3,8 @@ package com.vvf.smartmanager.core.domain.restore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -19,9 +21,14 @@ class FailClosedRestorePipeline(
     private val applier: RestoreApplier
 ) : RestorePipeline {
 
+    private val restoreMutex = Mutex()
+
+    override suspend fun restore(remoteBackupId: String, expectedChecksum: String?): Result<RestoreResult> =
+        restoreMutex.withLock { restoreLocked(remoteBackupId, expectedChecksum) }
+
     private val preparedSnapshots = ConcurrentHashMap<String, RestoreSnapshot>()
 
-    override suspend fun restore(
+    private suspend fun restoreLocked(
         remoteBackupId: String,
         expectedChecksum: String?
     ): Result<RestoreResult> {
@@ -157,7 +164,10 @@ class FailClosedRestorePipeline(
         }
     }
 
-    override suspend fun rollback(snapshotToken: String): Result<Unit> {
+    override suspend fun rollback(snapshotToken: String): Result<Unit> =
+        restoreMutex.withLock { rollbackLocked(snapshotToken) }
+
+    private suspend fun rollbackLocked(snapshotToken: String): Result<Unit> {
         if (snapshotToken.isBlank()) {
             return Result.failure(VerificationFailedException("Snapshot token is blank"))
         }

@@ -37,6 +37,10 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
     exportSchema = true
 )
 abstract class VVFDatabase : RoomDatabase() {
+    private var keyFactory: KeyedOpenHelperFactory? = null
+    fun pauseForMaintenance() { checkNotNull(keyFactory) { "Native encrypted database required" }.pause() }
+    fun resumeAfterMaintenance() { keyFactory?.resume() }
+
 
     abstract fun fileDao(): FileDao
     abstract fun searchFtsDao(): SearchFtsDao
@@ -123,17 +127,34 @@ abstract class VVFDatabase : RoomDatabase() {
             }
         }
 
+        /** Open/migrate only the staged copy through the production Room schema before publication. */
+        fun validateEncryptedBackup(context: Context, file: java.io.File, passphraseProvider: () -> ByteArray) {
+            val staged = buildEncryptedDatabase(context, file.absolutePath, passphraseProvider)
+            try {
+                val sql = staged.openHelper.writableDatabase
+                sql.query("PRAGMA integrity_check").use { cursor ->
+                    check(cursor.moveToFirst() && cursor.getString(0) == "ok") { "Database integrity check failed" }
+                }
+                sql.query("PRAGMA cipher_integrity_check").use { cursor ->
+                    check(!cursor.moveToFirst()) { "Encrypted page authentication failed" }
+                }
+                sql.query("PRAGMA wal_checkpoint(TRUNCATE)").use { cursor ->
+                    check(cursor.moveToFirst() && cursor.getInt(0) == 0) { "Staged database checkpoint failed" }
+                }
+            } finally { staged.close() }
+        }
+
         /** Builds an encrypted SQLCipher Room database using the Keystore passphrase. */
-        fun buildEncryptedDatabase(context: Context, passphrase: ByteArray): VVFDatabase {
-            val openHelperFactory = SupportOpenHelperFactory(passphrase)
+        fun buildEncryptedDatabase(context: Context, databaseName: String = DATABASE_NAME, passphraseProvider: () -> ByteArray): VVFDatabase {
+            val openHelperFactory = KeyedOpenHelperFactory(passphraseProvider)
             return Room.databaseBuilder(
                 context.applicationContext,
                 VVFDatabase::class.java,
-                DATABASE_NAME
+                databaseName
             )
                 .openHelperFactory(openHelperFactory)
                 .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
-                .build()
+                .build().also { it.keyFactory = openHelperFactory }
         }
 
         /** Builds an in-memory database for tests. */

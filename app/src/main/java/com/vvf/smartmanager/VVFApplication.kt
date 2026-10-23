@@ -68,6 +68,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -201,16 +202,18 @@ class VVFApplication : Application(), Configuration.Provider {
             WorkManager.getInstance(this@VVFApplication)
                 .cancelAllWorkByTag(SemanticEmbeddingIndexWorker.WORK_TAG)
         }
+        DriveIndexCoordinator.mutex.withLock {
         DriveOfflineManager(this@VVFApplication).clearAllLocalCopies()
         if (::database.isInitialized) {
             // The opaque change cursor is account-scoped; never reuse it after sign-out/account switch.
             database.cloudSyncDao().deleteByLocalPath("__drive_semantic_search_changes_cursor__")
             database.fileDao().deleteAllDriveIndexRows()
-            database.semanticEmbeddingDao().deleteAll()
+            (semanticSearchPlugin as? SemanticSearchPluginImpl)?.clearPersistedEmbeddings()
             database.searchFtsDao().rebuildFtsIndex()
         }
         getSharedPreferences("drive_search_index", MODE_PRIVATE).edit().clear().apply()
         publishDriveIndexStatus("NOT_SYNCED", 0, false, "")
+        }
     }
 
     /** Prevents one Google account from seeing another account's cached Drive index. */
@@ -269,7 +272,7 @@ class VVFApplication : Application(), Configuration.Provider {
                     Log.w(TAG, "Could not cancel semantic indexing after consent revocation", error)
                 }
                 runCatching {
-                    if (::database.isInitialized) database.semanticEmbeddingDao().deleteAll()
+                    if (::database.isInitialized) (semanticSearchPlugin as? SemanticSearchPluginImpl)?.clearPersistedEmbeddings()
                 }.onFailure { error ->
                     Log.e(TAG, "Could not clear persisted embeddings after consent revocation", error)
                 }
@@ -334,7 +337,7 @@ class VVFApplication : Application(), Configuration.Provider {
                     Log.e(TAG, "Could not clear full-content Drive text after consent revocation", error)
                 }
                 val vectorClear = runCatching {
-                    database.semanticEmbeddingDao().deleteAll()
+                    (semanticSearchPlugin as? SemanticSearchPluginImpl)?.clearPersistedEmbeddings()
                 }.onFailure { error ->
                     Log.e(TAG, "Could not clear embeddings after full-content consent revocation", error)
                 }
@@ -357,6 +360,12 @@ class VVFApplication : Application(), Configuration.Provider {
         }
         cryptoSecurityManager = CryptoSecurityManager(this)
 
+        com.vvf.smartmanager.core.domain.restore.impl.LocalRestoreApplier(
+            liveDatabaseFile = getDatabasePath(VVFDatabase.DATABASE_NAME),
+            liveVaultDir = File(filesDir, "vvf_vault_encrypted"),
+            snapshotRoot = File(filesDir, "restore-snapshots"),
+            vaultAuthRestorer = { cryptoSecurityManager.restoreVaultAuthMetadata(it) }
+        ).recoverInterrupted().getOrThrow()
         val jvmUnitTest = CryptoSecurityManager.isJvmUnitTestEnvironment(this)
         if (jvmUnitTest) {
             database = VVFDatabase.buildInMemoryDatabase(this)
@@ -364,16 +373,8 @@ class VVFApplication : Application(), Configuration.Provider {
         } else {
             // SQLCipher's native core must be loaded before encrypted Room initialization.
             System.loadLibrary("sqlcipher")
-            val passphrase = cryptoSecurityManager.getOrCreateDatabasePassphrase()
-            try {
-                database = VVFDatabase.buildEncryptedDatabase(this, passphrase)
-            } catch (e: Exception) {
-                throw IllegalStateException(
-                    "Secure database initialization failed: Failed to construct encrypted SQLCipher database",
-                    e
-                )
-            } finally {
-                cryptoSecurityManager.wipeBuffer(passphrase)
+            database = VVFDatabase.buildEncryptedDatabase(this) {
+                cryptoSecurityManager.getOrCreateDatabasePassphrase()
             }
         }
 
@@ -396,7 +397,9 @@ class VVFApplication : Application(), Configuration.Provider {
             searchFtsDao = database.searchFtsDao(),
             fileDao = database.fileDao(),
             storageManager = storageManager,
-            cryptoSecurityManager = cryptoSecurityManager
+            cryptoSecurityManager = cryptoSecurityManager,
+            beforeSnapshot = { pauseStorageForMaintenance() },
+            afterSnapshot = { resumeStorageAfterMaintenance() }
         )
         ocrPlugin = OcrPluginImpl(this)
         getStorageOverviewUseCase = GetStorageOverviewUseCase(fileManagerRepository)
@@ -504,15 +507,7 @@ class VVFApplication : Application(), Configuration.Provider {
             cacheDir = cacheDir,
             snapshotSources = listOf(
                 ReadOnlyDatabaseSnapshotSource(
-                    databaseFile = getDatabasePath(VVFDatabase.DATABASE_NAME),
-                    beforeSnapshot = {
-                        runCatching {
-                            if (::database.isInitialized) {
-                                database.openHelper.writableDatabase.execSQL("PRAGMA wal_checkpoint(FULL)")
-                                Log.i(TAG, "WAL checkpoint before backup DB snapshot")
-                            }
-                        }.onFailure { e -> Log.w(TAG, "WAL checkpoint before snapshot failed", e) }
-                    }
+                    databaseFile = getDatabasePath(VVFDatabase.DATABASE_NAME)
                 ),
                 InjectedVaultSnapshotSource(vaultDir)
             ),
@@ -527,21 +522,29 @@ class VVFApplication : Application(), Configuration.Provider {
             vaultDir = vaultDir,
             databaseName = VVFDatabase.DATABASE_NAME,
             beforeRestoreApply = {
-                runCatching {
-                    if (::database.isInitialized) {
-                        database.close()
-                        Log.i(TAG, "Closed Room database before restore apply")
-                    }
-                }.onFailure { err ->
-                    Log.w(TAG, "Room close before restore failed (continuing)", err)
-                }
+                pauseStorageForMaintenance()
             },
+            afterRestoreApply = { resumeStorageAfterMaintenance() },
             cloudSyncDao = database.cloudSyncDao()
         )
         // Drive Semantic Search indexes only the signed-in user's Drive corpus. Do not
         // silently start legacy whole-device file indexing, junk scans, or cloud backups.
         backgroundSyncManager = BackgroundSyncManager(this)
         OcrBatchBootstrap.wire(database, ocrPlugin, ocrIndexingService)
+    }
+
+    private fun pauseStorageForMaintenance() {
+        com.vvf.smartmanager.core.security.VaultMaintenance.pause()
+        try { database.pauseForMaintenance() }
+        catch (error: Throwable) {
+            com.vvf.smartmanager.core.security.VaultMaintenance.resume()
+            throw error
+        }
+    }
+
+    private fun resumeStorageAfterMaintenance() {
+        database.resumeAfterMaintenance()
+        com.vvf.smartmanager.core.security.VaultMaintenance.resume()
     }
 
     private suspend fun indexPrimaryStorageForSearch(): FileIndexingOutcome {

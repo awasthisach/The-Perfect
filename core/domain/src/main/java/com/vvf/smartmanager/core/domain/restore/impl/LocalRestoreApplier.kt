@@ -1,252 +1,164 @@
 package com.vvf.smartmanager.core.domain.restore.impl
 
 import com.vvf.smartmanager.core.domain.backup.ArchiveMetadata
-import com.vvf.smartmanager.core.domain.restore.AppliedRestore
-import com.vvf.smartmanager.core.domain.restore.DecryptedBackup
-import com.vvf.smartmanager.core.domain.restore.RestoreApplier
-import com.vvf.smartmanager.core.domain.restore.RestoreException
-import com.vvf.smartmanager.core.domain.restore.RestoreSnapshot
+import com.vvf.smartmanager.core.domain.restore.*
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.io.FileOutputStream
+import java.util.Properties
 import java.util.UUID
 
-/**
- * Snapshot + apply + rollback for live database and vault directories.
- *
- * Apply stages into sibling temp paths, verifies sizes, imports vault auth, then swaps
- * onto live paths so a mid-apply crash is less likely to leave a half-wiped vault.
- *
- * Note: the SQLCipher database file is bound to the device Keystore passphrase.
- * Same-device restore works when the live passphrase matches the snapshotted DB.
- * Cross-device restore requires a future portable-key export (documented residual).
- *
- * Callers should close Room/SQLCipher connections via [beforeApply] before mutation.
+/** Same-device restore with a durable undo journal. Recover before opening the database.
+ * Callers must quiesce database/vault writers for prepare/apply/rollback.
+ * Publication uses same-filesystem rename only; never copy over a live database.
  */
 class LocalRestoreApplier(
     private val liveDatabaseFile: File,
     private val liveVaultDir: File,
     private val snapshotRoot: File,
     private val vaultAuthImporter: ((Map<String, String>) -> Boolean)? = null,
-    private val beforeApply: (() -> Unit)? = null
+    private val beforeApply: (() -> Unit)? = null,
+    private val vaultAuthExporter: (() -> Map<String, String>)? = null,
+    private val vaultAuthRestorer: ((Map<String, String>) -> Boolean)? = null,
+    private val validateDatabase: ((File) -> Unit)? = null,
+    private val afterApply: (() -> Unit)? = null
 ) : RestoreApplier {
     private val json = Json { ignoreUnknownKeys = true }
+    private val mapSerializer = MapSerializer(String.serializer(), String.serializer())
+    private val journal get() = File(snapshotRoot, "pending.properties")
+    private var active: RestoreSnapshot? = null
+    private var maintenanceStarted = false
 
-    override suspend fun prepare(): Result<RestoreSnapshot> {
-        return try {
-            if (!snapshotRoot.exists() && !snapshotRoot.mkdirs()) {
-                return Result.failure(RestoreException("Unable to create snapshot root"))
-            }
-            val token = UUID.randomUUID().toString()
-            val dbSnap = File(snapshotRoot, "$token-db")
-            val vaultSnap = File(snapshotRoot, "$token-vault")
-            val databaseExisted = liveDatabaseFile.isFile
-            val vaultExisted = liveVaultDir.isDirectory
-            // Best-effort consistent copy of live DB file (caller should avoid concurrent writers).
-            if (databaseExisted) liveDatabaseFile.copyTo(dbSnap, overwrite = true)
-            if (vaultExisted) liveVaultDir.copyRecursively(vaultSnap, overwrite = true)
-            Result.success(
-                RestoreSnapshot(
-                    token = token,
-                    timestamp = System.currentTimeMillis(),
-                    databaseSnapshotPath = dbSnap,
-                    vaultSnapshotPath = vaultSnap,
-                    databaseExisted = databaseExisted,
-                    vaultExisted = vaultExisted
-                )
-            )
-        } catch (error: Throwable) {
-            Result.failure(RestoreException("Restore snapshot prepare failed", error))
+    /** Safe to retry: snapshots are retained until every component has been recovered. */
+    fun recoverInterrupted(): Result<Unit> = runCatching {
+        if (journal.isFile) {
+            val p = Properties().apply { journal.inputStream().use { load(it) } }
+            val token = p.getProperty("token")
+            require(token.matches(Regex("[a-f0-9-]{36}"))) { "Invalid recovery token" }
+            restoreSnapshot(RestoreSnapshot(token, 0, File(snapshotRoot, "$token-db"),
+                File(snapshotRoot, "$token-vault"), p.getProperty("databaseExisted").toBooleanStrict(),
+                p.getProperty("vaultExisted").toBooleanStrict()))
         }
     }
 
-    override suspend fun apply(decryptedBackup: DecryptedBackup): Result<AppliedRestore> {
-        val parent = liveDatabaseFile.parentFile
-            ?: return Result.failure(RestoreException("Live database parent directory is missing"))
-        if (!parent.exists() && !parent.mkdirs()) {
-            return Result.failure(RestoreException("Unable to create live database parent directory"))
+    override suspend fun prepare(): Result<RestoreSnapshot> = runCatching {
+        check(!journal.exists()) { "An interrupted restore must be recovered first" }
+        beforeApply?.invoke() // close/checkpoint BEFORE taking the undo snapshot
+        maintenanceStarted = true
+        check(snapshotRoot.isDirectory || snapshotRoot.mkdirs())
+        val token = UUID.randomUUID().toString()
+        val snapshot = RestoreSnapshot(token, System.currentTimeMillis(), File(snapshotRoot, "$token-db"),
+            File(snapshotRoot, "$token-vault"), liveDatabaseFile.isFile, liveVaultDir.isDirectory)
+        if (snapshot.databaseExisted) copyDatabase(liveDatabaseFile, snapshot.databaseSnapshotPath)
+        if (snapshot.vaultExisted) copyTree(liveVaultDir, snapshot.vaultSnapshotPath)
+        vaultAuthExporter?.let { exporter ->
+            durableWrite(authFile(snapshot), json.encodeToString(mapSerializer, exporter()).toByteArray())
         }
-
-        val tempDb = File(parent, "${liveDatabaseFile.name}.restore-tmp")
-        val tempVault = File(parent, "${liveVaultDir.name}.restore-tmp-${UUID.randomUUID()}")
-        val backupLiveDb = File(parent, "${liveDatabaseFile.name}.restore-bak")
-        val backupLiveVault = File(parent, "${liveVaultDir.name}.restore-bak-${UUID.randomUUID()}")
-
-        return try {
-            // A manifest is required to distinguish full backups from deliberately partial backups.
-            // Never infer a missing component as an empty component and overwrite live user data.
-            val manifestFile = File(decryptedBackup.stagingDir, "metadata.json")
-            if (!manifestFile.isFile) {
-                return Result.failure(RestoreException("Backup manifest is missing; live data left unchanged"))
-            }
-            val manifest = json.decodeFromString(ArchiveMetadata.serializer(), manifestFile.readText())
-            val includesDatabase = manifest.includesDatabase
-            val includesVault = manifest.includesVault
-            if (includesDatabase && (!decryptedBackup.databaseFile.isFile || decryptedBackup.databaseFile.length() <= 0L)) {
-                return Result.failure(RestoreException("Backup declares a database but its payload is missing or empty"))
-            }
-            if (includesVault && !decryptedBackup.vaultDir.isDirectory) {
-                return Result.failure(RestoreException("Backup declares a vault but its payload directory is missing"))
-            }
-            if (!includesDatabase && !includesVault) {
-                return Result.failure(RestoreException("Backup contains no restorable database or vault component"))
-            }
-
-            // Validate the staged archive completely before closing connections or touching live data.
-            val actualFiles = decryptedBackup.stagingDir.walkTopDown()
-                .count { it.isFile && it.name != "metadata.json" }
-            if (actualFiles < manifest.fileCount) {
-                return Result.failure(
-                    RestoreException(
-                        "Incomplete restore: expected ${manifest.fileCount} files, extracted $actualFiles"
-                    )
-                )
-            }
-            val actualVault = decryptedBackup.vaultDir.walkTopDown().count { it.isFile }
-            if (includesVault && actualVault < manifest.vaultItemCount) {
-                return Result.failure(
-                    RestoreException(
-                        "Incomplete restore: expected ${manifest.vaultItemCount} vault items, extracted $actualVault"
-                    )
-                )
-            }
-
-            beforeApply?.invoke()
-
-            // --- Stage only the components explicitly included in the manifest ---
-            if (includesDatabase) {
-                if (tempDb.exists() && !tempDb.delete()) {
-                    return Result.failure(RestoreException("Unable to clear previous temp database"))
-                }
-                decryptedBackup.databaseFile.copyTo(tempDb, overwrite = true)
-                if (!tempDb.isFile || tempDb.length() != decryptedBackup.databaseFile.length() || tempDb.length() <= 0L) {
-                    tempDb.delete()
-                    return Result.failure(RestoreException("Database temp copy verification failed"))
-                }
-            }
-
-            if (includesVault) {
-                if (tempVault.exists()) tempVault.deleteRecursively()
-                if (!tempVault.mkdirs()) {
-                    return Result.failure(RestoreException("Unable to create temp vault directory"))
-                }
-                decryptedBackup.vaultDir.copyRecursively(tempVault, overwrite = true)
-            }
-
-            // --- Auth metadata is relevant only when restoring the vault component ---
-            val authFile = File(decryptedBackup.stagingDir, "vault_auth.json")
-            if (includesVault && manifest.includesVaultAuth && authFile.isFile && vaultAuthImporter != null) {
-                val metadata = json.decodeFromString(
-                    MapSerializer(String.serializer(), String.serializer()),
-                    authFile.readText()
-                )
-                val imported = vaultAuthImporter.invoke(metadata)
-                if (!imported) {
-                    cleanupTemps(tempDb, tempVault)
-                    return Result.failure(
-                        RestoreException("Vault auth metadata import failed; live data left unchanged")
-                    )
-                }
-            }
-
-            // --- Commit database only if this backup explicitly contains it ---
-            if (includesDatabase) {
-                if (backupLiveDb.exists() && !backupLiveDb.delete()) {
-                    cleanupTemps(tempDb, tempVault)
-                    return Result.failure(RestoreException("Unable to clear previous database rollback file"))
-                }
-                if (liveDatabaseFile.exists()) {
-                    if (!liveDatabaseFile.renameTo(backupLiveDb)) {
-                        liveDatabaseFile.copyTo(backupLiveDb, overwrite = true)
-                        if (!liveDatabaseFile.delete()) {
-                            cleanupTemps(tempDb, tempVault)
-                            return Result.failure(RestoreException("Unable to move live database aside for swap"))
-                        }
-                    }
-                }
-                if (!tempDb.renameTo(liveDatabaseFile)) {
-                    tempDb.copyTo(liveDatabaseFile, overwrite = true)
-                    tempDb.delete()
-                }
-                if (!liveDatabaseFile.isFile || liveDatabaseFile.length() <= 0L) {
-                    if (backupLiveDb.isFile) backupLiveDb.copyTo(liveDatabaseFile, overwrite = true)
-                    cleanupTemps(tempDb, tempVault)
-                    return Result.failure(RestoreException("Database swap failed"))
-                }
-            }
-
-            // --- Commit vault only if this backup explicitly contains it ---
-            if (includesVault) {
-                if (backupLiveVault.exists()) backupLiveVault.deleteRecursively()
-                if (liveVaultDir.exists()) {
-                    if (!liveVaultDir.renameTo(backupLiveVault)) {
-                        liveVaultDir.copyRecursively(backupLiveVault, overwrite = true)
-                        liveVaultDir.deleteRecursively()
-                    }
-                }
-                if (!tempVault.renameTo(liveVaultDir)) {
-                    liveVaultDir.mkdirs()
-                    tempVault.copyRecursively(liveVaultDir, overwrite = true)
-                    tempVault.deleteRecursively()
-                }
-                if (!liveVaultDir.isDirectory) {
-                    if (backupLiveVault.exists()) backupLiveVault.copyRecursively(liveVaultDir, overwrite = true)
-                    if (includesDatabase && backupLiveDb.isFile) backupLiveDb.copyTo(liveDatabaseFile, overwrite = true)
-                    cleanupTemps(tempDb, tempVault)
-                    return Result.failure(RestoreException("Vault swap failed"))
-                }
-            }
-
-            // Success — drop only rollback files created for components being restored.
-            if (includesDatabase) backupLiveDb.delete()
-            if (includesVault && backupLiveVault.exists()) backupLiveVault.deleteRecursively()
-            cleanupTemps(tempDb, tempVault)
-
-            val fileCount = if (includesDatabase) decryptedBackup.stagingDir.walkTopDown().count { it.isFile } else 0
-            val vaultCount = if (includesVault) liveVaultDir.walkTopDown().count { it.isFile } else 0
-            Result.success(
-                AppliedRestore(
-                    success = true,
-                    restoredFileCount = fileCount,
-                    restoredVaultItemCount = vaultCount,
-                    message = "Restore applied (files=$fileCount, vault=$vaultCount)"
-                )
-            )
-        } catch (error: Throwable) {
-            cleanupTemps(tempDb, tempVault)
-            Result.failure(RestoreException("Restore apply failed", error))
+        val p = Properties().apply {
+            setProperty("token", token); setProperty("databaseExisted", snapshot.databaseExisted.toString())
+            setProperty("vaultExisted", snapshot.vaultExisted.toString())
+        }
+        val tmp = File(snapshotRoot, "pending.tmp")
+        FileOutputStream(tmp).use { p.store(it, null); it.fd.sync() }
+        check(tmp.renameTo(journal)) { "Cannot persist restore journal" }
+        active = snapshot
+        snapshot
+    }.onFailure {
+        if (maintenanceStarted && !journal.exists()) {
+            maintenanceStarted = false
+            afterApply?.invoke()
         }
     }
 
-    override suspend fun rollback(snapshot: RestoreSnapshot): Result<Unit> {
-        return try {
-            if (snapshot.databaseExisted) {
-                if (!snapshot.databaseSnapshotPath.isFile) {
-                    return Result.failure(RestoreException("Database rollback snapshot is missing"))
-                }
-                snapshot.databaseSnapshotPath.copyTo(liveDatabaseFile, overwrite = true)
-            } else if (liveDatabaseFile.exists() && !liveDatabaseFile.delete()) {
-                return Result.failure(RestoreException("Unable to remove database created by failed restore"))
-            }
-
-            if (liveVaultDir.exists() && !liveVaultDir.deleteRecursively()) {
-                return Result.failure(RestoreException("Unable to clear vault created by failed restore"))
-            }
-            if (snapshot.vaultExisted) {
-                if (!snapshot.vaultSnapshotPath.isDirectory) {
-                    return Result.failure(RestoreException("Vault rollback snapshot is missing"))
-                }
-                snapshot.vaultSnapshotPath.copyRecursively(liveVaultDir, overwrite = true)
-            }
-            Result.success(Unit)
-        } catch (error: Throwable) {
-            Result.failure(RestoreException("Restore rollback failed", error))
+    override suspend fun apply(decryptedBackup: DecryptedBackup): Result<AppliedRestore> = runCatching {
+        val manifest = json.decodeFromString(ArchiveMetadata.serializer(), File(decryptedBackup.stagingDir, "metadata.json").readText())
+        require(manifest.includesDatabase || manifest.includesVault) { "No restorable components" }
+        if (manifest.includesDatabase) {
+            require(decryptedBackup.databaseFile.isFile && decryptedBackup.databaseFile.length() > 0) { "Database payload missing" }
         }
+        if (manifest.includesVault) require(decryptedBackup.vaultDir.isDirectory) { "Vault payload missing" }
+        require(decryptedBackup.stagingDir.walkTopDown().count { it.isFile && it.name != "metadata.json" } == manifest.fileCount) { "Incomplete or unexpected backup payload" }
+        if (manifest.includesVault) require(decryptedBackup.vaultDir.walkTopDown().count { it.isFile } == manifest.vaultItemCount) { "Incomplete vault" }
+        val auth = if (manifest.includesVault && manifest.includesVaultAuth) {
+            require(vaultAuthImporter != null && vaultAuthExporter != null && vaultAuthRestorer != null) { "Reversible vault authentication import required" }
+            json.decodeFromString(mapSerializer, File(decryptedBackup.stagingDir, "vault_auth.json").readText())
+        } else null
+        if (manifest.includesDatabase) validateDatabase?.invoke(decryptedBackup.databaseFile)
+        active ?: prepare().getOrThrow()
+        // Snapshot and journal are durable before the first preference or live-file mutation.
+        if (auth != null) check(vaultAuthImporter!!.invoke(auth)) { "Vault authentication import failed" }
+        if (manifest.includesDatabase) publishDatabase(decryptedBackup.databaseFile, liveDatabaseFile)
+        if (manifest.includesVault) publishTree(decryptedBackup.vaultDir, liveVaultDir)
+        check(journal.delete()) { "Cannot commit restore journal" }
+        active = null
+        maintenanceStarted = false
+        afterApply?.invoke()
+        AppliedRestore(true, manifest.fileCount, manifest.vaultItemCount, "Restore applied")
     }
 
-    private fun cleanupTemps(tempDb: File, tempVault: File) {
-        runCatching { if (tempDb.exists()) tempDb.delete() }
-        runCatching { if (tempVault.exists()) tempVault.deleteRecursively() }
+    override suspend fun rollback(snapshot: RestoreSnapshot): Result<Unit> = runCatching {
+        if (active == null) beforeApply?.invoke()
+        restoreSnapshot(snapshot)
+    }
+
+    private fun restoreSnapshot(snapshot: RestoreSnapshot) {
+        // Check every recovery source before touching live state.
+        if (snapshot.databaseExisted) require(snapshot.databaseSnapshotPath.isFile) { "Database undo snapshot missing" }
+        if (snapshot.vaultExisted) require(snapshot.vaultSnapshotPath.isDirectory) { "Vault undo snapshot missing" }
+        val auth = authFile(snapshot)
+        val metadata = if (auth.isFile) json.decodeFromString(mapSerializer, auth.readText()) else null
+        if (metadata != null) require(vaultAuthRestorer != null) { "Vault auth recovery unavailable" }
+        if (snapshot.databaseExisted) publishDatabase(snapshot.databaseSnapshotPath, liveDatabaseFile)
+        else databaseFiles(liveDatabaseFile).forEach { remove(it) }
+        if (snapshot.vaultExisted) publishTree(snapshot.vaultSnapshotPath, liveVaultDir) else remove(liveVaultDir)
+        if (metadata != null) check(vaultAuthRestorer!!.invoke(metadata)) { "Vault auth rollback failed" }
+        if (journal.exists()) check(journal.delete()) { "Cannot finalize rollback" }
+        active = null
+        maintenanceStarted = false
+        afterApply?.invoke()
+    }
+
+    private fun authFile(snapshot: RestoreSnapshot) = File(snapshotRoot, "${snapshot.token}-auth.json")
+    private fun databaseFiles(file: File) = listOf(file, File(file.path + "-wal"), File(file.path + "-shm"))
+    private fun copyDatabase(source: File, target: File) {
+        databaseFiles(source).zip(databaseFiles(target)).forEach { (from, to) -> if (from.isFile) copyFile(from, to) }
+    }
+    private fun publishDatabase(source: File, target: File) {
+        val staged = File(target.parentFile, "${target.name}.restore-new")
+        databaseFiles(staged).forEach(::remove)
+        copyDatabase(source, staged)
+        // No open connection may observe the swap. Undo files remain available on failure.
+        databaseFiles(staged).zip(databaseFiles(target)).forEach { (from, to) ->
+            if (from.exists()) check(from.renameTo(to)) { "Atomic database rename failed" } else remove(to)
+        }
+    }
+    private fun publishTree(source: File, target: File) {
+        val staged = File(target.parentFile, "${target.name}.restore-new")
+        val displaced = File(target.parentFile, "${target.name}.restore-old")
+        remove(staged); copyTree(source, staged); remove(displaced)
+        if (target.exists()) check(target.renameTo(displaced)) { "Cannot move old vault" }
+        check(staged.renameTo(target)) { "Atomic vault rename failed" }
+        remove(displaced)
+    }
+    private fun copyTree(source: File, target: File) {
+        check(target.isDirectory || target.mkdirs())
+        source.walkTopDown().forEach { from ->
+            require(from.canonicalPath == from.absolutePath) { "Symlinks are not restore payloads" }
+            val to = File(target, from.relativeTo(source).path)
+            if (from.isDirectory) check(to.isDirectory || to.mkdirs()) else copyFile(from, to)
+        }
+    }
+    private fun copyFile(from: File, to: File) {
+        check(to.parentFile!!.isDirectory || to.parentFile!!.mkdirs())
+        from.inputStream().use { input -> FileOutputStream(to).use { output -> input.copyTo(output); output.fd.sync() } }
+        check(from.length() == to.length()) { "Incomplete copy" }
+    }
+    private fun durableWrite(file: File, bytes: ByteArray) {
+        FileOutputStream(file).use { it.write(bytes); it.fd.sync() }
+    }
+    private fun remove(file: File) {
+        if (file.exists()) check(if (file.isDirectory) file.deleteRecursively() else file.delete()) { "Cannot remove restore path" }
     }
 }
