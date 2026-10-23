@@ -167,3 +167,23 @@ test("accepts valid Firebase Auth plus App Check and returns validated embedding
   assert.equal(payload.embeddings[0].length, 768);
   assert.equal(geminiCalls, 1);
 });
+
+for (const body of ["null", "[]", "42", '"text"', "{}", "{", '{"texts":[null],"mode":"query"}', '{"texts":[],"mode":"query"}', '{"texts":["ok"],"mode":null}', '{"texts":["ok"],"mode":"query","version":4}']) {
+  test(`rejects invalid authenticated JSON body: ${body}`, async () => {
+    const beforeCalls = geminiCalls;
+    const response = await worker.fetch(new Request("https://worker.example/embed", {
+      method: "POST", headers: { Authorization: `Bearer ${authToken}`, "X-Firebase-AppCheck": appCheckToken }, body
+    }), makeEnv());
+    assert.equal(response.status, 400);
+    assert.equal(typeof (await response.json()).error, "string");
+    assert.equal(geminiCalls, beforeCalls);
+  });
+}
+
+test("rejects invalid Firebase Auth even with valid App Check", async () => {
+  const response = await worker.fetch(makeRequest({
+    Authorization: "Bearer invalid", "X-Firebase-AppCheck": appCheckToken
+  }), makeEnv());
+  assert.equal(response.status, 401);
+  assert.equal(await responseError(response), "unauthorized");
+});
