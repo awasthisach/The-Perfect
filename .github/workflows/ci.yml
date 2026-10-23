@@ -98,7 +98,9 @@ jobs:
           export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH"
           echo "no" | avdmanager create avd --force --name vvf-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2" || { echo "booted=false" >> "$GITHUB_OUTPUT"; echo "::warning::AVD creation failed; emulator infrastructure unavailable."; exit 0; }
           adb start-server || true
-          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel off -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          acceleration="$(bash tools/audit/emulator_acceleration.sh)"
+          echo "Emulator acceleration: $acceleration"
+          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel "$acceleration" -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/emulator.pid"
           if ! timeout 180 adb wait-for-device; then
             echo "::warning::adb wait-for-device timed out; treating emulator as an infrastructure skip."
