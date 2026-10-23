@@ -226,7 +226,7 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showLicensesDialog = false },
             title = { Text("Open Source Licenses") },
-            text = { Text("License and dependency compliance is verified through the project's automated FOSSA gate and Software Bill of Materials. The current release candidate is blocked while dependency findings are reviewed; do not treat this screen as a legal approval. Review the project's published license notices before distribution.") },
+            text = { Text("Review the project's published open-source license notices before distribution. Dependency license findings for this release candidate are still under review; this screen does not represent legal approval.") },
             confirmButton = { TextButton(onClick = { showLicensesDialog = false }) { Text("Close") } }
         )
     }

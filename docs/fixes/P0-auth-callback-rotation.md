@@ -32,6 +32,4 @@ LaunchedEffect(Unit) {
 
 ## Status
 - `DriveAuthEvents.kt` is on this branch.
-- MainActivity wire-up is intentionally minimal-docs-first so the candidate
-  MainActivity (30KB) is not rewritten in this PR; apply the 3 call-site edits
-  above on top of candidate before release.
+- MainActivity wire-up is applied: sign-in and authorization callbacks emit through `DriveAuthEvents`. `DriveAuthEventsTest` covers callback delivery across collector changes. Physical-device account acceptance remains separate.

@@ -10,7 +10,7 @@ Android-native Google Drive search app built with Kotlin, Jetpack Compose, Mater
 - Neural search requires explicit, revocable consent. Consent defaults to off.
 - No Gemini API key or other server secret belongs in the APK.
 - File bytes belong in app-private storage. Backups must never include OAuth tokens, Firebase ID tokens, or API keys.
-- Minimum supported Android version: API 26.
+- Minimum supported Android version: API 24.
 
 ## Technology and architecture
 
@@ -27,7 +27,7 @@ Android-native Google Drive search app built with Kotlin, Jetpack Compose, Mater
 - **Index backup:** user-selected JSON import/export, with credentials and local file bytes excluded
 - **Build:** Gradle Kotlin DSL + version catalog
 - **Compile/Target SDK:** 36
-- **Minimum SDK:** 26
+- **Minimum SDK:** 24
 
 ## Project structure
 

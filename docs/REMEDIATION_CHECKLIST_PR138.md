@@ -98,7 +98,9 @@ Run from repository root:
 
 ```bash
 python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
-python3 tools/audit/cpas_verify.py --root .
+candidate_sha="$(git rev-parse HEAD)"
+python3 tools/audit/collect_evidence.py --revision "$candidate_sha" --output candidate-evidence.json
+python3 tools/audit/cpas_verify.py --root . --candidate-sha "$candidate_sha" --ledger candidate-evidence.json
 ./gradlew --no-daemon testDebugUnitTest --stacktrace
 ./gradlew --no-daemon lintDebug --stacktrace
 ./gradlew --no-daemon assembleDebug --stacktrace

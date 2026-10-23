@@ -109,7 +109,7 @@ fun OfflineFilesScreen(app: VVFApplication) {
                     ) {
                         Text(entry.name, fontWeight = FontWeight.SemiBold)
                         Text(
-                            "${FormatUtils.formatBytes(entry.offlineBytes)} · pinned ${entry.offlinePinnedAt ?: 0L}",
+                            "${FormatUtils.formatBytes(entry.offlineBytes)} · pinned ${entry.offlinePinnedAt?.let { java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it)) } ?: "unknown date"}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
