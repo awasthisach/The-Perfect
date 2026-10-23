@@ -90,6 +90,15 @@ class OrtActionRegressionTest(unittest.TestCase):
             "Advanced codeql-analysis.yml must remain removed to avoid dual CodeQL conflict",
         )
 
+    def test_release_signing_is_conditional_for_generic_assemble_but_fail_closed_for_release_tasks(self):
+        gradle = (ROOT / "app" / "build.gradle.kts").read_text(encoding="utf-8")
+        self.assertIn("val releaseSigningConfigured = releaseSigningVariables.all", gradle)
+        self.assertIn("if (releaseSigningConfigured) {\n      create(\"release\")", gradle)
+        self.assertIn("if (releaseSigningConfigured) {\n        signingConfig = signingConfigs.getByName(\"release\")", gradle)
+        self.assertIn('Regex(\n    """(?i)^(assemble|bundle|package|validateSigning|sign|publish)([A-Za-z0-9]*Release)([A-Za-z0-9]*)$"""', gradle)
+        self.assertIn('"Release builds must never fall back to the Android debug keystore."', gradle)
+        self.assertIn('require(file(releaseKeystore).isFile)', gradle)
+
     def test_ci_and_release_keep_advisor_findings_fail_closed(self):
         for workflow_name in ("ci.yml", "release.yml"):
             workflow = (
