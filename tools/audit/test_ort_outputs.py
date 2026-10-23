@@ -84,6 +84,24 @@ class OrtOutputValidationTest(unittest.TestCase):
                     for item in problems)
             )
 
+    def test_reports_must_match_exact_expected_revision(self):
+        expected_revision = "abcdef0123456789abcdef0123456789abcdef01"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            problems = validate_outputs(root, expected_revision)
+            self.assertTrue(
+                any("does not match expected" in item for item in problems),
+                "A valid-shaped ORT report from a different revision must fail closed",
+            )
+
+    def test_reports_for_expected_revision_pass(self):
+        expected_revision = "0123456789abcdef0123456789abcdef01234567"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            self.assertEqual([], validate_outputs(root, expected_revision))
+
     def test_malformed_json_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
