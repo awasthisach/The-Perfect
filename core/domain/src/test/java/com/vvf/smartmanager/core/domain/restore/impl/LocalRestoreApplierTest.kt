@@ -33,6 +33,45 @@ class LocalRestoreApplierTest {
     )
 
     @Test
+    fun processRestartRecoversFilesSidecarsAndAuthAfterInterruptedPublication() = runBlocking {
+        val db = temp.newFile("recover.db").apply { writeText("old-db") }
+        File(db.path + "-wal").writeText("old-wal")
+        val vault = temp.newFolder("recover-vault").also { File(it, "old").writeText("old-vault") }
+        val snapshots = temp.newFolder("recover-snapshots")
+        var auth = mapOf("vault_pin_hash" to "old-wrapped-pin")
+        val original = LocalRestoreApplier(db, vault, snapshots,
+            vaultAuthExporter = { auth }, vaultAuthRestorer = { auth = it; true })
+        original.prepare().getOrThrow()
+        db.writeText("partially-published-db")
+        File(db.path + "-wal").writeText("new-wal")
+        File(vault, "old").delete()
+        File(vault, "new").writeText("new-vault")
+        auth = mapOf("vault_pin_hash" to "new-wrapped-pin")
+        val restarted = LocalRestoreApplier(db, vault, snapshots, vaultAuthRestorer = { auth = it; true })
+        restarted.recoverInterrupted().getOrThrow()
+        assertEquals("old-db", db.readText())
+        assertEquals("old-wal", File(db.path + "-wal").readText())
+        assertEquals("old-vault", File(vault, "old").readText())
+        assertFalse(File(vault, "new").exists())
+        assertEquals("old-wrapped-pin", auth["vault_pin_hash"])
+        assertFalse(File(snapshots, "pending.properties").exists())
+        assertTrue(restarted.recoverInterrupted().isSuccess)
+    }
+
+    @Test
+    fun missingUndoFileBlocksRecoveryAndRetainsJournal() = runBlocking {
+        val db = temp.newFile("missing-undo.db").apply { writeText("keep") }
+        val vault = temp.newFolder("missing-undo-vault")
+        val snapshots = temp.newFolder("missing-undo-snapshots")
+        val applier = LocalRestoreApplier(db, vault, snapshots)
+        val snapshot = applier.prepare().getOrThrow()
+        snapshot.databaseSnapshotPath.delete()
+        assertTrue(applier.recoverInterrupted().isFailure)
+        assertEquals("keep", db.readText())
+        assertTrue(File(snapshots, "pending.properties").isFile)
+    }
+
+    @Test
     fun incompleteManifestFailsWithoutMutatingLive() = runBlocking {
         val liveDb = temp.newFile("live.db").apply { writeText("LIVE-DB") }
         val liveVault = temp.newFolder("live-vault").also { File(it, "keep.bin").writeText("KEEP") }

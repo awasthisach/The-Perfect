@@ -434,6 +434,28 @@ class CryptoSecurityManager(
         return out
     }
 
+    /** Replace exactly the Keystore-wrapped auth state captured by restore preparation. */
+    fun restoreVaultAuthMetadata(metadata: Map<String, String>): Boolean {
+        val keys = setOf("vault_pin_hash", "vault_pin_hash_iv", "vault_pin_salt", "vault_pin_salt_iv",
+            "vault_decoy_pin_hash", "vault_decoy_pin_hash_iv", "vault_decoy_pin_salt", "vault_decoy_pin_salt_iv",
+            "vault_pin_iterations", "vault_decoy_pin_iterations", "vault_biometric_enabled")
+        if (metadata.keys.any { it !in keys }) return false
+        val editor = prefs.edit()
+        keys.forEach { editor.remove(it) }
+        metadata.forEach { (key, value) ->
+            when (key) {
+                "vault_biometric_enabled" -> editor.putBoolean(key, value.toBooleanStrictOrNull() ?: return false)
+                "vault_pin_iterations", "vault_decoy_pin_iterations" -> {
+                    val count = value.toIntOrNull() ?: return false
+                    if (count !in 100_000..1_000_000) return false
+                    editor.putInt(key, count)
+                }
+                else -> editor.putString(key, value)
+            }
+        }
+        return editor.commit()
+    }
+
     fun importVaultAuthMetadata(metadata: Map<String, String>): Boolean {
         if (metadata.isEmpty()) return false
         val editor = prefs.edit()

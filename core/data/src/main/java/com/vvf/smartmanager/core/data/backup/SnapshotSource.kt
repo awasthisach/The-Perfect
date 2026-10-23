@@ -18,7 +18,7 @@ interface SnapshotSource {
  * File snapshot of a SQLCipher/SQLite database including WAL/SHM sidecars.
  *
  * Prefer providing [beforeSnapshot] (e.g. WAL checkpoint) so the copy is consistent.
- * Path resolution tries [databaseFile] and sibling candidates under the same databases/ dir.
+ * Only [databaseFile] is authoritative; missing databases fail without guessing another file.
  */
 class ReadOnlyDatabaseSnapshotSource(
     private val databaseFile: File,
@@ -29,22 +29,14 @@ class ReadOnlyDatabaseSnapshotSource(
 
     override fun snapshot(stagingDir: File): File? {
         val source = resolveExistingDatabaseFile()
-        if (source == null) {
-            // Fresh install / empty DB: stage empty placeholder so cloud backup is not hard-blocked.
-            return runCatching {
-                val target = File(stagingDir, databaseFile.name.ifBlank { "vvf_smart_manager_enc.db" })
-                target.parentFile?.mkdirs()
-                if (!target.exists()) {
-                    target.writeBytes(ByteArray(0))
-                }
-                target
-            }.getOrNull()
+        if (source == null || source.length() == 0L) {
+            throw IOException("Database is missing or empty; refusing an unrestorable backup")
         }
 
         return try {
             beforeSnapshot?.invoke()
             try {
-                val target = File(stagingDir, source.name)
+                val target = File(stagingDir, "database/${source.name}")
                 copyFileStreaming(source, target)
                 copyIfPresent(File(source.path + "-wal"), File(target.path + "-wal"))
                 copyIfPresent(File(source.path + "-shm"), File(target.path + "-shm"))
@@ -68,26 +60,8 @@ class ReadOnlyDatabaseSnapshotSource(
         return totalSize(primary, "-wal", "-shm")
     }
 
-    private fun resolveExistingDatabaseFile(): File? {
-        if (databaseFile.isFile) return databaseFile
-
-        val parent = databaseFile.parentFile ?: return null
-        val candidates = mutableListOf(
-            File(parent, databaseFile.name),
-            File(parent, "vvf_smart_manager_enc.db"),
-            File(parent, "vvf_smart_manager.db")
-        )
-        parent.listFiles()
-            ?.filter {
-                it.isFile &&
-                    it.name.startsWith("vvf_smart_manager") &&
-                    !it.name.contains("-wal") &&
-                    !it.name.contains("-shm")
-            }
-            ?.let { candidates.addAll(it) }
-
-        return candidates.firstOrNull { it.isFile }
-    }
+    // Only the configured live database is authoritative; never guess from sibling filenames.
+    private fun resolveExistingDatabaseFile(): File? = databaseFile.takeIf { it.isFile }
 
     private fun copyFileStreaming(source: File, target: File) {
         target.parentFile?.mkdirs()

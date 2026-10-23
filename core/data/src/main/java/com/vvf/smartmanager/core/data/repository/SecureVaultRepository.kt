@@ -6,6 +6,7 @@ import com.vvf.smartmanager.core.database.model.VaultItemEntity
 import com.vvf.smartmanager.core.database.model.VaultJournalEntity
 import com.vvf.smartmanager.core.model.VaultItem
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
+import com.vvf.smartmanager.core.security.VaultMaintenance
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.io.File
@@ -73,7 +74,7 @@ class SecureVaultRepository(
         notes: String = "",
         deleteOriginal: Boolean = false,
         isDecoy: Boolean = false
-    ): Result<VaultItem> = runCatching {
+    ): Result<VaultItem> = VaultMaintenance.operation {
         require(sourceFile.exists() && sourceFile.isFile) {
             "Source file does not exist or is a directory: ${sourceFile.absolutePath}"
         }
@@ -104,6 +105,7 @@ class SecureVaultRepository(
             )
         ) ?: 0L
 
+        var sourceDestructionStarted = false
         try {
             val result = cryptoManager.encryptFile(sourceFile, destinationFile)
 
@@ -124,6 +126,10 @@ class SecureVaultRepository(
             vaultDao.insertVaultItem(entity)
 
             if (deleteOriginal) {
+                // Persist ciphertext before entering the irreversible phase. Once shredding starts,
+                // cleanup must retain the authenticated recovery copy even when unlink/journaling fails.
+                java.io.RandomAccessFile(destinationFile, "rw").use { it.fd.sync() }
+                sourceDestructionStarted = true
                 require(cryptoManager.secureShredFile(sourceFile)) {
                     "Encrypted vault copy was created, but original plaintext could not be securely removed"
                 }
@@ -143,8 +149,8 @@ class SecureVaultRepository(
 
             entity.toDomainModel()
         } catch (e: Exception) {
-            // Roll back metadata as well as the encrypted artifact. Otherwise a failed
-            // operation can leave a DB row pointing at a file that no longer exists.
+            if (sourceDestructionStarted) throw e
+            // Before source destruction, metadata and ciphertext can both be rolled back safely.
             vaultDao.deleteById(fileId)
             if (journalId > 0L) {
                 vaultJournalDao.updateJournal(
@@ -167,7 +173,7 @@ class SecureVaultRepository(
     suspend fun restoreFileFromVault(
         vaultItemId: String,
         destinationDir: File? = null
-    ): Result<File> = runCatching {
+    ): Result<File> = VaultMaintenance.operation {
         val entity = vaultDao.getVaultItemById(vaultItemId)
             ?: throw IllegalStateException("Vault item not found in database: $vaultItemId")
 
@@ -229,7 +235,7 @@ class SecureVaultRepository(
     suspend fun exportFileFromVault(
         vaultItemId: String,
         destinationFile: File
-    ): Result<File> = runCatching {
+    ): Result<File> = VaultMaintenance.operation {
         val canonicalDest = destinationFile.canonicalFile
         val canonicalVault = vaultDirectory.canonicalFile
         require(!isInsideDirectory(canonicalDest, canonicalVault)) {
@@ -271,7 +277,7 @@ class SecureVaultRepository(
         canonicalDest
     }
 
-    suspend fun deleteVaultItemPermanently(vaultItemId: String): Result<Boolean> = runCatching {
+    suspend fun deleteVaultItemPermanently(vaultItemId: String): Result<Boolean> = VaultMaintenance.operation {
         val entity = vaultDao.getVaultItemById(vaultItemId)
         if (entity != null) {
             val encryptedFile = File(vaultDirectory, entity.encryptedFileName).canonicalFile
