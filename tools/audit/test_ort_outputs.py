@@ -47,6 +47,7 @@ class OrtOutputValidationTest(unittest.TestCase):
                 "SPDXID": "SPDXRef-DOCUMENT",
                 "name": "The-Perfect test SBOM",
                 "documentNamespace": "https://example.invalid/sbom/test",
+                "packages": [],
             },
         }
         for name, report in reports.items():
@@ -56,7 +57,7 @@ class OrtOutputValidationTest(unittest.TestCase):
             encoding="utf-8",
         )
         (root / "bom.spdx.yml").write_text(
-            "spdxVersion: SPDX-2.3\nSPDXID: SPDXRef-DOCUMENT\n",
+            "spdxVersion: SPDX-2.3\nSPDXID: SPDXRef-DOCUMENT\nname: Test SBOM\ndocumentNamespace: https://example.invalid/sbom/test\npackages: []\n",
             encoding="utf-8",
         )
 
@@ -83,6 +84,24 @@ class OrtOutputValidationTest(unittest.TestCase):
                 any("analyzer-result.json: missing valid ORT repository metadata" in item
                     for item in problems)
             )
+
+    def test_fake_sbom_reports_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            (root / "bom.cyclonedx.json").write_text(
+                '{"bomFormat":"CycloneDX"}', encoding="utf-8"
+            )
+            (root / "bom.spdx.json").write_text(
+                '{"spdxVersion":"SPDX-2.3"}', encoding="utf-8"
+            )
+            (root / "bom.spdx.yml").write_text(
+                "spdxVersion: SPDX-2.3\n", encoding="utf-8"
+            )
+            problems = validate_outputs(root)
+            self.assertTrue(any("missing valid specVersion" in item for item in problems))
+            self.assertTrue(any("missing required SPDX fields" in item for item in problems))
+            self.assertTrue(any("missing or invalid documentNamespace field" in item for item in problems))
 
     def test_reports_must_match_exact_expected_revision(self):
         expected_revision = "abcdef0123456789abcdef0123456789abcdef01"
