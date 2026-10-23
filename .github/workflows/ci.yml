@@ -54,6 +54,8 @@ jobs:
           test -x ./sqlcipher
           printf '%s\n' "PRAGMA key = 'vvf-sqlcipher-compatibility-test';" "CREATE TABLE compatibility_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL);" "INSERT INTO compatibility_test (id, value) VALUES (1, 'legacy-4.5.4');" ".quit" | ./sqlcipher "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
           test -s "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
+      - name: Run ORT report validator unit tests
+        run: python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
       - name: Verify Gradle wrapper
         run: ./gradlew --no-daemon --version
       - name: Run unit tests
