@@ -31,8 +31,10 @@ jobs:
       with:
         languages: ${{ matrix.language }}
 
-    - name: Autobuild
-      uses: github/codeql-action/autobuild@v3
+    # Use the debug variant for static analysis. The release variant requires
+    # owner-managed signing credentials and must not be built by CodeQL CI.
+    - name: Build Android debug variant for CodeQL
+      run: ./gradlew --no-daemon --stacktrace :app:assembleDebug
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v3
