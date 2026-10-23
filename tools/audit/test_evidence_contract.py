@@ -67,6 +67,19 @@ class EvidenceContractTest(unittest.TestCase):
         with patch.object(ec, 'gh_json', side_effect=[old, {'workflow_runs': runs}]), self.assertRaisesRegex(ValueError, 'superseded'):
             ec.remote_bundle('123', 'unit', SHA)
 
+    def test_optional_artifact_digest_must_match_downloaded_archive(self):
+        raw=b'<testsuite><testcase classname="com.vvf.smartmanager.core.data.storage.StorageBoundaryTest" name="boundary"/></testsuite>'
+        entry=copy.deepcopy(self.entry)
+        digest=ec.hashlib.sha256(raw).hexdigest()
+        entry['reports']=[{'path':f'reports/{digest}.xml','sha256':digest}]
+        archive=unittest.mock.Mock();archive.read.return_value=raw;archive.cpas_sha256='b'*64
+        entry['artifact_sha256']='a'*64
+        with patch.object(ec,'remote_bundle',return_value=({'entries':[entry]},archive)),self.assertRaisesRegex(ValueError,'archive hash mismatch'):
+            ec.verify_remote(entry,SHA)
+        entry['artifact_sha256']='b'*64
+        with patch.object(ec,'remote_bundle',return_value=({'entries':[entry]},archive)):
+            ec.verify_remote(entry,SHA)
+
     def test_unrelated_report_cannot_claim_control(self):
         raw=b'<testsuite><testcase classname="Unrelated" name="test"/></testsuite>'
         entry=copy.deepcopy(self.entry);digest=ec.hashlib.sha256(raw).hexdigest(); entry['reports']=[{'path':f'reports/{digest}.xml','sha256':digest}]

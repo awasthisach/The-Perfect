@@ -67,9 +67,11 @@ jobs:
 
           status=$(python3 -c 'import json; print(json.load(open("cpas-status.json"))["production_status"]["value"])')
           blockers=$(python3 -c 'import json; print(",".join(json.load(open("cpas-status.json")).get("blocking_findings") or []) or "none")')
-          echo "production_status=$status" >> "$GITHUB_OUTPUT"
-          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
-          echo "blockers=$blockers" >> "$GITHUB_OUTPUT"
+          {
+            echo "production_status=$status"
+            echo "exit_code=$code"
+            echo "blockers=$blockers"
+          } >> "$GITHUB_OUTPUT"
 
           if [ "$status" = "PASS" ] && [ "$code" -eq 0 ] && [ "$wait_code" -eq 0 ] && [ "$collect_code" -eq 0 ]; then
             echo "CPAS production_status=PASS"

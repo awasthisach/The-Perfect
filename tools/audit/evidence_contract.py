@@ -116,6 +116,7 @@ def remote_bundle(run_id: str, scope: str, candidate: str):
         raise ValueError('required artifact missing or ambiguous')
     raw = subprocess.check_output(['gh', 'api', f'repos/{REPOSITORY}/actions/artifacts/{artifacts[0]["id"]}/zip'], stderr=subprocess.DEVNULL)
     archive = zipfile.ZipFile(io.BytesIO(raw))
+    archive.cpas_sha256 = hashlib.sha256(raw).hexdigest()
     if len(archive.namelist()) != len(set(archive.namelist())):
         raise ValueError('duplicate archive members')
     bundle = json.loads(archive.read('bundle.json'))
@@ -125,6 +126,8 @@ def remote_bundle(run_id: str, scope: str, candidate: str):
 def verify_remote(entry, candidate):
     validate_entry(entry, candidate)
     bundle, archive = remote_bundle(str(entry['ci_run_id']), entry['scope'], candidate)
+    if 'artifact_sha256' in entry and entry['artifact_sha256'] != getattr(archive, 'cpas_sha256', None):
+        raise ValueError('artifact archive hash mismatch')
     if entry not in bundle.get('entries', []):
         raise ValueError('ledger claim differs from published artifact')
     classes = set()

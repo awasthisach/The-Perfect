@@ -244,7 +244,8 @@ def main() -> int:
                 raise ValueError("ledger must be an object")
             entries = data.get("entries")
             policy = data.get("policy")
-            shape_ok = (data.get("schema_version") == "1.0" and isinstance(entries, list) and isinstance(policy, dict)
+            shape_ok = (set(data) == {"schema_version", "entries", "policy"} and data.get("schema_version") == "1.0" and isinstance(entries, list) and isinstance(policy, dict)
+                        and set(policy) == {"status_values", "production_rule"}
                         and policy.get("status_values") == ["pending", "verified", "failed"]
                         and isinstance(policy.get("production_rule"), str) and bool(policy["production_rule"].strip()))
             entry_shape_ok = shape_ok and all(required_ledger_fields(item) for item in entries)

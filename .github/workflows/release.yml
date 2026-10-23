@@ -192,10 +192,12 @@ jobs:
             echo "git_sha=${{ github.sha }}"
             echo "run_id=${{ github.run_id }}"
           } > release-meta/apk-manifest.txt
-          echo "path=$APK" >> "$GITHUB_OUTPUT"
-          echo "sha256=$APK_SHA" >> "$GITHUB_OUTPUT"
-          echo "aab_path=$AAB" >> "$GITHUB_OUTPUT"
-          echo "aab_sha256=$AAB_SHA" >> "$GITHUB_OUTPUT"
+          {
+            echo "path=$APK"
+            echo "sha256=$APK_SHA"
+            echo "aab_path=$AAB"
+            echo "aab_sha256=$AAB_SHA"
+          } >> "$GITHUB_OUTPUT"
           cat release-meta/apk-manifest.txt
 
       - name: Generate SBOM with Syft
