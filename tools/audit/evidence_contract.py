@@ -68,12 +68,23 @@ def gh_json(endpoint):
     return json.loads(subprocess.check_output(['gh', 'api', f'repos/{REPOSITORY}/{endpoint}'], stderr=subprocess.DEVNULL))
 
 
+def latest_candidate_run(workflow: str, candidate: str):
+    runs = gh_json(f'actions/workflows/{workflow}/runs?head_sha={candidate}&per_page=100')['workflow_runs']
+    matching = [run for run in runs if run.get('head_sha') == candidate]
+    if not matching:
+        raise ValueError('no run exists for required candidate workflow')
+    # Do not query status=success: a newer failed/cancelled run supersedes old evidence.
+    return max(matching, key=lambda run: int(run['id']))
+
+
 @lru_cache(maxsize=32)
 def remote_bundle(run_id: str, scope: str, candidate: str):
     workflow, job_name, step_name, artifact_name = SOURCES[scope]
     run = gh_json(f'actions/runs/{run_id}')
     if run.get('head_sha') != candidate or run.get('status') != 'completed' or run.get('conclusion') != 'success' or run.get('path') != f'.github/workflows/{workflow}':
         raise ValueError('run is not successful exact-candidate evidence from required workflow')
+    if str(latest_candidate_run(workflow, candidate)['id']) != str(run_id):
+        raise ValueError('evidence run was superseded')
     jobs = gh_json(f'actions/runs/{run_id}/jobs?per_page=100')['jobs']
     jobs = [j for j in jobs if j.get('name') == job_name and j.get('conclusion') == 'success' and j.get('status') == 'completed']
     if len(jobs) != 1 or not any(s.get('name') == step_name and s.get('conclusion') == 'success' and s.get('status') == 'completed' for s in jobs[0]['steps']):

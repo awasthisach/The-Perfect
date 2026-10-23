@@ -56,8 +56,18 @@ class EvidenceContractTest(unittest.TestCase):
         for conclusion in ['skipped','cancelled','failure',None]:
             ec.remote_bundle.cache_clear()
             jobs={'jobs':[dict(name=ec.SOURCES['unit'][1],status='completed',conclusion='success',steps=[dict(name='Run unit tests',status='completed',conclusion=conclusion)])]}
-            with patch.object(ec,'gh_json',side_effect=[base,jobs]),self.assertRaises(ValueError):
+            with patch.object(ec,'gh_json',side_effect=[base,{'workflow_runs':[dict(base,id=123)]},jobs]),self.assertRaises(ValueError):
                 ec.remote_bundle('123','unit',SHA)
+    def test_latest_failed_run_supersedes_earlier_success(self):
+        runs = [dict(id=123, head_sha=SHA, status='completed', conclusion='success'),
+                dict(id=124, head_sha=SHA, status='completed', conclusion='failure')]
+        with patch.object(ec, 'gh_json', return_value={'workflow_runs': runs}):
+            self.assertEqual(124, ec.latest_candidate_run('ci.yml', SHA)['id'])
+        ec.remote_bundle.cache_clear()
+        old = dict(runs[0], path='.github/workflows/ci.yml')
+        with patch.object(ec, 'gh_json', side_effect=[old, {'workflow_runs': runs}]), self.assertRaisesRegex(ValueError, 'superseded'):
+            ec.remote_bundle('123', 'unit', SHA)
+
     def test_unrelated_report_cannot_claim_control(self):
         raw=b'<testsuite><testcase classname="Unrelated" name="test"/></testsuite>'
         entry=copy.deepcopy(self.entry);digest=ec.hashlib.sha256(raw).hexdigest(); entry['reports']=[{'path':f'reports/{digest}.xml','sha256':digest}]
