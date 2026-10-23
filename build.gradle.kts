@@ -27,8 +27,16 @@ subprojects {
       when {
         requested.group == "io.netty" && requested.name.startsWith("netty-") ->
           useVersion("4.1.139.Final")
-        requested.group == "org.bouncycastle" && requested.name == "bcprov-jdk18on" ->
+        // Keep the provider, PKIX and utility modules compatible. PKIX <1.84
+        // accepts an empty composite signature (GHSA-wg6q-6289-32hp).
+        requested.group == "org.bouncycastle" &&
+          requested.name in setOf("bcprov-jdk18on", "bcpkix-jdk18on", "bcutil-jdk18on") ->
           useVersion("1.85")
+        // Compose's lint test stubs still request this vulnerable Android variant.
+        // Preserve the Android API surface and leave newer/JRE requests untouched.
+        requested.group == "com.google.guava" && requested.name == "guava" &&
+          requested.version == "28.1-android" ->
+          useVersion("33.4.8-android")
         requested.group == "org.apache.commons" && requested.name == "commons-lang3" ->
           useVersion("3.18.0")
         requested.group == "org.apache.httpcomponents" && requested.name == "httpclient" ->
