@@ -128,6 +128,22 @@ class OrtActionRegressionTest(unittest.TestCase):
 
 
 
+    def test_worker_deployment_does_not_require_gemini_key_while_embeddings_disabled(self):
+        workflow = (
+            ROOT / ".github" / "workflows" / "deploy-embedding-worker.yml"
+        ).read_text(encoding="utf-8")
+        validation = workflow.split("      - name: Validate required secrets", 1)[1].split(
+            "      - name: Store server-only Worker secrets", 1
+        )[0]
+        storage = workflow.split("      - name: Store server-only Worker secrets", 1)[1].split(
+            "      - name: Deploy Worker", 1
+        )[0]
+        self.assertIn('if [ "$CONFIRM_GEMINI_DATA_HANDLING" = "yes" ]; then', validation)
+        self.assertIn("GEMINI_API_KEY is required only when explicitly enabling approved production embeddings", validation)
+        self.assertIn('if [ "$CONFIRM_GEMINI_DATA_HANDLING" = "yes" ]; then', storage)
+        self.assertIn('wrangler secret put FIREBASE_APP_ID', storage)
+        self.assertIn('wrangler secret put GEMINI_API_KEY', storage)
+
     def test_ort_cache_is_versioned_and_restores_legacy_cache(self):
         action = self.action
         nightly = (ROOT / ".github" / "workflows" / "nightly-ort.yml").read_text(encoding="utf-8")
