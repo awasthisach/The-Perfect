@@ -67,10 +67,13 @@ jobs:
         run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
       - name: CPAS structural + semantic verification (hard fail)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
-          python3 tools/audit/cpas_verify.py --root .
+          python3 tools/audit/collect_evidence.py --revision "$GITHUB_SHA" --output candidate-evidence.json
+          python3 tools/audit/cpas_verify.py --root . --candidate-sha "$GITHUB_SHA" --ledger candidate-evidence.json
 
       - name: Validate release inputs and secrets
         env:
@@ -196,6 +199,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 tools/audit/release_gate.py \
+            --revision "$GITHUB_SHA" \
             --cpas-status cpas-status.json \
             --ort-status ort-status.json \
             --apk "${{ steps.apk.outputs.path }}"

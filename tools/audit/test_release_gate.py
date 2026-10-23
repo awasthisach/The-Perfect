@@ -19,7 +19,7 @@ class ReleaseGateTests(unittest.TestCase):
         self.previous_cwd = os.getcwd()
         os.chdir(self.temp_dir.name)
         Path("cpas-status.json").write_text(
-            json.dumps({"production_status": {"value": "PASS"}}), encoding="utf-8"
+            json.dumps({"source_commit": "a" * 40, "production_status": {"value": "PASS"}}), encoding="utf-8"
         )
 
     def tearDown(self) -> None:
@@ -28,12 +28,12 @@ class ReleaseGateTests(unittest.TestCase):
 
     def write_ort(self, status: str = "PASS") -> None:
         Path("ort-status.json").write_text(
-            json.dumps({"status": status, "reason": "test fixture"}), encoding="utf-8"
+            json.dumps({"status": status, "scan_revision": "a" * 40, "reason": "test fixture"}), encoding="utf-8"
         )
 
     def run_gate(self) -> tuple[int, str]:
         output = StringIO()
-        with patch("sys.argv", ["release_gate.py"]), redirect_stdout(output), redirect_stderr(output):
+        with patch("sys.argv", ["release_gate.py", "--revision", "a" * 40]), redirect_stdout(output), redirect_stderr(output):
             code = main()
         return code, output.getvalue()
 
@@ -44,6 +44,11 @@ class ReleaseGateTests(unittest.TestCase):
         self.assertIn("CPAS: PASS", output)
         self.assertIn("ORT: PASS", output)
         self.assertIn("RELEASE_GATE: PASS", output)
+
+    def test_wrong_revision_blocks_release(self):
+        self.write_ort("PASS")
+        Path("cpas-status.json").write_text(json.dumps({"source_commit": "b"*40, "production_status": {"value": "PASS"}}))
+        self.assertEqual(1, self.run_gate()[0])
 
     def test_missing_ort_status_blocks_release(self) -> None:
         code, output = self.run_gate()

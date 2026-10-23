@@ -11,6 +11,8 @@ import argparse
 import json
 import re
 import sys
+import subprocess
+from evidence_contract import verify_entries
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -66,7 +68,7 @@ def required_ledger_fields(entry: object) -> bool:
         return False
     if not SHA_RE.fullmatch(str(entry["source_commit"])):
         return False
-    if entry["result"] not in {"PASS", "FAIL"}:
+    if entry["result"] != "PASS":
         return False
     if not DATETIME_RE.fullmatch(str(entry["executed_at"])) or not DATETIME_RE.fullmatch(str(entry["expires_at"])):
         return False
@@ -102,6 +104,8 @@ def parse_risks(path: Path) -> list[dict[str, str]]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Verify CPAS assurance contracts")
+    parser.add_argument("--candidate-sha")
+    parser.add_argument("--ledger", type=Path)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
     return parser.parse_args()
 
@@ -126,7 +130,13 @@ def parse_waivers(path: Path) -> list[dict[str, str]]:
 
 
 def main() -> int:
-    root = parse_args().root.resolve()
+    args = parse_args()
+    root = args.root.resolve()
+    try:
+        head = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL).strip()
+    except subprocess.CalledProcessError:
+        head = ""
+    candidate = args.candidate_sha or head
     assurance = root / "docs" / "assurance"
     sheet = assurance / "FINAL_CPAS_SHEET.md"
     risk_path = assurance / "08-risk-register.yaml"
@@ -134,7 +144,7 @@ def main() -> int:
     traceability_path = assurance / "06-requirements-traceability.yaml"
     gate_path = assurance / "09-gate-catalog.yaml"
     tech_path = assurance / "04-technology-registry.yaml"
-    ledger_path = assurance / "evidence-ledger.json"
+    ledger_path = args.ledger or assurance / "evidence-ledger.json"
     output_path = root / "cpas-status.json"
 
     required = [
@@ -226,6 +236,8 @@ def main() -> int:
     if ledger_path.is_file():
         try:
             data = json.loads(ledger_path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("ledger must be an object")
             entries = data.get("entries")
             policy = data.get("policy")
             shape_ok = isinstance(entries, list) and isinstance(policy, dict)
@@ -246,9 +258,14 @@ def main() -> int:
                 ledger_detail = f"{len(entries)} schema-valid evidence entries"
                 if local_only_count:
                     ledger_detail += f" ({local_only_count} local-pre-ci; real CI evidence still required for production PASS)"
-        except (json.JSONDecodeError, OSError) as exc:
+        except (ValueError, TypeError, OSError) as exc:
             ledger_detail = f"invalid JSON: {exc}"
     checks.append(check("evidence_ledger_integrity", ledger_ok, ledger_detail))
+
+    provenance_errors = verify_entries(entries, candidate, invariant_ids)
+    if not SHA_RE.fullmatch(candidate) or candidate != head:
+        provenance_errors.append("candidate must equal checked-out HEAD")
+    checks.append(check("candidate_control_provenance", not provenance_errors, "; ".join(provenance_errors) or "all required controls verified against Actions reports for HEAD"))
 
     evidence_quality_ok, evidence_quality_detail = production_evidence_quality(local_only_count)
     checks.append(check("production_evidence_quality", evidence_quality_ok, evidence_quality_detail))
@@ -262,7 +279,7 @@ def main() -> int:
                     expiry = datetime.fromisoformat(str(entry["expires_at"]).replace("Z", "+00:00"))
                     if expiry <= now:
                         stale_count += 1
-                except (KeyError, ValueError):
+                except (KeyError, ValueError, TypeError):
                     stale_count += 1
     checks.append(check("evidence_freshness", stale_count == 0,
                         "all evidence is within expiry" if stale_count == 0 else f"expired or malformed evidence entries: {stale_count}"))
@@ -281,7 +298,7 @@ def main() -> int:
                     exp = exp.replace(tzinfo=timezone.utc)
                 if exp <= now:
                     expired_waivers.append(w.get("id", "unknown"))
-            except (KeyError, ValueError):
+            except (KeyError, ValueError, TypeError):
                 expired_waivers.append(w.get("id", "unknown"))
     checks.append(check(
         "waiver_expiry",
@@ -294,7 +311,7 @@ def main() -> int:
     if isinstance(entries, list) and entries:
         instr = [
             e for e in entries
-            if isinstance(e, dict) and "emulator" in str(e.get("environment", "")).lower()
+            if isinstance(e, dict) and e.get("control_id") == "DB-INV-001" and e.get("result") == "PASS" and e.get("source_commit") == candidate and "emulator" in str(e.get("environment", "")).lower()
         ]
         if instr:
             ages = []
@@ -304,9 +321,9 @@ def main() -> int:
                     if executed.tzinfo is None:
                         executed = executed.replace(tzinfo=timezone.utc)
                     ages.append((now - executed).total_seconds() / 86400.0)
-                except (KeyError, ValueError):
+                except (KeyError, ValueError, TypeError):
                     ages.append(999.0)
-            instr_stale = all(a > 14.0 for a in ages)
+            instr_stale = all(a < 0 or a > 14.0 for a in ages)
     checks.append(check(
         "instrumented_evidence_freshness",
         not instr_stale,
@@ -320,6 +337,7 @@ def main() -> int:
     status = "PASS" if blocked == 0 else "BLOCKED"
     result = {
         "schema_version": "1.0",
+        "source_commit": candidate,
         "production_status": {"value": status, "computed": True},
         "computed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "checks": checks,
