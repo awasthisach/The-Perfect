@@ -4,8 +4,8 @@ This checklist records owner-controlled release work. Completing a checkbox requ
 
 ## PROD-008 — Open-source compliance / ORT (Issue #136)
 
-- [ ] Review the latest successful **Nightly ORT Compliance Scan** run in GitHub Actions.
-- [ ] Download the `ort-results-<commit SHA>` artifact and retain the exact commit SHA/run URL.
+- [ ] Run **Nightly ORT Compliance Scan** on the exact candidate commit (manual dispatch if needed), then review the successful run in GitHub Actions.
+- [ ] Download the `ort-results-evidence` artifact and verify `ort-status.json.scan_revision` exactly matches the release commit SHA; retain the run URL and artifact.
 - [ ] Confirm Analyzer, Scanner, Evaluator, Advisor, and SBOM/Reporter outputs exist and are valid.
 - [ ] Review every Evaluator license finding and Advisor vulnerability; record package, version, license/CVE, severity, disposition, and supporting evidence.
 - [ ] Fix or document findings through precise, evidence-backed curations; do not add blanket allowlists or suppress unresolved findings.
