@@ -8,8 +8,7 @@ import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import com.vvf.smartmanager.core.database.VVFDatabase
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
-import io.mockk.every
-import io.mockk.mockk
+import org.mockito.kotlin.*
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
@@ -30,15 +29,15 @@ class DriveIndexBackupManagerTest {
         val prefs = base.getSharedPreferences("drive_search_index", Context.MODE_PRIVATE)
         val keys = listOf("full_list_next_page_token", "full_list_changes_cursor", "full_list_run_id", "changes_cursor")
         prefs.edit().clear().apply { keys.forEach { putString(it, "stale") }; putInt("full_list_indexed_count", 99) }.commit()
-        val app = mockk<VVFApplication>(relaxed = true)
-        every { app.database } returns db
-        every { app.isDriveFullContentConsentEnabled() } returns false
-        val badPrefs = mockk<SharedPreferences>()
-        val badEditor = mockk<SharedPreferences.Editor>()
-        every { badPrefs.getString("account_email", null) } returns null
-        every { badPrefs.edit() } returns badEditor
-        every { badEditor.remove(any()) } returns badEditor
-        every { badEditor.commit() } returns false
+        val app = mock<VVFApplication>()
+        whenever(app.database).thenReturn(db)
+        whenever(app.isDriveFullContentConsentEnabled()).thenReturn(false)
+        val badPrefs = mock<SharedPreferences>()
+        val badEditor = mock<SharedPreferences.Editor>()
+        whenever(badPrefs.getString("account_email", null)).thenReturn(null)
+        whenever(badPrefs.edit()).thenReturn(badEditor)
+        whenever(badEditor.remove(any())).thenReturn(badEditor)
+        whenever(badEditor.commit()).thenReturn(false)
         val context = object : ContextWrapper(base) {
             override fun getApplicationContext(): Context = app
             override fun getSharedPreferences(name: String, mode: Int): SharedPreferences =
@@ -52,7 +51,7 @@ class DriveIndexBackupManagerTest {
             val result = DriveIndexBackupManager(context).import(Uri.fromFile(backup))
             if (failCommit) {
                 assertTrue(result.isFailure)
-                io.mockk.verify(exactly = 1) { badEditor.commit() }
+                verify(badEditor).commit()
                 assertNotNull(db.fileDao().getByPath("gdrive://old"))
             } else {
                 result.getOrThrow()
