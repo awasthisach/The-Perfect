@@ -63,6 +63,14 @@ class OrtActionRegressionTest(unittest.TestCase):
             "Advanced codeql-analysis.yml must remain removed to avoid dual CodeQL conflict",
         )
 
+    def test_release_workflow_builds_and_attests_signed_play_bundle(self):
+        release = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        self.assertIn("./gradlew --no-daemon bundleRelease --stacktrace", release)
+        self.assertIn('jarsigner -verify "$AAB"', release)
+        self.assertIn("**/build/outputs/bundle/release/*.aab", release)
+        self.assertIn("aab_sha256", release)
+        self.assertIn("Attest release APK and Play App Bundle", release)
+
     def test_release_signing_is_conditional_for_generic_assemble_but_fail_closed_for_release_tasks(self):
         gradle = (ROOT / "app" / "build.gradle.kts").read_text(encoding="utf-8")
         self.assertIn("val releaseSigningConfigured = releaseSigningVariables.all", gradle)
