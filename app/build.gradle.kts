@@ -33,13 +33,29 @@ android {
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
+  // Generic Gradle/CodeQL "assemble" builds all variants. Do not attach an
+  // incomplete release SigningConfig when protected release secrets are absent:
+  // that makes packageRelease fail before CodeQL can analyze Kotlin sources.
+  // An unsigned release variant is never distributable; explicit release tasks
+  // are still rejected below unless every protected signing input is present.
+  val releaseSigningVariables = listOf(
+    "KEYSTORE_PATH",
+    "STORE_PASSWORD",
+    "KEY_ALIAS",
+    "KEY_PASSWORD",
+  )
+  val releaseSigningConfigured = releaseSigningVariables.all {
+    !providers.environmentVariable(it).orNull.isNullOrBlank()
+  }
+
   signingConfigs {
-    create("release") {
-      val keystorePath = providers.environmentVariable("KEYSTORE_PATH").orNull
-      if (!keystorePath.isNullOrBlank()) storeFile = file(keystorePath)
-      storePassword = providers.environmentVariable("STORE_PASSWORD").orNull
-      keyAlias = providers.environmentVariable("KEY_ALIAS").orNull
-      keyPassword = providers.environmentVariable("KEY_PASSWORD").orNull
+    if (releaseSigningConfigured) {
+      create("release") {
+        storeFile = file(providers.environmentVariable("KEYSTORE_PATH").orNull!!)
+        storePassword = providers.environmentVariable("STORE_PASSWORD").orNull
+        keyAlias = providers.environmentVariable("KEY_ALIAS").orNull
+        keyPassword = providers.environmentVariable("KEY_PASSWORD").orNull
+      }
     }
   }
 
@@ -49,7 +65,9 @@ android {
       isMinifyEnabled = true
       isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = signingConfigs.getByName("release")
+      if (releaseSigningConfigured) {
+        signingConfig = signingConfigs.getByName("release")
+      }
     }
     debug {
       signingConfig = signingConfigs.getByName("debug")
