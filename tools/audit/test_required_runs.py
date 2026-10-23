@@ -16,3 +16,14 @@ class RequiredRunsTest(unittest.TestCase):
             self.assertFalse(check(dict(run,conclusion=outcome)))
             self.assertFalse(check(jobs=[dict(job,conclusion=outcome)]))
             self.assertFalse(check(jobs=[dict(job,steps=[dict(step,conclusion=outcome)])]))
+
+    def test_latest_unsuccessful_run_blocks_despite_previous_success(self):
+        import require_workflow_runs as gate
+        from unittest.mock import patch
+        for conclusion in ['failure', 'cancelled', 'skipped', None]:
+            run = dict(id=2, head_sha='a'*40, path='.github/workflows/ci.yml', status='completed', conclusion=conclusion)
+            with self.subTest(conclusion=conclusion), patch('sys.argv', ['gate', '--revision', 'a'*40]), \
+                    patch.object(gate, 'REQUIRED', {'ci.yml': ('job', ['test'])}), \
+                    patch.object(gate, 'latest_candidate_run', return_value=run), \
+                    patch.object(gate, 'gh_json', return_value={'jobs': []}), self.assertRaises(SystemExit):
+                gate.main()
