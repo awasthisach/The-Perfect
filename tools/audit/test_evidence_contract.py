@@ -114,3 +114,9 @@ class OriginalProbeIntegrationTest(unittest.TestCase):
             self.assertEqual('PASS', checks['risk_register_gate'])
             self.assertEqual('BLOCKED', checks['candidate_control_provenance'])
             self.assertEqual('BLOCKED', status['production_status']['value'])
+            # CI-only verification does not close owner-controlled high risks.
+            opened, closed = risks.read_text().split('closed_findings:', 1)
+            risks.write_text(opened.replace('status: closed', 'status: ci_verified') + 'closed_findings:' + closed)
+            result=subprocess.run([sys.executable,str(repo/'tools/audit/cpas_verify.py'),'--root',str(root)],text=True,capture_output=True)
+            self.assertEqual(1,result.returncode,result.stderr)
+            self.assertIn('PROD-008',json.loads(result.stdout)['blocking_findings'])

@@ -23,6 +23,12 @@ def write(path: Path, text: str) -> None:
 
 
 class CpasVerifySelfTests(unittest.TestCase):
+    def test_missing_relative_evidence_bundle_emits_blocked_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = subprocess.run([sys.executable, str(VERIFY), "--root", tmp, "--ledger", "candidate-evidence.json"], capture_output=True, text=True)
+            self.assertEqual(1, proc.returncode, proc.stderr)
+            self.assertEqual("BLOCKED", json.loads(proc.stdout)["production_status"]["value"])
+
     def test_empty_ledger_blocks_production(self) -> None:
         """Empty evidence ledger must not produce production PASS."""
         with tempfile.TemporaryDirectory() as tmp:
