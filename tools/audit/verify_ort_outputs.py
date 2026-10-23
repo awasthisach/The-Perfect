@@ -21,7 +21,7 @@ REQUIRED_OUTPUTS = RESULT_JSON_FILES + (
 )
 
 
-def validate_outputs(results_dir: Path) -> list[str]:
+def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str]:
     """Return missing, empty, malformed, or wrong-format ORT outputs."""
     problems: list[str] = []
     for name in REQUIRED_OUTPUTS:
@@ -58,6 +58,16 @@ def validate_outputs(results_dir: Path) -> list[str]:
             repository = data.get("repository")
             if not isinstance(repository, dict) or not isinstance(repository.get("vcs"), dict) or not isinstance(repository.get("config"), dict):
                 problems.append(f"{name}: missing valid ORT repository metadata")
+                continue
+
+            vcs_revision = repository["vcs"].get("revision")
+            if not isinstance(vcs_revision, str) or not vcs_revision.strip():
+                problems.append(f"{name}: ORT repository VCS revision is missing")
+                continue
+            if revision is not None and vcs_revision != revision:
+                problems.append(
+                    f"{name}: ORT repository VCS revision {vcs_revision!r} does not match expected {revision!r}"
+                )
                 continue
 
             section_name, result_name = ort_sections[name]
@@ -107,7 +117,7 @@ def main() -> int:
     parser.add_argument("--revision", required=True)
     args = parser.parse_args()
 
-    problems = validate_outputs(args.results_dir)
+    problems = validate_outputs(args.results_dir, args.revision)
     report = {
         "gate_id": "GATE-LICENSE-001",
         "revision": args.revision,
