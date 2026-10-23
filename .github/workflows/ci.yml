@@ -5,15 +5,11 @@ on:
   push:
     branches: ["main", "develop"]
   pull_request:
-    branches: ["main", "develop"]
+    branches: ["main", "develop", "fix/p0-vault-nio-publish-phase3"]
   workflow_dispatch:
 
 permissions:
   contents: read
-
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
-  cancel-in-progress: true
 
 env:
   UPLOAD_ARTIFACT_ACTION: b7c566a772e6b6bfb58ed0dc250532a479d7789f
@@ -209,6 +205,9 @@ jobs:
 
   open_source_compliance:
     name: Open Source Compliance (ORT)
+    concurrency:
+      group: ort-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     # ORT ScanCode exceeded 180 minutes on the latest candidate before
     # evaluation/advisor/SBOM completed. Keep the full checks enabled and allow
