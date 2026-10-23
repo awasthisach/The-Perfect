@@ -41,8 +41,20 @@ class EncryptedDatabaseLifecycleTest {
                 path="gdrive://native", name="before", parentPath="gdrive://root", sizeBytes=1,
                 mimeType="text/plain", isDirectory=false, modifiedDate=1)
             val id = dao.insertOrUpdate(row)
+            val sql = db.openHelper.writableDatabase
+            val cached = sql.compileStatement("UPDATE file_metadata SET name=? WHERE path=?")
+            cached.bindString(1, "cached")
+            cached.bindString(2, row.path)
+            val cursor = sql.query("SELECT name FROM file_metadata")
+            try {
+                try { db.pauseForMaintenance(); fail("Open cursor allowed maintenance") }
+                catch (_: IllegalStateException) { }
+                assertTrue(cursor.moveToFirst())
+            } finally { cursor.close() }
             db.pauseForMaintenance()
             db.resumeAfterMaintenance()
+            try { assertEquals(1, cached.executeUpdateDelete()) } finally { cached.close() }
+            assertEquals("cached", dao.getByPath(row.path)!!.name)
             assertEquals(id, dao.insertOrUpdate(row.copy(name="after")))
             assertEquals("after", dao.getByPath(row.path)!!.name)
         } finally { db.close(); secret.fill(0); context.deleteDatabase(name) }
@@ -91,7 +103,7 @@ class EncryptedDatabaseLifecycleTest {
             db.openHelper.writableDatabase.execSQL("INSERT INTO lifecycle_probe VALUES ('retained')")
             assertTrue(issued.last().any { it != 0.toByte() })
             db.pauseForMaintenance()
-            try { db.openHelper.writableDatabase; fail("maintenance allowed a new open") } catch (_: IllegalStateException) { }
+            assertFalse(db.openHelper.writableDatabase.isOpen)
             db.resumeAfterMaintenance()
             db.openHelper.close()
             assertTrue(issued.last().all { it == 0.toByte() })
