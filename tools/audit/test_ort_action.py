@@ -99,17 +99,40 @@ class OrtActionRegressionTest(unittest.TestCase):
         self.assertIn('"Release builds must never fall back to the Android debug keystore."', gradle)
         self.assertIn('require(file(releaseKeystore).isFile)', gradle)
 
-    def test_ci_and_release_keep_advisor_findings_fail_closed(self):
-        for workflow_name in ("ci.yml", "release.yml"):
-            workflow = (
-                ROOT / ".github" / "workflows" / workflow_name
-            ).read_text(encoding="utf-8")
-            with self.subTest(workflow=workflow_name):
-                self.assertIn("uses: ./.github/actions/ort-ci", workflow)
-                self.assertIn("fail-on: 'violations,issues'", workflow)
-                self.assertIn("ORT_ADVISOR_EXIT_CODE", workflow)
-                self.assertIn("tools/audit/verify_ort_outputs.py", workflow)
-                self.assertIn('status = "PASS"', workflow)
+    def test_ort_runs_only_in_release_workflow_and_fails_closed(self):
+        ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        release = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+
+        # Daily PR CI must stay fast: it builds/tests/lints and assembles the debug APK,
+        # but must not start the expensive ORT analyzer/scanner.
+        self.assertNotIn("uses: ./.github/actions/ort-ci", ci)
+        self.assertNotIn("Open Source Compliance (ORT)", ci)
+        self.assertIn("Run unit tests", ci)
+        self.assertIn("Run Android lint", ci)
+        self.assertIn("Assemble debug APK", ci)
+
+        # Release promotion remains gated by ORT, its reports, and explicit exit codes.
+        self.assertIn("uses: ./.github/actions/ort-ci", release)
+        self.assertIn("fail-on: 'violations,issues'", release)
+        self.assertIn("ORT_ADVISOR_EXIT_CODE", release)
+        self.assertIn("tools/audit/verify_ort_outputs.py", release)
+        self.assertIn('status = "PASS" if outcome == "success" and evaluator == "0" and advisor == "0" else "BLOCKED"', release)
+        self.assertIn("needs: open_source_compliance", release)
+        self.assertIn("if status != \"PASS\":", release)
+
+    def test_missing_or_invalid_ort_reports_never_validate_as_pass(self):
+        with tempfile.TemporaryDirectory() as directory:
+            results_dir = Path(directory)
+
+            # No ORT output at all must produce missing-output errors.
+            missing = validate_outputs(results_dir)
+            self.assertTrue(missing, "An empty ORT results directory must fail closed")
+            self.assertTrue(any("analyzer-result.json: missing" in item for item in missing))
+
+            # A present but malformed JSON report must still fail closed.
+            (results_dir / "analyzer-result.json").write_text("{broken", encoding="utf-8")
+            malformed = validate_outputs(results_dir)
+            self.assertTrue(any("analyzer-result.json: invalid JSON" in item for item in malformed))
 
 
 
@@ -132,25 +155,26 @@ class OrtActionRegressionTest(unittest.TestCase):
         )
 
 
-    def test_ort_cache_restores_versioned_cache_then_legacy_fallback(self):
-        for workflow_name in ("ci.yml", "release.yml"):
-            workflow = (
-                ROOT / ".github" / "workflows" / workflow_name
-            ).read_text(encoding="utf-8")
-            with self.subTest(workflow=workflow_name):
-                self.assertIn("restore-keys: |", workflow)
-                restore_keys = workflow.split("restore-keys: |", 1)[1].split("\n\n", 1)[0]
-                self.assertIn("ort-scan-results-v2-", restore_keys)
-                self.assertIn("ort-scan-results-v1-", restore_keys)
-                self.assertLess(
-                    restore_keys.index("ort-scan-results-v2-"),
-                    restore_keys.index("ort-scan-results-v1-"),
-                    "Current dependency-scoped cache must be preferred before legacy fallback",
-                )
-                self.assertIn(
-                    "Legacy cache fallback: prior runs saved scanner state under v1.",
-                    workflow,
-                )
+    def test_ort_cache_is_used_only_by_release_workflow(self):
+        ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        release = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+
+        self.assertNotIn("ort-scan-results-v2-", ci)
+        self.assertNotIn("ort-scan-results-v1-", ci)
+
+        self.assertIn("restore-keys: |", release)
+        restore_keys = release.split("restore-keys: |", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("ort-scan-results-v2-", restore_keys)
+        self.assertIn("ort-scan-results-v1-", restore_keys)
+        self.assertLess(
+            restore_keys.index("ort-scan-results-v2-"),
+            restore_keys.index("ort-scan-results-v1-"),
+            "Current dependency-scoped cache must be preferred before legacy fallback",
+        )
+        self.assertIn(
+            "Legacy cache fallback: prior runs saved scanner state under v1.",
+            release,
+        )
 
 
 if __name__ == "__main__":
