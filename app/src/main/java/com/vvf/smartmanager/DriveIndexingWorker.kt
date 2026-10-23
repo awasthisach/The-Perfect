@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.vvf.smartmanager.core.cloud.gdrive.toFileItem
 import com.vvf.smartmanager.core.cloud.gdrive.DriveFileDto
 import com.vvf.smartmanager.core.cloud.gdrive.DriveIndexingPolicy
 import com.vvf.smartmanager.core.cloud.gdrive.DriveIndexSnapshot
@@ -374,21 +375,6 @@ class DriveIndexingWorker(
                 "application/vnd.google-apps.presentation"
             )
     }
-
-    private fun DriveFileDto.toFileItem(): FileItem = FileItem(
-        path = DRIVE_PATH_PREFIX + id.orEmpty(),
-        name = name.orEmpty(),
-        sizeBytes = size?.toLongOrNull() ?: 0L,
-        lastModified = modifiedTime?.let {
-            runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrDefault(0L)
-        } ?: 0L,
-        isDirectory = mimeType == "application/vnd.google-apps.folder",
-        mimeType = mimeType,
-        isFavorite = starred,
-        md5Hash = md5Checksum,
-        localFileId = id,
-        canonicalUri = webViewLink
-    )
 
     private fun saveStatus(
         app: VVFApplication,

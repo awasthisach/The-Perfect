@@ -17,9 +17,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
-import java.text.SimpleDateFormat
-import java.util.Locale
-import java.util.TimeZone
 
 /**
  * Google Drive v3 REST implementation.
@@ -123,7 +120,7 @@ class GoogleDriveServiceImpl(
             val parent = folderId.ifBlank { "root" }
             val q = "'$parent' in parents and trashed = false"
             val response = driveApi.listFiles(bearer = bearer(), query = q)
-            val items = response.files.map(::toFileItem)
+            val items = response.files.map { it.toFileItem() }
             currentAccount = currentAccount.copy(
                 isConnected = true,
                 lastSyncTimestamp = System.currentTimeMillis()
@@ -145,7 +142,7 @@ class GoogleDriveServiceImpl(
                     bearer = bearer(), query = "trashed = false",
                     pageSize = minOf(1000, maxFiles - all.size).coerceAtLeast(1), pageToken = pageToken
                 )
-                all.addAll(response.files.map(::toFileItem))
+                all.addAll(response.files.map { it.toFileItem() })
                 next = response.nextPageToken
                 pageToken = next
             } while (!next.isNullOrBlank() && all.size < maxFiles)
@@ -166,7 +163,7 @@ class GoogleDriveServiceImpl(
                 isConnected = true,
                 lastSyncTimestamp = System.currentTimeMillis()
             )
-            Result.success(DriveIndexPage(response.files.map(::toFileItem), response.nextPageToken))
+            Result.success(DriveIndexPage(response.files.map { it.toFileItem() }, response.nextPageToken))
         } catch (e: CancellationException) { throw e } catch (e: Exception) {
             Result.failure(e)
         }
@@ -277,19 +274,6 @@ class GoogleDriveServiceImpl(
             Result.success(requireNotNull(created.id) { "Drive returned no folder ID" })
         } catch (e: CancellationException) { throw e } catch (e: Exception) { Result.failure(e) }
     }
-
-    private fun toFileItem(dto: DriveFileDto): FileItem = FileItem(
-        path = "gdrive://${dto.id.orEmpty()}",
-        name = dto.name.orEmpty(),
-        sizeBytes = dto.size?.toLongOrNull() ?: 0L,
-        lastModified = parseDriveTime(dto.modifiedTime),
-        isDirectory = dto.mimeType == "application/vnd.google-apps.folder",
-        mimeType = dto.mimeType,
-        isFavorite = dto.starred,
-        md5Hash = dto.md5Checksum,
-        localFileId = dto.id,
-        canonicalUri = dto.webViewLink
-    )
 
     private fun requireValidDriveId(value: String, label: String) {
         require(looksLikeDriveId(value)) { "Invalid Drive $label" }
@@ -402,7 +386,7 @@ class GoogleDriveServiceImpl(
 
     override suspend fun listDriveBackups(): Result<List<CloudBackupInfo>> = withContext(Dispatchers.IO) {
         try {
-            val folderQuery = "name = 'VVF_Backups' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+            val folderQuery = "name = 'VVF_Backups' and mimeType = 'application/vnd.google-apps.folder' and 'me' in owners and trashed = false"
             val folder = driveApi.listFiles(bearer(), query = folderQuery, pageSize = 10)
                 .files.firstOrNull { !it.id.isNullOrBlank() }
                 ?: return@withContext Result.success(emptyList())
@@ -424,7 +408,7 @@ class GoogleDriveServiceImpl(
                     .forEach { dto ->
                         val id = dto.id?.takeIf { looksLikeDriveId(it) } ?: return@forEach
                         val digest = dto.appProperties["vvfSha256"]?.trim()?.lowercase()
-                            ?.takeIf { it.matches(Regex("^[a-f0-9]{64}$")) }
+                            ?.takeIf { it.matches(Regex("^[a-f0-9]{64}$")) } ?: return@forEach
                         backups.add(
                             CloudBackupInfo(
                                 backupId = id,
@@ -628,7 +612,7 @@ class GoogleDriveServiceImpl(
         if (looksLikeDriveId(ref)) return ref
 
         val escapedName = ref.replace("\\", "\\\\").replace("'", "\\'")
-        val query = "name = '$escapedName' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        val query = "name = '$escapedName' and mimeType = 'application/vnd.google-apps.folder' and 'me' in owners and trashed = false"
         val existing = driveApi.listFiles(bearer(), query = query, pageSize = 10).files.firstOrNull()
         if (existing?.id != null) return existing.id
 
@@ -682,22 +666,4 @@ class GoogleDriveServiceImpl(
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
-    private fun parseDriveTime(iso: String?): Long {
-        if (iso.isNullOrBlank()) return 0L
-        return try {
-            val fmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
-                timeZone = TimeZone.getTimeZone("UTC")
-            }
-            fmt.parse(iso)?.time ?: 0L
-        } catch (_: Exception) {
-            try {
-                val fmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
-                    timeZone = TimeZone.getTimeZone("UTC")
-                }
-                fmt.parse(iso)?.time ?: 0L
-            } catch (_: Exception) {
-                0L
-            }
-        }
-    }
 }

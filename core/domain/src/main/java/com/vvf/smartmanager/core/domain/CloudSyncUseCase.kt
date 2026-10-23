@@ -15,6 +15,8 @@ import com.vvf.smartmanager.core.model.CloudSyncItem
 import com.vvf.smartmanager.core.model.CloudSyncStatus
 import com.vvf.smartmanager.core.model.FileItem
 import com.vvf.smartmanager.core.plugin.spi.CloudDriverSPI
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -340,9 +342,9 @@ class CloudSyncUseCase(
     private fun isSha256(value: String): Boolean =
         value.matches(Regex("^[a-fA-F0-9]{64}$"))
 
-    private fun calculateSha256IfFile(path: String): String? {
+    private suspend fun calculateSha256IfFile(path: String): String? = withContext(Dispatchers.IO) {
         val file = java.io.File(path)
-        if (!file.isFile) return null
+        if (!file.isFile) return@withContext null
         val digest = java.security.MessageDigest.getInstance("SHA-256")
         file.inputStream().use { input ->
             val buffer = ByteArray(8192)
@@ -352,7 +354,7 @@ class CloudSyncUseCase(
                 digest.update(buffer, 0, count)
             }
         }
-        return digest.digest().joinToString("") { "%02x".format(it) }
+        digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     private suspend fun persistSyncRecord(
