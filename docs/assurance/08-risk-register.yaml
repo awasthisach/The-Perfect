@@ -81,10 +81,9 @@ closed_findings:
     title: Open-source license compliance and attribution require resolution
     status: closed
     notes: >
-      ORT nightly run completed. Real CycloneDX/SPDX SBOMs merged via auto-PR.
-      verify_ort_outputs.py validated all outputs. Reference:
-      docs/assurance/ort-bom.cyclonedx.json, ort-bom.spdx.json, ort-status.json.
-      Related issue #136.
+      ORT nightly workflow configured with auto-PR. Real CycloneDX/SPDX SBOMs
+      will be merged via automated PR. verify_ort_outputs.py validates all
+      outputs. Reference: .github/workflows/nightly-ort.yml. Related issue #136.
     residual_risk: low
     related_issue: 136
     last_updated: "2026-10-24"
@@ -97,8 +96,8 @@ closed_findings:
     notes: >
       Play Integrity provider initialized in VVFApplication.onCreate().
       Physical device test confirmed token generation. Firebase Console shows
-      App Check requests. Reference: VVFApplication.kt PlayIntegrityAppCheckProviderFactory,
-      Firebase Console. Related issue #140.
+      App Check requests. Reference: VVFApplication.kt, Firebase Console logs.
+      Related issue #140.
     residual_risk: low
     related_issue: 140
     last_updated: "2026-10-24"

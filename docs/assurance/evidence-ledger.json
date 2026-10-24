@@ -96,14 +96,14 @@
       "id": "EVID-008",
       "control_id": "RELEASE-INV-001",
       "test_id": "RELEASE-TEST-001",
-      "source_commit": "7b4838ad58c47e934aab6e7646d4e04de6578a38",
-      "ci_run_id": "local-cpas-20261024",
+      "source_commit": "351b0817314df5a02fe36ea46f5128744f50d4f2",
+      "ci_run_id": "40081611976",
       "ci_job_id": "cpas-verify",
-      "executed_at": "2026-10-24T05:45:19Z",
+      "executed_at": "2026-10-24T09:27:39Z",
       "result": "PASS",
       "environment": "production-release-verification",
-      "expires_at": "2027-04-25T05:45:19Z",
-      "notes": "Production release verification: CPAS 17/17 PASS, physical device testing complete, ORT SBOMs validated, Firebase App Check confirmed."
+      "expires_at": "2027-04-25T09:27:39Z",
+      "notes": "Production release verification: CPAS 17/17 PASS, CI stable, physical device testing complete, ORT auto-PR configured, Firebase App Check confirmed."
     }
   ],
   "policy": {
