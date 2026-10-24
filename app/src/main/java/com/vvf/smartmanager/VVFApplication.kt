@@ -3,7 +3,9 @@ package com.vvf.smartmanager
 import android.app.Application
 import android.util.Log
 import androidx.work.Configuration
+import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
+import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import com.vvf.smartmanager.core.background.workers.FileIndexingOutcome
 import com.vvf.smartmanager.core.background.workers.FileIndexingRuntime
@@ -134,14 +136,26 @@ class VVFApplication : Application(), Configuration.Provider {
     }
 
     override fun onCreate() {
-        // Initialize Firebase App Check with Play Integrity provider
-        FirebaseAppCheck.getInstance().apply {
-            installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
-        }
         super.onCreate()
         cryptoSecurityManager = CryptoSecurityManager(this)
 
         val jvmUnitTest = CryptoSecurityManager.isJvmUnitTestEnvironment(this)
+        if (!jvmUnitTest) {
+            val firebaseConfigured = FirebaseApp.getApps(this).any { it.name == "[DEFAULT]" }
+            if (!firebaseConfigured) {
+                Log.w(TAG, "Firebase is not configured; skipping App Check setup")
+            } else {
+                FirebaseAppCheck.getInstance().apply {
+                    val providerFactory = if (BuildConfig.DEBUG) {
+                        DebugAppCheckProviderFactory.getInstance()
+                    } else {
+                        PlayIntegrityAppCheckProviderFactory.getInstance()
+                    }
+                    installAppCheckProviderFactory(providerFactory)
+                }
+            }
+        }
+
         if (jvmUnitTest) {
             database = VVFDatabase.buildInMemoryDatabase(this)
             Log.i(TAG, "JVM unit-test environment: using in-memory Room database")
