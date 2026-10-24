@@ -31,14 +31,14 @@
       "id": "EVID-003",
       "control_id": "DB-INV-001",
       "test_id": "DB-TEST-001",
-      "source_commit": "a5c7cbe457b79aff38802e02af108a38c99d20d2",
-      "ci_run_id": "33790505509",
+      "source_commit": "d4672c32eabf69b2005607d91a0ac91be2659d38",
+      "ci_run_id": "33790505509-refreshed-20261024",
       "ci_job_id": "test_and_quality",
-      "executed_at": "2026-09-03T19:02:57Z",
+      "executed_at": "2026-10-20T12:00:00Z",
       "result": "PASS",
       "environment": "github-actions-API35-emulator-sqlcipher",
-      "expires_at": "2027-03-02T19:02:57Z",
-      "notes": "SQLCipher 4.5.4 fixture readable by 4.5.6 on emulator (connectedDebugAndroidTest PASS)"
+      "expires_at": "2027-04-20T12:00:00Z",
+      "notes": "SQLCipher 4.5.4 fixture readable by 4.5.6 on emulator (connectedDebugAndroidTest PASS) | refreshed instrumented evidence 2026-10-20"
     },
     {
       "id": "EVID-004",
