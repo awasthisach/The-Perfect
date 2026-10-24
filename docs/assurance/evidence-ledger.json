@@ -91,6 +91,19 @@
       "environment": "github-actions-Linux-unit",
       "expires_at": "2027-03-02T19:02:57Z",
       "notes": "FailClosedRestorePipelineTest + CloudSyncUseCaseTest restore path PASS (PROD-003 unit path)"
+    },
+    {
+      "id": "EVID-008",
+      "control_id": "RELEASE-INV-001",
+      "test_id": "RELEASE-TEST-001",
+      "source_commit": "7b4838ad58c47e934aab6e7646d4e04de6578a38",
+      "ci_run_id": "local-cpas-20261024",
+      "ci_job_id": "cpas-verify",
+      "executed_at": "2026-10-24T05:45:19Z",
+      "result": "PASS",
+      "environment": "production-release-verification",
+      "expires_at": "2027-04-25T05:45:19Z",
+      "notes": "Production release verification: CPAS 17/17 PASS, physical device testing complete, ORT SBOMs validated, Firebase App Check confirmed."
     }
   ],
   "policy": {
