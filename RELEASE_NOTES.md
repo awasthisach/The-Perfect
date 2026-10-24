@@ -7,6 +7,29 @@
 
 ---
 
+## Version 1.0.0 (2026-10-24)
+
+### Security & Compliance
+- ✅ Firebase App Check with Play Integrity provider
+- ✅ ORT compliance scanning with auto-generated SBOMs
+- ✅ CPAS production gate: all checks passing
+- ✅ Automated evidence ledger updates via CI/CD
+
+### Features
+- Google Drive integration with OAuth 2.0
+- Encrypted vault with SQLCipher
+- Semantic search with AI-powered indexing
+- OCR text extraction and indexing
+- Multi-cloud support (OneDrive, Dropbox, Nextcloud, S3, NAS)
+
+### Infrastructure
+- Automated CPAS compliance verification
+- Weekly instrumented SQLCipher testing
+- Nightly ORT license compliance scanning
+- Auto-PR workflows for evidence and SBOM updates
+
+---
+
 ## 🌟 Master Release Highlights
 
 ### 1. 📂 Core File Explorer & Storage Management

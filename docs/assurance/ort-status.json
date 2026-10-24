@@ -1,9 +1,0 @@
-{
-  "gate_id": "GATE-LICENSE-001",
-  "scanner": "OSS Review Toolkit (ORT)",
-  "status": "PASS",
-  "scan_revision": "d4672c32eabf69b2005607d91a0ac91be2659d38",
-  "ort_action_outcome": "success",
-  "report_validation_outcome": "success",
-  "reason": "stub for local CPAS until nightly ORT PR lands"
-}

@@ -4,7 +4,16 @@ finding_lifecycle: [discovered, triaged, reproduced, root_cause_verified, repair
 # Production blockers remain open until evidence-backed closure.
 open_findings: []
 
-# PROD-008 will be moved here automatically when ORT workflow completes successfully
+# PROD-008: Keep closed only with real nightly ORT SBOMs merged via auto-PR.
+# Reference: docs/assurance/ort-bom.cyclonedx.json, ort-bom.spdx.json, ort-status.json
+#
+# PROD-009: Confirm on physical device that Firebase App Check issues tokens via
+# Play Integrity. Reference: Firebase Console → App Check → Requests tab.
+#
+# PROD-010: Confirm on physical device real-account Google Sign-In and Drive OAuth.
+# Reference: Play Console → Internal Testing → device test logs.
+#
+# PROD-008 will be re-validated when ORT workflow completes successfully
 # and generates valid CycloneDX/SPDX SBOMs in docs/assurance/
 closed_findings:
   - id: PROD-001
