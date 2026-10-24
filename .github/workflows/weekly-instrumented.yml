@@ -41,8 +41,9 @@ jobs:
       - name: Install SDK components
         run: |
           set -euo pipefail
+          # Avoid pipefail+yes SIGPIPE (sdkmanager closes stdin after install)
+          set +o pipefail
           yes | sdkmanager --licenses >/dev/null || true
-          # API 34 google_apis is more reliable on GHA than API 35 (devices.xml issues)
           yes | sdkmanager \
             "platforms;android-36" \
             "platforms;android-34" \
@@ -50,8 +51,10 @@ jobs:
             "platform-tools" \
             "emulator" \
             "system-images;android-34;google_apis;x86_64"
+          set -o pipefail
           sdkmanager --list_installed | grep -E "system-images;android-34|emulator|platform-tools" || true
           test -d "$ANDROID_HOME/system-images/android-34/google_apis/x86_64"
+
 
       - name: Create local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
