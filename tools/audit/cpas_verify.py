@@ -287,6 +287,29 @@ def main() -> int:
         "no active expired waivers" if not expired_waivers else f"EXPIRED: {', '.join(expired_waivers)}",
     ))
 
+    # ORT SBOM presence for PROD-008 / GATE-LICENSE-001
+    cyclonedx = assurance / "ort-bom.cyclonedx.json"
+    spdx = assurance / "ort-bom.spdx.json"
+    ort_status = assurance / "ort-status.json"
+    missing_ort = []
+    if not cyclonedx.is_file():
+        missing_ort.append("ort-bom.cyclonedx.json")
+    if not spdx.is_file():
+        missing_ort.append("ort-bom.spdx.json")
+    if not ort_status.is_file():
+        missing_ort.append("ort-status.json")
+    if missing_ort:
+        checks.append(check("ort_sboms_present", False, f"missing ORT SBOMs: {', '.join(missing_ort)}"))
+    else:
+        try:
+            status_data = json.loads(ort_status.read_text(encoding="utf-8"))
+            if status_data.get("status") != "PASS":
+                checks.append(check("ort_sboms_present", False, f"ORT status is {status_data.get('status')}, not PASS"))
+            else:
+                checks.append(check("ort_sboms_present", True, "ORT CycloneDX/SPDX SBOMs present and validated"))
+        except (json.JSONDecodeError, OSError) as exc:
+            checks.append(check("ort_sboms_present", False, f"invalid ort-status.json: {exc}"))
+
     # Instrumented SQLCipher evidence must not go silently stale (>14 days)
     instr_stale = True
     if isinstance(entries, list) and entries:

@@ -4,6 +4,8 @@ finding_lifecycle: [discovered, triaged, reproduced, root_cause_verified, repair
 # Production blockers remain open until evidence-backed closure.
 open_findings: []
 
+# PROD-008 will be moved here automatically when ORT workflow completes successfully
+# and generates valid CycloneDX/SPDX SBOMs in docs/assurance/
 closed_findings:
   - id: PROD-001
     severity: high
