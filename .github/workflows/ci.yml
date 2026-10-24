@@ -71,6 +71,34 @@ jobs:
         run: ./gradlew --no-daemon :app:dependencies --configuration releaseRuntimeClasspath --console=plain > release-runtime-dependencies.txt
       - name: Assemble debug APK
         run: ./gradlew --no-daemon assembleDebug --stacktrace
+      - name: Extract Debug APK SHA-1
+        run: |
+          set -euo pipefail
+          APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
+          if [ ! -f "$APK_PATH" ]; then
+            echo "APK not found at $APK_PATH. Listing outputs:"
+            ls -la app/build/outputs/apk/debug/ || true
+            exit 1
+          fi
+          # Extract certificate info using default runner keytool
+          keytool -list -printcert -jarfile "$APK_PATH" > /tmp/cert-info.txt
+          SHA1=$(grep "SHA1:" /tmp/cert-info.txt | awk '{print $2}')
+          if [ -z "$SHA1" ]; then
+            echo "Failed to extract SHA-1 fingerprint from $APK_PATH" >&2
+            cat /tmp/cert-info.txt
+            exit 1
+          fi
+
+          echo "========================================="
+          echo "DEBUG APK SHA-1 FINGERPRINT"
+          echo "========================================="
+          echo "$SHA1"
+          echo "Package: com.vvf.smartmanager"
+          echo "========================================="
+
+          # Save to a file for artifact upload
+          echo "SHA1=$SHA1" > sha1-info.txt
+          echo "Package: com.vvf.smartmanager" >> sha1-info.txt
       - name: Generate CPAS unit evidence
         if: success()
         run: |
@@ -196,11 +224,13 @@ jobs:
           path: "**/build/reports/lint-results-*.html"
           if-no-files-found: ignore
           retention-days: 7
-      - name: Upload debug APK
+      - name: Upload Debug APK and SHA-1 Info
         if: success()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: vvf-smartmanager-debug-apk
-          path: "**/build/outputs/apk/debug/*.apk"
+          name: vvf-debug-apk-and-sha1
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            sha1-info.txt
           if-no-files-found: error
           retention-days: 7
