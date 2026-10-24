@@ -40,20 +40,11 @@ jobs:
 
       - name: Install SDK components
         run: |
-          set -euo pipefail
-          # Avoid pipefail+yes SIGPIPE (sdkmanager closes stdin after install)
-          set +o pipefail
-          yes | sdkmanager --licenses >/dev/null || true
-          yes | sdkmanager \
-            "platforms;android-36" \
-            "platforms;android-34" \
-            "build-tools;36.0.0" \
-            "platform-tools" \
-            "emulator" \
-            "system-images;android-34;google_apis;x86_64"
-          set -o pipefail
-          sdkmanager --list_installed | grep -E "system-images;android-34|emulator|platform-tools" || true
-          test -d "$ANDROID_HOME/system-images/android-34/google_apis/x86_64"
+          # Accept all licenses first to prevent interactive prompts
+          yes | sdkmanager --licenses || true
+          # Install required components without the 'yes' pipe
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+          test -d "$ANDROID_HOME/system-images/android-35/google_apis/x86_64"
 
 
       - name: Create local.properties
@@ -80,17 +71,17 @@ jobs:
           mkdir -p "$ANDROID_AVD_HOME"
           export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
           # Avoid devices.xml / device profile issues: create AVD without --device
-          echo "no" | avdmanager create avd --force --name vvf-api34 \
-            --package "system-images;android-34;google_apis;x86_64" \
+          echo "no" | avdmanager create avd --force --name vvf-api35 \
+            --package "system-images;android-35;google_apis;x86_64" \
             --abi "google_apis/x86_64" || {
               echo "avdmanager failed; listing system images:"
-              ls -la "$ANDROID_HOME/system-images/android-34/google_apis/x86_64/" || true
+              ls -la "$ANDROID_HOME/system-images/android-35/google_apis/x86_64/" || true
               exit 1
             }
           # Ensure config exists
-          test -f "$ANDROID_AVD_HOME/vvf-api34.avd/config.ini" || test -f "$HOME/.android/avd/vvf-api34.avd/config.ini" || true
+          test -f "$ANDROID_AVD_HOME/vvf-api35.avd/config.ini" || test -f "$HOME/.android/avd/vvf-api35.avd/config.ini" || true
           adb start-server
-          emulator -avd vvf-api34 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel off -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel off -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/emulator.pid"
           timeout 180 adb wait-for-device
           for _ in $(seq 1 60); do

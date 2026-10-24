@@ -41,17 +41,6 @@ android {
       keyAlias = providers.environmentVariable("KEY_ALIAS").orNull
       keyPassword = providers.environmentVariable("KEY_PASSWORD").orNull
     }
-    // Prefer default AGP debug keystore; only pin path when it already exists
-    // (CI runners often have no ~/.android/debug.keystore until first build).
-    val defaultDebugKs = file("${System.getProperty("user.home")}/.android/debug.keystore")
-    if (defaultDebugKs.exists()) {
-      getByName("debug") {
-        storeFile = defaultDebugKs
-        storePassword = "android"
-        keyAlias = "androiddebugkey"
-        keyPassword = "android"
-      }
-    }
   }
 
   buildTypes {
@@ -62,7 +51,6 @@ android {
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
     }
-    // debug uses AGP default signing when no explicit debug keystore is present
   }
 
   compileOptions {
