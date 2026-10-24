@@ -70,16 +70,23 @@ jobs:
           set -euo pipefail
           mkdir -p "$ANDROID_AVD_HOME"
           export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
-          # Avoid devices.xml / device profile issues: create AVD without --device
-          echo "no" | avdmanager create avd --force --name vvf-api35 \
+
+          # Non-interactive AVD: explicit device profile + closed stdin (no hardware-profile prompt)
+          avdmanager create avd \
+            --force \
+            --name vvf-api35 \
             --package "system-images;android-35;google_apis;x86_64" \
-            --abi "google_apis/x86_64" || {
-              echo "avdmanager failed; listing system images:"
-              ls -la "$ANDROID_HOME/system-images/android-35/google_apis/x86_64/" || true
-              exit 1
-            }
-          # Ensure config exists
-          test -f "$ANDROID_AVD_HOME/vvf-api35.avd/config.ini" || test -f "$HOME/.android/avd/vvf-api35.avd/config.ini" || true
+            --device "pixel_2" \
+            </dev/null
+
+          # Verify AVD was created
+          if [ ! -d "$ANDROID_AVD_HOME/vvf-api35.avd" ] && [ ! -d "$HOME/.android/avd/vvf-api35.avd" ]; then
+            echo "AVD creation failed. Listing available devices:"
+            avdmanager list device || true
+            ls -la "$ANDROID_HOME/system-images/android-35/google_apis/x86_64/" || true
+            exit 1
+          fi
+
           adb start-server
           emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel off -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/emulator.pid"
