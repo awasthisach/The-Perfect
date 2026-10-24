@@ -18,8 +18,11 @@ local.properties
 .env
 .env.local
 *.keystore
+*.jks
+*.bks
 !debug.keystore
 !debug.keystore.base64
+app/vvf-debug.keystore
 **/google-services.json
 *.bin
 __pycache__/
