@@ -11,6 +11,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.io.FileOutputStream
 
 @RunWith(AndroidJUnit4::class)
 class SqlCipherCompatibilityTest {
@@ -22,22 +23,10 @@ class SqlCipherCompatibilityTest {
         System.loadLibrary("sqlcipher")
         val context = ApplicationProvider.getApplicationContext<Context>()
         databaseFile = File.createTempFile("vvf-sqlcipher-compat-", ".db", context.cacheDir)
-        databaseFile.delete()
-
-        // Build a real encrypted database once, then exercise reopen/key validation.
-        // This is not a substitute for the missing SQLCipher 4.5.4 binary fixture.
-        SQLiteDatabase.openDatabase(
-            databaseFile.absolutePath,
-            passphrase,
-            null,
-            SQLiteDatabase.OPEN_READWRITE or SQLiteDatabase.CREATE_IF_NECESSARY,
-            null,
-            null
-        ).use { database ->
-            database.execSQL("CREATE TABLE compatibility_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL)")
-            database.execSQL("INSERT INTO compatibility_test (id, value) VALUES (1, 'correct-passphrase')")
+        context.assets.open("legacy-4.5.4.db").use { input ->
+            FileOutputStream(databaseFile, false).use { output -> input.copyTo(output) }
         }
-        assertTrue("Encrypted test database was not created", databaseFile.isFile && databaseFile.length() > 0)
+        assertTrue("SQLCipher 4.5.4 fixture asset is missing or empty", databaseFile.isFile && databaseFile.length() > 0)
     }
 
     @After
@@ -50,7 +39,7 @@ class SqlCipherCompatibilityTest {
     }
 
     @Test
-    fun encryptedDatabase_isReadableWithTheOriginalPassphrase() {
+    fun legacy_4_5_4Database_isReadableWithItsOriginalPassphrase() {
         SQLiteDatabase.openDatabase(
             databaseFile.absolutePath,
             passphrase,
@@ -60,14 +49,14 @@ class SqlCipherCompatibilityTest {
             null
         ).use { database ->
             database.rawQuery("SELECT value FROM compatibility_test WHERE id = 1", null).use { cursor ->
-                assertTrue("Compatibility row was not found", cursor.moveToFirst())
-                assertEquals("correct-passphrase", cursor.getString(0))
+                assertTrue("Legacy compatibility row was not found", cursor.moveToFirst())
+                assertEquals("legacy-4.5.4", cursor.getString(0))
             }
         }
     }
 
     @Test
-    fun encryptedDatabase_rejectsAnIncorrectPassphrase() {
+    fun legacy_4_5_4Database_rejectsAnIncorrectPassphrase() {
         val wrongPassphrase = "definitely-the-wrong-passphrase".toByteArray(Charsets.UTF_8)
         var rejected = false
         try {
@@ -80,7 +69,6 @@ class SqlCipherCompatibilityTest {
                 null
             ).use { database ->
                 database.rawQuery("SELECT value FROM compatibility_test WHERE id = 1", null).use { cursor ->
-                    // Some SQLCipher versions report the key failure on first query rather than open.
                     cursor.moveToFirst()
                 }
             }
@@ -89,6 +77,6 @@ class SqlCipherCompatibilityTest {
         } finally {
             wrongPassphrase.fill(0)
         }
-        assertTrue("Database unexpectedly opened/read with an incorrect passphrase", rejected)
+        assertTrue("Legacy database unexpectedly opened/read with an incorrect passphrase", rejected)
     }
 }
