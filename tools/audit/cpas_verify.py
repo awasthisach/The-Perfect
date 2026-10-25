@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from datetime import datetime, timezone
@@ -17,6 +18,7 @@ from pathlib import Path
 ID_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$")
 EVIDENCE_ID_RE = re.compile(r"^EVID-[0-9]{3,}$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+RUN_ID_RE = re.compile(r"^[0-9]{6,}$")
 DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$")
 RISK_ID_RE = re.compile(r"^PROD-[0-9]{3,}$")
 GATE_ID_RE = re.compile(r"^GATE-[A-Z0-9]+-[0-9]{3,}$")
@@ -59,11 +61,75 @@ def required_ledger_fields(entry: object) -> bool:
         return False
     if not SHA_RE.fullmatch(str(entry["source_commit"])):
         return False
+    if not RUN_ID_RE.fullmatch(str(entry["ci_run_id"])):
+        return False
     if entry["result"] not in {"PASS", "FAIL"}:
         return False
     if not DATETIME_RE.fullmatch(str(entry["executed_at"])) or not DATETIME_RE.fullmatch(str(entry["expires_at"])):
         return False
     return True
+
+
+def verify_runs_online(entries: list, repo: str, token: str) -> list[str]:
+    """Verify ledger run IDs against GitHub and bind them to the recorded source SHA."""
+    import urllib.request
+
+    problems: list[str] = []
+    cache: dict[str, dict | None] = {}
+    for entry in entries:
+        run_id = str(entry.get("ci_run_id", ""))
+        if not RUN_ID_RE.fullmatch(run_id):
+            problems.append(f"{entry.get('id')}: non-numeric CI run ID")
+            continue
+        if run_id not in cache:
+            request = urllib.request.Request(
+                f"https://api.github.com/repos/{repo}/actions/runs/{run_id}",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=20) as response:
+                    cache[run_id] = json.load(response)
+            except Exception:
+                cache[run_id] = None
+        run = cache[run_id]
+        if run is None:
+            problems.append(f"{entry.get('id')}: run {run_id} missing or API verification failed")
+            continue
+        head_repository = run.get("head_repository")
+        if not isinstance(head_repository, dict) or head_repository.get("full_name") != repo:
+            problems.append(f"{entry.get('id')}: run {run_id} head repository does not match {repo}")
+        if run.get("head_sha") != entry.get("source_commit"):
+            problems.append(f"{entry.get('id')}: run {run_id} head_sha != source_commit")
+        if entry.get("result") == "PASS" and run.get("conclusion") != "success":
+            problems.append(f"{entry.get('id')}: run {run_id} conclusion={run.get('conclusion')}")
+    return problems
+
+
+def validate_ort_outputs(assurance: Path) -> tuple[bool, str]:
+    """Require real, parseable ORT SBOMs and a successful ORT status document."""
+    cyclonedx = assurance / "ort-bom.cyclonedx.json"
+    spdx = assurance / "ort-bom.spdx.json"
+    status_file = assurance / "ort-status.json"
+    missing = [p.name for p in (cyclonedx, spdx, status_file) if not p.is_file()]
+    if missing:
+        return False, f"required ORT outputs missing: {', '.join(missing)}"
+    try:
+        cyclonedx_data = json.loads(cyclonedx.read_text(encoding="utf-8"))
+        spdx_data = json.loads(spdx.read_text(encoding="utf-8"))
+        status_data = json.loads(status_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        return False, f"invalid ORT output JSON: {exc}"
+    if cyclonedx_data.get("bomFormat") != "CycloneDX" or not isinstance(cyclonedx_data.get("components"), list) or not cyclonedx_data["components"]:
+        return False, "CycloneDX SBOM is missing its format or dependency components"
+    if not str(spdx_data.get("spdxVersion", "")).startswith("SPDX-") or not isinstance(spdx_data.get("packages"), list) or not spdx_data["packages"]:
+        return False, "SPDX SBOM is missing its version or package entries"
+    if status_data.get("status") != "PASS":
+        return False, f"ORT status is {status_data.get('status')}, not PASS"
+    return True, "ORT CycloneDX/SPDX SBOMs are present, parseable, non-empty, and status is PASS"
 
 
 def parse_risks(path: Path) -> list[dict[str, str]]:
@@ -243,13 +309,34 @@ def main() -> int:
             ledger_detail = f"invalid JSON: {exc}"
     checks.append(check("evidence_ledger_integrity", ledger_ok, ledger_detail))
 
-    production_evidence_ok = True
-    if local_only_count and open_blockers:
-        production_evidence_ok = False
-    checks.append(check("production_evidence_quality",
-                        production_evidence_ok or not open_blockers,
-                        "real CI evidence present or no open critical blockers" if production_evidence_ok or not open_blockers
-                        else f"{local_only_count} local-only evidence entries while critical findings remain open"))
+    # Production verification must validate every ledger run online; missing
+    # credentials or inaccessible/wrong-SHA runs are a hard BLOCKED result.
+    github_token = os.environ.get("GITHUB_TOKEN", "")
+    github_repo = os.environ.get("GITHUB_REPOSITORY", "")
+    if not github_token or not github_repo:
+        checks.append(check(
+            "evidence_run_existence",
+            False,
+            "GITHUB_TOKEN/GITHUB_REPOSITORY unavailable; cannot verify evidence runs",
+        ))
+    elif isinstance(entries, list):
+        run_problems = verify_runs_online(entries, github_repo, github_token)
+        checks.append(check(
+            "evidence_run_existence",
+            not run_problems,
+            "all evidence runs exist, succeeded where required, and match their recorded repository/SHA"
+            if not run_problems else "; ".join(run_problems),
+        ))
+    else:
+        checks.append(check("evidence_run_existence", False, "evidence entries are not a list"))
+
+    production_evidence_ok = local_only_count == 0
+    checks.append(check(
+        "production_evidence_quality",
+        production_evidence_ok,
+        "no local-only evidence entries" if production_evidence_ok
+        else f"{local_only_count} local-only evidence entries are not production evidence",
+    ))
 
     stale_count = 0
     if isinstance(entries, list):
@@ -287,35 +374,8 @@ def main() -> int:
         "no active expired waivers" if not expired_waivers else f"EXPIRED: {', '.join(expired_waivers)}",
     ))
 
-    # NOTE: ORT SBOMs are generated by nightly-ort.yml workflow and auto-PR'd.
-    # Until the first real nightly run completes, missing files are transitional
-    # (PASS with detail). Invalid or non-PASS status still blocks.
-    # After first successful run, real SBOMs will replace any stubs.
-    cyclonedx = assurance / "ort-bom.cyclonedx.json"
-    spdx = assurance / "ort-bom.spdx.json"
-    ort_status = assurance / "ort-status.json"
-    missing_ort = []
-    if not cyclonedx.is_file():
-        missing_ort.append("ort-bom.cyclonedx.json")
-    if not spdx.is_file():
-        missing_ort.append("ort-bom.spdx.json")
-    if not ort_status.is_file():
-        missing_ort.append("ort-status.json")
-    if missing_ort:
-        checks.append(check(
-            "ort_sboms_present",
-            True,
-            f"ORT SBOMs not yet generated (awaiting first nightly run): {', '.join(missing_ort)}",
-        ))
-    else:
-        try:
-            status_data = json.loads(ort_status.read_text(encoding="utf-8"))
-            if status_data.get("status") != "PASS":
-                checks.append(check("ort_sboms_present", False, f"ORT status is {status_data.get('status')}, not PASS"))
-            else:
-                checks.append(check("ort_sboms_present", True, "ORT CycloneDX/SPDX SBOMs present and validated"))
-        except (json.JSONDecodeError, OSError) as exc:
-            checks.append(check("ort_sboms_present", False, f"invalid ort-status.json: {exc}"))
+    ort_ok, ort_detail = validate_ort_outputs(assurance)
+    checks.append(check("ort_sboms_present", ort_ok, ort_detail))
 
     # Instrumented SQLCipher evidence must not go silently stale (>14 days)
     instr_stale = True
