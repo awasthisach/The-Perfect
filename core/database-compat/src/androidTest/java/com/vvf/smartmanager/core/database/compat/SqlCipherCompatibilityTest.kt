@@ -38,7 +38,7 @@ class SqlCipherCompatibilityTest {
     }
 
     @Test
-    fun sqlCipher_4_5_4_database_is_readable_by_4_5_6() {
+    fun sqlCipher_4_5_4_database_is_readable_by_4_19_1() {
         System.loadLibrary("sqlcipher")
         val database = SQLiteDatabase.openDatabase(
             databaseFile.absolutePath,
