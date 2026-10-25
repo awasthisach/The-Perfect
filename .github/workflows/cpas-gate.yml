@@ -8,6 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -33,6 +34,9 @@ jobs:
 
       - name: Run semantic CPAS verification
         id: cpas
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         # Fail-closed: BLOCKED is an expected production state while critical
         # findings remain open. Emit a warning annotation, not an error, so the
         # job stays green without hiding the BLOCKED status.
