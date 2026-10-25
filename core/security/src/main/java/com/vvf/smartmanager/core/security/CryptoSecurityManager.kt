@@ -182,7 +182,9 @@ class CryptoSecurityManager(
     }
 
     @Synchronized
-    fun getOrCreateDatabasePassphrase(): ByteArray {
+    fun getOrCreateDatabasePassphrase(
+        databaseName: String = "vvf_smart_manager_enc.db"
+    ): ByteArray {
         val v2File = File(context.filesDir, DB_PASSPHRASE_V2_FILE)
         val legacyEncFile = File(context.filesDir, ENCRYPTED_DB_PASSPHRASE_FILE)
         val legacyIvFile = File(context.filesDir, DB_PASSPHRASE_IV_FILE)
@@ -221,6 +223,14 @@ class CryptoSecurityManager(
             check(legacyEncFile.delete()) { "Failed to remove legacy encrypted database passphrase" }
             check(legacyIvFile.delete()) { "Failed to remove legacy database passphrase IV" }
             return migratedPassphrase
+        }
+
+        // Audit Fix: Prevent silent data loss on passphrase corruption.
+        // If the encrypted DB already exists, a new passphrase cannot decrypt it.
+        if (context.getDatabasePath(databaseName).exists()) {
+            throw IllegalStateException(
+                "Database exists but passphrase is missing. Manual recovery required."
+            )
         }
 
         val freshPassphrase = ByteArray(DB_KEY_LENGTH_BYTES)
