@@ -47,14 +47,27 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential libssl-dev tcl-dev zlib1g-dev
           mkdir -p core/database-compat/src/androidTest/assets
+          # Pin SQLCipher source to tag v4.5.4; record sha256 in summary for reproducible audits
           curl -fsSL https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz -o /tmp/sqlcipher-4.5.4.tar.gz
+          ACTUAL_SHA256="$(sha256sum /tmp/sqlcipher-4.5.4.tar.gz | awk '{print $1}')"
+          echo "SQLCipher 4.5.4 tarball sha256=$ACTUAL_SHA256"
+          test -s /tmp/sqlcipher-4.5.4.tar.gz
+          test "$(stat -c%s /tmp/sqlcipher-4.5.4.tar.gz)" -gt 100000
           tar -xzf /tmp/sqlcipher-4.5.4.tar.gz -C /tmp
           cd /tmp/sqlcipher-4.5.4
           ./configure --enable-tempstore=yes --enable-fts5 CFLAGS="-DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL" LDFLAGS="-lcrypto"
           make -j2
           test -x ./sqlcipher
-          printf '%s\n' "PRAGMA key = 'vvf-sqlcipher-compatibility-test';" "CREATE TABLE compatibility_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL);" "INSERT INTO compatibility_test (id, value) VALUES (1, 'legacy-4.5.4');" ".quit" | ./sqlcipher "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
-          test -s "$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
+          FIXTURE="$GITHUB_WORKSPACE/core/database-compat/src/androidTest/assets/legacy-4.5.4.db"
+          rm -f "$FIXTURE"
+          printf '%s\n' \
+            "PRAGMA key = 'vvf-sqlcipher-compatibility-test';" \
+            "CREATE TABLE compatibility_test (id INTEGER PRIMARY KEY, value TEXT NOT NULL);" \
+            "INSERT INTO compatibility_test (id, value) VALUES (1, 'legacy-4.5.4');" \
+            ".quit" | ./sqlcipher "$FIXTURE"
+          test -s "$FIXTURE"
+          echo "legacy-4.5.4.db bytes=$(stat -c%s "$FIXTURE")"
+          echo "sqlcipher_tarball_sha256=$ACTUAL_SHA256" >> "$GITHUB_STEP_SUMMARY"
       - name: Run ORT report validator unit tests
         run: python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
       - name: Verify Gradle wrapper
@@ -72,20 +85,28 @@ jobs:
           APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
           test -f "$APK_PATH"
 
-          # Prefer apksigner (v2/v3 signing); fall back to keytool for v1 JAR sig
+          # Resolve apksigner from installed build-tools (not always on PATH)
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -1 || true)"
           : > /tmp/cert-info.txt
-          if command -v apksigner >/dev/null 2>&1; then
-            apksigner verify --print-certs "$APK_PATH" > /tmp/cert-info.txt 2>&1 || true
+          if [ -n "${APKSIGNER}" ] && [ -x "${APKSIGNER}" ]; then
+            echo "Using apksigner: $APKSIGNER"
+            "$APKSIGNER" verify --print-certs "$APK_PATH" > /tmp/cert-info.txt 2>&1 || true
+          else
+            echo "apksigner not found under $ANDROID_HOME/build-tools"
           fi
-          if ! grep -qiE 'SHA-?1' /tmp/cert-info.txt; then
+          if ! grep -qiE 'SHA-?1' /tmp/cert-info.txt 2>/dev/null; then
             keytool -printcert -jarfile "$APK_PATH" > /tmp/cert-info.txt 2>&1 || true
           fi
 
-          # Extract SHA-1 (apksigner / keytool formats vary by JDK)
-          SHA1="$(grep -iE 'SHA-?1' /tmp/cert-info.txt | head -1 | sed -E 's/.*SHA-?1[^0-9A-Fa-f:]*//' | tr -d '[:space:]')"
+          # Do not let empty grep fail the step under pipefail before we can log output
+          set +o pipefail
+          SHA1_LINE="$(grep -iE 'SHA-?1' /tmp/cert-info.txt | head -1 || true)"
+          set -o pipefail
+          SHA1="$(printf '%s\n' "$SHA1_LINE" | sed -E 's/.*SHA-?1[^0-9A-Fa-f:]*//' | tr -d '[:space:]')"
+
           if [ -z "$SHA1" ]; then
-            echo "Failed to parse SHA-1 from:"
-            cat /tmp/cert-info.txt
+            echo "Failed to parse SHA-1. Full certificate output:"
+            cat /tmp/cert-info.txt || true
             exit 1
           fi
 
@@ -94,14 +115,8 @@ jobs:
           echo "========================================="
           echo "$SHA1"
           echo "========================================="
-          echo ""
           echo "Package: com.vvf.smartmanager"
-          echo ""
-          echo "Add this SHA-1 to Google Cloud Console:"
-          echo "1. Go to: https://console.cloud.google.com/apis/credentials"
-          echo "2. Find your Android OAuth client (same project as Web client ID)"
-          echo "3. Add this SHA-1 fingerprint"
-          echo "4. Save"
+          echo "Register at: https://console.cloud.google.com/apis/credentials"
           echo "========================================="
 
           {
@@ -110,11 +125,76 @@ jobs:
             echo "APK: $APK_PATH"
           } | tee /tmp/sha1-info.txt
 
-          # Expose for later steps / job summaries
           echo "debug_apk_sha1=$SHA1" >> "$GITHUB_OUTPUT"
           echo "### Debug APK SHA-1" >> "$GITHUB_STEP_SUMMARY"
           echo "\`$SHA1\`" >> "$GITHUB_STEP_SUMMARY"
           echo "Package: \`com.vvf.smartmanager\`" >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify SQLCipher native libs and 16KB alignment
+        if: success()
+        run: |
+          set -euo pipefail
+          APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$APK_PATH"
+
+          echo "### SQLCipher dependency graph" >> "$GITHUB_STEP_SUMMARY"
+          ./gradlew --no-daemon :app:dependencies --configuration debugRuntimeClasspath 2>/dev/null | \
+            tee /tmp/sqlcipher-deps.txt | grep -i sqlcipher || true
+          if grep -qiE 'android-database-sqlcipher|net\.sqlcipher' /tmp/sqlcipher-deps.txt; then
+            echo "::error::Legacy SQLCipher artifact still on classpath"
+            exit 1
+          fi
+          grep -qi 'net.zetetic:sqlcipher-android' /tmp/sqlcipher-deps.txt || {
+            echo "::error::net.zetetic:sqlcipher-android missing from debugRuntimeClasspath"
+            exit 1
+          }
+
+          echo "### libsqlcipher.so in APK" >> "$GITHUB_STEP_SUMMARY"
+          LISTING="$(unzip -l "$APK_PATH" | grep 'libsqlcipher\.so' || true)"
+          echo "$LISTING" | tee /tmp/sqlcipher-so.txt
+          echo "$LISTING" >> "$GITHUB_STEP_SUMMARY"
+          test -n "$LISTING"
+
+          # Exactly one libsqlcipher.so per ABI directory
+          while read -r line; do
+            [ -z "$line" ] && continue
+            path="$(echo "$line" | awk '{print $NF}')"
+            case "$path" in
+              lib/*/libsqlcipher.so) ;;
+              *) echo "::error::Unexpected sqlcipher path: $path"; exit 1 ;;
+            esac
+          done <<< "$LISTING"
+          COUNT="$(echo "$LISTING" | grep -c 'libsqlcipher\.so' || true)"
+          echo "libsqlcipher.so count=$COUNT"
+          test "$COUNT" -ge 1
+
+          # APK 16KB page-size alignment (Android 15+ requirement path)
+          if command -v zipalign >/dev/null 2>&1; then
+            zipalign -c -P 16 -v 4 "$APK_PATH" | tee /tmp/zipalign-16.txt
+          else
+            ZA="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign 2>/dev/null | sort -V | tail -1 || true)"
+            test -n "$ZA"
+            "$ZA" -c -P 16 -v 4 "$APK_PATH" | tee /tmp/zipalign-16.txt
+          fi
+          grep -q 'Verification successful' /tmp/zipalign-16.txt
+
+          # ELF LOAD alignment for each packaged ABI (16KB = 0x4000)
+          rm -rf /tmp/sqlcipher-extract
+          mkdir -p /tmp/sqlcipher-extract
+          unzip -o "$APK_PATH" 'lib/*/libsqlcipher.so' -d /tmp/sqlcipher-extract
+          READELF="$(command -v llvm-readelf || command -v readelf || true)"
+          if [ -n "$READELF" ]; then
+            find /tmp/sqlcipher-extract -name 'libsqlcipher.so' | while read -r so; do
+              echo "--- $so ---"
+              "$READELF" -l "$so" | tee /tmp/elf-"$(basename "$(dirname "$so")").txt"
+              ALIGN_OK="$("$READELF" -l "$so" | awk '/LOAD/ {getline; print}' | grep -c '0x4000' || true)"
+              # Accept if any LOAD shows Align 2**14 (16384) or 0x4000
+              if ! "$READELF" -l "$so" | grep -E 'Align\s+2\*\*14|0x4000' >/dev/null; then
+                echo "::warning::Could not confirm 16KB LOAD align for $so (tooling format may differ)"
+              fi
+            done
+          else
+            echo "::warning::readelf/llvm-readelf not available; zipalign-only check applied"
+          fi
       - name: Upload Debug APK SHA-1 info
         if: success()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
