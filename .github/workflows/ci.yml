@@ -65,6 +65,58 @@ jobs:
         run: ./gradlew --no-daemon lintDebug --stacktrace
       - name: Assemble debug APK
         run: ./gradlew --no-daemon assembleDebug --stacktrace
+      - name: Extract Debug APK SHA-1
+        if: success()
+        run: |
+          set -euo pipefail
+          APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$APK_PATH"
+
+          # Extract certificate info from the signed APK
+          keytool -printcert -jarfile "$APK_PATH" > /tmp/cert-info.txt
+
+          # Extract SHA-1 (keytool formats vary slightly by JDK)
+          SHA1="$(grep -E 'SHA1:|SHA-1:' /tmp/cert-info.txt | head -1 | sed -E 's/.*SHA-?1:\s*//' | tr -d '[:space:]')"
+          if [ -z "$SHA1" ]; then
+            echo "Failed to parse SHA-1 from:"
+            cat /tmp/cert-info.txt
+            exit 1
+          fi
+
+          echo "========================================="
+          echo "DEBUG APK SHA-1 FINGERPRINT"
+          echo "========================================="
+          echo "$SHA1"
+          echo "========================================="
+          echo ""
+          echo "Package: com.vvf.smartmanager"
+          echo ""
+          echo "Add this SHA-1 to Google Cloud Console:"
+          echo "1. Go to: https://console.cloud.google.com/apis/credentials"
+          echo "2. Find your Android OAuth client (same project as Web client ID)"
+          echo "3. Add this SHA-1 fingerprint"
+          echo "4. Save"
+          echo "========================================="
+
+          {
+            echo "SHA1=$SHA1"
+            echo "Package: com.vvf.smartmanager"
+            echo "APK: $APK_PATH"
+          } | tee /tmp/sha1-info.txt
+
+          # Expose for later steps / job summaries
+          echo "debug_apk_sha1=$SHA1" >> "$GITHUB_OUTPUT"
+          echo "### Debug APK SHA-1" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`$SHA1\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Package: \`com.vvf.smartmanager\`" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload Debug APK SHA-1 info
+        if: success()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: debug-apk-sha1
+          path: /tmp/sha1-info.txt
+          if-no-files-found: error
+          retention-days: 30
       - name: Generate CPAS unit evidence
         if: success()
         run: |
