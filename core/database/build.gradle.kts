@@ -29,6 +29,7 @@ dependencies {
   implementation(libs.androidx.room.runtime)
   implementation(libs.androidx.room.ktx)
   implementation(libs.sqlcipher.android)
+  implementation(libs.androidx.sqlite)
   "ksp"(libs.androidx.room.compiler)
 
   testImplementation(libs.junit)
