@@ -40,7 +40,6 @@ class CryptoSecurityManager(
     private val keyStoreProvider: String = ANDROID_KEYSTORE
 ) {
 
-
     companion object {
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
         /**
