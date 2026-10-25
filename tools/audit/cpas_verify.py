@@ -14,6 +14,11 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:
+    from verify_ort_outputs import validate_sbom_json
+except ModuleNotFoundError:  # Support importing this verifier as tools.audit.cpas_verify.
+    from tools.audit.verify_ort_outputs import validate_sbom_json
+
 ID_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$")
 EVIDENCE_ID_RE = re.compile(r"^EVID-[0-9]{3,}$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -310,10 +315,23 @@ def main() -> int:
     else:
         try:
             status_data = json.loads(ort_status.read_text(encoding="utf-8"))
-            if status_data.get("status") != "PASS":
+            if not isinstance(status_data, dict):
+                checks.append(check("ort_sboms_present", False, "invalid ort-status.json: expected a JSON object"))
+            elif status_data.get("status") != "PASS":
                 checks.append(check("ort_sboms_present", False, f"ORT status is {status_data.get('status')}, not PASS"))
             else:
-                checks.append(check("ort_sboms_present", True, "ORT CycloneDX/SPDX SBOMs present and validated"))
+                sbom_problems = [
+                    *validate_sbom_json(cyclonedx, "cyclonedx"),
+                    *validate_sbom_json(spdx, "spdx"),
+                ]
+                if sbom_problems:
+                    checks.append(check(
+                        "ort_sboms_present",
+                        False,
+                        "invalid ORT SBOMs: " + "; ".join(sbom_problems),
+                    ))
+                else:
+                    checks.append(check("ort_sboms_present", True, "ORT CycloneDX/SPDX SBOMs present and validated"))
         except (json.JSONDecodeError, OSError) as exc:
             checks.append(check("ort_sboms_present", False, f"invalid ort-status.json: {exc}"))
 

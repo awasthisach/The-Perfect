@@ -22,6 +22,43 @@ REQUIRED_OUTPUTS = RESULT_JSON_FILES + (
 )
 
 
+def validate_sbom_json(path: Path, sbom_format: str) -> list[str]:
+    """Validate a CycloneDX or SPDX JSON SBOM and return any problems."""
+    problems: list[str] = []
+    name = path.name
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return [f"{name}: invalid JSON ({exc})"]
+    if not isinstance(data, dict) or not data:
+        return [f"{name}: expected a non-empty JSON object"]
+
+    if sbom_format == "cyclonedx":
+        if data.get("bomFormat") != "CycloneDX":
+            problems.append(f"{name}: bomFormat is not CycloneDX")
+        if not isinstance(data.get("specVersion"), str) or not data["specVersion"].strip():
+            problems.append(f"{name}: missing valid specVersion")
+        if not isinstance(data.get("version"), int) or data["version"] < 1:
+            problems.append(f"{name}: missing valid positive BOM version")
+    elif sbom_format == "spdx":
+        required_spdx_strings = ("spdxVersion", "dataLicense", "SPDXID", "name", "documentNamespace")
+        missing_fields = [
+            field for field in required_spdx_strings
+            if not isinstance(data.get(field), str) or not data[field].strip()
+        ]
+        if missing_fields:
+            problems.append(f"{name}: missing required SPDX fields: {', '.join(missing_fields)}")
+        if not str(data.get("spdxVersion", "")).startswith("SPDX-"):
+            problems.append(f"{name}: missing valid spdxVersion")
+        if data.get("SPDXID") != "SPDXRef-DOCUMENT":
+            problems.append(f"{name}: SPDXID must be SPDXRef-DOCUMENT")
+        if not isinstance(data.get("packages"), list):
+            problems.append(f"{name}: packages must be a list")
+    else:
+        raise ValueError(f"unsupported SBOM format: {sbom_format}")
+    return problems
+
+
 def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str]:
     """Return missing, empty, malformed, or wrong-format ORT outputs."""
     problems: list[str] = []
@@ -85,26 +122,9 @@ def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str
                 if not isinstance(analyzer_result.get("projects"), list) or not isinstance(analyzer_result.get("packages"), list):
                     problems.append(f"{name}: analyzer result must include projects and packages lists")
         elif name == "bom.cyclonedx.json":
-            if data.get("bomFormat") != "CycloneDX":
-                problems.append(f"{name}: bomFormat is not CycloneDX")
-            if not isinstance(data.get("specVersion"), str) or not data["specVersion"].strip():
-                problems.append(f"{name}: missing valid specVersion")
-            if not isinstance(data.get("version"), int) or data["version"] < 1:
-                problems.append(f"{name}: missing valid positive BOM version")
+            problems.extend(validate_sbom_json(path, "cyclonedx"))
         elif name == "bom.spdx.json":
-            required_spdx_strings = ("spdxVersion", "dataLicense", "SPDXID", "name", "documentNamespace")
-            missing_fields = [
-                field for field in required_spdx_strings
-                if not isinstance(data.get(field), str) or not data[field].strip()
-            ]
-            if missing_fields:
-                problems.append(f"{name}: missing required SPDX fields: {', '.join(missing_fields)}")
-            if not str(data.get("spdxVersion", "")).startswith("SPDX-"):
-                problems.append(f"{name}: missing valid spdxVersion")
-            if data.get("SPDXID") != "SPDXRef-DOCUMENT":
-                problems.append(f"{name}: SPDXID must be SPDXRef-DOCUMENT")
-            if not isinstance(data.get("packages"), list):
-                problems.append(f"{name}: packages must be a list")
+            problems.extend(validate_sbom_json(path, "spdx"))
 
     xml_path = results_dir / "bom.cyclonedx.xml"
     if xml_path.is_file() and xml_path.stat().st_size:
