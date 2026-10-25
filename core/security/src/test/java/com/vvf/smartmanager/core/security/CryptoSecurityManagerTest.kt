@@ -29,6 +29,34 @@ class CryptoSecurityManagerTest {
     }
 
     @Test
+    fun existingDatabaseWithMissingPassphraseFailsClosed() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        listOf(
+            "vvf_db_enc_passphrase.bin",
+            "vvf_db_passphrase_iv.bin",
+            "vvf_db_passphrase_v2.bin"
+        ).forEach { context.filesDir.resolve(it).delete() }
+
+        val existingDatabase = context.getDatabasePath("audit-existing-encrypted-db.db")
+        existingDatabase.parentFile?.mkdirs()
+        existingDatabase.writeBytes(byteArrayOf(0x53, 0x51, 0x4c))
+
+        try {
+            val failure = runCatching {
+                cryptoSecurityManager.getOrCreateDatabasePassphrase("audit-existing-encrypted-db.db")
+            }.exceptionOrNull()
+
+            assertTrue(failure is IllegalStateException)
+            assertEquals(
+                "Database exists but passphrase is missing. Manual recovery required.",
+                failure?.message
+            )
+        } finally {
+            existingDatabase.delete()
+        }
+    }
+
+    @Test
     fun testDatabasePassphraseGenerationAndPersistence() {
         val passphrase1 = cryptoSecurityManager.getOrCreateDatabasePassphrase()
         assertNotNull(passphrase1)
