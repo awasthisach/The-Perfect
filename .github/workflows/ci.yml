@@ -72,11 +72,17 @@ jobs:
           APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
           test -f "$APK_PATH"
 
-          # Extract certificate info from the signed APK
-          keytool -printcert -jarfile "$APK_PATH" > /tmp/cert-info.txt
+          # Prefer apksigner (v2/v3 signing); fall back to keytool for v1 JAR sig
+          : > /tmp/cert-info.txt
+          if command -v apksigner >/dev/null 2>&1; then
+            apksigner verify --print-certs "$APK_PATH" > /tmp/cert-info.txt 2>&1 || true
+          fi
+          if ! grep -qiE 'SHA-?1' /tmp/cert-info.txt; then
+            keytool -printcert -jarfile "$APK_PATH" > /tmp/cert-info.txt 2>&1 || true
+          fi
 
-          # Extract SHA-1 (keytool formats vary slightly by JDK)
-          SHA1="$(grep -E 'SHA1:|SHA-1:' /tmp/cert-info.txt | head -1 | sed -E 's/.*SHA-?1:\s*//' | tr -d '[:space:]')"
+          # Extract SHA-1 (apksigner / keytool formats vary by JDK)
+          SHA1="$(grep -iE 'SHA-?1' /tmp/cert-info.txt | head -1 | sed -E 's/.*SHA-?1[^0-9A-Fa-f:]*//' | tr -d '[:space:]')"
           if [ -z "$SHA1" ]; then
             echo "Failed to parse SHA-1 from:"
             cat /tmp/cert-info.txt
