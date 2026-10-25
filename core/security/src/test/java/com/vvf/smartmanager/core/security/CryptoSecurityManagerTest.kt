@@ -1,6 +1,7 @@
 package com.vvf.smartmanager.core.security
 
 import androidx.test.core.app.ApplicationProvider
+import android.content.Context
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -36,6 +37,41 @@ class CryptoSecurityManagerTest {
 
         val passphrase2 = cryptoSecurityManager.getOrCreateDatabasePassphrase()
         assertArrayEquals(passphrase1, passphrase2)
+    }
+
+    @Test
+    fun testExistingDatabaseWithMissingPassphraseFailsClosed() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val v2File = java.io.File(context.filesDir, "vvf_db_passphrase_v2.bin")
+        val legacyFile = java.io.File(context.filesDir, "vvf_db_enc_passphrase.bin")
+        val legacyIvFile = java.io.File(context.filesDir, "vvf_db_passphrase_iv.bin")
+        val databaseFile = context.getDatabasePath("vvf_smart_manager_enc.db")
+
+        v2File.delete()
+        legacyFile.delete()
+        legacyIvFile.delete()
+        databaseFile.parentFile?.mkdirs()
+        databaseFile.createNewFile()
+
+        try {
+            val error = try {
+                cryptoSecurityManager.getOrCreateDatabasePassphrase()
+                throw AssertionError("Expected recovery-required failure")
+            } catch (expected: IllegalStateException) {
+                expected
+            }
+
+            assertEquals(
+                "Database exists but passphrase is missing. Manual recovery required.",
+                error.message
+            )
+            assertFalse("A replacement passphrase must not be written", v2File.exists())
+        } finally {
+            databaseFile.delete()
+            v2File.delete()
+            legacyFile.delete()
+            legacyIvFile.delete()
+        }
     }
 
     @Test
