@@ -20,8 +20,6 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * Enterprise-grade Cryptographic Security Manager for VVF Smart Manager.
@@ -37,14 +35,11 @@ import javax.inject.Singleton
  * exception (detected via classloader name), so Application wiring can be
  * exercised without hardware-backed keystore.
  */
-@Singleton
 class CryptoSecurityManager(
     private val context: Context,
     private val keyStoreProvider: String = ANDROID_KEYSTORE
 ) {
 
-    @Inject
-    constructor(context: Context) : this(context, ANDROID_KEYSTORE)
 
     companion object {
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
@@ -221,6 +216,16 @@ class CryptoSecurityManager(
             check(legacyEncFile.delete()) { "Failed to remove legacy encrypted database passphrase" }
             check(legacyIvFile.delete()) { "Failed to remove legacy database passphrase IV" }
             return migratedPassphrase
+        }
+
+        // Audit Fix: Prevent silent data loss on passphrase corruption.
+        // The security module intentionally avoids depending on the database module;
+        // keep this filename aligned with VVFDatabase.DATABASE_NAME.
+        val existingDatabase = context.getDatabasePath("vvf_smart_manager_enc.db")
+        if (existingDatabase.exists()) {
+            throw IllegalStateException(
+                "Database exists but passphrase is missing. Manual recovery required."
+            )
         }
 
         val freshPassphrase = ByteArray(DB_KEY_LENGTH_BYTES)
