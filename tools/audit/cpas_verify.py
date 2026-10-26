@@ -76,7 +76,12 @@ def verify_runs_online(entries: list, repo: str, token: str) -> list[str]:
 
     problems: list[str] = []
     cache: dict[str, dict | None] = {}
-    for entry in entries:
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            problems.append(
+                f"invalid evidence entry at index {index}: expected object, got {type(entry).__name__}"
+            )
+            continue
         run_id = str(entry.get("ci_run_id", ""))
         if not RUN_ID_RE.fullmatch(run_id):
             problems.append(f"{entry.get('id')}: non-numeric CI run ID")
