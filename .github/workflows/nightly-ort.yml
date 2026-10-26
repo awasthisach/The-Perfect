@@ -137,6 +137,7 @@ jobs:
     if: ${{ always() && needs.ort-scan.outputs.reports_verified == 'true' }}
     runs-on: ubuntu-24.04
     permissions:
+      actions: read
       contents: write
       pull-requests: write
     steps:
