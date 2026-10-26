@@ -48,8 +48,7 @@ class LocalRestoreApplierTest {
             fileCount = 10,
             vaultItemCount = 5,
             appVersion = "test",
-            schemaVersion = 1,
-            includesVaultAuth = false
+            schemaVersion = 1
         )
         File(staging, "metadata.json").writeText(json.encodeToString(meta))
 
@@ -134,18 +133,14 @@ class LocalRestoreApplierTest {
             fileCount = 3,
             vaultItemCount = 1,
             appVersion = "test",
-            schemaVersion = 1,
-            includesVaultAuth = true
+            schemaVersion = 1
         )
         File(staging, "metadata.json").writeText(json.encodeToString(meta))
 
         val applier = LocalRestoreApplier(
             liveDatabaseFile = liveDb,
             liveVaultDir = liveVault,
-            snapshotRoot = temp.newFolder("snaps3"),
-            vaultAuthImporter = {
-                throw AssertionError("Legacy vault auth must never be imported")
-            }
+            snapshotRoot = temp.newFolder("snaps3")
         )
         val result = applier.apply(
             DecryptedBackup(
