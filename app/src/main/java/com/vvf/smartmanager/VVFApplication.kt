@@ -140,13 +140,11 @@ class VVFApplication : Application(), Configuration.Provider {
         val jvmUnitTest = CryptoSecurityManager.isJvmUnitTestEnvironment(this)
         // Play Integrity App Check is device/Play-only; skip on JVM unit tests (Robolectric).
         if (!jvmUnitTest) {
-            try {
-                FirebaseAppCheck.getInstance().apply {
-                    installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Firebase App Check init skipped: ${e.message}")
-            }
+            // Initialize Firebase App Check with Play Integrity provider
+            // Fail closed: if this throws, the app should not start securely.
+            FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
+                PlayIntegrityAppCheckProviderFactory.getInstance()
+            )
         }
         if (jvmUnitTest) {
             database = VVFDatabase.buildInMemoryDatabase(this)
