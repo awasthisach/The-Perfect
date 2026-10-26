@@ -2,19 +2,31 @@ schema_version: 1
 finding_lifecycle: [discovered, triaged, reproduced, root_cause_verified, repair_implemented, tested, ci_verified, closed]
 
 # Production blockers remain open until evidence-backed closure.
-open_findings: []
+open_findings:
 
-# PROD-008: Keep closed only with real nightly ORT SBOMs merged via auto-PR.
-# Reference: docs/assurance/ort-bom.cyclonedx.json, ort-bom.spdx.json, ort-status.json
-#
-# PROD-009: Confirm on physical device that Firebase App Check issues tokens via
-# Play Integrity. Reference: Firebase Console → App Check → Requests tab.
-#
-# PROD-010: Confirm on physical device real-account Google Sign-In and Drive OAuth.
-# Reference: Play Console → Internal Testing → device test logs.
-#
-# PROD-008 will be re-validated when ORT workflow completes successfully
-# and generates valid CycloneDX/SPDX SBOMs in docs/assurance/
+    title: Open-source license compliance and attribution require resolution
+    status: triaged
+    notes: "Closure pending real CI evidence (ORT SBOMs) and physical device test logs. Manual verification required. Related issue #136."
+    residual_risk: high
+    related_issue: 136
+    last_updated: "2026-10-26"
+
+
+    title: Native Worker v4 authentication and App Check acceptance is incomplete
+    status: triaged
+    notes: "Closure pending real CI evidence (ORT SBOMs) and physical device test logs. Manual verification required. Firebase App Check enforcement and Play Integrity token acceptance remain unverified. Related issue #140."
+    residual_risk: high
+    related_issue: 140
+    last_updated: "2026-10-26"
+
+
+    title: Real-account OAuth, privacy, signing, and device acceptance are unverified
+    status: triaged
+    notes: "Closure pending real CI evidence (ORT SBOMs) and physical device test logs. Manual verification required. Real-account OAuth and signed Play-track acceptance remain unverified. Related issue #141."
+    residual_risk: high
+    related_issue: 141
+    last_updated: "2026-10-26"
+
 closed_findings:
   - id: PROD-001
     severity: high
