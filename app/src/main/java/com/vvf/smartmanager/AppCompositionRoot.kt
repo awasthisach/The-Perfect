@@ -61,7 +61,6 @@ object AppCompositionRoot {
                 liveDatabaseFile = context.getDatabasePath(databaseName),
                 liveVaultDir = vaultDir,
                 snapshotRoot = File(restoreWorkingDir, "snapshots"),
-                vaultAuthImporter = { meta -> cryptoSecurityManager.importVaultAuthMetadata(meta) },
                 beforeApply = beforeRestoreApply
             )
         )
