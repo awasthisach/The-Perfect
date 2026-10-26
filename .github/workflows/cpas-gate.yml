@@ -69,8 +69,11 @@ jobs:
 
       - name: Require production_status=PASS
         if: steps.cpas.outputs.production_status != 'PASS'
+        env:
+          CPAS_STATUS: ${{ steps.cpas.outputs.production_status }}
+          CPAS_BLOCKERS: ${{ steps.cpas.outputs.blockers }}
         run: |
-          echo "::error::Release/production gate blocked: production_status=${{ steps.cpas.outputs.production_status }}; blockers=${{ steps.cpas.outputs.blockers }}"
+          printf '::error::Release/production gate blocked: production_status=%s; blockers=%s\n' "$CPAS_STATUS" "$CPAS_BLOCKERS"
           exit 1
 
       - name: Upload computed CPAS status
