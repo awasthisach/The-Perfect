@@ -79,11 +79,8 @@ closed_findings:
   - id: PROD-008
     severity: high
     title: Open-source license compliance and attribution require resolution
-    status: closed
-    notes: >
-      ORT nightly workflow configured with auto-PR. Real CycloneDX/SPDX SBOMs
-      will be merged via automated PR. verify_ort_outputs.py validates all
-      outputs. Reference: .github/workflows/nightly-ort.yml. Related issue #136.
+    status: triaged
+    notes: "Closure pending real CI evidence (ORT SBOMs) and physical device test logs. Manual verification required."
     residual_risk: low
     related_issue: 136
     last_updated: "2026-10-24"
