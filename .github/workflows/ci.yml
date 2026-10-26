@@ -87,12 +87,15 @@ jobs:
           apk="app/build/outputs/apk/debug/app-debug.apk"
           test -s "$apk"
           cert_output="$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$apk")"
-          sha1="$(printf '%s\n' "$cert_output" | sed -nE 's/.*certificate SHA-1 digest: ([[:xdigit:]:]+).*/\1/p' | head -n 1)"
-          if [[ ! "$sha1" =~ ^([[:xdigit:]]{2}:){19}[[:xdigit:]]{2}$ ]]; then
+          raw_sha1="$(printf '%s\n' "$cert_output" | sed -nE 's/.*certificate SHA-1 digest: ([[:xdigit:]:]+).*/\1/p' | head -n 1)"
+          compact_sha1="${raw_sha1//:/}"
+          compact_sha1="${compact_sha1^^}"
+          if [[ ! "$compact_sha1" =~ ^[[:xdigit:]]{40}$ ]]; then
             echo "::error::Could not extract a valid 20-byte signing certificate SHA-1 from $apk"
             printf '%s\n' "$cert_output"
             exit 1
           fi
+          sha1="$(printf '%s' "$compact_sha1" | sed -E 's/(..)/\1:/g; s/:$//')"
           echo "Debug APK signing certificate SHA-1: $sha1"
           echo "Debug APK SHA-1: `$sha1`" >> "$GITHUB_STEP_SUMMARY"
       - name: Generate CPAS unit evidence
