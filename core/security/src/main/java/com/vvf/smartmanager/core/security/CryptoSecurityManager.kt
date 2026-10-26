@@ -20,8 +20,6 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * Enterprise-grade Cryptographic Security Manager for VVF Smart Manager.
@@ -37,14 +35,11 @@ import javax.inject.Singleton
  * exception (detected via classloader name), so Application wiring can be
  * exercised without hardware-backed keystore.
  */
-@Singleton
 class CryptoSecurityManager(
     private val context: Context,
     private val keyStoreProvider: String = ANDROID_KEYSTORE
 ) {
 
-    @Inject
-    constructor(context: Context) : this(context, ANDROID_KEYSTORE)
 
     companion object {
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
@@ -78,6 +73,8 @@ class CryptoSecurityManager(
 
         private const val ENCRYPTED_DB_PASSPHRASE_FILE = "vvf_db_enc_passphrase.bin"
         private const val DB_PASSPHRASE_IV_FILE = "vvf_db_passphrase_iv.bin"
+        // Must match VVFDatabase.DATABASE_NAME; core:security cannot depend on core:database.
+        private const val ENCRYPTED_DATABASE_FILE_NAME = "vvf_smart_manager_enc.db"
         private const val DB_PASSPHRASE_V2_FILE = "vvf_db_passphrase_v2.bin"
         private const val DB_PASSPHRASE_TEMP_SUFFIX = ".tmp"
         private const val DB_PASSPHRASE_FORMAT_VERSION: Byte = 2
@@ -221,6 +218,13 @@ class CryptoSecurityManager(
             check(legacyEncFile.delete()) { "Failed to remove legacy encrypted database passphrase" }
             check(legacyIvFile.delete()) { "Failed to remove legacy database passphrase IV" }
             return migratedPassphrase
+        }
+
+        // Audit Fix: Prevent silent data loss on passphrase corruption.
+        if (context.getDatabasePath(ENCRYPTED_DATABASE_FILE_NAME).exists()) {
+            throw IllegalStateException(
+                "Database exists but passphrase is missing. Manual recovery required."
+            )
         }
 
         val freshPassphrase = ByteArray(DB_KEY_LENGTH_BYTES)
