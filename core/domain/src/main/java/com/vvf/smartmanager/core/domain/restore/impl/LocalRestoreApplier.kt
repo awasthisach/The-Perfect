@@ -6,8 +6,6 @@ import com.vvf.smartmanager.core.domain.restore.DecryptedBackup
 import com.vvf.smartmanager.core.domain.restore.RestoreApplier
 import com.vvf.smartmanager.core.domain.restore.RestoreException
 import com.vvf.smartmanager.core.domain.restore.RestoreSnapshot
-import kotlinx.serialization.builtins.MapSerializer
-import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.UUID
@@ -15,8 +13,8 @@ import java.util.UUID
 /**
  * Snapshot + apply + rollback for live database and vault directories.
  *
- * Apply stages into sibling temp paths, verifies sizes, imports vault auth, then swaps
- * onto live paths so a mid-apply crash is less likely to leave a half-wiped vault.
+ * Apply stages into sibling temp paths and verifies sizes before swapping live paths.
+ * Legacy vault authentication metadata is deliberately ignored and never imported.
  *
  * Note: the SQLCipher database file is bound to the device Keystore passphrase.
  * Same-device restore works when the live passphrase matches the snapshotted DB.
@@ -28,7 +26,6 @@ class LocalRestoreApplier(
     private val liveDatabaseFile: File,
     private val liveVaultDir: File,
     private val snapshotRoot: File,
-    private val vaultAuthImporter: ((Map<String, String>) -> Boolean)? = null,
     private val beforeApply: (() -> Unit)? = null
 ) : RestoreApplier {
     private val json = Json { ignoreUnknownKeys = true }
@@ -109,22 +106,6 @@ class LocalRestoreApplier(
             }
             if (decryptedBackup.vaultDir.exists()) {
                 decryptedBackup.vaultDir.copyRecursively(tempVault, overwrite = true)
-            }
-
-            // --- Auth metadata before committing live vault/DB ---
-            val authFile = File(decryptedBackup.stagingDir, "vault_auth.json")
-            if (authFile.isFile && vaultAuthImporter != null) {
-                val metadata = json.decodeFromString(
-                    MapSerializer(String.serializer(), String.serializer()),
-                    authFile.readText()
-                )
-                val imported = vaultAuthImporter.invoke(metadata)
-                if (!imported) {
-                    cleanupTemps(tempDb, tempVault)
-                    return Result.failure(
-                        RestoreException("Vault auth metadata import failed; live data left unchanged")
-                    )
-                }
             }
 
             // --- Commit DB: keep old as .restore-bak then swap temp into place ---
