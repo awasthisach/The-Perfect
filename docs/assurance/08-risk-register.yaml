@@ -7,7 +7,7 @@ open_findings:
     severity: high
     title: Open-source license compliance and attribution require resolution
     status: triaged
-    notes: "Closure pending real CI evidence (ORT SBOMs) and physical device test logs. Manual verification required."
+    notes: "Keep open until current-SHA ORT Analyzer/Scanner/Evaluator/Advisor/Reporter outputs, validated non-empty CycloneDX/SPDX SBOMs, and package/license dispositions are reviewed. Workflow success alone is insufficient."
     residual_risk: high
     related_issue: 136
     last_updated: "2026-10-26"
@@ -16,7 +16,7 @@ open_findings:
     severity: high
     title: Native Worker v4 authentication and App Check acceptance is incomplete
     status: triaged
-    notes: "Closure pending real CI evidence (ORT SBOMs) and physical device test logs. Manual verification required."
+    notes: "Keep open until deployed Worker v4 rejects missing/invalid Firebase Auth or App Check credentials and a physical Android device proves a successful request with separate Firebase ID-token and App Check headers; record consent/revocation tests."
     residual_risk: high
     related_issue: 140
     last_updated: "2026-10-26"
@@ -25,7 +25,7 @@ open_findings:
     severity: high
     title: Real-account OAuth, privacy, signing, and device acceptance are unverified
     status: triaged
-    notes: "Closure pending real CI evidence (ORT SBOMs) and physical device test logs. Manual verification required."
+    notes: "Keep open until real-account OAuth/Drive flows, published privacy policy and disclosures, production signing fingerprints, and a clean-device test of the exact signed release artifact are evidenced."
     residual_risk: high
     related_issue: 141
     last_updated: "2026-10-26"
