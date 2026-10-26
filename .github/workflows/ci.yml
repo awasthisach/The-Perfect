@@ -83,52 +83,47 @@ jobs:
         run: |
           set -euo pipefail
           APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
-          test -f "$APK_PATH"
+          test -s "$APK_PATH"
 
-          # Resolve apksigner from installed build-tools (not always on PATH)
+          # Resolve apksigner from installed build-tools (not always on PATH).
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -1 || true)"
-          : > /tmp/cert-info.txt
-          if [ -n "${APKSIGNER}" ] && [ -x "${APKSIGNER}" ]; then
+          if [ -n "$APKSIGNER" ] && [ -x "$APKSIGNER" ]; then
             echo "Using apksigner: $APKSIGNER"
-            "$APKSIGNER" verify --print-certs "$APK_PATH" > /tmp/cert-info.txt 2>&1 || true
+            "$APKSIGNER" verify --print-certs "$APK_PATH" > /tmp/cert-info.txt 2>&1
           else
-            echo "apksigner not found under $ANDROID_HOME/build-tools"
-          fi
-          if ! grep -qiE 'SHA-?1' /tmp/cert-info.txt 2>/dev/null; then
-            keytool -printcert -jarfile "$APK_PATH" > /tmp/cert-info.txt 2>&1 || true
+            echo "apksigner not found; falling back to keytool."
+            keytool -printcert -jarfile "$APK_PATH" > /tmp/cert-info.txt 2>&1
           fi
 
-          # Do not let empty grep fail the step under pipefail before we can log output
-          set +o pipefail
+          # Strip the full label (for example, "SHA-1 digest:") and colon separators.
+          # Validate the final value so labels such as "digest:" cannot be emitted as part of the fingerprint.
           SHA1_LINE="$(grep -iE 'SHA-?1' /tmp/cert-info.txt | head -1 || true)"
-          set -o pipefail
-          SHA1="$(printf '%s\n' "$SHA1_LINE" | sed -E 's/.*SHA-?1[^0-9A-Fa-f:]*//' | tr -d '[:space:]')"
+          SHA1="$(printf '%s\n' "$SHA1_LINE" | sed -E 's/.*[Ss][Hh][Aa]-?1[^:]*:[[:space:]]*//' | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
 
-          if [ -z "$SHA1" ]; then
-            echo "Failed to parse SHA-1. Full certificate output:"
-            cat /tmp/cert-info.txt || true
+          if [[ ! "$SHA1" =~ ^[0-9A-F]{40}$ ]]; then
+            echo "Failed to parse a 40-character SHA-1 certificate fingerprint."
+            echo "Full certificate output:"
+            cat /tmp/cert-info.txt
             exit 1
           fi
 
-          echo "========================================="
-          echo "DEBUG APK SHA-1 FINGERPRINT"
-          echo "========================================="
+          echo "DEBUG APK SIGNING-CERTIFICATE SHA-1 (THIS CI RUN)"
           echo "$SHA1"
-          echo "========================================="
           echo "Package: com.vvf.smartmanager"
-          echo "Register at: https://console.cloud.google.com/apis/credentials"
-          echo "========================================="
 
           {
             echo "SHA1=$SHA1"
             echo "Package: com.vvf.smartmanager"
             echo "APK: $APK_PATH"
+            echo "Certificate: CI debug APK signing certificate; may differ from local debug and Play App Signing certificates."
+            echo "For production OAuth, verify the release keystore and/or Play App Signing certificate fingerprint."
           } | tee /tmp/sha1-info.txt
 
           echo "debug_apk_sha1=$SHA1" >> "$GITHUB_OUTPUT"
-          echo "### Debug APK SHA-1" >> "$GITHUB_STEP_SUMMARY"
-          echo "\`$SHA1\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "Package: \`com.vvf.smartmanager\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Debug APK signing-certificate SHA-1 (this CI run)" >> "$GITHUB_STEP_SUMMARY"
+          echo "`$SHA1`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Package: `com.vvf.smartmanager`" >> "$GITHUB_STEP_SUMMARY"
+          echo "This CI debug certificate may differ from the local debug key and Play App Signing certificate." >> "$GITHUB_STEP_SUMMARY"
       - name: Verify SQLCipher native libs and 16KB alignment
         if: success()
         run: |
