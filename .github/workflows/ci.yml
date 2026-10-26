@@ -12,8 +12,11 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  # CI is per-ref and only the newest revision needs a build. Nightly ORT has its own non-cancelling concurrency group.
-  cancel-in-progress: true
+  # Do not cancel an active validation run when another commit is pushed to the same PR.
+  # GitHub may still replace a pending run in the same concurrency group; the newest queued
+  # revision is the one retained. This preserves completed test evidence instead of cancelling
+  # expensive builds mid-step whenever a PR receives another synchronization event.
+  cancel-in-progress: false
 
 env:
   UPLOAD_ARTIFACT_ACTION: b7c566a772e6b6bfb58ed0dc250532a479d7789f
