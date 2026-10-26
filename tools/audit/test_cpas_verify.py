@@ -139,6 +139,20 @@ class CpasVerifySelfTests(unittest.TestCase):
             ok, detail = mod.validate_ort_outputs(assurance)
             self.assertTrue(ok, detail)
 
+    def test_online_verifier_rejects_non_object_entries(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("cpas_verify", VERIFY)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+
+        problems = mod.verify_runs_online([None, "bad-entry", {}], "owner/repo", "unused-token")
+        self.assertEqual(len(problems), 3)
+        self.assertIn("index 0", problems[0])
+        self.assertIn("index 1", problems[1])
+        self.assertIn("non-numeric CI run ID", problems[2])
+
     def test_ledger_rejects_non_numeric_run_id(self) -> None:
         import importlib.util
 
