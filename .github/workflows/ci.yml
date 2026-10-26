@@ -48,7 +48,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential libssl-dev tcl-dev zlib1g-dev
           mkdir -p core/database-compat/src/androidTest/assets
+          # Pin SQLCipher source archive to the independently reviewed v4.5.4 SHA-256.
           curl -fsSL https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz -o /tmp/sqlcipher-4.5.4.tar.gz
+          ACTUAL_SHA256="$(sha256sum /tmp/sqlcipher-4.5.4.tar.gz | awk '{print $1}')"
+          EXPECTED_SHA256="ea052fe634d729f9dd6b624016104de796faf87e487a9e868a07faee35957771"
+          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "::error::SQLCipher v4.5.4 source archive SHA-256 mismatch: expected $EXPECTED_SHA256, got $ACTUAL_SHA256"
+            exit 1
+          fi
+          echo "SQLCipher 4.5.4 tarball sha256=$ACTUAL_SHA256"
+          test -s /tmp/sqlcipher-4.5.4.tar.gz
+          test "$(stat -c%s /tmp/sqlcipher-4.5.4.tar.gz)" -gt 100000
           tar -xzf /tmp/sqlcipher-4.5.4.tar.gz -C /tmp
           cd /tmp/sqlcipher-4.5.4
           ./configure --enable-tempstore=yes --enable-fts5 CFLAGS="-DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL" LDFLAGS="-lcrypto"
