@@ -125,6 +125,34 @@ class CryptoSecurityManagerTest {
         assertFalse(cryptoSecurityManager.isValidPinFormat(""))
     }
 
+    @Test
+    fun backupEncryptionMustBePortableAcrossDeviceKeyContexts() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val source = java.io.File(context.cacheDir, "portable-backup-source.bin").apply {
+            writeText("portable backup payload")
+        }
+        val encrypted = java.io.File(context.cacheDir, "portable-backup.vvfbak")
+        val restored = java.io.File(context.cacheDir, "portable-backup-restored.bin")
+        try {
+            cryptoSecurityManager.encryptFile(source, encrypted)
+            CryptoSecurityManager.clearInMemoryKeysForTests()
+            val otherDeviceManager = CryptoSecurityManager(context, "RobolectricOtherDevice")
+            val decryptResult = runCatching { otherDeviceManager.decryptFile(encrypted, restored) }
+
+            assertTrue(
+                "A cloud backup must be decryptable on another device with its backup passphrase; " +
+                    "device-bound vault encryption is not a portable backup format",
+                decryptResult.isSuccess
+            )
+            assertEquals(source.readText(), restored.readText())
+        } finally {
+            source.delete()
+            encrypted.delete()
+            restored.delete()
+            CryptoSecurityManager.clearInMemoryKeysForTests()
+        }
+    }
+
     private fun assertThrowsSecurityFailure(block: () -> Unit) {
         try {
             block()
