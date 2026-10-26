@@ -32,6 +32,23 @@ class PortableBackupCryptoTest {
     }
 
     @Test
+    fun encryptAndDecryptConsumePassphraseBuffers() {
+        withTempDirectory { dir ->
+            val source = File(dir, "source.bin").apply { writeText("private payload") }
+            val encrypted = File(dir, "backup.vvfbak")
+            val restored = File(dir, "restored.bin")
+            val encryptionPassphrase = "long encryption passphrase".toCharArray()
+            crypto.encryptFile(source, encrypted, encryptionPassphrase)
+            assertTrue(encryptionPassphrase.all { it == '\\u0000' })
+
+            val decryptionPassphrase = "long encryption passphrase".toCharArray()
+            crypto.decryptFile(encrypted, restored, decryptionPassphrase)
+            assertTrue(decryptionPassphrase.all { it == '\\u0000' })
+            assertArrayEquals(source.readBytes(), restored.readBytes())
+        }
+    }
+
+    @Test
     fun wrongPassphraseFailsWithoutPublishingPlaintext() {
         assertDecryptFailsWithoutOutput { dir, encrypted, destination ->
             crypto.encryptFile(encrypted.first, encrypted.second, "correct passphrase".toCharArray())
