@@ -28,7 +28,6 @@ class PortableBackupCryptoTest {
 
             assertArrayEquals(source.readBytes(), restored.readBytes())
             assertTrue(encrypted.readBytes().copyOfRange(0, 4).contentEquals("VVFB".toByteArray(StandardCharsets.US_ASCII)))
-            passphrase.fill('\u0000')
         }
     }
 
