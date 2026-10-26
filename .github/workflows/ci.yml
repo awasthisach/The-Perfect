@@ -65,6 +65,30 @@ jobs:
         run: ./gradlew --no-daemon lintDebug --stacktrace
       - name: Assemble debug APK
         run: ./gradlew --no-daemon assembleDebug --stacktrace
+      - name: Extract debug APK signing certificate SHA-1
+        if: success()
+        run: |
+          set -euo pipefail
+          apk_path="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$apk_path"
+          cert_output="$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$apk_path")"
+          printf '%s\n' "$cert_output"
+          sha1="$(printf '%s\n' "$cert_output" | sed -n 's/^[[:space:]]*Signer #1 certificate SHA-1 digest: //p' | head -n 1 | tr -d '[:space:]')"
+          test -n "$sha1"
+          {
+            printf 'Certificate SHA-1: %s\n' "$sha1"
+            printf 'Package: com.vvf.smartmanager\n'
+            printf 'APK: %s\n' "$apk_path"
+            printf 'Commit: %s\n' "${{ github.sha }}"
+          } > debug-apk-certificate-sha1.txt
+      - name: Upload debug signing certificate SHA-1
+        if: success()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: debug-apk-certificate-sha1
+          path: debug-apk-certificate-sha1.txt
+          if-no-files-found: error
+          retention-days: 30
       - name: Generate CPAS unit evidence
         if: success()
         run: |
