@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   cpas-verify:
-    name: CPAS Verify (fail-closed)
+    name: CPAS Verifier Execution
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -31,7 +31,7 @@ jobs:
       - name: Run verifier self-tests
         run: python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
 
-      - name: Run semantic CPAS verification
+      - name: Run CPAS verifier (execution result only)
         id: cpas
         # Fail-closed: BLOCKED is an expected production state while critical
         # findings remain open. Emit a warning annotation, not an error, so the
@@ -55,16 +55,22 @@ jobs:
           echo "blockers=$blockers" >> "$GITHUB_OUTPUT"
 
           if [ "$status" = "PASS" ]; then
-            echo "CPAS production_status=PASS"
+            echo "CPAS verifier completed; production_status=PASS"
             exit 0
           fi
 
           if [ "$status" = "BLOCKED" ]; then
-            echo "::warning::CPAS production_status=BLOCKED (fail-closed). blockers=${blockers}. See cpas-status artifact. Release promotion still requires PASS."
+            echo "::warning::CPAS verifier completed; production_status=BLOCKED. blockers=${blockers}. A separate production-status check will fail."
             exit 0
           fi
 
           echo "::error::Unexpected CPAS status=${status} exit_code=${code}"
+          exit 1
+
+      - name: Require production_status=PASS
+        if: steps.cpas.outputs.production_status != 'PASS'
+        run: |
+          echo "::error::Release/production gate blocked: production_status=${{ steps.cpas.outputs.production_status }}; blockers=${{ steps.cpas.outputs.blockers }}"
           exit 1
 
       - name: Upload computed CPAS status
