@@ -36,7 +36,16 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.MyApplication">
 
-        <!-- WorkManager's AndroidX Startup initializer reads VVFApplication.workManagerConfiguration. -->
+        <!-- Disable WorkManager's default initializer; VVFApplication supplies Configuration.Provider. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                tools:node="remove" />
+        </provider>
 
         <!-- Share / open files with system viewers (gallery, PDF, etc.) -->
         <provider
