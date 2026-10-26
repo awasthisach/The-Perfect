@@ -72,6 +72,20 @@ jobs:
           python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
           python3 tools/audit/cpas_verify.py --root .
 
+      - name: Require production_status=PASS for release
+        run: |
+          set -euo pipefail
+          test -s cpas-status.json || { echo "::error::CPAS status artifact missing"; exit 1; }
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          status = json.loads(Path("cpas-status.json").read_text(encoding="utf-8"))
+          value = status.get("production_status", {}).get("value")
+          if value != "PASS":
+              raise SystemExit(f"Release blocked: production_status={value!r}, expected 'PASS'")
+          print("Release CPAS status: PASS")
+          PY
+
       - name: Validate release inputs and secrets
         env:
           VERSION_NAME: ${{ inputs.version_name }}
