@@ -50,6 +50,11 @@ jobs:
           # Pin SQLCipher source to tag v4.5.4; record sha256 in summary for reproducible audits
           curl -fsSL https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz -o /tmp/sqlcipher-4.5.4.tar.gz
           ACTUAL_SHA256="$(sha256sum /tmp/sqlcipher-4.5.4.tar.gz | awk '{print $1}')"
+          EXPECTED_SHA256="ea052fe634d729f9dd6b624016104de796faf87e487a9e868a07faee35957771"
+          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "::error::SQLCipher v4.5.4 source archive SHA-256 mismatch: expected $EXPECTED_SHA256, got $ACTUAL_SHA256"
+            exit 1
+          fi
           echo "SQLCipher 4.5.4 tarball sha256=$ACTUAL_SHA256"
           test -s /tmp/sqlcipher-4.5.4.tar.gz
           test "$(stat -c%s /tmp/sqlcipher-4.5.4.tar.gz)" -gt 100000
