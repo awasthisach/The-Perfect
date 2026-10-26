@@ -130,7 +130,12 @@ class CpasVerifySelfTests(unittest.TestCase):
                 "documentNamespace": "https://spdx.org/spdxdocs/example-123",
                 "packages": [{"name": "example", "SPDXID": "SPDXRef-example"}],
             }))
-            write(assurance / "ort-status.json", '{"status":"PASS"}')
+            write(assurance / "ort-status.json", json.dumps({
+                "status": "PASS",
+                "scan_revision": "a" * 40,
+                "ort_action_outcome": "success",
+                "report_validation_outcome": "success",
+            }))
             ok, detail = mod.validate_ort_outputs(assurance)
             self.assertTrue(ok, detail)
 
