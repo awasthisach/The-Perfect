@@ -121,8 +121,8 @@ jobs:
 
           echo "debug_apk_sha1=$SHA1" >> "$GITHUB_OUTPUT"
           echo "### Debug APK signing-certificate SHA-1 (this CI run)" >> "$GITHUB_STEP_SUMMARY"
-          echo "`$SHA1`" >> "$GITHUB_STEP_SUMMARY"
-          echo "Package: `com.vvf.smartmanager`" >> "$GITHUB_STEP_SUMMARY"
+          echo "$SHA1" >> "$GITHUB_STEP_SUMMARY"
+          echo "Package: com.vvf.smartmanager" >> "$GITHUB_STEP_SUMMARY"
           echo "This CI debug certificate may differ from the local debug key and Play App Signing certificate." >> "$GITHUB_STEP_SUMMARY"
       - name: Verify SQLCipher native libs and 16KB alignment
         if: success()
