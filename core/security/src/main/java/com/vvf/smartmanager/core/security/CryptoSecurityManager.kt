@@ -76,6 +76,7 @@ class CryptoSecurityManager(
         private const val DB_PASSPHRASE_TEMP_SUFFIX = ".tmp"
         private const val DB_PASSPHRASE_FORMAT_VERSION: Byte = 2
 
+        // Restored to 600,000 to maintain brute-force resistance (CWE-916 mitigation)
         private const val PBKDF2_ITERATIONS = 600_000
         private val memoryKeyMap = mutableMapOf<String, SecretKey>()
 
