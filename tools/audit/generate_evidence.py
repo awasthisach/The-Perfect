@@ -68,6 +68,24 @@ UNIT_TEST_CONTROLS = [
 DB_CONTROL = ("DB-INV-001", "DB-TEST-001")
 
 
+def merge_entries(existing_entries: list, new_entries: list) -> list[dict]:
+    """Merge evidence by control AND test, preserving distinct tests for one control."""
+    by_test: dict[tuple[str, str], dict] = {}
+    for entry in existing_entries:
+        if isinstance(entry, dict) and "control_id" in entry and "test_id" in entry:
+            by_test[(str(entry["control_id"]), str(entry["test_id"]))] = entry
+    for entry in new_entries:
+        if isinstance(entry, dict) and "control_id" in entry and "test_id" in entry:
+            by_test[(str(entry["control_id"]), str(entry["test_id"]))] = entry
+
+    merged: list[dict] = []
+    for index, key in enumerate(sorted(by_test), start=1):
+        item = dict(by_test[key])
+        item["id"] = f"EVID-{index:03d}"
+        merged.append(item)
+    return merged
+
+
 def main() -> int:
     args = parse_args()
     root = args.root.resolve()
@@ -153,19 +171,7 @@ def main() -> int:
                 "entries": [],
                 "policy": bundle["policy"],
             }
-        by_control = {
-            e["control_id"]: e
-            for e in existing.get("entries", [])
-            if isinstance(e, dict) and "control_id" in e
-        }
-        for entry in entries:
-            by_control[entry["control_id"]] = entry
-        merged = []
-        for i, control in enumerate(sorted(by_control.keys()), start=1):
-            item = dict(by_control[control])
-            item["id"] = f"EVID-{i:03d}"
-            merged.append(item)
-        existing["entries"] = merged
+        existing["entries"] = merge_entries(existing.get("entries", []), entries)
         existing["policy"] = bundle["policy"]
         ledger_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
         print(f"Merged {len(merged)} entries into {ledger_path.relative_to(root)}")
