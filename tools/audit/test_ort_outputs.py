@@ -57,7 +57,7 @@ class OrtOutputValidationTest(unittest.TestCase):
             encoding="utf-8",
         )
         (root / "bom.spdx.yml").write_text(
-            "spdxVersion: SPDX-2.3\nSPDXID: SPDXRef-DOCUMENT\nname: Test SBOM\ndocumentNamespace: https://example.invalid/sbom/test\npackages: []\n",
+            "spdxVersion: SPDX-2.3\nSPDXID: SPDXRef-DOCUMENT\nname: Test SBOM\ndocumentNamespace: https://example.invalid/sbom/test\npackages:\n- SPDXID: SPDXRef-example\n  name: example\n",
             encoding="utf-8",
         )
 
@@ -89,7 +89,7 @@ class OrtOutputValidationTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (root / "bom.spdx.yml").write_text(
-                "spdxVersion: SPDX-2.3\\nSPDXID: SPDXRef-DOCUMENT\\nname: Test SBOM\\ndocumentNamespace: https://example.invalid/sbom/test\\npackages: []\\n",
+                "spdxVersion: SPDX-2.3\nSPDXID: SPDXRef-DOCUMENT\nname: Test SBOM\ndocumentNamespace: https://example.invalid/sbom/test\npackages: []\n",
                 encoding="utf-8",
             )
             problems = validate_outputs(root)
