@@ -73,11 +73,11 @@ jobs:
       - name: Verify Gradle wrapper
         run: ./gradlew --no-daemon --version
       - name: Run unit tests
-        run: ./gradlew --no-daemon testDebugUnitTest --stacktrace
+        run: ./gradlew --no-daemon --console=plain --warning-mode=all testDebugUnitTest --stacktrace
       - name: Run Android lint
-        run: ./gradlew --no-daemon lintDebug --stacktrace
+        run: ./gradlew --no-daemon --console=plain --warning-mode=all lintDebug --stacktrace
       - name: Assemble debug APK
-        run: ./gradlew --no-daemon assembleDebug --stacktrace
+        run: ./gradlew --no-daemon --console=plain --warning-mode=all assembleDebug --stacktrace
       - name: Extract Debug APK SHA-1
         if: success()
         run: |
@@ -261,7 +261,7 @@ jobs:
       - name: Run SQLCipher compatibility instrumentation test
         id: sqlcipher_instrumented
         if: ${{ steps.emulator.outputs.booted == 'true' }}
-        run: ./gradlew --no-daemon :core:database-compat:connectedDebugAndroidTest --stacktrace
+        run: ./gradlew --no-daemon --console=plain --warning-mode=all :core:database-compat:connectedDebugAndroidTest --stacktrace
       - name: Generate CPAS full DB evidence
         if: ${{ steps.emulator.outputs.booted == 'true' && steps.sqlcipher_instrumented.outcome == 'success' }}
         run: |

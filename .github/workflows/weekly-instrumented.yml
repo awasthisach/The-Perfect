@@ -40,12 +40,24 @@ jobs:
 
       - name: Install SDK components
         run: |
-          # Accept all licenses first to prevent interactive prompts
-          yes | sdkmanager --licenses || true
-          # Install required components without the 'yes' pipe
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+          set -euo pipefail
+          # Non-interactive license acceptance only (do not pipe `yes` into package install).
+          # https://developer.android.com/studio/command-line/sdkmanager
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager 2>/dev/null | head -1)"
+          fi
+          test -n "${SDKMANAGER:-}"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          # Install packages without `yes |` (avoids broken-pipe noise/hangs)
+          "$SDKMANAGER" \
+            "platforms;android-36" \
+            "platforms;android-35" \
+            "build-tools;36.0.0" \
+            "platform-tools" \
+            "emulator" \
+            "system-images;android-35;google_apis;x86_64"
           test -d "$ANDROID_HOME/system-images/android-35/google_apis/x86_64"
-
 
       - name: Create local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
@@ -71,7 +83,11 @@ jobs:
           mkdir -p "$ANDROID_AVD_HOME"
           export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
 
-          # Non-interactive AVD: explicit device profile + closed stdin (no hardware-profile prompt)
+          # Ensure image present before AVD create
+          sdkmanager "system-images;android-35;google_apis;x86_64" || \
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "system-images;android-35;google_apis;x86_64"
+
+          # Non-interactive AVD: device profile + closed stdin
           avdmanager create avd \
             --force \
             --name vvf-api35 \
@@ -79,19 +95,24 @@ jobs:
             --device "pixel_2" \
             </dev/null
 
-          # Verify AVD was created
           if [ ! -d "$ANDROID_AVD_HOME/vvf-api35.avd" ] && [ ! -d "$HOME/.android/avd/vvf-api35.avd" ]; then
             echo "AVD creation failed. Listing available devices:"
             avdmanager list device || true
-            ls -la "$ANDROID_HOME/system-images/android-35/google_apis/x86_64/" || true
             exit 1
           fi
 
           adb start-server
-          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel off -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          # Prefer KVM when available; fall back to software accel on runners without /dev/kvm
+          ACCEL_FLAG="-accel on"
+          if [ ! -e /dev/kvm ]; then
+            echo "No /dev/kvm — using -accel off (swiftshader)"
+            ACCEL_FLAG="-accel off"
+          fi
+          # shellcheck disable=SC2086
+          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none $ACCEL_FLAG -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/emulator.pid"
-          timeout 180 adb wait-for-device
-          for _ in $(seq 1 60); do
+          timeout 300 adb wait-for-device
+          for _ in $(seq 1 90); do
             boot_completed="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
             if [ "$boot_completed" = "1" ]; then
               break
@@ -102,7 +123,7 @@ jobs:
           adb devices
 
       - name: SQLCipher instrumentation (HARD)
-        run: ./gradlew --no-daemon :core:database-compat:connectedDebugAndroidTest --stacktrace
+        run: ./gradlew --no-daemon --console=plain --warning-mode=all :core:database-compat:connectedDebugAndroidTest --stacktrace
 
       # Keep ledger freshness aligned with weekly hard gate (environment must contain "emulator")
       - name: Generate CPAS instrumented evidence
