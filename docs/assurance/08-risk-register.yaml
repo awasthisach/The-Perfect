@@ -7,8 +7,8 @@ open_findings:
     severity: high
     title: Open-source license compliance and attribution require resolution
     status: triaged
-    notes: "Closure pending real CI evidence (ORT SBOMs) and physical device test logs. Manual verification required."
-    evidence_required: "Successful ORT run, real CycloneDX/SPDX SBOMs and verified ORT status artifact."
+    notes: "Closure requires successful CI ORT analysis, independently reviewed dependency/license findings, generated SBOMs, and verified attribution/notice obligations. Manual verification required."
+    evidence_required: "Successful ORT run for the audited commit; real CycloneDX and SPDX SBOMs; verified ORT status artifact; and a reviewed license/attribution report confirming required notices and third-party attributions are present."
     related_issue: 136
     last_updated: "2026-10-26"
 
@@ -16,8 +16,8 @@ open_findings:
     severity: high
     title: Native Worker v4 authentication and App Check acceptance is incomplete
     status: triaged
-    notes: "Closure pending real CI evidence (ORT SBOMs) and physical device test logs. Manual verification required."
-    evidence_required: "Physical-device Play Integrity/App Check token evidence and Firebase Console request logs."
+    notes: "Closure requires native-client and physical-device verification against the deployed Worker v4 endpoint. Manual verification required."
+    evidence_required: "Physical-device Play Integrity/App Check token evidence; Firebase Console request logs; and successful authenticated Worker v4 requests using a Firebase ID token, with negative tests for missing/invalid auth and App Check."
     related_issue: 140
     last_updated: "2026-10-26"
 
@@ -25,8 +25,8 @@ open_findings:
     severity: high
     title: Real-account OAuth, privacy, signing, and device acceptance are unverified
     status: triaged
-    notes: "Closure pending real CI evidence (ORT SBOMs) and physical device test logs. Manual verification required."
-    evidence_required: "Real-account Google Sign-In/Drive OAuth, privacy publication, signing verification and physical-device test logs."
+    notes: "Closure requires real-account OAuth, published privacy disclosures, release signing verification, and physical-device acceptance. Manual verification required."
+    evidence_required: "Real-account Google Sign-In and Drive OAuth test logs; published privacy policy URL and in-app disclosure review; verified release/Play App Signing certificate fingerprints; and physical-device acceptance logs."
     related_issue: 141
     last_updated: "2026-10-26"
 
