@@ -23,10 +23,8 @@ class PortableBackupCryptoTest {
             }
             val encrypted = File(dir, "backup.vvfbak")
             val restored = File(dir, "restored.bin")
-            val passphrase = "long backup passphrase 2026".toCharArray()
-
-            crypto.encryptFile(source, encrypted, passphrase)
-            crypto.decryptFile(encrypted, restored, passphrase)
+            crypto.encryptFile(source, encrypted, "long backup passphrase 2026".toCharArray())
+            crypto.decryptFile(encrypted, restored, "long backup passphrase 2026".toCharArray())
 
             assertArrayEquals(source.readBytes(), restored.readBytes())
             assertTrue(encrypted.readBytes().copyOfRange(0, 4).contentEquals("VVFB".toByteArray(StandardCharsets.US_ASCII)))
