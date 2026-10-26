@@ -21,6 +21,14 @@ open_findings:
     related_issue: 140
     last_updated: "2026-10-26"
 
+  - id: PROD-010
+    severity: high
+    title: Real-account OAuth, privacy, signing, and device acceptance are unverified
+    status: triaged
+    notes: "Closure pending real CI evidence (ORT SBOMs) and physical device test logs. Manual verification required."
+    residual_risk: high
+    related_issue: 141
+    last_updated: "2026-10-26"
 # PROD-008: Keep closed only with real nightly ORT SBOMs merged via auto-PR.
 # Reference: docs/assurance/ort-bom.cyclonedx.json, ort-bom.spdx.json, ort-status.json
 #
@@ -93,13 +101,3 @@ closed_findings:
     last_updated: "2026-09-04"
     closed_at: "2026-09-03"
 
-  - id: PROD-010
-    severity: high
-    title: Real-account OAuth, privacy, signing, and device acceptance are unverified
-    status: triaged
-    notes: >
-      Closure pending real CI evidence (ORT SBOMs) and physical device test logs. Manual verification required. Related issue #141.
-    residual_risk: low
-    related_issue: 141
-    last_updated: "2026-10-24"
-    closed_at: "2026-10-24"
