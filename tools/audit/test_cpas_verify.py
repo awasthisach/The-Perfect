@@ -84,6 +84,74 @@ class CpasVerifySelfTests(unittest.TestCase):
                 msg="Missing ORT SBOMs/status must fail closed, never count as PASS",
             )
 
+    def test_ort_sboms_missing_or_malformed_block(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("cpas_verify", VERIFY)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            assurance = Path(tmp)
+            ok, detail = mod.validate_ort_outputs(assurance)
+            self.assertFalse(ok)
+            self.assertIn("missing", detail)
+
+            write(assurance / "ort-bom.cyclonedx.json", "{}")
+            write(assurance / "ort-bom.spdx.json", "{}")
+            write(assurance / "ort-status.json", json.dumps({
+                "status": "PASS",
+                "scan_revision": "a" * 40,
+                "ort_action_outcome": "success",
+                "report_validation_outcome": "success",
+            }))
+            ok, detail = mod.validate_ort_outputs(assurance)
+            self.assertFalse(ok)
+            self.assertIn("CycloneDX", detail)
+
+    def test_ort_sboms_valid_non_empty_outputs_pass(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("cpas_verify", VERIFY)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            assurance = Path(tmp)
+            write(assurance / "ort-bom.cyclonedx.json", json.dumps({
+                "bomFormat": "CycloneDX", "specVersion": "1.6", "version": 1,
+                "components": [{"type": "library", "name": "example", "version": "1.0"}],
+            }))
+            write(assurance / "ort-bom.spdx.json", json.dumps({
+                "spdxVersion": "SPDX-2.3", "dataLicense": "CC0-1.0",
+                "SPDXID": "SPDXRef-DOCUMENT", "name": "example",
+                "documentNamespace": "https://spdx.org/spdxdocs/example-123",
+                "packages": [{"name": "example", "SPDXID": "SPDXRef-example"}],
+            }))
+            write(assurance / "ort-status.json", '{"status":"PASS"}')
+            ok, detail = mod.validate_ort_outputs(assurance)
+            self.assertTrue(ok, detail)
+
+    def test_ledger_rejects_non_numeric_run_id(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("cpas_verify", VERIFY)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+        entry = {
+            "id": "EVID-001", "control_id": "DB-INV-001", "test_id": "DB-TEST-001",
+            "source_commit": "a" * 40, "ci_run_id": "33790505509-refreshed-20261024",
+            "ci_job_id": "test", "executed_at": "2026-01-01T00:00:00Z",
+            "result": "PASS", "environment": "github-actions",
+            "expires_at": "2027-01-01T00:00:00Z",
+        }
+        self.assertFalse(mod.required_ledger_fields(entry))
+        entry["ci_run_id"] = "33790505509"
+        self.assertTrue(mod.required_ledger_fields(entry))
+
     def test_invalid_risk_id_fails_grammar_check(self) -> None:
         self.assertTrue(VERIFY.is_file())
         # Live repo should reject non-PROD risk IDs if introduced; smoke the regex path
