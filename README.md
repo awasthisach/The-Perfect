@@ -2,7 +2,7 @@
 
 > Offline-first Android file manager, encrypted vault, and privacy-focused productivity suite.
 
-**Release:** [v1.0.0](https://github.com/awasthisach/The-Perfect/releases/tag/v1.0.0)
+**Published GitHub artifact:** [v1.0.0](https://github.com/awasthisach/The-Perfect/releases/tag/v1.0.0) — debug APK only; not a production-signed release.
 
 ---
 
@@ -10,11 +10,11 @@
 
 | Item | Link |
 |------|------|
-| **GitHub Release v1.0.0** | https://github.com/awasthisach/The-Perfect/releases/tag/v1.0.0 |
+| **GitHub Release v1.0.0 (debug APK only)** | https://github.com/awasthisach/The-Perfect/releases/tag/v1.0.0 |
 | **Source (tag)** | https://github.com/awasthisach/The-Perfect/archive/refs/tags/v1.0.0.zip |
 | **Clone tag** | `git clone --branch v1.0.0 https://github.com/awasthisach/The-Perfect.git` |
 
-Play Store / signed AAB: build via `.github/workflows/release.yml` with release keystore secrets, then upload to Play Console Internal Testing → Production.
+A production-signed APK/AAB and Play Store release have **not been verified or published**. The current GitHub release contains a debug APK only. Do not treat that artifact as a production release.
 
 ```bash
 git checkout v1.0.0
@@ -66,13 +66,19 @@ KEY_ALIAS
 KEY_PASSWORD
 ```
 
-## Production status (v1.0.0)
+## Production status (checked 2026-10-26)
 
-- CPAS production gate: **PASS**
-- PROD-008 / PROD-009 / PROD-010: **closed** (evidence in `docs/assurance/`)
-- Checklist: [PRODUCTION_RELEASE_CHECKLIST.md](docs/PRODUCTION_RELEASE_CHECKLIST.md)
-- Notes: [RELEASE_NOTES.md](RELEASE_NOTES.md)
-- Security: [SECURITY_WHITEPAPER.md](docs/SECURITY_WHITEPAPER.md)
+**Status: BLOCKED — not yet verified as production-ready.** The CPAS workflow may finish successfully while its generated `cpas-status.json` still reports `production_status=BLOCKED`.
+
+- PROD-008 (ORT license compliance): open — [issue #136](https://github.com/awasthisach/The-Perfect/issues/136).
+- PROD-009 (deployed Worker v4 + Firebase Auth/App Check acceptance): open — [issue #140](https://github.com/awasthisach/The-Perfect/issues/140).
+- PROD-010 (real-account OAuth, published privacy policy, production signing, physical-device acceptance): open — [issue #141](https://github.com/awasthisach/The-Perfect/issues/141).
+- Evidence register: [08-risk-register.yaml](docs/assurance/08-risk-register.yaml).
+- Checklist: [PRODUCTION_RELEASE_CHECKLIST.md](docs/PRODUCTION_RELEASE_CHECKLIST.md).
+- Notes: [RELEASE_NOTES.md](RELEASE_NOTES.md).
+- Security: [SECURITY_WHITEPAPER.md](docs/SECURITY_WHITEPAPER.md).
+
+Do not announce production readiness until these blockers are closed with current, independently verifiable evidence.
 
 ## License
 
