@@ -3,6 +3,7 @@ package com.vvf.smartmanager
 import android.app.Application
 import android.util.Log
 import androidx.work.Configuration
+import androidx.core.content.edit
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import com.vvf.smartmanager.core.background.workers.FileIndexingOutcome
@@ -124,13 +125,13 @@ class VVFApplication : Application(), Configuration.Provider {
     fun isAutoIndexOcrEnabled(): Boolean = settingsPrefs.getBoolean(KEY_AUTO_INDEX_OCR, true)
 
     fun setAutoIndexOcrEnabled(enabled: Boolean) {
-        settingsPrefs.edit().putBoolean(KEY_AUTO_INDEX_OCR, enabled).apply()
+        settingsPrefs.edit { putBoolean(KEY_AUTO_INDEX_OCR, enabled) }
     }
 
     fun isOfflineOnlyModeEnabled(): Boolean = settingsPrefs.getBoolean(KEY_OFFLINE_ONLY_MODE, true)
 
     fun setOfflineOnlyModeEnabled(enabled: Boolean) {
-        settingsPrefs.edit().putBoolean(KEY_OFFLINE_ONLY_MODE, enabled).apply()
+        settingsPrefs.edit { putBoolean(KEY_OFFLINE_ONLY_MODE, enabled) }
     }
 
     override fun onCreate() {
