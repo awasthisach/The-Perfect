@@ -99,11 +99,9 @@ closed_findings:
   - id: PROD-010
     severity: high
     title: Real-account OAuth, privacy, signing, and device acceptance are unverified
-    status: closed
+    status: triaged
     notes: >
-      Google Sign-In tested on physical device with real account. Drive OAuth
-      flow completed. Privacy policy published. Reference: Internal Testing
-      Track physical device test logs. Related issue #141.
+      Closure pending real CI evidence (ORT SBOMs) and physical device test logs. Manual verification required. Related issue #141.
     residual_risk: low
     related_issue: 141
     last_updated: "2026-10-24"
