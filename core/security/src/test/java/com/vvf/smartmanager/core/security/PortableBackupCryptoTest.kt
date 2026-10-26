@@ -39,11 +39,11 @@ class PortableBackupCryptoTest {
             val restored = File(dir, "restored.bin")
             val encryptionPassphrase = "long encryption passphrase".toCharArray()
             crypto.encryptFile(source, encrypted, encryptionPassphrase)
-            assertTrue(encryptionPassphrase.all { it == '\\u0000' })
+            assertTrue(encryptionPassphrase.all { it == 0.toChar() })
 
             val decryptionPassphrase = "long encryption passphrase".toCharArray()
             crypto.decryptFile(encrypted, restored, decryptionPassphrase)
-            assertTrue(decryptionPassphrase.all { it == '\\u0000' })
+            assertTrue(decryptionPassphrase.all { it == 0.toChar() })
             assertArrayEquals(source.readBytes(), restored.readBytes())
         }
     }
