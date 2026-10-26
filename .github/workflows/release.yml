@@ -52,6 +52,14 @@ jobs:
           PY
           python3 tools/audit/verify_ort_outputs.py --results-dir ort-evidence/results --revision "$GITHUB_SHA"
           cp ort-evidence/ort-status.json ort-status.json
+          # CPAS reads the checked-in assurance paths; stage only the ORT
+          # artifacts validated above so a successful exact-SHA scan is usable.
+          test -s ort-evidence/results/bom.cyclonedx.json || { echo "::error::Validated CycloneDX SBOM missing"; exit 1; }
+          test -s ort-evidence/results/bom.spdx.json || { echo "::error::Validated SPDX SBOM missing"; exit 1; }
+          mkdir -p docs/assurance
+          cp ort-evidence/results/bom.cyclonedx.json docs/assurance/ort-bom.cyclonedx.json
+          cp ort-evidence/results/bom.spdx.json docs/assurance/ort-bom.spdx.json
+          cp ort-evidence/ort-status.json docs/assurance/ort-status.json
 
       - name: Set up JDK 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
