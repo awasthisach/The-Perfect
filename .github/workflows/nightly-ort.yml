@@ -126,8 +126,8 @@ jobs:
         with:
           name: ort-results-evidence
           path: |
-            ort-evidence/
-            docs/assurance/ort-*.json
+            ort-evidence/results/
+            ort-evidence/ort-status.json
           if-no-files-found: error
           retention-days: 90
 
