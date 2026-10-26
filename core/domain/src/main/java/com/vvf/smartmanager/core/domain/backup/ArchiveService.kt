@@ -7,8 +7,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.builtins.MapSerializer
-import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -60,13 +58,6 @@ class ArchiveService(
                 )
             }
 
-            // Vault PIN material is Keystore-wrapped ciphertext in prefs — include in archive.
-            val vaultAuth = cryptoSecurityManager.exportVaultAuthMetadata()
-            val includesPreferences = vaultAuth.isNotEmpty()
-            if (includesPreferences) {
-                File(stagingDir, "vault_auth.json").writeText(json.encodeToString(MapSerializer(String.serializer(), String.serializer()), vaultAuth))
-            }
-
             val metadata = ArchiveMetadata(
                 version = 1,
                 timestamp = timestamp,
@@ -77,7 +68,6 @@ class ArchiveService(
                 vaultItemCount = File(stagingDir, "vault").walkTopDown().count { it.isFile },
                 appVersion = appVersion,
                 schemaVersion = schemaVersion,
-                includesVaultAuth = includesPreferences
             )
             File(stagingDir, "metadata.json").writeText(json.encodeToString(metadata))
             zipDirectory(stagingDir, zipFile)
@@ -95,7 +85,7 @@ class ArchiveService(
                 backupSizeBytes = encryptedFile.length(),
                 includesVault = snapshots.containsKey("vault"),
                 includesDatabase = snapshots.containsKey("database"),
-                includesPreferences = includesPreferences,
+                includesPreferences = false,
                 checksumSha256 = checksum
             )
             Result.success(
@@ -162,7 +152,6 @@ data class ArchiveMetadata(
     val vaultItemCount: Int,
     val appVersion: String,
     val schemaVersion: Int,
-    val includesVaultAuth: Boolean = false
 )
 
 class ArchiveException(message: String, cause: Throwable? = null) : Exception(message, cause)
