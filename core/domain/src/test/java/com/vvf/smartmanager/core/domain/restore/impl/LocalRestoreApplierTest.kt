@@ -118,13 +118,13 @@ class LocalRestoreApplierTest {
     }
 
     @Test
-    fun authImportFailureLeavesLiveUnchanged() = runBlocking {
+    fun legacyVaultAuthMetadataIsIgnoredDuringRestore() = runBlocking {
         val liveDb = temp.newFile("live3.db").apply { writeText("LIVE") }
         val liveVault = temp.newFolder("live-vault-3").also { File(it, "x.bin").writeText("X") }
         val staging = temp.newFolder("staging3")
         val vault = File(staging, "vault").also { it.mkdirs(); File(it, "v.bin").writeText("V") }
         val dbFile = File(staging, "db").apply { writeText("DB") }
-        File(staging, "vault_auth.json").writeText("{\"vault_pin_hash\":\"abc\"}")
+        File(staging, "vault_auth.json").writeText("{\"vault_pin_hash\":\"attacker-controlled\"}")
         val meta = ArchiveMetadata(
             version = 1,
             timestamp = 1L,
@@ -143,7 +143,9 @@ class LocalRestoreApplierTest {
             liveDatabaseFile = liveDb,
             liveVaultDir = liveVault,
             snapshotRoot = temp.newFolder("snaps3"),
-            vaultAuthImporter = { false }
+            vaultAuthImporter = {
+                throw AssertionError("Legacy vault auth must never be imported")
+            }
         )
         val result = applier.apply(
             DecryptedBackup(
@@ -154,8 +156,9 @@ class LocalRestoreApplierTest {
                 timestamp = 1L
             )
         )
-        assertTrue(result.isFailure)
-        assertEquals("LIVE", liveDb.readText())
-        assertEquals("X", File(liveVault, "x.bin").readText())
+        assertTrue("Restore should ignore legacy authentication metadata", result.isSuccess)
+        assertEquals("DB", liveDb.readText())
+        assertTrue(File(liveVault, "v.bin").isFile)
+        assertFalse(File(liveVault, "x.bin").exists())
     }
 }
