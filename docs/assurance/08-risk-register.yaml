@@ -38,7 +38,7 @@ open_findings:
 # PROD-010: Confirm on physical device real-account Google Sign-In and Drive OAuth.
 # Reference: Play Console → Internal Testing → device test logs.
 #
-# PROD-008 will be re-validated when ORT workflow completes successfully
+# PROD-008 closure requires successful exact-SHA ORT output and verified CycloneDX/SPDX SBOMs.
 # and generates valid CycloneDX/SPDX SBOMs in docs/assurance/
 closed_findings:
   - id: PROD-001
