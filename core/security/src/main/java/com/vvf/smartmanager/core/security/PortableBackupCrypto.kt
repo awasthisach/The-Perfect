@@ -42,7 +42,7 @@ class PortableBackupCrypto(
         try {
             encryptFileInternal(source, destination, passphrase)
         } finally {
-            passphrase.fill('\\u0000')
+            passphrase.fill(0.toChar())
         }
     }
 
@@ -102,7 +102,7 @@ class PortableBackupCrypto(
         try {
             decryptFileInternal(source, destination, passphrase)
         } finally {
-            passphrase.fill('\\u0000')
+            passphrase.fill(0.toChar())
         }
     }
 
