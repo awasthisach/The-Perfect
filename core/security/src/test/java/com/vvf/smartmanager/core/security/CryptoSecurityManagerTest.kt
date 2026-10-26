@@ -133,15 +133,13 @@ class CryptoSecurityManagerTest {
         }
         val encrypted = java.io.File(context.cacheDir, "portable-backup.vvfbak")
         val restored = java.io.File(context.cacheDir, "portable-backup-restored.bin")
-        val passphrase = "portable backup passphrase".toCharArray()
         try {
             val portableCrypto = PortableBackupCrypto()
-            portableCrypto.encryptFile(source, encrypted, passphrase)
-            portableCrypto.decryptFile(encrypted, restored, passphrase)
+            portableCrypto.encryptFile(source, encrypted, "portable backup passphrase".toCharArray())
+            portableCrypto.decryptFile(encrypted, restored, "portable backup passphrase".toCharArray())
 
             assertEquals(source.readText(), restored.readText())
         } finally {
-            passphrase.fill('\\u0000')
             source.delete()
             encrypted.delete()
             restored.delete()
