@@ -123,13 +123,33 @@ def validate_ort_outputs(assurance: Path) -> tuple[bool, str]:
         status_data = json.loads(status_file.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
         return False, f"invalid ORT output JSON: {exc}"
-    if cyclonedx_data.get("bomFormat") != "CycloneDX" or not isinstance(cyclonedx_data.get("components"), list) or not cyclonedx_data["components"]:
-        return False, "CycloneDX SBOM is missing its format or dependency components"
-    if not str(spdx_data.get("spdxVersion", "")).startswith("SPDX-") or not isinstance(spdx_data.get("packages"), list) or not spdx_data["packages"]:
-        return False, "SPDX SBOM is missing its version or package entries"
-    if status_data.get("status") != "PASS":
-        return False, f"ORT status is {status_data.get('status')}, not PASS"
-    return True, "ORT CycloneDX/SPDX SBOMs are present, parseable, non-empty, and status is PASS"
+    if not isinstance(cyclonedx_data, dict) or cyclonedx_data.get("bomFormat") != "CycloneDX":
+        return False, "CycloneDX SBOM is missing its format"
+    if not isinstance(cyclonedx_data.get("specVersion"), str) or not cyclonedx_data["specVersion"].strip():
+        return False, "CycloneDX SBOM is missing specVersion"
+    if not isinstance(cyclonedx_data.get("version"), int) or cyclonedx_data["version"] < 1:
+        return False, "CycloneDX SBOM is missing a valid version"
+    if not isinstance(cyclonedx_data.get("components"), list) or not cyclonedx_data["components"]:
+        return False, "CycloneDX SBOM has no dependency components"
+    required_spdx = ("spdxVersion", "dataLicense", "SPDXID", "name", "documentNamespace")
+    if not isinstance(spdx_data, dict) or any(
+        not isinstance(spdx_data.get(field), str) or not spdx_data[field].strip()
+        for field in required_spdx
+    ):
+        return False, "SPDX SBOM is missing required document fields"
+    if not str(spdx_data["spdxVersion"]).startswith("SPDX-"):
+        return False, "SPDX SBOM has an invalid version"
+    if spdx_data["SPDXID"] != "SPDXRef-DOCUMENT":
+        return False, "SPDX SBOM has an invalid document SPDXID"
+    if not isinstance(spdx_data.get("packages"), list) or not spdx_data["packages"]:
+        return False, "SPDX SBOM has no dependency packages"
+    if not isinstance(status_data, dict) or status_data.get("status") != "PASS":
+        return False, f"ORT status is {status_data.get('status') if isinstance(status_data, dict) else 'invalid'}, not PASS"
+    if not SHA_RE.fullmatch(str(status_data.get("scan_revision", ""))):
+        return False, "ORT status is missing a valid scan_revision"
+    if status_data.get("ort_action_outcome") != "success" or status_data.get("report_validation_outcome") != "success":
+        return False, "ORT status does not prove successful ORT and report validation"
+    return True, "CycloneDX/SPDX SBOMs are valid, non-empty, and ORT status is PASS"
 
 
 def parse_risks(path: Path) -> list[dict[str, str]]:
