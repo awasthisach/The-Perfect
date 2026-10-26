@@ -25,6 +25,8 @@
 
 - Wrong passphrase, modified header/salt/nonce/ciphertext, and truncation: no plaintext destination is retained.
 - Backup/restore cancellation or process failure: staging files and mutable secret buffers are cleaned up.
+- Process death is a separate threat from `finally`; plaintext ZIPs and snapshot staging can survive a crash. Do not claim this risk is solved by best-effort deletion. Prefer a stream-based snapshot-to-encrypted-envelope pipeline; until then, use app-private staging, minimize lifetime, clean stale staging on startup, and record residual risk.
+- The scheduled `CloudBackupBootstrap` has no secure passphrase input. Do not persist a passphrase in WorkManager input, preferences, logs, or cloud metadata. Until a secure unattended key-wrapping strategy is designed and tested, scheduled jobs must not silently create backups under a different format or report a portable backup as completed.
 - Existing legacy vault files mixed with newly PIN-wrapped vault files: migration does not silently corrupt or strand either format.
 - Restore failure after key import: live DB, live vault, and current key wrapping are rolled back consistently.
 - Repeated or concurrent backup/restore operations: archive mutex and state transitions prevent mixed key/data snapshots.
@@ -65,6 +67,8 @@
 - Cloud backup requires an explicit passphrase for new portable archives.
 - Cloud restore requires the passphrase and passes it through `RestorePipeline` to `BackupDecryptor`.
 - Passphrases are transient, cleared after the operation, and never persisted or logged.
+- Do not enable the new envelope for production archive/restore until the DB passphrase and vault data key are safely bundled/re-wrapped; wrapping only the outer ZIP does not make its contents portable.
+- Explicitly define manual backup UX separately from unattended WorkManager backup. The latter remains disabled/fail-closed until it has a secure non-plaintext key strategy.
 - New archive metadata never contains `vault_auth.json`; restore ignores it in legacy archives.
 
 - [ ] Write failing archive/restore tests proving auth metadata is excluded and wrong passphrase fails closed.
