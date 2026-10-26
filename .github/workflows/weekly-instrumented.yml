@@ -87,8 +87,17 @@ jobs:
             exit 1
           fi
 
+          # GitHub-hosted runners may expose /dev/kvm without granting the runner user access.
+          # This runner is ephemeral; transfer device ownership rather than disabling acceleration.
+          if [ ! -e /dev/kvm ]; then
+            echo "KVM device /dev/kvm is unavailable; hard instrumented gate cannot run."
+            exit 1
+          fi
+          ls -l /dev/kvm
+          sudo chown "$USER" /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
           adb start-server
-          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel off -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel on -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/emulator.pid"
           timeout 180 adb wait-for-device
           for _ in $(seq 1 60); do
