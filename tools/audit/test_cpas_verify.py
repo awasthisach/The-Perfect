@@ -73,6 +73,16 @@ class CpasVerifySelfTests(unittest.TestCase):
             self.assertNotEqual(proc.returncode, 0, msg=proc.stdout + proc.stderr)
             status = json.loads((root / "cpas-status.json").read_text(encoding="utf-8"))
             self.assertEqual(status["production_status"]["value"], "BLOCKED")
+            ort_check = next(
+                (item for item in status["checks"] if item["name"] == "ort_sboms_present"),
+                None,
+            )
+            self.assertIsNotNone(ort_check, msg="Missing ORT evidence must be explicitly checked")
+            self.assertEqual(
+                ort_check["status"],
+                "BLOCKED",
+                msg="Missing ORT SBOMs/status must fail closed, never count as PASS",
+            )
 
     def test_invalid_risk_id_fails_grammar_check(self) -> None:
         self.assertTrue(VERIFY.is_file())
