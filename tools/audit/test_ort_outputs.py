@@ -39,7 +39,7 @@ class OrtOutputValidationTest(unittest.TestCase):
                 "bomFormat": "CycloneDX",
                 "specVersion": "1.6",
                 "version": 1,
-                "components": [],
+                "components": [{"type": "library", "name": "example", "version": "1.0"}],
             },
             "bom.spdx.json": {
                 "spdxVersion": "SPDX-2.3",
@@ -47,13 +47,13 @@ class OrtOutputValidationTest(unittest.TestCase):
                 "SPDXID": "SPDXRef-DOCUMENT",
                 "name": "The-Perfect test SBOM",
                 "documentNamespace": "https://example.invalid/sbom/test",
-                "packages": [],
+                "packages": [{"name": "example", "SPDXID": "SPDXRef-example"}],
             },
         }
         for name, report in reports.items():
             (root / name).write_text(json.dumps(report), encoding="utf-8")
         (root / "bom.cyclonedx.xml").write_text(
-            '<bom xmlns="http://cyclonedx.org/schema/bom/1.6" version="1"><components /></bom>',
+            '<bom xmlns="http://cyclonedx.org/schema/bom/1.6" version="1"><components><component type="library" bom-ref="example"><name>example</name></component></components></bom>',
             encoding="utf-8",
         )
         (root / "bom.spdx.yml").write_text(
@@ -73,6 +73,30 @@ class OrtOutputValidationTest(unittest.TestCase):
             root = Path(directory)
             self.write_valid_reports(root)
             self.assertEqual([], validate_outputs(root))
+
+    def test_empty_sboms_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            cyclonedx = json.loads((root / "bom.cyclonedx.json").read_text(encoding="utf-8"))
+            cyclonedx["components"] = []
+            (root / "bom.cyclonedx.json").write_text(json.dumps(cyclonedx), encoding="utf-8")
+            spdx = json.loads((root / "bom.spdx.json").read_text(encoding="utf-8"))
+            spdx["packages"] = []
+            (root / "bom.spdx.json").write_text(json.dumps(spdx), encoding="utf-8")
+            (root / "bom.cyclonedx.xml").write_text(
+                '<bom xmlns="http://cyclonedx.org/schema/bom/1.6" version="1"><components /></bom>',
+                encoding="utf-8",
+            )
+            (root / "bom.spdx.yml").write_text(
+                "spdxVersion: SPDX-2.3\\nSPDXID: SPDXRef-DOCUMENT\\nname: Test SBOM\\ndocumentNamespace: https://example.invalid/sbom/test\\npackages: []\\n",
+                encoding="utf-8",
+            )
+            problems = validate_outputs(root)
+            self.assertTrue(any("components must be a non-empty list" in item for item in problems))
+            self.assertTrue(any("packages must be a non-empty list" in item for item in problems))
+            self.assertTrue(any("SBOM has no dependency components" in item for item in problems))
+            self.assertTrue(any("missing or invalid packages field" in item for item in problems))
 
     def test_syntactically_valid_fake_ort_json_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
