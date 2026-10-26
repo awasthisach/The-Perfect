@@ -87,18 +87,36 @@ jobs:
             exit 1
           fi
 
+          # GitHub-hosted runners may expose /dev/kvm without granting the runner
+          # user access. Fix ownership on this ephemeral runner before starting QEMU.
+          # Prefer hardware acceleration; retain a software fallback for environments
+          # where KVM is genuinely unavailable.
+          ACCEL=off
+          if [ -e /dev/kvm ]; then
+            sudo chown "$(id -un)" /dev/kvm
+            if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+              ACCEL=on
+            fi
+          fi
+          echo "Android emulator acceleration: $ACCEL"
+
           adb start-server
-          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel off -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel "$ACCEL" -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/emulator.pid"
           timeout 180 adb wait-for-device
-          for _ in $(seq 1 60); do
+          for _ in $(seq 1 120); do
             boot_completed="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
             if [ "$boot_completed" = "1" ]; then
               break
             fi
             sleep 5
           done
-          test "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1"
+          if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" != "1" ]; then
+            echo "Android emulator did not finish booting; last emulator diagnostics:"
+            tail -n 200 "$RUNNER_TEMP/emulator.log" || true
+            adb devices || true
+            exit 1
+          fi
           adb devices
 
       - name: SQLCipher instrumentation (HARD)
