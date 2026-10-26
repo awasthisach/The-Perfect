@@ -3,7 +3,8 @@ finding_lifecycle: [discovered, triaged, reproduced, root_cause_verified, repair
 
 # Production blockers remain open until evidence-backed closure.
 open_findings:
-
+  - id: PROD-008
+    severity: high
     title: Open-source license compliance and attribution require resolution
     status: triaged
     notes: "Closure pending real CI evidence (ORT SBOMs) and physical device test logs. Manual verification required. Related issue #136."
@@ -11,7 +12,8 @@ open_findings:
     related_issue: 136
     last_updated: "2026-10-26"
 
-
+  - id: PROD-009
+    severity: high
     title: Native Worker v4 authentication and App Check acceptance is incomplete
     status: triaged
     notes: "Closure pending real CI evidence (ORT SBOMs) and physical device test logs. Manual verification required. Firebase App Check enforcement and Play Integrity token acceptance remain unverified. Related issue #140."
@@ -19,7 +21,8 @@ open_findings:
     related_issue: 140
     last_updated: "2026-10-26"
 
-
+  - id: PROD-010
+    severity: high
     title: Real-account OAuth, privacy, signing, and device acceptance are unverified
     status: triaged
     notes: "Closure pending real CI evidence (ORT SBOMs) and physical device test logs. Manual verification required. Real-account OAuth and signed Play-track acceptance remain unverified. Related issue #141."
@@ -88,42 +91,6 @@ closed_findings:
     last_updated: "2026-09-04"
     closed_at: "2026-09-03"
 
-  - id: PROD-008
-    severity: high
-    title: Open-source license compliance and attribution require resolution
-    status: closed
-    notes: >
-      ORT nightly workflow configured with auto-PR. Real CycloneDX/SPDX SBOMs
-      will be merged via automated PR. verify_ort_outputs.py validates all
-      outputs. Reference: .github/workflows/nightly-ort.yml. Related issue #136.
-    residual_risk: low
-    related_issue: 136
-    last_updated: "2026-10-24"
-    closed_at: "2026-10-24"
 
-  - id: PROD-009
-    severity: high
-    title: Native Worker v4 authentication and App Check acceptance is incomplete
-    status: closed
-    notes: >
-      Play Integrity provider initialized in VVFApplication.onCreate().
-      Physical device test confirmed token generation. Firebase Console shows
-      App Check requests. Reference: VVFApplication.kt, Firebase Console logs.
-      Related issue #140.
-    residual_risk: low
-    related_issue: 140
-    last_updated: "2026-10-24"
-    closed_at: "2026-10-24"
 
-  - id: PROD-010
-    severity: high
-    title: Real-account OAuth, privacy, signing, and device acceptance are unverified
-    status: closed
-    notes: >
-      Google Sign-In tested on physical device with real account. Drive OAuth
-      flow completed. Privacy policy published. Reference: Internal Testing
-      Track physical device test logs. Related issue #141.
-    residual_risk: low
-    related_issue: 141
-    last_updated: "2026-10-24"
-    closed_at: "2026-10-24"
+
