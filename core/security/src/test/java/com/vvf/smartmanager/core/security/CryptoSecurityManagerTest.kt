@@ -147,6 +147,17 @@ class CryptoSecurityManagerTest {
         }
     }
 
+
+    @Test
+    fun customKeyStoreProviderMustNotEnableProductionInMemoryFallback() {
+        assertFalse(
+            CryptoSecurityManager.shouldAllowInMemoryFallback(
+                keyStoreProvider = "InjectedProvider",
+                isJvmUnitTestEnvironment = false
+            )
+        )
+    }
+
     private fun assertThrowsSecurityFailure(block: () -> Unit) {
         try {
             block()
