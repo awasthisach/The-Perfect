@@ -73,6 +73,16 @@ class CpasVerifySelfTests(unittest.TestCase):
             self.assertNotEqual(proc.returncode, 0, msg=proc.stdout + proc.stderr)
             status = json.loads((root / "cpas-status.json").read_text(encoding="utf-8"))
             self.assertEqual(status["production_status"]["value"], "BLOCKED")
+            ort_check = next(
+                (item for item in status["checks"] if item["name"] == "ort_sboms_present"),
+                None,
+            )
+            self.assertIsNotNone(ort_check, msg="Missing ORT evidence must be explicitly checked")
+            self.assertEqual(
+                ort_check["status"],
+                "BLOCKED",
+                msg="Missing ORT SBOMs/status must fail closed, never count as PASS",
+            )
 
     def test_ort_sboms_missing_or_malformed_block(self) -> None:
         import importlib.util
@@ -90,7 +100,12 @@ class CpasVerifySelfTests(unittest.TestCase):
 
             write(assurance / "ort-bom.cyclonedx.json", "{}")
             write(assurance / "ort-bom.spdx.json", "{}")
-            write(assurance / "ort-status.json", '{"status":"PASS"}')
+            write(assurance / "ort-status.json", json.dumps({
+                "status": "PASS",
+                "scan_revision": "a" * 40,
+                "ort_action_outcome": "success",
+                "report_validation_outcome": "success",
+            }))
             ok, detail = mod.validate_ort_outputs(assurance)
             self.assertFalse(ok)
             self.assertIn("CycloneDX", detail)
@@ -106,11 +121,13 @@ class CpasVerifySelfTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             assurance = Path(tmp)
             write(assurance / "ort-bom.cyclonedx.json", json.dumps({
-                "bomFormat": "CycloneDX", "specVersion": "1.6",
+                "bomFormat": "CycloneDX", "specVersion": "1.6", "version": 1,
                 "components": [{"type": "library", "name": "example", "version": "1.0"}],
             }))
             write(assurance / "ort-bom.spdx.json", json.dumps({
-                "spdxVersion": "SPDX-2.3",
+                "spdxVersion": "SPDX-2.3", "dataLicense": "CC0-1.0",
+                "SPDXID": "SPDXRef-DOCUMENT", "name": "example",
+                "documentNamespace": "https://spdx.org/spdxdocs/example-123",
                 "packages": [{"name": "example", "SPDXID": "SPDXRef-example"}],
             }))
             write(assurance / "ort-status.json", '{"status":"PASS"}')
