@@ -416,42 +416,6 @@ class CryptoSecurityManager(
     fun isVaultConfigured(): Boolean = prefs.contains("vault_pin_hash") && prefs.contains("vault_pin_salt")
     fun isDecoyVaultConfigured(): Boolean = prefs.contains("vault_decoy_pin_hash") && prefs.contains("vault_decoy_pin_salt")
 
-    fun exportVaultAuthMetadata(): Map<String, String> {
-        val keys = listOf(
-            "vault_pin_hash", "vault_pin_hash_iv", "vault_pin_salt", "vault_pin_salt_iv",
-            "vault_decoy_pin_hash", "vault_decoy_pin_hash_iv", "vault_decoy_pin_salt", "vault_decoy_pin_salt_iv",
-            "vault_biometric_enabled"
-        )
-        val out = linkedMapOf<String, String>()
-        for (key in keys) {
-            when (val value = prefs.all[key]) {
-                is String -> out[key] = value
-                is Boolean -> out[key] = value.toString()
-            }
-        }
-        return out
-    }
-
-    fun importVaultAuthMetadata(metadata: Map<String, String>): Boolean {
-        if (metadata.isEmpty()) return false
-        val editor = prefs.edit()
-        var wrote = false
-        metadata.forEach { (key, value) ->
-            when (key) {
-                "vault_biometric_enabled" -> {
-                    editor.putBoolean(key, value.equals("true", ignoreCase = true))
-                    wrote = true
-                }
-                "vault_pin_hash", "vault_pin_hash_iv", "vault_pin_salt", "vault_pin_salt_iv",
-                "vault_decoy_pin_hash", "vault_decoy_pin_hash_iv", "vault_decoy_pin_salt", "vault_decoy_pin_salt_iv" -> {
-                    editor.putString(key, value)
-                    wrote = true
-                }
-            }
-        }
-        return if (wrote) editor.commit() else false
-    }
-
     fun setupVaultPin(pin: String): Boolean {
         if (!isValidPinFormat(pin)) return false
         val salt = ByteArray(16)
