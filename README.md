@@ -1,6 +1,8 @@
 # VVF Smart Manager
 
 > Offline-first Android file manager, encrypted vault, and privacy-focused productivity suite.
+>
+> Organization: [Vishva Vijayaa Foundation](https://thevvf.org/).
 
 **Published GitHub artifact:** [v1.0.0](https://github.com/awasthisach/The-Perfect/releases/tag/v1.0.0) — debug APK only; not a production-signed release.
 
@@ -82,4 +84,4 @@ Do not announce production readiness until these blockers are closed with curren
 
 ## License
 
-Enterprise Proprietary — see repository policy.
+No `LICENSE` file is currently present in the repository. The owner must add the approved license or explicit proprietary terms before public redistribution; do not infer licensing from this README.
