@@ -11,11 +11,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  # Do not cancel an active validation run when another commit is pushed to the same PR.
-  # GitHub may still replace a pending run in the same concurrency group; the newest queued
-  # revision is the one retained. This preserves completed test evidence instead of cancelling
-  # expensive builds mid-step whenever a PR receives another synchronization event.
+  # Give every workflow run its own group. Grouping only by PR/ref lets GitHub replace
+  # pending runs, which hides validation results during rapid PR updates.
+  group: ci-${{ github.workflow }}-${{ github.run_id }}
   cancel-in-progress: false
 
 env:
