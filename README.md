@@ -31,11 +31,11 @@ git checkout v1.0.0
 - **UI:** Jetpack Compose + Material 3
 - **Architecture:** Modular Clean Architecture / MVVM-style ViewModels
 - **Persistence:** Room + SQLCipher
-- **Security:** Android Keystore, AES-GCM vault, Firebase App Check (Play Integrity)
+- **Security implementation:** Android Keystore, AES-GCM vault, Play Integrity App Check client (Firebase production registration/acceptance pending)
 - **Background:** WorkManager
-- **OCR / Search:** ML Kit plugin, on-device semantic search
+- **OCR / Search:** ML Kit OCR; current `main` uses deterministic hash-based semantic-style ranking, not a neural embedding model. The consent-gated remote neural embedding path remains a separate candidate and is not production-accepted.
 - **Cloud:** Google Drive + multi-cloud SPI
-- **Compliance:** CPAS gate, nightly ORT SBOMs, weekly instrumented SQLCipher tests
+- **Compliance workflows:** CPAS reporting, scheduled ORT scan, and weekly SQLCipher instrumentation; current-head compliance and device evidence remain pending.
 - **SDK:** min 24 · target/compile 36
 
 ## Project structure
