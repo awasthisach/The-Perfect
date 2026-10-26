@@ -87,8 +87,20 @@ jobs:
             exit 1
           fi
 
+          # GitHub-hosted runners may expose /dev/kvm without granting the runner user access.
+          # Grant access on this ephemeral runner; fail the hard gate if neither acceleration path boots.
+          if [[ -e /dev/kvm ]]; then
+            sudo chmod 666 /dev/kvm || true
+          fi
+          if [[ -r /dev/kvm && -w /dev/kvm ]]; then
+            accel_args=()
+            echo "KVM is accessible; Android emulator will use hardware acceleration."
+          else
+            accel_args=(-accel off)
+            echo "::warning::KVM is unavailable; attempting software emulation for the hard gate."
+          fi
           adb start-server
-          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none "${accel_args[@]}" -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/emulator.pid"
           timeout 300 adb wait-for-device
           for _ in $(seq 1 60); do
