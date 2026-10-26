@@ -30,17 +30,17 @@ open_findings:
     related_issue: 141
     last_updated: "2026-10-26"
 
-# PROD-008: Keep closed only with real nightly ORT SBOMs merged via auto-PR.
+# PROD-008 remains open until real nightly ORT SBOMs are generated, reviewed, and verified.
 # Reference: docs/assurance/ort-bom.cyclonedx.json, ort-bom.spdx.json, ort-status.json
 #
-# PROD-009: Confirm on physical device that Firebase App Check issues tokens via
+# PROD-009 remains open until physical-device evidence confirms Firebase App Check issues tokens via
 # Play Integrity. Reference: Firebase Console → App Check → Requests tab.
 #
-# PROD-010: Confirm on physical device real-account Google Sign-In and Drive OAuth.
+# PROD-010 remains open until physical-device evidence confirms real-account Google Sign-In and Drive OAuth.
 # Reference: Play Console → Internal Testing → device test logs.
 #
-# PROD-008 will be re-validated when ORT workflow completes successfully
-# and generates valid CycloneDX/SPDX SBOMs in docs/assurance/
+# These findings must not be moved to closed_findings until the required artifacts are
+# present in the repository and independently verified.
 closed_findings:
   - id: PROD-001
     severity: high
