@@ -129,7 +129,7 @@ jobs:
           adb start-server || true
           emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/emulator.pid"
-          if ! timeout 180 adb wait-for-device; then
+          if ! timeout 300 adb wait-for-device; then
             echo "::warning::adb wait-for-device timed out; treating emulator as an infrastructure skip."
             tail -n 80 "$RUNNER_TEMP/emulator.log" || true
             echo "booted=false" >> "$GITHUB_OUTPUT"
