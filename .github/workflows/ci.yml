@@ -39,7 +39,11 @@ jobs:
           packages: ""
           accept-android-sdk-licenses: true
       - name: Install required Android SDK components
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+        run: |
+          set -euo pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+          test -d "$ANDROID_HOME/system-images/android-35/google_apis/x86_64"
       - name: Create local.properties
         run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
       - name: Generate SQLCipher 4.5.4 compatibility fixture
@@ -69,13 +73,28 @@ jobs:
       - name: Run ORT report validator unit tests
         run: python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
       - name: Verify Gradle wrapper
-        run: ./gradlew --no-daemon --version
+        run: ./gradlew --no-daemon --console=plain --warning-mode=all --version
       - name: Run unit tests
-        run: ./gradlew --no-daemon testDebugUnitTest --stacktrace
+        run: ./gradlew --no-daemon --console=plain --warning-mode=all testDebugUnitTest --stacktrace
       - name: Run Android lint
-        run: ./gradlew --no-daemon lintDebug --stacktrace
+        run: ./gradlew --no-daemon --console=plain --warning-mode=all lintDebug --stacktrace
       - name: Assemble debug APK
-        run: ./gradlew --no-daemon assembleDebug --stacktrace
+        run: ./gradlew --no-daemon --console=plain --warning-mode=all assembleDebug --stacktrace
+      - name: Extract debug APK signing SHA-1
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$apk"
+          cert_output="$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$apk")"
+          sha1="$(printf '%s\n' "$cert_output" | sed -nE 's/.*certificate SHA-1 digest: ([[:xdigit:]:]+).*/\1/p' | head -n 1)"
+          if [[ ! "$sha1" =~ ^([[:xdigit:]]{2}:){19}[[:xdigit:]]{2}$ ]]; then
+            echo "::error::Could not extract a valid 20-byte signing certificate SHA-1 from $apk"
+            printf '%s\n' "$cert_output"
+            exit 1
+          fi
+          echo "Debug APK signing certificate SHA-1: $sha1"
+          echo "Debug APK SHA-1: `$sha1`" >> "$GITHUB_STEP_SUMMARY"
       - name: Generate CPAS unit evidence
         if: success()
         run: |
@@ -101,10 +120,14 @@ jobs:
         run: |
           set -uo pipefail
           mkdir -p "$ANDROID_AVD_HOME"
-          export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH"
-          echo "no" | avdmanager create avd --force --name vvf-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2" || { echo "booted=false" >> "$GITHUB_OUTPUT"; echo "::warning::AVD creation failed; emulator infrastructure unavailable."; exit 0; }
+          export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          if ! "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd --force --name vvf-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2" </dev/null; then
+            echo "booted=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::AVD creation failed; emulator infrastructure unavailable."
+            exit 0
+          fi
           adb start-server || true
-          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel off -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/emulator.pid"
           if ! timeout 180 adb wait-for-device; then
             echo "::warning::adb wait-for-device timed out; treating emulator as an infrastructure skip."
