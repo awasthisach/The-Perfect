@@ -22,6 +22,35 @@ REQUIRED_OUTPUTS = RESULT_JSON_FILES + (
 )
 
 
+def validate_assurance_sboms(cyclonedx_path: Path, spdx_path: Path) -> list[str]:
+    """Validate the JSON SBOMs retained in the assurance ledger."""
+    problems: list[str] = []
+    for path in (cyclonedx_path, spdx_path):
+        name = path.name
+        if not path.is_file():
+            problems.append(f"{name}: missing")
+            continue
+        if path.stat().st_size == 0:
+            problems.append(f"{name}: empty")
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            problems.append(f"{name}: invalid JSON ({exc})")
+            continue
+        if not isinstance(data, dict) or not data:
+            problems.append(f"{name}: expected a non-empty JSON object")
+            continue
+        if name == "ort-bom.cyclonedx.json":
+            if data.get("bomFormat") != "CycloneDX" or not isinstance(data.get("specVersion"), str) or not data["specVersion"].strip() or not isinstance(data.get("version"), int) or data["version"] < 1:
+                problems.append(f"{name}: invalid CycloneDX BOM metadata")
+        else:
+            required = ("spdxVersion", "dataLicense", "SPDXID", "name", "documentNamespace")
+            if any(not isinstance(data.get(field), str) or not data[field].strip() for field in required) or data.get("SPDXID") != "SPDXRef-DOCUMENT" or not isinstance(data.get("packages"), list):
+                problems.append(f"{name}: invalid SPDX document metadata")
+    return problems
+
+
 def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str]:
     """Return missing, empty, malformed, or wrong-format ORT outputs."""
     problems: list[str] = []

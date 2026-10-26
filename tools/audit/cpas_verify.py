@@ -10,9 +10,12 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+from verify_ort_outputs import validate_assurance_sboms
 
 ID_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$")
 EVIDENCE_ID_RE = re.compile(r"^EVID-[0-9]{3,}$")
@@ -310,12 +313,27 @@ def main() -> int:
     else:
         try:
             status_data = json.loads(ort_status.read_text(encoding="utf-8"))
+            if not isinstance(status_data, dict):
+                raise ValueError("ort-status.json must contain a JSON object")
+            scan_revision = status_data.get("scan_revision")
+            expected_revision = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=root, check=True,
+                capture_output=True, text=True,
+            ).stdout.strip()
+            problems = validate_assurance_sboms(cyclonedx, spdx)
             if status_data.get("status") != "PASS":
-                checks.append(check("ort_sboms_present", False, f"ORT status is {status_data.get('status')}, not PASS"))
-            else:
-                checks.append(check("ort_sboms_present", True, "ORT CycloneDX/SPDX SBOMs present and validated"))
-        except (json.JSONDecodeError, OSError) as exc:
-            checks.append(check("ort_sboms_present", False, f"invalid ort-status.json: {exc}"))
+                problems.append(f"ORT status is {status_data.get('status')}, not PASS")
+            if not isinstance(scan_revision, str) or not SHA_RE.fullmatch(scan_revision):
+                problems.append("ORT status has no valid scan_revision")
+            elif scan_revision != expected_revision:
+                problems.append(f"ORT scan revision {scan_revision!r} does not match evaluated revision {expected_revision!r}")
+            checks.append(check(
+                "ort_sboms_present", not problems,
+                "ORT CycloneDX/SPDX SBOMs present, valid, and bound to this revision"
+                if not problems else "; ".join(problems),
+            ))
+        except (json.JSONDecodeError, OSError, ValueError, subprocess.SubprocessError) as exc:
+            checks.append(check("ort_sboms_present", False, f"invalid ORT evidence: {exc}"))
 
     # Instrumented SQLCipher evidence must not go silently stale (>14 days)
     instr_stale = True
