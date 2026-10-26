@@ -11,9 +11,9 @@ permissions:
   contents: read
 
 concurrency:
-  # Give every workflow run its own group. Grouping only by PR/ref lets GitHub replace
-  # pending runs, which hides validation results during rapid PR updates.
-  group: ci-${{ github.workflow }}-${{ github.run_id }}
+  # Serialize validation per branch without cancelling an active run. GitHub may replace
+  # a pending run with a newer revision, avoiding redundant concurrent Android/emulator builds.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 env:
