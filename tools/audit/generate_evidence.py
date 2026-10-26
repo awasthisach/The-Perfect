@@ -171,7 +171,8 @@ def main() -> int:
                 "entries": [],
                 "policy": bundle["policy"],
             }
-        existing["entries"] = merge_entries(existing.get("entries", []), entries)
+        merged = merge_entries(existing.get("entries", []), entries)
+        existing["entries"] = merged
         existing["policy"] = bundle["policy"]
         ledger_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
         print(f"Merged {len(merged)} entries into {ledger_path.relative_to(root)}")
