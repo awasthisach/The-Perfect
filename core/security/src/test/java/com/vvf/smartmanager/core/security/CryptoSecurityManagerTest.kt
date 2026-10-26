@@ -13,6 +13,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33])
@@ -36,6 +37,35 @@ class CryptoSecurityManagerTest {
 
         val passphrase2 = cryptoSecurityManager.getOrCreateDatabasePassphrase()
         assertArrayEquals(passphrase1, passphrase2)
+    }
+
+    @Test
+    fun existingDatabaseWithoutPassphraseFailsClosed() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        listOf(
+            "vvf_db_passphrase_v2.bin",
+            "vvf_db_enc_passphrase.bin",
+            "vvf_db_passphrase_iv.bin"
+        ).forEach { File(context.filesDir, it).delete() }
+
+        val databaseFile = context.getDatabasePath("vvf_smart_manager_enc.db")
+        databaseFile.parentFile?.mkdirs()
+        databaseFile.writeBytes(byteArrayOf(0x01))
+
+        val failure = try {
+            cryptoSecurityManager.getOrCreateDatabasePassphrase()
+            null
+        } catch (expected: IllegalStateException) {
+            expected
+        }
+
+        assertNotNull("Existing database must not trigger passphrase regeneration", failure)
+        assertEquals(
+            "Database exists but passphrase is missing. Manual recovery required.",
+            failure?.message
+        )
+        assertFalse("A new passphrase record must not be created", File(context.filesDir, "vvf_db_passphrase_v2.bin").exists())
+        databaseFile.delete()
     }
 
     @Test
