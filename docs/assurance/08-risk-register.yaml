@@ -89,12 +89,8 @@ closed_findings:
   - id: PROD-009
     severity: high
     title: Native Worker v4 authentication and App Check acceptance is incomplete
-    status: closed
-    notes: >
-      Play Integrity provider initialized in VVFApplication.onCreate().
-      Physical device test confirmed token generation. Firebase Console shows
-      App Check requests. Reference: VVFApplication.kt, Firebase Console logs.
-      Related issue #140.
+    status: triaged
+    notes: "Closure pending real CI evidence (ORT SBOMs) and physical device test logs. Manual verification required."
     residual_risk: low
     related_issue: 140
     last_updated: "2026-10-24"
