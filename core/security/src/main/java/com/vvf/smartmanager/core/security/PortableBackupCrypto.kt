@@ -34,8 +34,19 @@ class PortableBackupCrypto(
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
     }
 
+    /**
+     * Encrypts a file and consumes [passphrase], zeroing the supplied character array on every exit path.
+     */
     @Throws(Exception::class)
     fun encryptFile(source: File, destination: File, passphrase: CharArray) {
+        try {
+            encryptFileInternal(source, destination, passphrase)
+        } finally {
+            passphrase.fill('\\u0000')
+        }
+    }
+
+    private fun encryptFileInternal(source: File, destination: File, passphrase: CharArray) {
         require(passphrase.isNotEmpty()) { "Backup passphrase must not be empty" }
         require(source.isFile) { "Backup source does not exist" }
         val parent = destination.absoluteFile.parentFile
@@ -83,8 +94,19 @@ class PortableBackupCrypto(
         }
     }
 
+    /**
+     * Decrypts a file and consumes [passphrase], zeroing the supplied character array on every exit path.
+     */
     @Throws(Exception::class)
     fun decryptFile(source: File, destination: File, passphrase: CharArray) {
+        try {
+            decryptFileInternal(source, destination, passphrase)
+        } finally {
+            passphrase.fill('\\u0000')
+        }
+    }
+
+    private fun decryptFileInternal(source: File, destination: File, passphrase: CharArray) {
         require(passphrase.isNotEmpty()) { "Backup passphrase must not be empty" }
         require(source.isFile) { "Backup source does not exist" }
         val parent = destination.absoluteFile.parentFile
@@ -92,7 +114,6 @@ class PortableBackupCrypto(
         if (!parent.exists() && !parent.mkdirs()) throw IOException("Unable to create restore destination directory")
 
         val temp = createTempSibling(destination)
-        var derivedKey: SecretKeySpec? = null
         try {
             FileInputStream(source).use { input ->
                 val header = ByteArray(HEADER_SIZE)
@@ -104,9 +125,9 @@ class PortableBackupCrypto(
                 val salt = header.copyOfRange(MAGIC.size + 1, MAGIC.size + 1 + SALT_BYTES)
                 val nonce = header.copyOfRange(MAGIC.size + 1 + SALT_BYTES, HEADER_SIZE)
                 try {
-                    derivedKey = deriveKey(passphrase, salt)
+                    val key = deriveKey(passphrase, salt)
                     val cipher = Cipher.getInstance(TRANSFORMATION)
-                    cipher.init(Cipher.DECRYPT_MODE, derivedKey, GCMParameterSpec(TAG_BITS, nonce))
+                    cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(TAG_BITS, nonce))
                     cipher.updateAAD(header)
                     FileOutputStream(temp).use { output ->
                         val buffer = ByteArray(BUFFER_SIZE)
@@ -136,8 +157,6 @@ class PortableBackupCrypto(
         } catch (error: Throwable) {
             temp.delete()
             throw error
-        } finally {
-            derivedKey?.encoded?.fill(0)
         }
     }
 
