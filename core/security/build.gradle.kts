@@ -24,6 +24,8 @@ dependencies {
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.security.crypto)
   implementation(libs.kotlinx.coroutines.core)
+  // Constructor annotations remain explicit; runtime DI is the manual app composition root.
+  implementation("javax.inject:javax.inject:1")
 
   testImplementation(libs.junit)
   testImplementation(libs.robolectric)
