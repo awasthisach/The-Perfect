@@ -54,6 +54,13 @@ jobs:
         run: |
           set -euo pipefail
           curl -fsSL -o /tmp/sqlcipher.tgz https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz
+          EXPECTED_SHA256="ea052fe634d729f9dd6b624016104de796faf87e487a9e868a07faee35957771"
+          ACTUAL_SHA256="$(sha256sum /tmp/sqlcipher.tgz | awk '{print $1}')"
+          echo "SQLCipher 4.5.4 source SHA-256: $ACTUAL_SHA256"
+          test "$ACTUAL_SHA256" = "$EXPECTED_SHA256" || {
+            echo "::error::SQLCipher source archive checksum mismatch"
+            exit 1
+          }
           tar -xzf /tmp/sqlcipher.tgz -C /tmp
           cd /tmp/sqlcipher-4.5.4
           ./configure --enable-tempstore=yes CFLAGS="-DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL" LDFLAGS="-lcrypto" --enable-fts5
