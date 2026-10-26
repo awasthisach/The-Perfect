@@ -92,6 +92,15 @@ class CryptoSecurityManager(
             }
         }
 
+        /**
+         * In-memory keys are permitted only in JVM unit-test environments.
+         * Choosing a non-default provider must never grant production callers a fallback.
+         */
+        internal fun shouldAllowInMemoryFallback(
+            keyStoreProvider: String,
+            isJvmUnitTestEnvironment: Boolean
+        ): Boolean = keyStoreProvider.isNotBlank() && isJvmUnitTestEnvironment
+
         fun isJvmUnitTestEnvironment(context: Context): Boolean {
             val loaderName = context.classLoader?.javaClass?.name.orEmpty()
             if (loaderName.contains("robolectric", ignoreCase = true)) return true
@@ -105,7 +114,7 @@ class CryptoSecurityManager(
     }
 
     private val allowInMemoryFallback: Boolean =
-        keyStoreProvider != ANDROID_KEYSTORE || isJvmUnitTestEnvironment(context)
+        shouldAllowInMemoryFallback(keyStoreProvider, isJvmUnitTestEnvironment(context))
 
     private val isAndroidKeyStoreAvailable: Boolean = try {
         Security.getProvider(ANDROID_KEYSTORE) != null
