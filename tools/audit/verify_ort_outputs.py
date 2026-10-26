@@ -91,6 +91,8 @@ def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str
                 problems.append(f"{name}: missing valid specVersion")
             if not isinstance(data.get("version"), int) or data["version"] < 1:
                 problems.append(f"{name}: missing valid positive BOM version")
+            if not isinstance(data.get("components"), list) or not data["components"]:
+                problems.append(f"{name}: components must be a non-empty list")
         elif name == "bom.spdx.json":
             required_spdx_strings = ("spdxVersion", "dataLicense", "SPDXID", "name", "documentNamespace")
             missing_fields = [
@@ -103,8 +105,8 @@ def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str
                 problems.append(f"{name}: missing valid spdxVersion")
             if data.get("SPDXID") != "SPDXRef-DOCUMENT":
                 problems.append(f"{name}: SPDXID must be SPDXRef-DOCUMENT")
-            if not isinstance(data.get("packages"), list):
-                problems.append(f"{name}: packages must be a list")
+            if not isinstance(data.get("packages"), list) or not data["packages"]:
+                problems.append(f"{name}: packages must be a non-empty list")
 
     xml_path = results_dir / "bom.cyclonedx.xml"
     if xml_path.is_file() and xml_path.stat().st_size:
@@ -113,6 +115,8 @@ def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str
             local_name = root.tag.rsplit("}", 1)[-1]
             if local_name != "bom" or "cyclonedx.org/schema" not in root.tag:
                 problems.append("bom.cyclonedx.xml: root is not a CycloneDX bom")
+            elif not any(element.tag.rsplit("}", 1)[-1] == "component" for element in root.iter()):
+                problems.append("bom.cyclonedx.xml: SBOM has no dependency components")
         except (OSError, ET.ParseError) as exc:
             problems.append(f"bom.cyclonedx.xml: invalid XML ({exc})")
 
@@ -128,7 +132,7 @@ def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str
                 "SPDXID": r"(?m)^SPDXID:\s*['\"]?SPDXRef-DOCUMENT['\"]?\s*$",
                 "name": r"(?m)^name:\s*\S",
                 "documentNamespace": r"(?m)^documentNamespace:\s*https?://\S+",
-                "packages": r"(?m)^packages:\s*(?:\[\]|\s*)$",
+                "packages": r"(?m)^packages:\s*(?:\n\s*-\s+\S|-\s+\S)",
             }
             for field, pattern in required_yaml_patterns.items():
                 if not re.search(pattern, yaml_text):
