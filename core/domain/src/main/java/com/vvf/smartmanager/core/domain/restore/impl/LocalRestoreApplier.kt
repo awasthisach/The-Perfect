@@ -370,7 +370,7 @@ class LocalRestoreApplier(
     private fun snapshotTokenFromJournal(): String {
         val journal = File(snapshotRoot, JOURNAL_FILE)
         require(journal.isFile) { "Restore recovery journal is missing" }
-        val properties = Properties().apply { FileInputStream(journal).use(::load) }
+        val properties = Properties().apply { FileInputStream(journal).use { load(it) } }
         return properties.getProperty("token") ?: throw RestoreException("Restore journal token is missing")
     }
 
@@ -405,6 +405,17 @@ class LocalRestoreApplier(
             if (!snapshotRoot.exists()) return
             val journal = File(snapshotRoot, JOURNAL_FILE)
             if (!journal.isFile) {
+                val databaseParent = liveDatabaseFile.parentFile
+                val interruptedSwapArtifacts = databaseParent?.listFiles().orEmpty().any {
+                    it.name.contains(".restore-bak") ||
+                        it.name.contains(".restore-tmp") ||
+                        it.name.startsWith(liveVaultDir.name + ".restore-")
+                }
+                if (interruptedSwapArtifacts) {
+                    throw IllegalStateException(
+                        "Restore swap artifacts exist without a recovery journal; refusing to open the database"
+                    )
+                }
                 snapshotRoot.listFiles().orEmpty().forEach { it.deleteRecursively() }
                 return
             }
