@@ -38,11 +38,22 @@ class LocalRestoreApplier(
             val token = UUID.randomUUID().toString()
             val dbSnap = File(snapshotRoot, "$token-db")
             val vaultSnap = File(snapshotRoot, "$token-vault")
+            val databaseExisted = liveDatabaseFile.exists()
+            val vaultExisted = liveVaultDir.exists()
             // Best-effort consistent copy of live DB file (caller should avoid concurrent writers).
-            if (liveDatabaseFile.exists()) liveDatabaseFile.copyTo(dbSnap, overwrite = true)
-            if (liveVaultDir.exists()) liveVaultDir.copyRecursively(vaultSnap, overwrite = true)
+            if (databaseExisted) liveDatabaseFile.copyTo(dbSnap, overwrite = true)
+            if (vaultExisted) liveVaultDir.copyRecursively(vaultSnap, overwrite = true)
             else vaultSnap.mkdirs()
-            Result.success(RestoreSnapshot(token, System.currentTimeMillis(), dbSnap, vaultSnap))
+            Result.success(
+                RestoreSnapshot(
+                    token = token,
+                    timestamp = System.currentTimeMillis(),
+                    databaseSnapshotPath = dbSnap,
+                    vaultSnapshotPath = vaultSnap,
+                    databaseExisted = databaseExisted,
+                    vaultExisted = vaultExisted
+                )
+            )
         } catch (error: Throwable) {
             Result.failure(RestoreException("Restore snapshot prepare failed", error))
         }
@@ -177,13 +188,45 @@ class LocalRestoreApplier(
 
     override suspend fun rollback(snapshot: RestoreSnapshot): Result<Unit> {
         return try {
-            if (snapshot.databaseSnapshotPath.isFile) {
-                snapshot.databaseSnapshotPath.copyTo(liveDatabaseFile, overwrite = true)
+            if (snapshot.databaseExisted) {
+                if (!snapshot.databaseSnapshotPath.isFile) {
+                    throw RestoreException("Database rollback snapshot is missing")
+                }
+                val parent = liveDatabaseFile.parentFile
+                    ?: throw RestoreException("Live database parent directory is missing")
+                if (!parent.exists() && !parent.mkdirs()) {
+                    throw RestoreException("Unable to create database parent during rollback")
+                }
+                val rollbackTemp = File(parent, "${liveDatabaseFile.name}.rollback-${UUID.randomUUID()}")
+                try {
+                    snapshot.databaseSnapshotPath.copyTo(rollbackTemp, overwrite = true)
+                    if (rollbackTemp.length() != snapshot.databaseSnapshotPath.length()) {
+                        throw RestoreException("Database rollback snapshot size mismatch")
+                    }
+                    if (liveDatabaseFile.exists() && !liveDatabaseFile.delete()) {
+                        throw RestoreException("Unable to remove failed database during rollback")
+                    }
+                    if (!rollbackTemp.renameTo(liveDatabaseFile)) {
+                        throw RestoreException("Unable to publish database rollback snapshot")
+                    }
+                } finally {
+                    rollbackTemp.delete()
+                }
+            } else if (liveDatabaseFile.exists() && !liveDatabaseFile.delete()) {
+                throw RestoreException("Unable to remove database created by failed restore")
             }
-            if (liveVaultDir.exists()) liveVaultDir.deleteRecursively()
-            liveVaultDir.mkdirs()
-            if (snapshot.vaultSnapshotPath.exists()) {
+
+            if (liveVaultDir.exists() && !liveVaultDir.deleteRecursively()) {
+                throw RestoreException("Unable to remove failed vault during rollback")
+            }
+            if (snapshot.vaultExisted) {
+                if (!snapshot.vaultSnapshotPath.isDirectory) {
+                    throw RestoreException("Vault rollback snapshot is missing")
+                }
                 snapshot.vaultSnapshotPath.copyRecursively(liveVaultDir, overwrite = true)
+                if (!liveVaultDir.isDirectory) {
+                    throw RestoreException("Unable to restore vault snapshot")
+                }
             }
             Result.success(Unit)
         } catch (error: Throwable) {
