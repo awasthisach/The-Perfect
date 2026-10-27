@@ -260,25 +260,32 @@ class CryptoSecurityManager(
         File(destination, "present-files.txt").writeText(present.joinToString("\n"))
     }
 
-    /** Restore a previously captured wrapped-passphrase state; fail closed on incomplete snapshots. */
+    /** Validate all wrapped-passphrase rollback material before live restore targets are mutated. */
     @Synchronized
-    fun restoreDatabasePassphraseState(snapshot: File) {
+    fun validateDatabasePassphraseStateSnapshot(snapshot: File) {
         val marker = File(snapshot, "present-files.txt")
         require(snapshot.isDirectory && marker.isFile) { "Database key-state rollback snapshot is missing" }
         val allowed = setOf(DB_PASSPHRASE_V2_FILE, ENCRYPTED_DB_PASSPHRASE_FILE, DB_PASSPHRASE_IV_FILE)
         val present = marker.readLines().filter { it.isNotBlank() }
+        require(present.size == present.toSet().size) { "Database key-state snapshot contains duplicate entries" }
         require(present.all { it in allowed }) { "Database key-state snapshot contains unexpected entries" }
         require(present.all { File(snapshot, it).isFile }) {
-            "Database key-state rollback snapshot is incomplete"
+            "Database key-state snapshot is incomplete"
         }
+    }
+
+    /** Restore a previously captured wrapped-passphrase state; fail closed on incomplete snapshots. */
+    @Synchronized
+    fun restoreDatabasePassphraseState(snapshot: File) {
+        validateDatabasePassphraseStateSnapshot(snapshot)
+        val allowed = setOf(DB_PASSPHRASE_V2_FILE, ENCRYPTED_DB_PASSPHRASE_FILE, DB_PASSPHRASE_IV_FILE)
+        val present = File(snapshot, "present-files.txt").readLines().filter { it.isNotBlank() }
         allowed.forEach { name ->
             val live = File(context.filesDir, name)
             if (live.exists() && !live.delete()) throw SecurityException("Unable to clear current database key state")
         }
         present.forEach { name ->
-            val source = File(snapshot, name)
-            require(source.isFile) { "Database key-state snapshot is incomplete" }
-            source.copyTo(File(context.filesDir, name), overwrite = true)
+            File(snapshot, name).copyTo(File(context.filesDir, name), overwrite = true)
         }
     }
 
