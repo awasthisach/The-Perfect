@@ -37,11 +37,16 @@ object VaultBiometricCryptoHelper {
         }
     }
 
-    /** Performs a real operation with the authenticated CryptoObject key. */
-    fun proveAuthenticatedCipher(cipher: Cipher): Boolean = try {
-        cipher.doFinal(BIOMETRIC_PROOF).isNotEmpty()
+    /** Performs a real operation with the authenticated CryptoObject key and issues one-use proof. */
+    fun proveAuthenticatedCipher(cipher: Cipher): VaultBiometricProof? = try {
+        val proof = cipher.doFinal(BIOMETRIC_PROOF)
+        try {
+            if (proof.isNotEmpty()) VaultBiometricProof.issue() else null
+        } finally {
+            proof.fill(0)
+        }
     } catch (_: Exception) {
-        false
+        null
     }
 
     private fun generateBiometricAuthKey(): SecretKey {
@@ -89,5 +94,25 @@ object VaultBiometricCryptoHelper {
     fun setStrictOfflineMode(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit().putBoolean("strict_offline_mode", enabled).apply()
+    }
+}
+
+
+/**
+ * Unforgeable, one-use capability issued only after a cryptographic operation succeeds with
+ * the authenticated BiometricPrompt cipher. ViewModel callers must consume it before unlocking.
+ */
+class VaultBiometricProof private constructor() {
+    private var available = true
+
+    @Synchronized
+    fun consume(): Boolean {
+        if (!available) return false
+        available = false
+        return true
+    }
+
+    companion object {
+        internal fun issue(): VaultBiometricProof = VaultBiometricProof()
     }
 }
