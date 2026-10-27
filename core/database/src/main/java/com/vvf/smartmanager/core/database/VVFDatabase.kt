@@ -6,6 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.db.SupportSQLiteOpenHelper
 import com.vvf.smartmanager.core.database.dao.CloudSyncDao
 import com.vvf.smartmanager.core.database.dao.FileDao
 import com.vvf.smartmanager.core.database.dao.SearchFtsDao
@@ -63,7 +64,11 @@ abstract class VVFDatabase : RoomDatabase() {
 
         /** Builds an encrypted SQLCipher Room database using the decrypted Keystore passphrase. */
         fun buildEncryptedDatabase(context: Context, passphrase: ByteArray): VVFDatabase {
-            val openHelperFactory = SupportOpenHelperFactory(passphrase)
+            require(passphrase.size == 32) { "SQLCipher database passphrase must be exactly 32 bytes" }
+            // SupportOpenHelperFactory retains the supplied array and opens lazily. Keep an owned
+            // copy so callers can wipe their input immediately after building Room without
+            // corrupting the key before the first database operation.
+            val openHelperFactory = WipingPassphraseOpenHelperFactory(passphrase)
 
             return Room.databaseBuilder(
                 context.applicationContext,
@@ -73,6 +78,27 @@ abstract class VVFDatabase : RoomDatabase() {
                 .openHelperFactory(openHelperFactory)
                 .addMigrations(MIGRATION_1_2)
                 .build()
+        }
+
+        private class WipingPassphraseOpenHelperFactory(passphrase: ByteArray) :
+            SupportSQLiteOpenHelper.Factory {
+            private val ownedPassphrase = passphrase.copyOf()
+            private val delegate = SupportOpenHelperFactory(ownedPassphrase)
+
+            override fun create(
+                configuration: SupportSQLiteOpenHelper.Configuration
+            ): SupportSQLiteOpenHelper {
+                val helper = delegate.create(configuration)
+                return object : SupportSQLiteOpenHelper by helper {
+                    override fun close() {
+                        try {
+                            helper.close()
+                        } finally {
+                            ownedPassphrase.fill(0)
+                        }
+                    }
+                }
+            }
         }
 
         /** In-memory database builder for tests. */
