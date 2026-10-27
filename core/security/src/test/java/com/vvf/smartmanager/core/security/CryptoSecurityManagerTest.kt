@@ -39,6 +39,33 @@ class CryptoSecurityManagerTest {
     }
 
     @Test
+    fun databasePassphraseMigrationCanBeRolledBack() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val original = cryptoSecurityManager.getOrCreateDatabasePassphrase()
+        val snapshot = java.io.File(context.cacheDir, "db-key-state-snapshot").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val replacement = ByteArray(32) { (it + 1).toByte() }
+        try {
+            cryptoSecurityManager.snapshotDatabasePassphraseState(snapshot)
+            cryptoSecurityManager.replaceDatabasePassphraseForRestore(replacement)
+            val imported = cryptoSecurityManager.getOrCreateDatabasePassphrase()
+            assertArrayEquals(replacement, imported)
+            imported.fill(0)
+
+            cryptoSecurityManager.restoreDatabasePassphraseState(snapshot)
+            val restored = cryptoSecurityManager.getOrCreateDatabasePassphrase()
+            assertArrayEquals(original, restored)
+            restored.fill(0)
+        } finally {
+            original.fill(0)
+            replacement.fill(0)
+            snapshot.deleteRecursively()
+        }
+    }
+
+    @Test
     fun testByteEncryptionDecryptionRoundtrip() {
         val originalBytes = "VVF Smart Manager Ultra Confidential Note #12345".toByteArray(Charsets.UTF_8)
 
