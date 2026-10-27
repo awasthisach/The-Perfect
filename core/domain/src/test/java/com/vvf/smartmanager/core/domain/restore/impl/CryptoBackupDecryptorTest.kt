@@ -67,6 +67,40 @@ class CryptoBackupDecryptorTest {
     }
 
     @Test
+    fun authenticatedManifestOverridesIncompleteProviderPayloadFlags() {
+        val root = temp.newFolder("manifest-flags")
+        val payload = File(root, "payload.zip")
+        val manifest = """{"version":3,"timestamp":1,"checksumSha256":"","databaseSizeBytes":0,"vaultSizeBytes":0,"fileCount":0,"vaultItemCount":0,"appVersion":"test","schemaVersion":1,"includesDatabase":false,"includesVault":true}"""
+        ZipOutputStream(payload.outputStream()).use { zip ->
+            zip.putNextEntry(ZipEntry("metadata.json"))
+            zip.write(manifest.toByteArray())
+            zip.closeEntry()
+        }
+        val encrypted = File(root, "portable.vvfbak")
+        PortableBackupCrypto().encryptFile(payload, encrypted, "a sufficiently long backup passphrase".toCharArray())
+        // Provider-created metadata defaults to database=true/vault=false; authenticated archive metadata is authoritative.
+        val providerInfo = CloudBackupInfo(
+            backupId = "remote-portable",
+            timestamp = 1L,
+            backupName = "portable.vvfbak",
+            backupSizeBytes = encrypted.length(),
+            checksumSha256 = "verified-by-caller"
+        )
+        val staging = File(root, "restore-stage").apply { mkdirs() }
+        val result = kotlinx.coroutines.runBlocking {
+            CryptoBackupDecryptor(mock<CryptoSecurityManager>()).decrypt(
+                VerifiedArtifact(encrypted, providerInfo, "verified-by-caller"),
+                staging,
+                "a sufficiently long backup passphrase".toCharArray()
+            )
+        }
+
+        assertTrue("Manifest-only portable archive should decrypt", result.isSuccess)
+        assertEquals(false, result.getOrThrow().backupInfo.includesDatabase)
+        assertEquals(true, result.getOrThrow().backupInfo.includesVault)
+    }
+
+    @Test
     fun portableArchiveMissingDatabaseKeyMaterialFailsClosed() {
         val root = temp.newFolder("portable-missing-key")
         val payload = File(root, "payload.zip")
