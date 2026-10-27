@@ -158,6 +158,32 @@ class LocalRestoreApplierTest {
     }
 
     @Test
+    fun rollbackMissingVaultSnapshotFailsBeforeMutatingDatabase() = runBlocking {
+        val root = temp.newFolder("missing-vault-snapshot")
+        val liveDb = File(root, "live.db").apply { writeText("ORIGINAL-DB") }
+        val liveVault = File(root, "vault").also {
+            it.mkdirs()
+            File(it, "original.bin").writeText("ORIGINAL-VAULT")
+        }
+        val applier = LocalRestoreApplier(
+            liveDatabaseFile = liveDb,
+            liveVaultDir = liveVault,
+            snapshotRoot = File(root, "snapshots")
+        )
+
+        val snapshot = applier.prepare().getOrThrow()
+        liveDb.writeText("PARTIAL-DB")
+        File(liveVault, "original.bin").writeText("PARTIAL-VAULT")
+        snapshot.vaultSnapshotPath.deleteRecursively()
+
+        val rollback = applier.rollback(snapshot)
+
+        assertTrue("Rollback must report missing recovery material", rollback.isFailure)
+        assertEquals("Preflight must leave database untouched", "PARTIAL-DB", liveDb.readText())
+        assertEquals("Preflight must leave vault untouched", "PARTIAL-VAULT", File(liveVault, "original.bin").readText())
+    }
+
+    @Test
     fun rollbackRestoresOriginalDatabaseAndVaultContents() = runBlocking {
         val root = temp.newFolder("restore-original-state")
         val liveDb = File(root, "live.db").apply { writeText("ORIGINAL-DB") }
