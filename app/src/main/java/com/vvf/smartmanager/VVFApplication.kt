@@ -149,9 +149,19 @@ class VVFApplication : Application(), Configuration.Provider {
         // Remove orphaned plaintext staging even if recovery subsequently fails closed.
         cleanupStalePlaintextBackupStaging()
         if (!jvmUnitTest) {
+            val liveDatabaseFile = getDatabasePath(VVFDatabase.DATABASE_NAME)
+            val liveVaultDir = File(filesDir, "vvf_vault_encrypted")
+            // Recover snapshots created by the previous cacheDir-based restore path before
+            // touching the new filesDir journal. Preserved legacy snapshots must never be ignored.
             LocalRestoreApplier.recoverInterruptedRestore(
-                liveDatabaseFile = getDatabasePath(VVFDatabase.DATABASE_NAME),
-                liveVaultDir = File(filesDir, "vvf_vault_encrypted"),
+                liveDatabaseFile = liveDatabaseFile,
+                liveVaultDir = liveVaultDir,
+                snapshotRoot = File(cacheDir, "restore-work/snapshots"),
+                cryptoSecurityManager = cryptoSecurityManager
+            )
+            LocalRestoreApplier.recoverInterruptedRestore(
+                liveDatabaseFile = liveDatabaseFile,
+                liveVaultDir = liveVaultDir,
                 snapshotRoot = File(filesDir, "restore-work/snapshots"),
                 cryptoSecurityManager = cryptoSecurityManager
             )
