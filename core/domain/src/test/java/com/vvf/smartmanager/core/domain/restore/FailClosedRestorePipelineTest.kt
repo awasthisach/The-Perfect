@@ -60,7 +60,8 @@ class FailClosedRestorePipelineTest {
             decryptor = object : BackupDecryptor {
                 override suspend fun decrypt(
                     verifiedArtifact: VerifiedArtifact,
-                    stagingDir: File
+                    stagingDir: File,
+                passphrase: CharArray?
                 ): Result<DecryptedBackup> = decryptResult
             },
             applier = object : RestoreApplier {
@@ -106,7 +107,8 @@ class FailClosedRestorePipelineTest {
             decryptor = object : BackupDecryptor {
                 override suspend fun decrypt(
                     verifiedArtifact: VerifiedArtifact,
-                    stagingDir: File
+                    stagingDir: File,
+                passphrase: CharArray?
                 ): Result<DecryptedBackup> =
                     error("should not decrypt")
             },
@@ -143,7 +145,8 @@ class FailClosedRestorePipelineTest {
             decryptor = object : BackupDecryptor {
                 override suspend fun decrypt(
                     verifiedArtifact: VerifiedArtifact,
-                    stagingDir: File
+                    stagingDir: File,
+                passphrase: CharArray?
                 ): Result<DecryptedBackup> =
                     Result.success(
                         DecryptedBackup(stagingDir, temp.newFile("db2"), temp.newFolder("v2"), sampleInfo, 1L)
@@ -183,7 +186,8 @@ class FailClosedRestorePipelineTest {
             decryptor = object : BackupDecryptor {
                 override suspend fun decrypt(
                     verifiedArtifact: VerifiedArtifact,
-                    stagingDir: File
+                    stagingDir: File,
+                passphrase: CharArray?
                 ): Result<DecryptedBackup> = Result.success(
                     DecryptedBackup(stagingDir, temp.newFile("db4"), temp.newFolder("v4"), sampleInfo, 1L)
                 )
@@ -227,7 +231,8 @@ class FailClosedRestorePipelineTest {
             decryptor = object : BackupDecryptor {
                 override suspend fun decrypt(
                     verifiedArtifact: VerifiedArtifact,
-                    stagingDir: File
+                    stagingDir: File,
+                passphrase: CharArray?
                 ): Result<DecryptedBackup> =
                     Result.success(
                         DecryptedBackup(
