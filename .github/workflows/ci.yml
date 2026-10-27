@@ -125,7 +125,7 @@ jobs:
       - name: Run SQLCipher compatibility instrumentation test
         id: sqlcipher_instrumented
         if: ${{ steps.emulator.outputs.booted == 'true' }}
-        run: ./gradlew --no-daemon :core:database-compat:connectedDebugAndroidTest --stacktrace
+        run: ./gradlew --no-daemon :core:database:connectedDebugAndroidTest :core:database-compat:connectedDebugAndroidTest --stacktrace
       - name: Generate CPAS full DB evidence
         if: ${{ steps.emulator.outputs.booted == 'true' && steps.sqlcipher_instrumented.outcome == 'success' }}
         run: |
