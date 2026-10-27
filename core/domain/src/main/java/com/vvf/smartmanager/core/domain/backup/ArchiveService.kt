@@ -111,7 +111,7 @@ class ArchiveService(
             }
 
             val metadata = ArchiveMetadata(
-                version = 2,
+                version = 3,
                 timestamp = timestamp,
                 checksumSha256 = "",
                 databaseSizeBytes = requestedSources.firstOrNull { it.sourceName == "database" }?.dataSizeBytes() ?: 0L,
@@ -120,6 +120,8 @@ class ArchiveService(
                 vaultItemCount = File(stagingDir, "vault").walkTopDown().count { it.isFile },
                 appVersion = appVersion,
                 schemaVersion = schemaVersion,
+                includesDatabase = includeDatabase,
+                includesVault = includeVault,
             )
             File(stagingDir, "metadata.json").writeText(json.encodeToString(metadata))
             zipDirectory(stagingDir, zipFile)
@@ -205,6 +207,9 @@ data class ArchiveMetadata(
     val vaultItemCount: Int,
     val appVersion: String,
     val schemaVersion: Int,
+    // Version 3+ records payload selection explicitly; defaults keep legacy metadata readable.
+    val includesDatabase: Boolean = true,
+    val includesVault: Boolean = false,
 )
 
 class ArchiveException(message: String, cause: Throwable? = null) : Exception(message, cause)
