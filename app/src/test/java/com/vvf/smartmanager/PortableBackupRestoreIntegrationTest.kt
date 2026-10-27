@@ -47,6 +47,10 @@ class PortableBackupRestoreIntegrationTest {
             cryptoSecurityManager = crypto
         )
         val originalPassphrase = crypto.getOrCreateDatabasePassphrase()
+        assertTrue("Portable backup must fail closed without a passphrase", service.createArchive(
+            includeVault = true,
+            includeDatabase = true
+        ).isFailure)
         val archive = service.createArchive(
             includeVault = true,
             includeDatabase = true,
