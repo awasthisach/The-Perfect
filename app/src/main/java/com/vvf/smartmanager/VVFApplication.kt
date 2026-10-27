@@ -301,12 +301,20 @@ class VVFApplication : Application(), Configuration.Provider {
                 file.name.startsWith("archive-staging-") ||
                     (file.name.startsWith("backup-") && file.name.endsWith(".zip"))
             }
-            .forEach { file ->
-                val removed = if (file.isDirectory) file.deleteRecursively() else file.delete()
-                if (!removed && file.exists()) {
-                    Log.w(TAG, "Unable to remove stale plaintext backup staging: ${file.name}")
-                }
-            }
+            .forEach(::deleteStalePlaintextArtifact)
+
+        // Restore staging can contain decrypted payloads or temporary GCM plaintext files.
+        // Preserve the separate snapshots directory: it may contain the only rollback copy.
+        File(cacheDir, "restore-work").listFiles().orEmpty()
+            .filter { it.name.startsWith("restore-") || it.name.startsWith("dry-run-") }
+            .forEach(::deleteStalePlaintextArtifact)
+    }
+
+    private fun deleteStalePlaintextArtifact(file: File) {
+        val removed = if (file.isDirectory) file.deleteRecursively() else file.delete()
+        if (!removed && file.exists()) {
+            Log.w(TAG, "Unable to remove stale plaintext backup staging: ${file.name}")
+        }
     }
 
     private suspend fun indexPrimaryStorageForSearch(): FileIndexingOutcome {
