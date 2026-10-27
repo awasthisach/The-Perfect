@@ -23,7 +23,7 @@ class SnapshotSourceTest {
             assertNotNull(result)
             assertEquals("db", File(staging, "database/vvf.db").readText())
             assertEquals("wal", File(staging, "database/vvf.db-wal").readText())
-            assertEquals("shm", File(staging, "database/vvf.db-shm").readText())
+            assertFalse("Transient SQLite shared-memory files must not be archived", File(staging, "database/vvf.db-shm").exists())
             assertEquals("db", database.readText())
         } finally {
             root.deleteRecursively()
