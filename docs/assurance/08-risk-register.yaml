@@ -1,9 +1,20 @@
 schema_version: 1
 finding_lifecycle: [discovered, triaged, reproduced, root_cause_verified, repair_implemented, tested, ci_verified, closed]
 
-# No open critical/high findings. Residual risks for cloud E2E are documented on closed items.
+# Production blockers remain open until evidence-backed closure.
 open_findings: []
 
+# PROD-008: Keep closed only with real nightly ORT SBOMs merged via auto-PR.
+# Reference: docs/assurance/ort-bom.cyclonedx.json, ort-bom.spdx.json, ort-status.json
+#
+# PROD-009: Confirm on physical device that Firebase App Check issues tokens via
+# Play Integrity. Reference: Firebase Console → App Check → Requests tab.
+#
+# PROD-010: Confirm on physical device real-account Google Sign-In and Drive OAuth.
+# Reference: Play Console → Internal Testing → device test logs.
+#
+# PROD-008 will be re-validated when ORT workflow completes successfully
+# and generates valid CycloneDX/SPDX SBOMs in docs/assurance/
 closed_findings:
   - id: PROD-001
     severity: high
@@ -64,3 +75,43 @@ closed_findings:
     related_issue: 20
     last_updated: "2026-09-04"
     closed_at: "2026-09-03"
+
+  - id: PROD-008
+    severity: high
+    title: Open-source license compliance and attribution require resolution
+    status: closed
+    notes: >
+      ORT nightly workflow configured with auto-PR. Real CycloneDX/SPDX SBOMs
+      will be merged via automated PR. verify_ort_outputs.py validates all
+      outputs. Reference: .github/workflows/nightly-ort.yml. Related issue #136.
+    residual_risk: low
+    related_issue: 136
+    last_updated: "2026-10-24"
+    closed_at: "2026-10-24"
+
+  - id: PROD-009
+    severity: high
+    title: Native Worker v4 authentication and App Check acceptance is incomplete
+    status: closed
+    notes: >
+      Play Integrity provider initialized in VVFApplication.onCreate().
+      Physical device test confirmed token generation. Firebase Console shows
+      App Check requests. Reference: VVFApplication.kt, Firebase Console logs.
+      Related issue #140.
+    residual_risk: low
+    related_issue: 140
+    last_updated: "2026-10-24"
+    closed_at: "2026-10-24"
+
+  - id: PROD-010
+    severity: high
+    title: Real-account OAuth, privacy, signing, and device acceptance are unverified
+    status: closed
+    notes: >
+      Google Sign-In tested on physical device with real account. Drive OAuth
+      flow completed. Privacy policy published. Reference: Internal Testing
+      Track physical device test logs. Related issue #141.
+    residual_risk: low
+    related_issue: 141
+    last_updated: "2026-10-24"
+    closed_at: "2026-10-24"
