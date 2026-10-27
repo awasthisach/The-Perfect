@@ -12,7 +12,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import org.mockito.kotlin.mock
 import java.io.File
+import java.io.FileOutputStream
+import java.util.Properties
+import java.util.UUID
 
 class LocalRestoreApplierTest {
 
@@ -219,6 +223,49 @@ class LocalRestoreApplierTest {
         assertEquals("KEEP-DB", liveDb.readText())
         assertEquals("NEW-VAULT", File(liveVault, "new.bin").readText())
         assertFalse(File(liveVault, "old.bin").exists())
+    }
+
+    @Test
+    fun startupRecoveryRestoresDatabaseWalAndVaultFromInterruptedJournal() {
+        val root = temp.newFolder("interrupted-restore")
+        val snapshotRoot = File(root, "snapshots").apply { mkdirs() }
+        val liveDb = File(root, "live.db").apply { writeText("PARTIAL-DB") }
+        File(root, "live.db-wal").writeText("PARTIAL-WAL")
+        val liveVault = File(root, "vault").also {
+            it.mkdirs()
+            File(it, "partial.bin").writeText("PARTIAL-VAULT")
+        }
+        val token = UUID.randomUUID().toString()
+        File(snapshotRoot, "$token-db").writeText("ORIGINAL-DB")
+        File(snapshotRoot, "$token-db-wal").writeText("ORIGINAL-WAL")
+        File(snapshotRoot, "$token-vault").also {
+            it.mkdirs()
+            File(it, "original.bin").writeText("ORIGINAL-VAULT")
+        }
+        val journal = Properties().apply {
+            setProperty("token", token)
+            setProperty("timestamp", "1")
+            setProperty("databaseExisted", "true")
+            setProperty("vaultExisted", "true")
+            setProperty("databaseWalExisted", "true")
+            setProperty("keyStateExisted", "false")
+        }
+        FileOutputStream(File(snapshotRoot, "active-restore.properties")).use {
+            journal.store(it, "simulated process-death restore journal")
+        }
+
+        LocalRestoreApplier.recoverInterruptedRestore(
+            liveDatabaseFile = liveDb,
+            liveVaultDir = liveVault,
+            snapshotRoot = snapshotRoot,
+            cryptoSecurityManager = mock()
+        )
+
+        assertEquals("ORIGINAL-DB", liveDb.readText())
+        assertEquals("ORIGINAL-WAL", File(root, "live.db-wal").readText())
+        assertEquals("ORIGINAL-VAULT", File(liveVault, "original.bin").readText())
+        assertFalse("Partial vault must be removed", File(liveVault, "partial.bin").exists())
+        assertFalse("Recovery journal must be cleared", File(snapshotRoot, "active-restore.properties").exists())
     }
 
     @Test
