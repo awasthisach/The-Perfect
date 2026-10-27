@@ -156,4 +156,51 @@ class LocalRestoreApplierTest {
         assertTrue(File(liveVault, "v.bin").isFile)
         assertFalse(File(liveVault, "x.bin").exists())
     }
+
+    @Test
+    fun rollbackRemovesDatabaseAndVaultCreatedByFailedRestore() = runBlocking {
+        val root = temp.newFolder("absent-state")
+        val liveDb = File(root, "not-yet-created.db")
+        val liveVault = File(root, "not-yet-created-vault")
+        val applier = LocalRestoreApplier(
+            liveDatabaseFile = liveDb,
+            liveVaultDir = liveVault,
+            snapshotRoot = File(root, "snapshots")
+        )
+
+        val snapshot = applier.prepare().getOrThrow()
+        liveDb.writeText("PARTIAL-DB")
+        liveVault.mkdirs()
+        File(liveVault, "partial.bin").writeText("PARTIAL-VAULT")
+
+        val rollback = applier.rollback(snapshot)
+
+        assertTrue("Rollback must succeed", rollback.isSuccess)
+        assertFalse("Database absent before restore must be removed", liveDb.exists())
+        assertFalse("Vault absent before restore must be removed", liveVault.exists())
+    }
+
+    @Test
+    fun rollbackRestoresPreviouslyAbsentVaultWithoutCreatingEmptyDirectory() = runBlocking {
+        val root = temp.newFolder("absent-vault-state")
+        val liveDb = File(root, "existing.db").apply { writeText("ORIGINAL-DB") }
+        val liveVault = File(root, "absent-vault")
+        val applier = LocalRestoreApplier(
+            liveDatabaseFile = liveDb,
+            liveVaultDir = liveVault,
+            snapshotRoot = File(root, "snapshots")
+        )
+
+        val snapshot = applier.prepare().getOrThrow()
+        liveDb.writeText("PARTIAL-DB")
+        liveVault.mkdirs()
+        File(liveVault, "partial.bin").writeText("PARTIAL")
+
+        val rollback = applier.rollback(snapshot)
+
+        assertTrue("Rollback must succeed", rollback.isSuccess)
+        assertEquals("ORIGINAL-DB", liveDb.readText())
+        assertFalse("Previously absent vault must remain absent", liveVault.exists())
+    }
+
 }
