@@ -48,7 +48,7 @@ object AppCompositionRoot {
         beforeRestoreApply: (() -> Unit)? = null,
         cloudSyncDao: CloudSyncDao? = null
     ): CloudSyncUseCase {
-        val restoreWorkingDir = File(context.cacheDir, "restore-work")
+        val restoreWorkingDir = File(context.filesDir, "restore-work")
         val restorePipeline = FailClosedRestorePipeline(
             workingDir = restoreWorkingDir,
             downloader = GoogleDriveBackupDownloader(
