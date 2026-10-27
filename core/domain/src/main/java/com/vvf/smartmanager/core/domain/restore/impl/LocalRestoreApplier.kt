@@ -80,11 +80,9 @@ class LocalRestoreApplier(
         return try {
             beforeApply?.invoke()
 
-            // --- Manifest completeness (when present) ---
             val manifestFile = File(decryptedBackup.stagingDir, "metadata.json")
             if (manifestFile.isFile) {
                 val manifest = json.decodeFromString(ArchiveMetadata.serializer(), manifestFile.readText())
-                // ArchiveService counts files before writing metadata.json, so exclude it here.
                 val actualFiles = decryptedBackup.stagingDir.walkTopDown()
                     .count { it.isFile && it.name != "metadata.json" }
                 if (actualFiles < manifest.fileCount) {
@@ -104,117 +102,113 @@ class LocalRestoreApplier(
                 }
             }
 
-            // --- Stage database to temp (do not touch live yet) ---
-            if (tempDb.exists() && !tempDb.delete()) {
-                return Result.failure(RestoreException("Unable to clear previous temp database"))
-            }
             if (decryptedBackup.backupInfo.includesDatabase) {
                 if (!decryptedBackup.databaseFile.isFile) {
                     return Result.failure(RestoreException("Backup declares a database but payload is missing"))
                 }
+                if (tempDb.exists() && !tempDb.delete()) {
+                    return Result.failure(RestoreException("Unable to clear previous temp database"))
+                }
                 decryptedBackup.databaseFile.copyTo(tempDb, overwrite = true)
                 if (tempDb.length() != decryptedBackup.databaseFile.length()) {
-                    tempDb.delete()
                     return Result.failure(RestoreException("Database temp copy size mismatch"))
                 }
                 val sourceWal = File(decryptedBackup.databaseFile.path + "-wal")
+                val tempWal = File(tempDb.path + "-wal")
                 if (sourceWal.isFile) {
-                    sourceWal.copyTo(File(tempDb.path + "-wal"), overwrite = true)
+                    sourceWal.copyTo(tempWal, overwrite = true)
+                } else {
+                    tempWal.delete()
                 }
             }
 
             if (decryptedBackup.backupInfo.includesVault) {
-                // --- Stage vault to temp ---
-                if (tempVault.exists()) tempVault.deleteRecursively()
+                if (tempVault.exists() && !tempVault.deleteRecursively()) {
+                    return Result.failure(RestoreException("Unable to clear previous temp vault"))
+                }
                 if (!tempVault.mkdirs()) {
                     return Result.failure(RestoreException("Unable to create temp vault directory"))
                 }
                 if (decryptedBackup.vaultDir.exists()) {
                     decryptedBackup.vaultDir.copyRecursively(tempVault, overwrite = true)
                 }
+            }
 
-                if (decryptedBackup.backupInfo.includesDatabase) {
-                    // --- Commit DB: clear transient sidecars and keep old DB aside before swapping ---
-                        val liveWal = File(liveDatabaseFile.path + "-wal")
-                    val liveShm = File(liveDatabaseFile.path + "-shm")
-                    if (liveWal.exists() && !liveWal.delete()) {
-                        cleanupTemps(tempDb, tempVault)
-                        return Result.failure(RestoreException("Unable to remove live database WAL for swap"))
-                    }
-                    if (liveShm.exists() && !liveShm.delete()) {
-                        cleanupTemps(tempDb, tempVault)
-                        return Result.failure(RestoreException("Unable to remove live database SHM for swap"))
-                    }
-                    if (backupLiveDb.exists()) backupLiveDb.delete()
-                    if (liveDatabaseFile.exists()) {
-                        if (!liveDatabaseFile.renameTo(backupLiveDb)) {
-                            liveDatabaseFile.copyTo(backupLiveDb, overwrite = true)
-                            if (!liveDatabaseFile.delete()) {
-                                cleanupTemps(tempDb, tempVault)
-                                return Result.failure(RestoreException("Unable to move live database aside for swap"))
-                            }
-                        }
-                    }
-                    if (tempDb.isFile) {
-                        if (!tempDb.renameTo(liveDatabaseFile)) {
-                            tempDb.copyTo(liveDatabaseFile, overwrite = true)
-                            tempDb.delete()
-                        }
-                        if (!liveDatabaseFile.isFile) {
-                            // attempt emergency restore from bak
-                            if (backupLiveDb.isFile) backupLiveDb.copyTo(liveDatabaseFile, overwrite = true)
-                            cleanupTemps(tempDb, tempVault)
-                            return Result.failure(RestoreException("Database swap failed"))
-                        }
-                    }
-                    val tempWal = File(tempDb.path + "-wal")
-                    if (tempWal.isFile) {
-                        val targetWal = File(liveDatabaseFile.path + "-wal")
-                        if (!tempWal.renameTo(targetWal)) {
-                            tempWal.copyTo(targetWal, overwrite = true)
-                            tempWal.delete()
-                        }
-                        if (!targetWal.isFile) {
-                            cleanupTemps(tempDb, tempVault)
-                            return Result.failure(RestoreException("Database WAL swap failed"))
-                        }
-                    }
+            // Each resource is replaced only when the backup actually contains it.
+            if (decryptedBackup.backupInfo.includesDatabase) {
+                val liveWal = File(liveDatabaseFile.path + "-wal")
+                val liveShm = File(liveDatabaseFile.path + "-shm")
+                if (liveWal.exists() && !liveWal.delete()) {
+                    return Result.failure(RestoreException("Unable to remove live database WAL for swap"))
+                }
+                if (liveShm.exists() && !liveShm.delete()) {
+                    return Result.failure(RestoreException("Unable to remove live database SHM for swap"))
+                }
 
+                if (backupLiveDb.exists() && !backupLiveDb.delete()) {
+                    return Result.failure(RestoreException("Unable to clear previous database rollback file"))
                 }
+                if (liveDatabaseFile.exists() && !liveDatabaseFile.renameTo(backupLiveDb)) {
+                    liveDatabaseFile.copyTo(backupLiveDb, overwrite = true)
+                    if (!liveDatabaseFile.delete()) {
+                        return Result.failure(RestoreException("Unable to move live database aside for swap"))
+                    }
                 }
+                if (!tempDb.renameTo(liveDatabaseFile)) {
+                    tempDb.copyTo(liveDatabaseFile, overwrite = true)
+                    if (!tempDb.delete()) {
+                        return Result.failure(RestoreException("Unable to finish database swap"))
+                    }
+                }
+                if (!liveDatabaseFile.isFile) {
+                    return Result.failure(RestoreException("Database swap failed"))
+                }
+
+                val tempWal = File(tempDb.path + "-wal")
+                if (tempWal.isFile) {
+                    val targetWal = File(liveDatabaseFile.path + "-wal")
+                    if (!tempWal.renameTo(targetWal)) {
+                        tempWal.copyTo(targetWal, overwrite = true)
+                        tempWal.delete()
+                    }
+                    if (!targetWal.isFile) {
+                        return Result.failure(RestoreException("Database WAL swap failed"))
+                    }
+                }
+            }
 
             if (decryptedBackup.backupInfo.includesVault) {
-                // --- Commit vault: move live aside, move temp into place ---
-                if (backupLiveVault.exists()) backupLiveVault.deleteRecursively()
-                if (liveVaultDir.exists()) {
-                    if (!liveVaultDir.renameTo(backupLiveVault)) {
-                        liveVaultDir.copyRecursively(backupLiveVault, overwrite = true)
-                        liveVaultDir.deleteRecursively()
+                if (backupLiveVault.exists() && !backupLiveVault.deleteRecursively()) {
+                    return Result.failure(RestoreException("Unable to clear previous vault rollback directory"))
+                }
+                if (liveVaultDir.exists() && !liveVaultDir.renameTo(backupLiveVault)) {
+                    liveVaultDir.copyRecursively(backupLiveVault, overwrite = true)
+                    if (!liveVaultDir.deleteRecursively()) {
+                        return Result.failure(RestoreException("Unable to move live vault aside for swap"))
                     }
                 }
                 if (!tempVault.renameTo(liveVaultDir)) {
-                    liveVaultDir.mkdirs()
+                    if (!liveVaultDir.mkdirs()) {
+                        return Result.failure(RestoreException("Unable to create live vault directory"))
+                    }
                     tempVault.copyRecursively(liveVaultDir, overwrite = true)
-                    tempVault.deleteRecursively()
+                    if (!tempVault.deleteRecursively()) {
+                        return Result.failure(RestoreException("Unable to finish vault swap"))
+                    }
                 }
                 if (!liveVaultDir.isDirectory) {
-                    if (backupLiveVault.exists()) {
-                        backupLiveVault.copyRecursively(liveVaultDir, overwrite = true)
-                    }
-                    if (backupLiveDb.isFile) backupLiveDb.copyTo(liveDatabaseFile, overwrite = true)
-                    cleanupTemps(tempDb, tempVault)
                     return Result.failure(RestoreException("Vault swap failed"))
                 }
-
             }
 
-            // Success — drop rollback backups and temps
             backupLiveDb.delete()
-            if (backupLiveVault.exists()) backupLiveVault.deleteRecursively()
-            cleanupTemps(tempDb, tempVault)
-
+            backupLiveVault.deleteRecursively()
             val fileCount = decryptedBackup.stagingDir.walkTopDown().count { it.isFile }
-            val vaultCount = liveVaultDir.walkTopDown().count { it.isFile }
+            val vaultCount = if (decryptedBackup.backupInfo.includesVault) {
+                liveVaultDir.walkTopDown().count { it.isFile }
+            } else {
+                0
+            }
             Result.success(
                 AppliedRestore(
                     success = true,
@@ -224,8 +218,9 @@ class LocalRestoreApplier(
                 )
             )
         } catch (error: Throwable) {
-            cleanupTemps(tempDb, tempVault)
             Result.failure(RestoreException("Restore apply failed", error))
+        } finally {
+            cleanupTemps(tempDb, tempVault)
         }
     }
 
