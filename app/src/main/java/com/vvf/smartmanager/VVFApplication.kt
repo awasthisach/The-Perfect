@@ -136,6 +136,7 @@ class VVFApplication : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         cryptoSecurityManager = CryptoSecurityManager(this)
+        cleanupStalePlaintextBackupStaging()
 
         val jvmUnitTest = CryptoSecurityManager.isJvmUnitTestEnvironment(this)
         // Play Integrity App Check is device/Play-only; skip on JVM unit tests (Robolectric).
@@ -287,6 +288,25 @@ class VVFApplication : Application(), Configuration.Provider {
                 Log.e(TAG, "Background sync scheduling failed", e)
             }
         }
+    }
+
+
+    /**
+     * Remove abandoned app-private plaintext ZIP/staging artifacts left by a prior process death.
+     * Do not delete restore-work snapshots here: those may be the only rollback material after a crash.
+     */
+    private fun cleanupStalePlaintextBackupStaging() {
+        cacheDir.listFiles().orEmpty()
+            .filter { file ->
+                file.name.startsWith("archive-staging-") ||
+                    (file.name.startsWith("backup-") && file.name.endsWith(".zip"))
+            }
+            .forEach { file ->
+                val removed = if (file.isDirectory) file.deleteRecursively() else file.delete()
+                if (!removed && file.exists()) {
+                    Log.w(TAG, "Unable to remove stale plaintext backup staging: ${file.name}")
+                }
+            }
     }
 
     private suspend fun indexPrimaryStorageForSearch(): FileIndexingOutcome {
