@@ -1,6 +1,11 @@
 package com.vvf.smartmanager
 
+import android.app.AlarmManager
 import android.app.Application
+import android.app.PendingIntent
+import android.content.Intent
+import android.os.Process
+import android.os.SystemClock
 import android.util.Log
 import androidx.work.Configuration
 import com.google.firebase.appcheck.FirebaseAppCheck
@@ -112,6 +117,9 @@ class VVFApplication : Application(), Configuration.Provider {
     lateinit var backgroundSyncManager: BackgroundSyncManager
     lateinit var ocrPlugin: OcrPluginImpl
     lateinit var semanticSearchPlugin: ISemanticSearchEngine
+
+    @Volatile
+    private var restoreClosedDatabase = false
 
     @Volatile
     var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
@@ -274,10 +282,12 @@ class VVFApplication : Application(), Configuration.Provider {
                 check(::database.isInitialized) {
                     "Database is not initialized; refusing to mutate live restore targets"
                 }
+                restoreClosedDatabase = true
                 database.close()
-                Log.i(TAG, "Closed Room database before restore apply")
+                Log.i(TAG, "Closed Room database before restore snapshot")
             },
-            cloudSyncDao = database.cloudSyncDao()
+            cloudSyncDao = database.cloudSyncDao(),
+            onRestoreFinished = { restartIfRestoreClosedDatabase() }
         )
         backgroundSyncManager = BackgroundSyncManager(this)
         FileIndexingRuntime.configure { indexPrimaryStorageForSearch() }
@@ -323,6 +333,34 @@ class VVFApplication : Application(), Configuration.Provider {
         if (!removed && file.exists()) {
             Log.w(TAG, "Unable to remove stale plaintext backup staging: ${file.name}")
         }
+    }
+
+
+    /**
+     * Room and repositories are bound to the old database instance. Once restore closes Room,
+     * relaunch the app after the transaction (success or rollback) so every DAO is rebound to
+     * the database/key state on disk instead of leaving the current process half-alive.
+     */
+    private fun restartIfRestoreClosedDatabase() {
+        if (!restoreClosedDatabase) return
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+            ?: throw IllegalStateException("Cannot safely restart after database restore: launch intent is missing")
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            74031,
+            launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val alarmManager = getSystemService(ALARM_SERVICE) as? AlarmManager
+            ?: throw IllegalStateException("Cannot safely restart after database restore: AlarmManager unavailable")
+        alarmManager.set(
+            AlarmManager.ELAPSED_REALTIME_WAKEUP,
+            SystemClock.elapsedRealtime() + 1_500L,
+            pendingIntent
+        )
+        Log.w(TAG, "Restarting app to reopen Room against restored database/key state")
+        Process.killProcess(Process.myPid())
     }
 
     private suspend fun indexPrimaryStorageForSearch(): FileIndexingOutcome {
