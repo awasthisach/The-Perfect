@@ -6,6 +6,9 @@ on:
   schedule:
     - cron: "0 3 * * 1"
   workflow_dispatch:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
@@ -87,8 +90,16 @@ jobs:
             exit 1
           fi
 
+          if [ ! -e /dev/kvm ]; then
+            echo "KVM is required for the hard SQLCipher gate; refusing to soft-skip emulator startup."
+            cat "$RUNNER_TEMP/emulator.log" 2>/dev/null || true
+            exit 1
+          fi
+          sudo chown "$USER" /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+
           adb start-server
-          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel off -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel on -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/emulator.pid"
           timeout 180 adb wait-for-device
           for _ in $(seq 1 60); do
@@ -106,7 +117,7 @@ jobs:
 
       # Keep ledger freshness aligned with weekly hard gate (environment must contain "emulator")
       - name: Generate CPAS instrumented evidence
-        if: success()
+        if: success() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         run: |
           set -euo pipefail
           python3 tools/audit/generate_evidence.py \
@@ -120,7 +131,7 @@ jobs:
             --merge-ledger
 
       - name: Upload weekly CPAS evidence artifacts
-        if: success()
+        if: success() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: weekly-cpas-evidence
@@ -131,7 +142,7 @@ jobs:
           retention-days: 30
 
       - name: Create PR with updated evidence ledger
-        if: success()
+        if: success() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
