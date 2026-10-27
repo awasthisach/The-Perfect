@@ -3,6 +3,7 @@ package com.vvf.smartmanager.core.domain.backup
 import com.vvf.smartmanager.core.data.backup.SnapshotSource
 import com.vvf.smartmanager.core.model.CloudBackupInfo
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
+import com.vvf.smartmanager.core.security.PortableBackupCrypto
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -26,11 +27,17 @@ class ArchiveService(
     private val schemaVersion: Int = 1
 ) {
     private val json = Json { prettyPrint = true; encodeDefaults = true }
+    private val portableCrypto = PortableBackupCrypto()
 
     suspend fun createArchive(
         includeVault: Boolean = true,
-        includeDatabase: Boolean = true
+        includeDatabase: Boolean = true,
+        passphrase: CharArray? = null
     ): Result<ArchiveArtifact> = withContext(Dispatchers.IO) {
+        if (passphrase == null || passphrase.isEmpty()) {
+            passphrase?.fill(0.toChar())
+            return@withContext Result.failure(ArchiveException("A non-empty backup passphrase is required"))
+        }
         val timestamp = System.currentTimeMillis()
         val stagingDir = File(cacheDir, "archive-staging-$timestamp")
         val zipFile = File(cacheDir, "backup-$timestamp.zip")
@@ -58,8 +65,43 @@ class ArchiveService(
                 )
             }
 
+            if (includeDatabase) {
+                val databaseDir = File(stagingDir, "database")
+                val databaseFile = databaseDir.walkTopDown().firstOrNull {
+                    it.isFile && !it.name.endsWith("-wal") && !it.name.endsWith("-shm")
+                } ?: throw ArchiveException("Database snapshot is missing")
+                if (databaseFile.length() == 0L) {
+                    throw ArchiveException("Refusing to create a backup with an empty database snapshot")
+                }
+                val keyBytes = cryptoSecurityManager.getOrCreateDatabasePassphrase()
+                try {
+                    val keyDir = File(stagingDir, "key-material")
+                    if (!keyDir.mkdirs() && !keyDir.isDirectory) throw ArchiveException("Unable to stage portable key material")
+                    File(keyDir, "database-passphrase.bin").writeBytes(keyBytes)
+                } finally {
+                    keyBytes.fill(0)
+                }
+            }
+
+            if (includeVault) {
+                val vaultDir = File(stagingDir, "vault")
+                if (!vaultDir.isDirectory) throw ArchiveException("Vault snapshot is missing")
+                vaultDir.walkTopDown().filter { it.isFile }.toList().forEach { encryptedVaultFile ->
+                    val plainTemp = File(encryptedVaultFile.parentFile, encryptedVaultFile.name + ".portable-plain")
+                    cryptoSecurityManager.decryptFile(encryptedVaultFile, plainTemp)
+                    if (!encryptedVaultFile.delete()) {
+                        plainTemp.delete()
+                        throw ArchiveException("Unable to replace staged vault ciphertext with portable payload")
+                    }
+                    if (!plainTemp.renameTo(encryptedVaultFile)) {
+                        plainTemp.copyTo(encryptedVaultFile, overwrite = true)
+                        if (!plainTemp.delete()) throw ArchiveException("Unable to clean staged vault plaintext")
+                    }
+                }
+            }
+
             val metadata = ArchiveMetadata(
-                version = 1,
+                version = 2,
                 timestamp = timestamp,
                 checksumSha256 = "",
                 databaseSizeBytes = requestedSources.firstOrNull { it.sourceName == "database" }?.dataSizeBytes() ?: 0L,
@@ -71,7 +113,7 @@ class ArchiveService(
             )
             File(stagingDir, "metadata.json").writeText(json.encodeToString(metadata))
             zipDirectory(stagingDir, zipFile)
-            cryptoSecurityManager.encryptFile(zipFile, encryptedFile)
+            portableCrypto.encryptFile(zipFile, encryptedFile, passphrase)
             zipFile.delete()
 
             if (!encryptedFile.isFile || encryptedFile.length() == 0L) {
@@ -100,6 +142,7 @@ class ArchiveService(
             encryptedFile.delete()
             Result.failure(ArchiveException("Archive creation failed", error))
         } finally {
+            passphrase.fill(0.toChar())
             stagingDir.deleteRecursively()
             zipFile.delete()
         }
