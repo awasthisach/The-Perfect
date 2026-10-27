@@ -9,7 +9,11 @@ import com.vvf.smartmanager.core.domain.restore.RestoreSnapshot
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.util.Properties
 import java.util.UUID
+import kotlinx.coroutines.runBlocking
 
 /**
  * Snapshot + apply + rollback for live database and vault directories.
@@ -37,6 +41,9 @@ class LocalRestoreApplier(
             if (!snapshotRoot.exists() && !snapshotRoot.mkdirs()) {
                 return Result.failure(RestoreException("Unable to create snapshot root"))
             }
+            if (File(snapshotRoot, JOURNAL_FILE).exists()) {
+                return Result.failure(RestoreException("An interrupted restore transaction requires recovery before another restore"))
+            }
             val token = UUID.randomUUID().toString()
             val dbSnap = File(snapshotRoot, "$token-db")
             val dbWalSnap = File(snapshotRoot, "$token-db-wal")
@@ -52,20 +59,20 @@ class LocalRestoreApplier(
             if (vaultExisted) liveVaultDir.copyRecursively(vaultSnap, overwrite = true)
             else vaultSnap.mkdirs()
             cryptoSecurityManager?.snapshotDatabasePassphraseState(keyStateSnap)
-            Result.success(
-                RestoreSnapshot(
-                    token = token,
-                    timestamp = System.currentTimeMillis(),
-                    databaseSnapshotPath = dbSnap,
-                    vaultSnapshotPath = vaultSnap,
-                    databaseExisted = databaseExisted,
-                    vaultExisted = vaultExisted,
-                    databaseWalSnapshotPath = dbWalSnap,
-                    databaseWalExisted = databaseWalExisted,
-                    keyStateSnapshotPath = keyStateSnap.takeIf { cryptoSecurityManager != null },
-                    keyStateExisted = cryptoSecurityManager != null
-                )
+            val snapshot = RestoreSnapshot(
+                token = token,
+                timestamp = System.currentTimeMillis(),
+                databaseSnapshotPath = dbSnap,
+                vaultSnapshotPath = vaultSnap,
+                databaseExisted = databaseExisted,
+                vaultExisted = vaultExisted,
+                databaseWalSnapshotPath = dbWalSnap,
+                databaseWalExisted = databaseWalExisted,
+                keyStateSnapshotPath = keyStateSnap.takeIf { cryptoSecurityManager != null },
+                keyStateExisted = cryptoSecurityManager != null
             )
+            writeJournal(snapshot)
+            Result.success(snapshot)
         } catch (error: Throwable) {
             Result.failure(RestoreException("Restore snapshot prepare failed", error))
         }
@@ -220,6 +227,7 @@ class LocalRestoreApplier(
 
             backupLiveDb.delete()
             backupLiveVault.deleteRecursively()
+            clearJournal(snapshotTokenFromJournal())
             val fileCount = decryptedBackup.stagingDir.walkTopDown().count { it.isFile }
             val vaultCount = if (decryptedBackup.backupInfo.includesVault) {
                 liveVaultDir.walkTopDown().count { it.isFile }
@@ -328,9 +336,50 @@ class LocalRestoreApplier(
                     throw RestoreException("Unable to restore vault snapshot")
                 }
             }
+            clearJournal(snapshot.token)
             Result.success(Unit)
         } catch (error: Throwable) {
             Result.failure(RestoreException("Restore rollback failed", error))
+        }
+    }
+
+    private fun writeJournal(snapshot: RestoreSnapshot) {
+        val journal = File(snapshotRoot, JOURNAL_FILE)
+        val temporary = File(snapshotRoot, "$JOURNAL_FILE.tmp")
+        val properties = Properties().apply {
+            setProperty("token", snapshot.token)
+            setProperty("timestamp", snapshot.timestamp.toString())
+            setProperty("databaseExisted", snapshot.databaseExisted.toString())
+            setProperty("vaultExisted", snapshot.vaultExisted.toString())
+            setProperty("databaseWalExisted", snapshot.databaseWalExisted.toString())
+            setProperty("keyStateExisted", snapshot.keyStateExisted.toString())
+        }
+        try {
+            FileOutputStream(temporary).use { output ->
+                properties.store(output, "Active restore transaction; rollback before opening the database")
+                output.flush()
+                output.fd.sync()
+            }
+            check(temporary.renameTo(journal)) { "Unable to publish restore recovery journal" }
+        } catch (error: Throwable) {
+            temporary.delete()
+            throw error
+        }
+    }
+
+    private fun snapshotTokenFromJournal(): String {
+        val journal = File(snapshotRoot, JOURNAL_FILE)
+        require(journal.isFile) { "Restore recovery journal is missing" }
+        val properties = Properties().apply { FileInputStream(journal).use(::load) }
+        return properties.getProperty("token") ?: throw RestoreException("Restore journal token is missing")
+    }
+
+    private fun clearJournal(token: String) {
+        val journal = File(snapshotRoot, JOURNAL_FILE)
+        if (!journal.exists()) return
+        val properties = Properties().apply { FileInputStream(journal).use(::load) }
+        if (properties.getProperty("token") == token) {
+            check(journal.delete()) { "Unable to clear completed restore journal" }
         }
     }
 
@@ -338,5 +387,64 @@ class LocalRestoreApplier(
         runCatching { if (tempDb.exists()) tempDb.delete() }
         runCatching { File(tempDb.path + "-wal").delete() }
         runCatching { if (tempVault.exists()) tempVault.deleteRecursively() }
+    }
+
+    companion object {
+        private const val JOURNAL_FILE = "active-restore.properties"
+
+        /**
+         * Recover a process-death interruption before Room/SQLCipher is opened.
+         * Any malformed journal or missing rollback artifact fails startup closed.
+         */
+        fun recoverInterruptedRestore(
+            liveDatabaseFile: File,
+            liveVaultDir: File,
+            snapshotRoot: File,
+            cryptoSecurityManager: CryptoSecurityManager
+        ) {
+            if (!snapshotRoot.exists()) return
+            val journal = File(snapshotRoot, JOURNAL_FILE)
+            if (!journal.isFile) {
+                snapshotRoot.listFiles().orEmpty().forEach { it.deleteRecursively() }
+                return
+            }
+            val properties = Properties().apply { FileInputStream(journal).use(::load) }
+            val token = properties.getProperty("token")
+                ?: throw IllegalStateException("Restore journal token is missing")
+            require(runCatching { UUID.fromString(token).toString() }.getOrNull() == token) {
+                "Restore journal token is invalid"
+            }
+            val snapshot = RestoreSnapshot(
+                token = token,
+                timestamp = properties.getProperty("timestamp")?.toLongOrNull()
+                    ?: throw IllegalStateException("Restore journal timestamp is invalid"),
+                databaseSnapshotPath = File(snapshotRoot, "$token-db"),
+                vaultSnapshotPath = File(snapshotRoot, "$token-vault"),
+                databaseExisted = properties.getProperty("databaseExisted")?.toBooleanStrictOrNull()
+                    ?: throw IllegalStateException("Restore journal database flag is invalid"),
+                vaultExisted = properties.getProperty("vaultExisted")?.toBooleanStrictOrNull()
+                    ?: throw IllegalStateException("Restore journal vault flag is invalid"),
+                databaseWalSnapshotPath = File(snapshotRoot, "$token-db-wal"),
+                databaseWalExisted = properties.getProperty("databaseWalExisted")?.toBooleanStrictOrNull()
+                    ?: throw IllegalStateException("Restore journal WAL flag is invalid"),
+                keyStateSnapshotPath = File(snapshotRoot, "$token-key-state"),
+                keyStateExisted = properties.getProperty("keyStateExisted")?.toBooleanStrictOrNull()
+                    ?: throw IllegalStateException("Restore journal key-state flag is invalid")
+            )
+            val applier = LocalRestoreApplier(
+                liveDatabaseFile = liveDatabaseFile,
+                liveVaultDir = liveVaultDir,
+                snapshotRoot = snapshotRoot,
+                cryptoSecurityManager = cryptoSecurityManager
+            )
+            val rollback = runBlocking { applier.rollback(snapshot) }
+            if (rollback.isFailure) {
+                throw IllegalStateException(
+                    "Interrupted restore recovery failed; refusing to open the database",
+                    rollback.exceptionOrNull()
+                )
+            }
+            snapshotRoot.listFiles().orEmpty().forEach { it.deleteRecursively() }
+        }
     }
 }
