@@ -343,11 +343,33 @@ class LocalRestoreApplier(
                     throw RestoreException("Unable to restore vault snapshot")
                 }
             }
+            cleanupInterruptedSwapArtifacts()
             clearJournal(snapshot.token)
             Result.success(Unit)
         } catch (error: Throwable) {
             Result.failure(RestoreException("Restore rollback failed", error))
         }
+    }
+
+    private fun cleanupInterruptedSwapArtifacts() {
+        val parent = liveDatabaseFile.parentFile ?: return
+        val databasePrefix = liveDatabaseFile.name
+        val vaultPrefix = liveVaultDir.name
+        parent.listFiles().orEmpty()
+            .filter { file ->
+                file.name == "$databasePrefix.restore-bak" ||
+                    file.name.startsWith("$databasePrefix.restore-tmp") ||
+                    file.name.startsWith("$databasePrefix.rollback-") ||
+                    file.name.startsWith("$databasePrefix-wal.rollback-") ||
+                    file.name.startsWith("$vaultPrefix.restore-bak-") ||
+                    file.name.startsWith("$vaultPrefix.restore-tmp-")
+            }
+            .forEach { file ->
+                val removed = if (file.isDirectory) file.deleteRecursively() else file.delete()
+                if (!removed && file.exists()) {
+                    throw RestoreException("Unable to clean interrupted restore artifact: ${file.name}")
+                }
+            }
     }
 
     private fun writeJournal(snapshot: RestoreSnapshot) {
