@@ -153,6 +153,30 @@ class CryptoSecurityManagerTest {
     }
 
     @Test
+    fun lockoutStateIsAuthenticatedAndUsesMonotonicRuntimeTime() {
+        assertTrue(cryptoSecurityManager.setupVaultPin("482951"))
+        repeat(4) {
+            assertTrue(
+                cryptoSecurityManager.verifyVaultPinWithResult("000000") is
+                    CryptoSecurityManager.VaultAuthResult.INVALID_PIN
+            )
+        }
+        val fifth = cryptoSecurityManager.verifyVaultPinWithResult("000000")
+        assertTrue(fifth is CryptoSecurityManager.VaultAuthResult.INVALID_PIN)
+        assertTrue(cryptoSecurityManager.getRemainingLockoutSeconds() > 0)
+        assertTrue(
+            cryptoSecurityManager.verifyVaultPinWithResult("482951") is
+                CryptoSecurityManager.VaultAuthResult.LOCKED_OUT
+        )
+
+        val prefs = ApplicationProvider.getApplicationContext<android.content.Context>()
+            .getSharedPreferences("vvf_secure_vault_prefs", android.content.Context.MODE_PRIVATE)
+        assertFalse(prefs.contains("vault_failed_attempts"))
+        assertFalse(prefs.contains("vault_lockout_until_ms"))
+        assertTrue(prefs.contains("vault_lockout_state_v2"))
+    }
+
+    @Test
     fun portableBackupEncryptionWorksWithoutDeviceKeystoreKey() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val source = java.io.File(context.cacheDir, "portable-backup-source.bin").apply {
@@ -173,7 +197,6 @@ class CryptoSecurityManagerTest {
             CryptoSecurityManager.clearInMemoryKeysForTests()
         }
     }
-
 
     @Test
     fun customKeyStoreProviderMustNotEnableProductionInMemoryFallback() {
