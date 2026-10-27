@@ -42,21 +42,26 @@ class PortableDatabaseKeyMigrationTest {
 
             // Simulate a destination device's prior local key, then import the archive key.
             crypto.replaceDatabasePassphraseForRestore(destinationPassphrase)
-            val wrongKeyRead = runCatching {
-                val wrongKeyDatabase = SQLiteDatabase.openDatabase(
-                    databaseFile.absolutePath,
-                    crypto.getOrCreateDatabasePassphrase(),
-                    null,
-                    SQLiteDatabase.OPEN_READONLY,
-                    null,
-                    null
-                )
-                wrongKeyDatabase.use {
-                    it.rawQuery("SELECT value FROM migration_test", null).use { cursor ->
-                        cursor.moveToFirst()
+            val wrongPassphrase = crypto.getOrCreateDatabasePassphrase()
+            val wrongKeyRead = try {
+                runCatching {
+                    val wrongKeyDatabase = SQLiteDatabase.openDatabase(
+                        databaseFile.absolutePath,
+                        wrongPassphrase,
+                        null,
+                        SQLiteDatabase.OPEN_READONLY,
+                        null,
+                        null
+                    )
+                    wrongKeyDatabase.use {
+                        it.rawQuery("SELECT value FROM migration_test", null).use { cursor ->
+                            cursor.moveToFirst()
+                        }
                     }
-                }
-            }.getOrDefault(false)
+                }.getOrDefault(false)
+            } finally {
+                wrongPassphrase.fill(0)
+            }
             assertFalse("Destination's previous key must not open the imported database", wrongKeyRead)
 
             crypto.replaceDatabasePassphraseForRestore(originalPassphrase)
