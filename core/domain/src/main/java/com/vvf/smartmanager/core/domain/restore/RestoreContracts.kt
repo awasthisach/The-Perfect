@@ -59,7 +59,9 @@ data class RestoreSnapshot(
     val databaseSnapshotPath: File,
     val vaultSnapshotPath: File,
     val databaseExisted: Boolean = databaseSnapshotPath.exists(),
-    val vaultExisted: Boolean = vaultSnapshotPath.exists()
+    val vaultExisted: Boolean = vaultSnapshotPath.exists(),
+    val databaseWalSnapshotPath: File? = null,
+    val databaseWalExisted: Boolean = databaseWalSnapshotPath?.exists() == true
 )
 
 data class AppliedRestore(
