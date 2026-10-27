@@ -24,6 +24,7 @@ class FailClosedRestorePipeline(
         passphrase: CharArray?
     ): Result<RestoreResult> {
         if (remoteBackupId.isBlank()) {
+            passphrase?.fill(0.toChar())
             return Result.failure(VerificationFailedException("Remote backup id is blank"))
         }
 
