@@ -73,6 +73,8 @@ class CpasVerifySelfTests(unittest.TestCase):
             self.assertNotEqual(proc.returncode, 0, msg=proc.stdout + proc.stderr)
             status = json.loads((root / "cpas-status.json").read_text(encoding="utf-8"))
             self.assertEqual(status["production_status"]["value"], "BLOCKED")
+            checks = {item["name"]: item for item in status["checks"]}
+            self.assertEqual(checks["ort_sboms_present"]["status"], "BLOCKED")
 
     def test_invalid_risk_id_fails_grammar_check(self) -> None:
         self.assertTrue(VERIFY.is_file())
