@@ -50,6 +50,7 @@ class FailClosedRestorePipeline(
                         )
                     )
                 }
+                cleanupSnapshot(snapshot!!)
                 return Result.failure(error)
             }
 
@@ -64,10 +65,12 @@ class FailClosedRestorePipeline(
                         )
                     )
                 }
+                cleanupSnapshot(snapshot!!)
                 return Result.failure(RestoreException(applied.message))
             }
 
             preparedSnapshots.remove(snapshot!!.token)
+            cleanupSnapshot(snapshot!!)
             Result.success(
                 RestoreResult(
                     success = true,
@@ -99,6 +102,9 @@ class FailClosedRestorePipeline(
                             rollbackResult.exceptionOrNull()
                         )
                     )
+                }
+                if (rollbackAttempt.isSuccess && rollbackResult?.isSuccess == true) {
+                    cleanupSnapshot(snapshot!!)
                 }
             }
             Result.failure(RestoreException("Fail-closed restore aborted", error))
@@ -147,8 +153,16 @@ class FailClosedRestorePipeline(
         val snapshot = preparedSnapshots[snapshotToken]
             ?: return Result.failure(VerificationFailedException("Snapshot token is not active in this process"))
         return applier.rollback(snapshot).also {
-            if (it.isSuccess) preparedSnapshots.remove(snapshotToken)
+            if (it.isSuccess) {
+                preparedSnapshots.remove(snapshotToken)
+                cleanupSnapshot(snapshot)
+            }
         }
+    }
+
+    private fun cleanupSnapshot(snapshot: RestoreSnapshot) {
+        runCatching { snapshot.databaseSnapshotPath.delete() }
+        runCatching { snapshot.vaultSnapshotPath.deleteRecursively() }
     }
 
     private fun requireWorkingDirectory(stagingDir: File) {
