@@ -238,12 +238,11 @@ class VVFApplication : Application(), Configuration.Provider {
                 ReadOnlyDatabaseSnapshotSource(
                     databaseFile = getDatabasePath(VVFDatabase.DATABASE_NAME),
                     beforeSnapshot = {
-                        runCatching {
-                            if (::database.isInitialized) {
-                                database.openHelper.writableDatabase.execSQL("PRAGMA wal_checkpoint(FULL)")
-                                Log.i(TAG, "WAL checkpoint before backup DB snapshot")
-                            }
-                        }.onFailure { e -> Log.w(TAG, "WAL checkpoint before snapshot failed", e) }
+                        check(::database.isInitialized) {
+                            "Database is not initialized; refusing an inconsistent backup snapshot"
+                        }
+                        database.openHelper.writableDatabase.execSQL("PRAGMA wal_checkpoint(FULL)")
+                        Log.i(TAG, "WAL checkpoint before backup DB snapshot")
                     }
                 ),
                 InjectedVaultSnapshotSource(vaultDir)
@@ -259,14 +258,12 @@ class VVFApplication : Application(), Configuration.Provider {
             vaultDir = vaultDir,
             databaseName = VVFDatabase.DATABASE_NAME,
             beforeRestoreApply = {
-                runCatching {
-                    if (::database.isInitialized) {
-                        database.close()
-                        Log.i(TAG, "Closed Room database before restore apply")
-                    }
-                }.onFailure { err ->
-                    Log.w(TAG, "Room close before restore failed (continuing)", err)
+                check(::database.isInitialized) {
+                    "Database is not initialized; refusing to mutate live restore targets"
                 }
+                database.close()
+                Log.i(TAG, "Closed Room database before restore apply")
+            }
             },
             cloudSyncDao = database.cloudSyncDao()
         )
