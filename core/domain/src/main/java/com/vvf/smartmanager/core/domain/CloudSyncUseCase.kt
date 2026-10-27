@@ -34,7 +34,8 @@ class CloudSyncUseCase(
     private val pluginDrivers: Map<CloudProviderType, CloudDriverSPI> = emptyMap(),
     private val archiveService: ArchiveService? = null,
     private val restorePipeline: RestorePipeline? = null,
-    private val cloudSyncDao: CloudSyncDao? = null
+    private val cloudSyncDao: CloudSyncDao? = null,
+    private val onRestoreFinished: (() -> Unit)? = null
 ) {
 
     private val _syncState = MutableStateFlow(CloudSyncStatus.IDLE)
@@ -222,21 +223,26 @@ class CloudSyncUseCase(
             return Result.failure(IllegalArgumentException("Backup id is blank; refusing restore"))
         }
         _syncState.value = CloudSyncStatus.DOWNLOADING
-        return pipeline.restore(backupInfo.backupId, backupInfo.checksumSha256, passphrase).fold(
-            onSuccess = { result: RestoreResult ->
-                if (result.success) {
-                    _syncState.value = CloudSyncStatus.SUCCESS
-                    Result.success(true)
-                } else {
+        try {
+            pipeline.restore(backupInfo.backupId, backupInfo.checksumSha256, passphrase).fold(
+                onSuccess = { result: RestoreResult ->
+                    if (result.success) {
+                        _syncState.value = CloudSyncStatus.SUCCESS
+                        Result.success(true)
+                    } else {
+                        _syncState.value = CloudSyncStatus.ERROR
+                        Result.failure(IllegalStateException(result.message.ifBlank { "Restore completed without success" }))
+                    }
+                },
+                onFailure = { error ->
                     _syncState.value = CloudSyncStatus.ERROR
-                    Result.failure(IllegalStateException(result.message.ifBlank { "Restore completed without success" }))
+                    Result.failure(error)
                 }
-            },
-            onFailure = { error ->
-                _syncState.value = CloudSyncStatus.ERROR
-                Result.failure(error)
-            }
-        )
+            )
+        } finally {
+            // The Application may restart after Room was closed for a restore transaction.
+            onRestoreFinished?.invoke()
+        }
     }
 
     suspend fun syncFileToCloud(
