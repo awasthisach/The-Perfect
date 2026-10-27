@@ -148,5 +148,6 @@ class PortableBackupRestoreIntegrationTest {
         restoredVaultPlain.delete()
         archive.file.delete()
         restoreStage.deleteRecursively()
+        Unit
     }
 }
