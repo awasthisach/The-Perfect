@@ -78,7 +78,7 @@ class FailClosedRestorePipeline(
                     success = true,
                     restoredFileCount = applied.restoredFileCount,
                     restoredVaultItemCount = applied.restoredVaultItemCount,
-                    backupInfo = verified.backupInfo,
+                    backupInfo = decrypted.backupInfo,
                     snapshotToken = snapshot!!.token,
                     message = applied.message,
                     timestamp = System.currentTimeMillis()
@@ -136,7 +136,7 @@ class FailClosedRestorePipeline(
             val vaultCount = decrypted.vaultDir.walkTopDown().count { it.isFile }
             Result.success(
                 DryRunResult(
-                    backupInfo = verified.backupInfo,
+                    backupInfo = decrypted.backupInfo,
                     fileCount = fileCount,
                     vaultItemCount = vaultCount,
                     totalSizeBytes = decrypted.stagingDir.walkTopDown().filter { it.isFile }.sumOf { it.length() },
