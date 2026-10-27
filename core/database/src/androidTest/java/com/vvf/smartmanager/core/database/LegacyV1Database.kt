@@ -23,7 +23,7 @@ import com.vvf.smartmanager.core.database.model.VaultItemEntity
         CloudSyncEntity::class
     ],
     version = 1,
-    exportSchema = true
+    exportSchema = false
 )
 abstract class LegacyV1Database : RoomDatabase() {
     abstract fun fileDao(): FileDao
