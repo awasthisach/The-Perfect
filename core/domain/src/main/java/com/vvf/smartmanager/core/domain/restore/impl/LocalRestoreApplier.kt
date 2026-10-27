@@ -21,9 +21,9 @@ import kotlinx.coroutines.runBlocking
  * Apply stages into sibling temp paths and verifies sizes before swapping live paths.
  * Legacy vault authentication metadata is deliberately ignored and never imported.
  *
- * Note: the SQLCipher database file is bound to the device Keystore passphrase.
- * Same-device restore works when the live passphrase matches the snapshotted DB.
- * Cross-device restore requires a future portable-key export (documented residual).
+ * Portable archives carry the SQLCipher passphrase inside the authenticated envelope; this applier
+ * re-wraps that passphrase under the destination device's Keystore and includes its prior wrapped
+ * state in rollback. Legacy device-bound archives remain same-device-only.
  *
  * Callers should close Room/SQLCipher connections via [beforeApply] before mutation.
  */
@@ -228,8 +228,12 @@ class LocalRestoreApplier(
                 }
             }
 
-            backupLiveDb.delete()
-            backupLiveVault.deleteRecursively()
+            if (backupLiveDb.exists() && !backupLiveDb.delete()) {
+                throw RestoreException("Unable to remove previous database after successful swap")
+            }
+            if (backupLiveVault.exists() && !backupLiveVault.deleteRecursively()) {
+                throw RestoreException("Unable to remove previous vault after successful swap")
+            }
             clearJournal(snapshotTokenFromJournal())
             val fileCount = decryptedBackup.stagingDir.walkTopDown().count { it.isFile }
             val vaultCount = if (decryptedBackup.backupInfo.includesVault) {
@@ -380,7 +384,7 @@ class LocalRestoreApplier(
     private fun clearJournal(token: String) {
         val journal = File(snapshotRoot, JOURNAL_FILE)
         if (!journal.exists()) return
-        val properties = Properties().apply { FileInputStream(journal).use(::load) }
+        val properties = Properties().apply { FileInputStream(journal).use { load(it) } }
         if (properties.getProperty("token") == token) {
             check(journal.delete()) { "Unable to clear completed restore journal" }
         }
