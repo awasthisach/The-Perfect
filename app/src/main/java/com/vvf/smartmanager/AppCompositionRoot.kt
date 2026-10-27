@@ -61,7 +61,8 @@ object AppCompositionRoot {
                 liveDatabaseFile = context.getDatabasePath(databaseName),
                 liveVaultDir = vaultDir,
                 snapshotRoot = File(restoreWorkingDir, "snapshots"),
-                beforeApply = beforeRestoreApply
+                beforeApply = beforeRestoreApply,
+                cryptoSecurityManager = cryptoSecurityManager
             )
         )
         return CloudSyncUseCase(
