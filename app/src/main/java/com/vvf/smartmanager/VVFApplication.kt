@@ -241,7 +241,11 @@ class VVFApplication : Application(), Configuration.Provider {
                         check(::database.isInitialized) {
                             "Database is not initialized; refusing an inconsistent backup snapshot"
                         }
-                        database.openHelper.writableDatabase.execSQL("PRAGMA wal_checkpoint(FULL)")
+                        database.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(FULL)").use { cursor ->
+                            check(cursor.moveToFirst() && cursor.getInt(0) == 0) {
+                                "SQLite WAL checkpoint was busy or did not complete"
+                            }
+                        }
                         Log.i(TAG, "WAL checkpoint before backup DB snapshot")
                     }
                 ),
