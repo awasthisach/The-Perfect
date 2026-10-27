@@ -47,7 +47,7 @@ class PortableBackupCrypto(
     }
 
     private fun encryptFileInternal(source: File, destination: File, passphrase: CharArray) {
-        require(passphrase.isNotEmpty()) { "Backup passphrase must not be empty" }
+        require(passphrase.size >= 12) { "Backup passphrase must be at least 12 characters" }
         require(source.isFile) { "Backup source does not exist" }
         val parent = destination.absoluteFile.parentFile
             ?: throw IOException("Backup destination has no parent directory")
