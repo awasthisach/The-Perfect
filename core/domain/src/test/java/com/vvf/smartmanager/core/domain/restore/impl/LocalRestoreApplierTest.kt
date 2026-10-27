@@ -158,6 +158,34 @@ class LocalRestoreApplierTest {
     }
 
     @Test
+    fun rollbackRestoresOriginalDatabaseAndVaultContents() = runBlocking {
+        val root = temp.newFolder("restore-original-state")
+        val liveDb = File(root, "live.db").apply { writeText("ORIGINAL-DB") }
+        val liveVault = File(root, "vault").also {
+            it.mkdirs()
+            File(it, "original.bin").writeText("ORIGINAL-VAULT")
+        }
+        val applier = LocalRestoreApplier(
+            liveDatabaseFile = liveDb,
+            liveVaultDir = liveVault,
+            snapshotRoot = File(root, "snapshots")
+        )
+
+        val snapshot = applier.prepare().getOrThrow()
+        liveDb.writeText("PARTIAL-DB")
+        liveVault.deleteRecursively()
+        liveVault.mkdirs()
+        File(liveVault, "partial.bin").writeText("PARTIAL-VAULT")
+
+        val rollback = applier.rollback(snapshot)
+
+        assertTrue("Rollback must succeed", rollback.isSuccess)
+        assertEquals("ORIGINAL-DB", liveDb.readText())
+        assertEquals("ORIGINAL-VAULT", File(liveVault, "original.bin").readText())
+        assertFalse(File(liveVault, "partial.bin").exists())
+    }
+
+    @Test
     fun rollbackRemovesDatabaseAndVaultCreatedByFailedRestore() = runBlocking {
         val root = temp.newFolder("absent-state")
         val liveDb = File(root, "not-yet-created.db")
