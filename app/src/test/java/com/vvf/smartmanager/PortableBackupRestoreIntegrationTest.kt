@@ -71,6 +71,7 @@ class PortableBackupRestoreIntegrationTest {
     fun portableArchiveRestoresDatabaseKeyAndRewrapsVaultFiles() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val crypto = CryptoSecurityManager(context, "Robolectric")
+        assertTrue("Test must configure a real vault PIN", crypto.saveVaultPin("1234"))
         val sourceDatabase = temp.newFile("source.db").apply { writeText("SQLCIPHER-DATABASE-CIPHERTEXT") }
         val sourceVault = temp.newFolder("source-vault")
         val sourceVaultPlain = temp.newFile("vault-plain.txt").apply { writeText("vault secret payload") }
@@ -91,10 +92,17 @@ class PortableBackupRestoreIntegrationTest {
             includeVault = true,
             includeDatabase = true
         ).isFailure)
+        assertTrue("Vault export must fail closed for an incorrect PIN", service.createArchive(
+            includeVault = true,
+            includeDatabase = true,
+            passphrase = "portable test passphrase 2026".toCharArray(),
+            vaultPin = "9999"
+        ).isFailure)
         val archive = service.createArchive(
             includeVault = true,
             includeDatabase = true,
-            passphrase = "portable test passphrase 2026".toCharArray()
+            passphrase = "portable test passphrase 2026".toCharArray(),
+            vaultPin = "1234"
         ).getOrThrow()
 
         val restoreStage = temp.newFolder("restore-stage")
