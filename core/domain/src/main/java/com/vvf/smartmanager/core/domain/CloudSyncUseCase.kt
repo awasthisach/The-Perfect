@@ -118,7 +118,8 @@ class CloudSyncUseCase(
         providerType: CloudProviderType,
         includeVault: Boolean = false,
         includeDatabase: Boolean = true,
-        passphrase: CharArray? = null
+        passphrase: CharArray? = null,
+        vaultPin: String? = null
     ): Result<CloudBackupInfo> = archiveMutex.withLock {
         val service = archiveService
         if (service == null) {
@@ -135,7 +136,8 @@ class CloudSyncUseCase(
         return service.createArchive(
             includeVault = includeVault,
             includeDatabase = includeDatabase,
-            passphrase = passphrase
+            passphrase = passphrase,
+            vaultPin = vaultPin
         ).fold(
             onSuccess = { artifact ->
                 try {
