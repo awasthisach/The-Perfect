@@ -6,6 +6,7 @@ import com.vvf.smartmanager.core.domain.restore.DecryptedBackup
 import com.vvf.smartmanager.core.domain.restore.RestoreApplier
 import com.vvf.smartmanager.core.domain.restore.RestoreException
 import com.vvf.smartmanager.core.domain.restore.RestoreSnapshot
+import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.UUID
@@ -26,7 +27,8 @@ class LocalRestoreApplier(
     private val liveDatabaseFile: File,
     private val liveVaultDir: File,
     private val snapshotRoot: File,
-    private val beforeApply: (() -> Unit)? = null
+    private val beforeApply: (() -> Unit)? = null,
+    private val cryptoSecurityManager: CryptoSecurityManager? = null
 ) : RestoreApplier {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -39,6 +41,7 @@ class LocalRestoreApplier(
             val dbSnap = File(snapshotRoot, "$token-db")
             val dbWalSnap = File(snapshotRoot, "$token-db-wal")
             val vaultSnap = File(snapshotRoot, "$token-vault")
+            val keyStateSnap = File(snapshotRoot, "$token-key-state")
             val databaseExisted = liveDatabaseFile.exists()
             val databaseWal = File(liveDatabaseFile.path + "-wal")
             val databaseWalExisted = databaseWal.isFile
@@ -48,6 +51,7 @@ class LocalRestoreApplier(
             if (databaseWalExisted) databaseWal.copyTo(dbWalSnap, overwrite = true)
             if (vaultExisted) liveVaultDir.copyRecursively(vaultSnap, overwrite = true)
             else vaultSnap.mkdirs()
+            cryptoSecurityManager?.snapshotDatabasePassphraseState(keyStateSnap)
             Result.success(
                 RestoreSnapshot(
                     token = token,
@@ -57,7 +61,9 @@ class LocalRestoreApplier(
                     databaseExisted = databaseExisted,
                     vaultExisted = vaultExisted,
                     databaseWalSnapshotPath = dbWalSnap,
-                    databaseWalExisted = databaseWalExisted
+                    databaseWalExisted = databaseWalExisted,
+                    keyStateSnapshotPath = keyStateSnap.takeIf { cryptoSecurityManager != null },
+                    keyStateExisted = cryptoSecurityManager != null
                 )
             )
         } catch (error: Throwable) {
@@ -201,6 +207,17 @@ class LocalRestoreApplier(
                 }
             }
 
+            if (decryptedBackup.backupInfo.includesDatabase && decryptedBackup.databasePassphraseFile != null) {
+                val crypto = cryptoSecurityManager
+                    ?: throw RestoreException("Portable database restore requires local Keystore migration support")
+                val importedPassphrase = decryptedBackup.databasePassphraseFile.readBytes()
+                try {
+                    crypto.replaceDatabasePassphraseForRestore(importedPassphrase)
+                } finally {
+                    importedPassphrase.fill(0)
+                }
+            }
+
             backupLiveDb.delete()
             backupLiveVault.deleteRecursively()
             val fileCount = decryptedBackup.stagingDir.walkTopDown().count { it.isFile }
@@ -236,6 +253,10 @@ class LocalRestoreApplier(
             }
             if (snapshot.vaultExisted && !snapshot.vaultSnapshotPath.isDirectory) {
                 throw RestoreException("Vault rollback snapshot is missing")
+            }
+            if (snapshot.keyStateExisted &&
+                (snapshot.keyStateSnapshotPath?.let { File(it, "present-files.txt").isFile } != true)) {
+                throw RestoreException("Database key-state rollback snapshot is missing")
             }
 
             if (snapshot.databaseExisted) {
@@ -287,6 +308,14 @@ class LocalRestoreApplier(
                 throw RestoreException("Unable to remove transient database SHM during rollback")
             }
 
+            if (snapshot.keyStateExisted) {
+                val crypto = cryptoSecurityManager
+                    ?: throw RestoreException("Database key-state rollback requires Keystore support")
+                crypto.restoreDatabasePassphraseState(
+                    snapshot.keyStateSnapshotPath
+                        ?: throw RestoreException("Database key-state rollback snapshot is missing")
+                )
+            }
             if (liveVaultDir.exists() && !liveVaultDir.deleteRecursively()) {
                 throw RestoreException("Unable to remove failed vault during rollback")
             }
