@@ -44,6 +44,8 @@ class LocalRestoreApplier(
             if (File(snapshotRoot, JOURNAL_FILE).exists()) {
                 return Result.failure(RestoreException("An interrupted restore transaction requires recovery before another restore"))
             }
+            // Close Room before snapshotting so DB + WAL + key state form a stable rollback point.
+            beforeApply?.invoke()
             val token = UUID.randomUUID().toString()
             val dbSnap = File(snapshotRoot, "$token-db")
             val dbWalSnap = File(snapshotRoot, "$token-db-wal")
@@ -94,7 +96,6 @@ class LocalRestoreApplier(
             if (!File(snapshotRoot, JOURNAL_FILE).isFile) {
                 throw RestoreException("Restore transaction journal is missing; refusing to mutate live data")
             }
-            beforeApply?.invoke()
 
             val manifestFile = File(decryptedBackup.stagingDir, "metadata.json")
             if (manifestFile.isFile) {
