@@ -143,8 +143,11 @@ class CloudSyncUseCaseTest {
                     Result.success(VerifiedArtifact(artifact.file, info, "abc"))
             },
             decryptor = object : BackupDecryptor {
-                override suspend fun decrypt(verifiedArtifact: VerifiedArtifact, stagingDir: File) =
-                    Result.success(
+                override suspend fun decrypt(
+                    verifiedArtifact: VerifiedArtifact,
+                    stagingDir: File,
+                    passphrase: CharArray?
+                ) = Result.success(
                         DecryptedBackup(stagingDir, temp.newFile("db"), temp.newFolder("vault"), info, 1L)
                     )
             },
