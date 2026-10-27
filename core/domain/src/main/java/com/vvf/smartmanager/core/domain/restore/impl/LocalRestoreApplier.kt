@@ -425,22 +425,37 @@ class LocalRestoreApplier(
          * Recover a process-death interruption before Room/SQLCipher is opened.
          * Any malformed journal or missing rollback artifact fails startup closed.
          */
+        private fun hasInterruptedSwapArtifacts(liveDatabaseFile: File, liveVaultDir: File): Boolean {
+            val parent = liveDatabaseFile.parentFile ?: return false
+            val db = liveDatabaseFile.name
+            val vault = liveVaultDir.name
+            return parent.listFiles().orEmpty().any { file ->
+                file.name == "$db.restore-bak" ||
+                    file.name.startsWith("$db.restore-tmp") ||
+                    file.name.startsWith("$db.rollback-") ||
+                    file.name.startsWith("$db-wal.rollback-") ||
+                    file.name.startsWith("$vault.restore-bak-") ||
+                    file.name.startsWith("$vault.restore-tmp-")
+            }
+        }
+
         fun recoverInterruptedRestore(
             liveDatabaseFile: File,
             liveVaultDir: File,
             snapshotRoot: File,
             cryptoSecurityManager: CryptoSecurityManager
         ) {
-            if (!snapshotRoot.exists()) return
+            if (!snapshotRoot.exists()) {
+                if (hasInterruptedSwapArtifacts(liveDatabaseFile, liveVaultDir)) {
+                    throw IllegalStateException(
+                        "Restore swap artifacts exist without rollback snapshots; refusing to open the database"
+                    )
+                }
+                return
+            }
             val journal = File(snapshotRoot, JOURNAL_FILE)
             if (!journal.isFile) {
-                val databaseParent = liveDatabaseFile.parentFile
-                val interruptedSwapArtifacts = databaseParent?.listFiles().orEmpty().any {
-                    it.name.contains(".restore-bak") ||
-                        it.name.contains(".restore-tmp") ||
-                        it.name.startsWith(liveVaultDir.name + ".restore-")
-                }
-                if (interruptedSwapArtifacts) {
+                if (hasInterruptedSwapArtifacts(liveDatabaseFile, liveVaultDir)) {
                     throw IllegalStateException(
                         "Restore swap artifacts exist without a recovery journal; refusing to open the database"
                     )
