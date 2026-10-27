@@ -116,6 +116,9 @@ class PortableBackupRestoreIntegrationTest {
         assertArrayEquals(originalPassphrase, bundledPassphrase)
         bundledPassphrase.fill(0)
 
+        // Simulate a destination device whose currently wrapped DB passphrase differs from the archive.
+        val destinationPassphrase = ByteArray(32) { (it + 101).toByte() }
+        crypto.replaceDatabasePassphraseForRestore(destinationPassphrase)
         val liveDatabase = temp.newFile("live.db").apply { writeText("OLD-DATABASE") }
         val liveVault = temp.newFolder("live-vault")
         val oldVaultPlain = temp.newFile("old-vault.txt").apply { writeText("old vault item") }
@@ -141,6 +144,7 @@ class PortableBackupRestoreIntegrationTest {
         assertArrayEquals(originalPassphrase, currentPassphrase)
         currentPassphrase.fill(0)
         originalPassphrase.fill(0)
+        destinationPassphrase.fill(0)
         restoredVaultPlain.delete()
         archive.file.delete()
         restoreStage.deleteRecursively()
