@@ -20,7 +20,8 @@ class FailClosedRestorePipeline(
 
     override suspend fun restore(
         remoteBackupId: String,
-        expectedChecksum: String?
+        expectedChecksum: String?,
+        passphrase: CharArray?
     ): Result<RestoreResult> {
         if (remoteBackupId.isBlank()) {
             return Result.failure(VerificationFailedException("Remote backup id is blank"))
@@ -34,7 +35,7 @@ class FailClosedRestorePipeline(
 
             val downloaded = downloader.download(remoteBackupId).getOrElse { return Result.failure(it) }
             val verified = verifier.verify(downloaded, expectedChecksum).getOrElse { return Result.failure(it) }
-            val decrypted = decryptor.decrypt(verified, stagingDir).getOrElse { return Result.failure(it) }
+            val decrypted = decryptor.decrypt(verified, stagingDir, passphrase).getOrElse { return Result.failure(it) }
 
             snapshot = applier.prepare().getOrElse { return Result.failure(it) }
             preparedSnapshots[snapshot!!.token] = snapshot!!
@@ -109,13 +110,15 @@ class FailClosedRestorePipeline(
             }
             Result.failure(RestoreException("Fail-closed restore aborted", error))
         } finally {
+            passphrase?.fill(0.toChar())
             stagingDir.deleteRecursively()
         }
     }
 
     override suspend fun dryRun(
         remoteBackupId: String,
-        expectedChecksum: String?
+        expectedChecksum: String?,
+        passphrase: CharArray?
     ): Result<DryRunResult> {
         if (remoteBackupId.isBlank()) {
             return Result.failure(VerificationFailedException("Remote backup id is blank"))
@@ -142,6 +145,7 @@ class FailClosedRestorePipeline(
         } catch (error: Throwable) {
             Result.failure(RestoreException("Fail-closed restore dry-run aborted", error))
         } finally {
+            passphrase?.fill(0.toChar())
             stagingDir.deleteRecursively()
         }
     }
@@ -163,6 +167,7 @@ class FailClosedRestorePipeline(
     private fun cleanupSnapshot(snapshot: RestoreSnapshot) {
         runCatching { snapshot.databaseSnapshotPath.delete() }
         runCatching { snapshot.databaseWalSnapshotPath?.delete() }
+        runCatching { snapshot.keyStateSnapshotPath?.deleteRecursively() }
         runCatching { snapshot.vaultSnapshotPath.deleteRecursively() }
     }
 
