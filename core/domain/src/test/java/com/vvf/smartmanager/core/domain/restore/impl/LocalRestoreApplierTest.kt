@@ -158,6 +158,65 @@ class LocalRestoreApplierTest {
     }
 
     @Test
+    fun databaseOnlyRestorePreservesLiveVault() = runBlocking {
+        val liveDb = temp.newFile("database-only-live.db").apply { writeText("OLD-DB") }
+        val liveVault = temp.newFolder("database-only-vault").also {
+            File(it, "keep.bin").writeText("KEEP-VAULT")
+        }
+        val staging = temp.newFolder("database-only-staging")
+        val dbFile = File(staging, "database/vvf.db").apply {
+            parentFile.mkdirs()
+            writeText("NEW-DB")
+        }
+        val info = sampleInfo.copy(includesVault = false, includesDatabase = true)
+        val applier = LocalRestoreApplier(liveDb, liveVault, temp.newFolder("database-only-snaps"))
+
+        val result = applier.apply(
+            DecryptedBackup(
+                stagingDir = staging,
+                databaseFile = dbFile,
+                vaultDir = File(staging, "vault").apply { mkdirs() },
+                backupInfo = info,
+                timestamp = 2L
+            )
+        )
+
+        assertTrue(result.isSuccess)
+        assertEquals("NEW-DB", liveDb.readText())
+        assertEquals("KEEP-VAULT", File(liveVault, "keep.bin").readText())
+    }
+
+    @Test
+    fun vaultOnlyRestorePreservesLiveDatabase() = runBlocking {
+        val liveDb = temp.newFile("vault-only-live.db").apply { writeText("KEEP-DB") }
+        val liveVault = temp.newFolder("vault-only-live-vault").also {
+            File(it, "old.bin").writeText("OLD-VAULT")
+        }
+        val staging = temp.newFolder("vault-only-staging")
+        val vault = File(staging, "vault").also {
+            it.mkdirs()
+            File(it, "new.bin").writeText("NEW-VAULT")
+        }
+        val info = sampleInfo.copy(includesVault = true, includesDatabase = false)
+        val applier = LocalRestoreApplier(liveDb, liveVault, temp.newFolder("vault-only-snaps"))
+
+        val result = applier.apply(
+            DecryptedBackup(
+                stagingDir = staging,
+                databaseFile = File(staging, "database"),
+                vaultDir = vault,
+                backupInfo = info,
+                timestamp = 3L
+            )
+        )
+
+        assertTrue(result.isSuccess)
+        assertEquals("KEEP-DB", liveDb.readText())
+        assertEquals("NEW-VAULT", File(liveVault, "new.bin").readText())
+        assertFalse(File(liveVault, "old.bin").exists())
+    }
+
+    @Test
     fun rollbackMissingVaultSnapshotFailsBeforeMutatingDatabase() = runBlocking {
         val root = temp.newFolder("missing-vault-snapshot")
         val liveDb = File(root, "live.db").apply { writeText("ORIGINAL-DB") }
