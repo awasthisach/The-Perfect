@@ -268,6 +268,9 @@ class CryptoSecurityManager(
         val allowed = setOf(DB_PASSPHRASE_V2_FILE, ENCRYPTED_DB_PASSPHRASE_FILE, DB_PASSPHRASE_IV_FILE)
         val present = marker.readLines().filter { it.isNotBlank() }
         require(present.all { it in allowed }) { "Database key-state snapshot contains unexpected entries" }
+        require(present.all { File(snapshot, it).isFile }) {
+            "Database key-state rollback snapshot is incomplete"
+        }
         allowed.forEach { name ->
             val live = File(context.filesDir, name)
             if (live.exists() && !live.delete()) throw SecurityException("Unable to clear current database key state")
