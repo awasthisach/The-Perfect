@@ -46,6 +46,7 @@ import com.vvf.smartmanager.core.domain.SearchIndexManagementUseCase
 import com.vvf.smartmanager.core.domain.SemanticSearchUseCase
 import com.vvf.smartmanager.core.domain.TagManagementUseCase
 import com.vvf.smartmanager.core.domain.VaultAuthUseCase
+import com.vvf.smartmanager.core.domain.restore.impl.LocalRestoreApplier
 import com.vvf.smartmanager.core.model.CloudProviderType
 import com.vvf.smartmanager.core.plugin.spi.ISemanticSearchEngine
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
@@ -136,9 +137,16 @@ class VVFApplication : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         cryptoSecurityManager = CryptoSecurityManager(this)
-        cleanupStalePlaintextBackupStaging()
-
         val jvmUnitTest = CryptoSecurityManager.isJvmUnitTestEnvironment(this)
+        if (!jvmUnitTest) {
+            LocalRestoreApplier.recoverInterruptedRestore(
+                liveDatabaseFile = getDatabasePath(VVFDatabase.DATABASE_NAME),
+                liveVaultDir = File(filesDir, "vvf_vault_encrypted"),
+                snapshotRoot = File(filesDir, "restore-work/snapshots"),
+                cryptoSecurityManager = cryptoSecurityManager
+            )
+        }
+        cleanupStalePlaintextBackupStaging()
         // Play Integrity App Check is device/Play-only; skip on JVM unit tests (Robolectric).
         if (!jvmUnitTest) {
             try {
