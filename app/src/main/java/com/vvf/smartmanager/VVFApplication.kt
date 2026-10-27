@@ -146,6 +146,8 @@ class VVFApplication : Application(), Configuration.Provider {
         super.onCreate()
         cryptoSecurityManager = CryptoSecurityManager(this)
         val jvmUnitTest = CryptoSecurityManager.isJvmUnitTestEnvironment(this)
+        // Remove orphaned plaintext staging even if recovery subsequently fails closed.
+        cleanupStalePlaintextBackupStaging()
         if (!jvmUnitTest) {
             LocalRestoreApplier.recoverInterruptedRestore(
                 liveDatabaseFile = getDatabasePath(VVFDatabase.DATABASE_NAME),
@@ -154,7 +156,6 @@ class VVFApplication : Application(), Configuration.Provider {
                 cryptoSecurityManager = cryptoSecurityManager
             )
         }
-        cleanupStalePlaintextBackupStaging()
         // Play Integrity App Check is device/Play-only; skip on JVM unit tests (Robolectric).
         if (!jvmUnitTest) {
             try {
