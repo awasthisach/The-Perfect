@@ -84,7 +84,7 @@ class PortableBackupCryptoTest {
             val encrypted = File(dir, "broken.vvfbak").apply { writeBytes(byteArrayOf(0x56, 0x56)) }
             val destination = File(dir, "restored.bin")
             val result = runCatching {
-                crypto.decryptFile(encrypted, destination, "passphrase".toCharArray())
+                crypto.decryptFile(encrypted, destination, "long passphrase".toCharArray())
             }
             assertTrue(result.isFailure)
             assertFalse(destination.exists())
