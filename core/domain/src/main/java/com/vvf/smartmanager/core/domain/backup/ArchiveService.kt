@@ -32,7 +32,8 @@ class ArchiveService(
     suspend fun createArchive(
         includeVault: Boolean = true,
         includeDatabase: Boolean = true,
-        passphrase: CharArray? = null
+        passphrase: CharArray? = null,
+        vaultPin: String? = null
     ): Result<ArchiveArtifact> = withContext(Dispatchers.IO) {
         if (passphrase == null || passphrase.size < 12) {
             passphrase?.fill(0.toChar())
@@ -86,7 +87,16 @@ class ArchiveService(
             if (includeVault) {
                 val vaultDir = File(stagingDir, "vault")
                 if (!vaultDir.isDirectory) throw ArchiveException("Vault snapshot is missing")
-                vaultDir.walkTopDown().filter { it.isFile }.toList().forEach { encryptedVaultFile ->
+                val vaultFiles = vaultDir.walkTopDown().filter { it.isFile }.toList()
+                if (vaultFiles.isNotEmpty()) {
+                    if (vaultPin.isNullOrBlank() ||
+                        !cryptoSecurityManager.isVaultConfigured() ||
+                        !cryptoSecurityManager.verifyVaultPin(vaultPin)
+                    ) {
+                        throw ArchiveException("The current real vault PIN is required to include vault contents")
+                    }
+                }
+                vaultFiles.forEach { encryptedVaultFile ->
                     val plainTemp = File(encryptedVaultFile.parentFile, encryptedVaultFile.name + ".portable-plain")
                     cryptoSecurityManager.decryptFile(encryptedVaultFile, plainTemp)
                     if (!encryptedVaultFile.delete()) {
