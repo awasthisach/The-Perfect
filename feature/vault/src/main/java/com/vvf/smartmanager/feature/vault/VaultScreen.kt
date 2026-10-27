@@ -30,7 +30,7 @@ fun VaultScreen(
             activity = activity,
             isBiometricEnabled = uiState.isBiometricEnabled,
             createCipher = { viewModel.createBiometricUnlockCipher() },
-            onSuccess = { viewModel.onBiometricAuthSuccess() },
+            onSuccess = { proof -> viewModel.onBiometricAuthSuccess(proof) },
             onError = { viewModel.onBiometricAuthError(it) }
         )
     }
