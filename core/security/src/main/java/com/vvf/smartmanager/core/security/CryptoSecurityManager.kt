@@ -1,6 +1,7 @@
 package com.vvf.smartmanager.core.security
 
 import android.content.Context
+import android.os.SystemClock
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -81,6 +82,8 @@ class CryptoSecurityManager(
         private const val DB_PASSPHRASE_V2_FILE = "vvf_db_passphrase_v2.bin"
         private const val DB_PASSPHRASE_TEMP_SUFFIX = ".tmp"
         private const val DB_PASSPHRASE_FORMAT_VERSION: Byte = 2
+        private const val LOCKOUT_STATE_KEY = "vault_lockout_state_v2"
+        private const val LOCKOUT_STATE_IV_KEY = "vault_lockout_state_v2_iv"
 
         // Restored to 600,000 to maintain brute-force resistance (CWE-916 mitigation)
         private const val PBKDF2_ITERATIONS = 600_000
@@ -402,12 +405,19 @@ class CryptoSecurityManager(
     fun saveDecoyPin(pin: String): Boolean = setupDecoyPin(pin)
 
     fun getRemainingLockoutSeconds(): Int {
-        val lockoutUntilMs = prefs.getLong("vault_lockout_until_ms", 0L)
-        val now = System.currentTimeMillis()
-        return if (lockoutUntilMs > now) ((lockoutUntilMs - now) / 1000L).toInt().coerceAtLeast(1) else 0
+        val state = readLockoutState() ?: return 0
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val remainingMs = if (nowElapsed >= state.lastElapsedMs) {
+            state.untilElapsedMs - nowElapsed
+        } else {
+            // elapsedRealtime resets after reboot. Wall-clock recovery is only used in
+            // that exceptional case; normal lockout decisions never trust a user clock.
+            state.untilWallClockMs - System.currentTimeMillis()
+        }
+        return if (remainingMs > 0) (remainingMs / 1000L).toInt().coerceAtLeast(1) else 0
     }
 
-    fun getFailedAttemptsCount(): Int = prefs.getInt("vault_failed_attempts", 0)
+    fun getFailedAttemptsCount(): Int = readLockoutState()?.failedAttempts ?: 0
 
     private fun recordFailedAttempt(): VaultAuthResult.INVALID_PIN {
         val attempts = getFailedAttemptsCount() + 1
@@ -417,14 +427,73 @@ class CryptoSecurityManager(
             attempts >= 5 -> 30
             else -> 0
         }
-        val editor = prefs.edit().putInt("vault_failed_attempts", attempts)
-        if (lockoutSec > 0) editor.putLong("vault_lockout_until_ms", System.currentTimeMillis() + lockoutSec * 1000L)
-        editor.apply()
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val nowWallClock = System.currentTimeMillis()
+        writeLockoutState(
+            LockoutState(
+                failedAttempts = attempts,
+                untilElapsedMs = nowElapsed + lockoutSec * 1000L,
+                untilWallClockMs = nowWallClock + lockoutSec * 1000L,
+                lastElapsedMs = nowElapsed
+            )
+        )
         return VaultAuthResult.INVALID_PIN(attempts, lockoutSec)
     }
 
     private fun resetFailedAttempts() {
-        prefs.edit().remove("vault_failed_attempts").remove("vault_lockout_until_ms").apply()
+        prefs.edit().remove(LOCKOUT_STATE_KEY).remove(LOCKOUT_STATE_IV_KEY)
+            .remove("vault_failed_attempts").remove("vault_lockout_until_ms").apply()
+    }
+
+    private data class LockoutState(
+        val failedAttempts: Int,
+        val untilElapsedMs: Long,
+        val untilWallClockMs: Long,
+        val lastElapsedMs: Long
+    )
+
+    private fun writeLockoutState(state: LockoutState) {
+        val plaintext = listOf(
+            state.failedAttempts,
+            state.untilElapsedMs,
+            state.untilWallClockMs,
+            state.lastElapsedMs
+        ).joinToString("|").toByteArray(Charsets.UTF_8)
+        val (ciphertext, iv) = encryptBytes(plaintext, VAULT_META_KEY_ALIAS)
+        plaintext.fill(0)
+        check(prefs.edit()
+            .putString(LOCKOUT_STATE_KEY, Base64.encodeToString(ciphertext, Base64.NO_WRAP))
+            .putString(LOCKOUT_STATE_IV_KEY, Base64.encodeToString(iv, Base64.NO_WRAP))
+            .remove("vault_failed_attempts")
+            .remove("vault_lockout_until_ms")
+            .commit()) { "Could not persist authenticated vault lockout state" }
+    }
+
+    private fun readLockoutState(): LockoutState? {
+        val encoded = prefs.getString(LOCKOUT_STATE_KEY, null) ?: return null
+        val encodedIv = prefs.getString(LOCKOUT_STATE_IV_KEY, null)
+            ?: throw SecurityException("Authenticated vault lockout state is incomplete")
+        return try {
+            val plaintext = decryptBytes(
+                Base64.decode(encoded, Base64.NO_WRAP),
+                Base64.decode(encodedIv, Base64.NO_WRAP),
+                VAULT_META_KEY_ALIAS
+            )
+            try {
+                val fields = plaintext.toString(Charsets.UTF_8).split('|')
+                require(fields.size == 4)
+                LockoutState(
+                    failedAttempts = fields[0].toInt().coerceAtLeast(0),
+                    untilElapsedMs = fields[1].toLong().coerceAtLeast(0L),
+                    untilWallClockMs = fields[2].toLong().coerceAtLeast(0L),
+                    lastElapsedMs = fields[3].toLong().coerceAtLeast(0L)
+                )
+            } finally {
+                plaintext.fill(0)
+            }
+        } catch (error: Throwable) {
+            throw SecurityException("Authenticated vault lockout state is invalid", error)
+        }
     }
 
     fun isVaultConfigured(): Boolean = prefs.contains("vault_pin_hash") && prefs.contains("vault_pin_salt")

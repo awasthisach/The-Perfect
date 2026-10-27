@@ -35,6 +35,18 @@ class ArchiveService(
         includeVault: Boolean = true,
         includeDatabase: Boolean = true
     ): Result<ArchiveArtifact> = withContext(Dispatchers.IO) {
+        if (includeVault) {
+            // The vault payload is encrypted with an Android Keystore key. That key is
+            // device-bound, so silently uploading this artifact would create a backup that
+            // cannot be restored on a replacement device. Until an explicit user-supplied
+            // portable key flow exists, refuse instead of claiming cross-device recovery.
+            return@withContext Result.failure(
+                ArchiveException(
+                    "Portable vault backup is unavailable: refusing a Keystore-bound archive. " +
+                        "Create a database-only backup or use the future portable-key flow."
+                )
+            )
+        }
         val timestamp = System.currentTimeMillis()
         val stagingDir = File(cacheDir, "archive-staging-$timestamp")
         val zipFile = File(cacheDir, "backup-$timestamp.zip")

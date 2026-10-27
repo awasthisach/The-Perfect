@@ -15,6 +15,22 @@ import java.nio.file.Files
 /** Real snapshot/archive/decryptor/applier boundary. Crypto transport is stubbed here;
  * authenticated encryption and SQLCipher validation require the native suite separately. */
 class ArchiveRoundTripTest {
+    @Test
+    fun vaultArchiveFailsClosedWithoutPortableKey() = runBlocking {
+        val root = Files.createTempDirectory("archive-portability").toFile()
+        try {
+            val result = ArchiveService(
+                File(root, "cache"),
+                emptyList(),
+                mock<CryptoSecurityManager>()
+            ).createArchive(includeVault = true, includeDatabase = false)
+            assertTrue(result.isFailure)
+            assertTrue(result.exceptionOrNull()?.message.orEmpty().contains("Portable vault backup is unavailable"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     @Test fun actualProducerRestoresDatabaseAndWalUsingDeclaredLayout() = runBlocking {
         val root = Files.createTempDirectory("archive-roundtrip").toFile()
         try {
