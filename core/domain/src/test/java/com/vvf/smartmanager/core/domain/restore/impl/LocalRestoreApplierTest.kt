@@ -222,6 +222,43 @@ class LocalRestoreApplierTest {
     }
 
     @Test
+    fun rollbackRestoresDatabaseWalWithDatabase() = runBlocking {
+        val root = temp.newFolder("restore-wal-state")
+        val liveDb = File(root, "live.db").apply { writeText("ORIGINAL-DB") }
+        val liveWal = File(root, "live.db-wal").apply { writeText("ORIGINAL-WAL") }
+        val liveVault = File(root, "vault").also { it.mkdirs(); File(it, "item.bin").writeText("VAULT") }
+        val applier = LocalRestoreApplier(liveDb, liveVault, File(root, "snapshots"))
+
+        val snapshot = applier.prepare().getOrThrow()
+        liveDb.writeText("PARTIAL-DB")
+        liveWal.writeText("PARTIAL-WAL")
+
+        val rollback = applier.rollback(snapshot)
+
+        assertTrue("Rollback must restore database and WAL together", rollback.isSuccess)
+        assertEquals("ORIGINAL-DB", liveDb.readText())
+        assertEquals("ORIGINAL-WAL", liveWal.readText())
+    }
+
+    @Test
+    fun missingWalRollbackSnapshotFailsBeforeMutatingDatabase() = runBlocking {
+        val root = temp.newFolder("missing-wal-snapshot")
+        val liveDb = File(root, "live.db").apply { writeText("ORIGINAL-DB") }
+        File(root, "live.db-wal").writeText("ORIGINAL-WAL")
+        val liveVault = File(root, "vault").also { it.mkdirs(); File(it, "item.bin").writeText("ORIGINAL-VAULT") }
+        val applier = LocalRestoreApplier(liveDb, liveVault, File(root, "snapshots"))
+
+        val snapshot = applier.prepare().getOrThrow()
+        liveDb.writeText("PARTIAL-DB")
+        snapshot.databaseWalSnapshotPath!!.delete()
+
+        val rollback = applier.rollback(snapshot)
+
+        assertTrue("Missing WAL recovery material must fail closed", rollback.isFailure)
+        assertEquals("Preflight must leave the database untouched", "PARTIAL-DB", liveDb.readText())
+    }
+
+    @Test
     fun rollbackMissingVaultSnapshotFailsBeforeMutatingDatabase() = runBlocking {
         val root = temp.newFolder("missing-vault-snapshot")
         val liveDb = File(root, "live.db").apply { writeText("ORIGINAL-DB") }
