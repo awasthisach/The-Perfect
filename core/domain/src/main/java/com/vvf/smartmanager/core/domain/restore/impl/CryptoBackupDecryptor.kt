@@ -84,6 +84,9 @@ class CryptoBackupDecryptor(
             )
         } catch (error: Throwable) {
             passphrase?.fill(0.toChar())
+            // This directory is isolated and owned by the restore attempt; it may contain
+            // plaintext vault payload or the imported SQLCipher passphrase after partial unzip.
+            stagingDir.deleteRecursively()
             Result.failure(RestoreException("Backup decryption failed", error))
         }
     }
