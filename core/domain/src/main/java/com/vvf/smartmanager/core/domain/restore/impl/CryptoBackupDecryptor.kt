@@ -68,6 +68,9 @@ class CryptoBackupDecryptor(
             } else {
                 hasDatabasePayload
             }
+            if (metadata != null && metadata.version !in 1..3) {
+                throw SecurityException("Unsupported archive metadata version: ${metadata.version}")
+            }
             val includesVault = if (metadata != null && metadata.version >= 3) {
                 metadata.includesVault
             } else {
@@ -75,6 +78,24 @@ class CryptoBackupDecryptor(
             }
             if (includesDatabase && !hasDatabasePayload) {
                 throw SecurityException("Archive declares a database but contains no database payload")
+            }
+            if (metadata != null && metadata.version >= 3) {
+                if (!includesDatabase && hasDatabasePayload) {
+                    throw SecurityException("Archive metadata excludes a database that is present in the payload")
+                }
+                if (!includesVault && vaultItemCount > 0) {
+                    throw SecurityException("Archive metadata excludes vault contents that are present in the payload")
+                }
+            }
+            if (metadata != null) {
+                val actualFileCount = stagingDir.walkTopDown()
+                    .count { it.isFile && it.name != "metadata.json" }
+                if (actualFileCount < metadata.fileCount) {
+                    throw SecurityException("Archive payload is incomplete: expected ${metadata.fileCount} files, found $actualFileCount")
+                }
+                if (vaultItemCount < metadata.vaultItemCount) {
+                    throw SecurityException("Archive vault payload is incomplete: expected ${metadata.vaultItemCount} items, found $vaultItemCount")
+                }
             }
             val actualBackupInfo = verifiedArtifact.backupInfo.copy(
                 includesDatabase = includesDatabase,
