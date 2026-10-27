@@ -324,9 +324,15 @@ class VVFApplication : Application(), Configuration.Provider {
 
         // Restore staging can contain decrypted payloads or temporary GCM plaintext files.
         // Preserve the separate snapshots directory: it may contain the only rollback copy.
-        File(filesDir, "restore-work").listFiles().orEmpty()
-            .filter { it.name.startsWith("restore-") || it.name.startsWith("dry-run-") }
-            .forEach(::deleteStalePlaintextArtifact)
+        // The previous app version staged restore plaintext under cacheDir/restore-work.
+        // Clean only transient attempt directories there; preserve legacy snapshots because they
+        // may be the only recovery material for a process interrupted before this upgrade.
+        listOf(File(filesDir, "restore-work"), File(cacheDir, "restore-work"))
+            .forEach { restoreRoot ->
+                restoreRoot.listFiles().orEmpty()
+                    .filter { it.name.startsWith("restore-") || it.name.startsWith("dry-run-") }
+                    .forEach(::deleteStalePlaintextArtifact)
+            }
     }
 
     private fun deleteStalePlaintextArtifact(file: File) {
