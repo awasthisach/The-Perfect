@@ -126,7 +126,14 @@ class ArchiveService(
             File(stagingDir, "metadata.json").writeText(json.encodeToString(metadata))
             zipDirectory(stagingDir, zipFile)
             portableCrypto.encryptFile(zipFile, encryptedFile, passphrase)
-            zipFile.delete()
+            if (zipFile.exists() && !zipFile.delete()) {
+                throw ArchiveException("Unable to remove plaintext ZIP after encryption")
+            }
+            // The staging tree contains the raw SQLCipher passphrase and temporarily decrypted
+            // vault payloads. Do not publish/upload a backup unless this plaintext is removed.
+            if (stagingDir.exists() && !stagingDir.deleteRecursively()) {
+                throw ArchiveException("Unable to remove plaintext backup staging")
+            }
 
             if (!encryptedFile.isFile || encryptedFile.length() == 0L) {
                 return@withContext Result.failure(ArchiveException("Encryption produced no artifact"))
