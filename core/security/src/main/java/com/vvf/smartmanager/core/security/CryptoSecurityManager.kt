@@ -287,6 +287,14 @@ class CryptoSecurityManager(
         present.forEach { name ->
             File(snapshot, name).copyTo(File(context.filesDir, name), overwrite = true)
         }
+        listOf(
+            File(context.filesDir, DB_PASSPHRASE_V2_FILE + ".restore-stage"),
+            File(context.filesDir, DB_PASSPHRASE_V2_FILE + ".restore-previous")
+        ).forEach { stale ->
+            if (stale.exists() && !stale.delete()) {
+                throw SecurityException("Unable to remove interrupted database key migration artifact")
+            }
+        }
     }
 
     /**
