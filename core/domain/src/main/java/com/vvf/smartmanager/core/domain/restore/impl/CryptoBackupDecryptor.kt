@@ -1,11 +1,13 @@
 package com.vvf.smartmanager.core.domain.restore.impl
 
+import com.vvf.smartmanager.core.domain.backup.ArchiveMetadata
 import com.vvf.smartmanager.core.domain.restore.BackupDecryptor
 import com.vvf.smartmanager.core.domain.restore.DecryptedBackup
 import com.vvf.smartmanager.core.domain.restore.RestoreException
 import com.vvf.smartmanager.core.domain.restore.VerifiedArtifact
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import com.vvf.smartmanager.core.security.PortableBackupCrypto
+import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.zip.ZipInputStream
 
@@ -14,6 +16,7 @@ class CryptoBackupDecryptor(
     private val crypto: CryptoSecurityManager,
     private val portableCrypto: PortableBackupCrypto = PortableBackupCrypto()
 ) : BackupDecryptor {
+    private val json = Json { ignoreUnknownKeys = true }
     override suspend fun decrypt(
         verifiedArtifact: VerifiedArtifact,
         stagingDir: File,
@@ -47,18 +50,43 @@ class CryptoBackupDecryptor(
             }
             unzip(decryptedZip, stagingDir)
             decryptedZip.delete()
+            val metadataFile = File(stagingDir, "metadata.json")
+            val metadata = metadataFile.takeIf { it.isFile }?.let {
+                json.decodeFromString(ArchiveMetadata.serializer(), it.readText())
+            }
             val databaseDir = File(stagingDir, "database")
             val databaseFile = databaseDir.walkTopDown().firstOrNull {
                 it.isFile && !it.name.endsWith("-wal") && !it.name.endsWith("-shm")
             } ?: databaseDir
+            val hasDatabasePayload = databaseFile.isFile && databaseFile.length() > 0L
             val vaultDir = File(stagingDir, "vault").also { if (!it.exists()) it.mkdirs() }
+            val vaultItemCount = vaultDir.walkTopDown().count { it.isFile }
+            // v3 records explicit flags. Older archives are inferred from actual payloads because
+            // the remote provider metadata does not carry the includeVault/includeDatabase fields.
+            val includesDatabase = if (metadata != null && metadata.version >= 3) {
+                metadata.includesDatabase
+            } else {
+                hasDatabasePayload
+            }
+            val includesVault = if (metadata != null && metadata.version >= 3) {
+                metadata.includesVault
+            } else {
+                (metadata?.vaultItemCount ?: vaultItemCount) > 0
+            }
+            if (includesDatabase && !hasDatabasePayload) {
+                throw SecurityException("Archive declares a database but contains no database payload")
+            }
+            val actualBackupInfo = verifiedArtifact.backupInfo.copy(
+                includesDatabase = includesDatabase,
+                includesVault = includesVault
+            )
             val databasePassphraseFile = File(stagingDir, "key-material/database-passphrase.bin")
-            if (isPortable && verifiedArtifact.backupInfo.includesDatabase) {
+            if (isPortable && actualBackupInfo.includesDatabase) {
                 require(databasePassphraseFile.isFile && databasePassphraseFile.length() == 32L) {
                     "Portable archive is missing valid database key material"
                 }
             }
-            if (isPortable && verifiedArtifact.backupInfo.includesVault) {
+            if (isPortable && actualBackupInfo.includesVault) {
                 vaultDir.walkTopDown().filter { it.isFile }.toList().forEach { plainFile ->
                     val encryptedTemp = File(plainFile.parentFile, plainFile.name + ".local-encrypted")
                     crypto.encryptFile(plainFile, encryptedTemp)
@@ -77,7 +105,7 @@ class CryptoBackupDecryptor(
                     stagingDir = stagingDir,
                     databaseFile = databaseFile,
                     vaultDir = vaultDir,
-                    backupInfo = verifiedArtifact.backupInfo,
+                    backupInfo = actualBackupInfo,
                     timestamp = System.currentTimeMillis(),
                     databasePassphraseFile = databasePassphraseFile.takeIf { isPortable && it.isFile }
                 )
