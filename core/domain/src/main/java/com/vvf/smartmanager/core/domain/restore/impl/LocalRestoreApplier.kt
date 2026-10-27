@@ -91,6 +91,9 @@ class LocalRestoreApplier(
         val backupLiveVault = File(parent, "${liveVaultDir.name}.restore-bak-${UUID.randomUUID()}")
 
         return try {
+            if (!File(snapshotRoot, JOURNAL_FILE).isFile) {
+                throw RestoreException("Restore transaction journal is missing; refusing to mutate live data")
+            }
             beforeApply?.invoke()
 
             val manifestFile = File(decryptedBackup.stagingDir, "metadata.json")
