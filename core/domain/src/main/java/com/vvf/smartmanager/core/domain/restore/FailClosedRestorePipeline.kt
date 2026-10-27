@@ -131,7 +131,7 @@ class FailClosedRestorePipeline(
             requireWorkingDirectory(stagingDir)
             val downloaded = downloader.download(remoteBackupId).getOrElse { return Result.failure(it) }
             val verified = verifier.verify(downloaded, expectedChecksum).getOrElse { return Result.failure(it) }
-            val decrypted = decryptor.decrypt(verified, stagingDir).getOrElse { return Result.failure(it) }
+            val decrypted = decryptor.decrypt(verified, stagingDir, passphrase).getOrElse { return Result.failure(it) }
             val fileCount = decrypted.stagingDir.walkTopDown().count { it.isFile }
             val vaultCount = decrypted.vaultDir.walkTopDown().count { it.isFile }
             Result.success(
