@@ -10,6 +10,7 @@ import com.vvf.smartmanager.core.domain.LockFileInVaultUseCase
 import com.vvf.smartmanager.core.domain.RestoreVaultItemUseCase
 import com.vvf.smartmanager.core.domain.VaultAuthUseCase
 import com.vvf.smartmanager.core.model.VaultItem
+import com.vvf.smartmanager.core.security.VaultBiometricProof
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -269,7 +270,11 @@ class VaultViewModel(
         }
     }
 
-    fun onBiometricAuthSuccess() {
+    fun onBiometricAuthSuccess(proof: VaultBiometricProof) {
+        if (!proof.consume()) {
+            _uiState.update { it.copy(errorMessage = "Biometric proof is invalid or has already been used") }
+            return
+        }
         val state = _uiState.value
         if (state.isConfigured && !state.isLockedOut && state.isBiometricEnabled) {
             _uiState.update {
