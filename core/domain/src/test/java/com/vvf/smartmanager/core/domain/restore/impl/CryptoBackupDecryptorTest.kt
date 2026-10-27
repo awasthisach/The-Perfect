@@ -67,6 +67,48 @@ class CryptoBackupDecryptorTest {
     }
 
     @Test
+    fun legacyRootLevelDatabaseLayoutIsRecognized() {
+        val root = temp.newFolder("legacy-root-db")
+        val payload = File(root, "payload.zip")
+        val expectedDatabase = "LEGACY-ROOT-DB-CIPHERTEXT".toByteArray()
+        val expectedPassphrase = ByteArray(32) { (it + 19).toByte() }
+        val manifest = """{"version":3,"timestamp":1,"checksumSha256":"","databaseSizeBytes":0,"vaultSizeBytes":0,"fileCount":2,"vaultItemCount":0,"appVersion":"test","schemaVersion":1,"includesDatabase":true,"includesVault":false}"""
+        ZipOutputStream(payload.outputStream()).use { zip ->
+            zip.putNextEntry(ZipEntry("vvf_smart_manager_enc.db"))
+            zip.write(expectedDatabase)
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("key-material/database-passphrase.bin"))
+            zip.write(expectedPassphrase)
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("metadata.json"))
+            zip.write(manifest.toByteArray())
+            zip.closeEntry()
+        }
+        val encrypted = File(root, "portable.vvfbak")
+        PortableBackupCrypto().encryptFile(payload, encrypted, "a sufficiently long backup passphrase".toCharArray())
+        val info = CloudBackupInfo(
+            backupId = "remote-legacy-layout",
+            timestamp = 1L,
+            backupName = "legacy-layout.vvfbak",
+            backupSizeBytes = encrypted.length(),
+            checksumSha256 = "verified-by-caller"
+        )
+        val staging = File(root, "restore-stage").apply { mkdirs() }
+        val result = kotlinx.coroutines.runBlocking {
+            CryptoBackupDecryptor(mock<CryptoSecurityManager>()).decrypt(
+                VerifiedArtifact(encrypted, info, "verified-by-caller"),
+                staging,
+                "a sufficiently long backup passphrase".toCharArray()
+            )
+        }
+
+        assertTrue("Legacy root-level database layout should decrypt", result.isSuccess)
+        assertEquals("vvf_smart_manager_enc.db", result.getOrThrow().databaseFile.name)
+        assertArrayEquals(expectedDatabase, result.getOrThrow().databaseFile.readBytes())
+        assertArrayEquals(expectedPassphrase, result.getOrThrow().databasePassphraseFile!!.readBytes())
+    }
+
+    @Test
     fun authenticatedManifestOverridesIncompleteProviderPayloadFlags() {
         val root = temp.newFolder("manifest-flags")
         val payload = File(root, "payload.zip")
