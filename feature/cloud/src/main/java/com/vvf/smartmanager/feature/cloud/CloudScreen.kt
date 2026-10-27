@@ -257,6 +257,21 @@ fun CloudScreen(
                                 onCheckedChange = { viewModel.toggleVaultBackup(it) }
                             )
                         }
+                        if (uiState.includeVaultInBackup) {
+                            Text(
+                                "Your current real vault PIN is checked locally and is never included in the backup. A new local PIN must be configured after restore.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            OutlinedTextField(
+                                value = uiState.vaultPin,
+                                onValueChange = viewModel::updateVaultPin,
+                                label = { Text("Current vault PIN") },
+                                singleLine = true,
+                                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             "Portable backups are encrypted with this passphrase. Keep it safe; the app cannot recover it.",
@@ -274,7 +289,7 @@ fun CloudScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                         Button(
                             onClick = { viewModel.triggerCloudBackup() },
-                            enabled = !uiState.isBackingUp && uiState.backupPassphrase.length >= 12,
+                            enabled = !uiState.isBackingUp && uiState.backupPassphrase.length >= 12 && (!uiState.includeVaultInBackup || uiState.vaultPin.isNotEmpty()),
                             colors = ButtonDefaults.buttonColors(containerColor = BhagwaOrange),
                             modifier = Modifier.fillMaxWidth()
                         ) {
