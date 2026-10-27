@@ -67,8 +67,9 @@ class CryptoBackupDecryptor(
                         it.name != "metadata.json" &&
                         it.name != "vault_auth.json" &&
                         it.name != "payload.zip" &&
-                        !it.name.endsWith("-wal") &&
-                        !it.name.endsWith("-shm")
+                        it.name.endsWith(".db", ignoreCase = true) &&
+                        !it.name.endsWith("-wal", ignoreCase = true) &&
+                        !it.name.endsWith("-shm", ignoreCase = true)
                 }
             } else null
             val databaseFile = databaseInCurrentLayout ?: legacyRootDatabase ?: databaseDir
