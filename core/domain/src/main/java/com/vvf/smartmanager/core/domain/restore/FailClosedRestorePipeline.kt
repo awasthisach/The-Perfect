@@ -162,6 +162,7 @@ class FailClosedRestorePipeline(
 
     private fun cleanupSnapshot(snapshot: RestoreSnapshot) {
         runCatching { snapshot.databaseSnapshotPath.delete() }
+        runCatching { snapshot.databaseWalSnapshotPath?.delete() }
         runCatching { snapshot.vaultSnapshotPath.deleteRecursively() }
     }
 
