@@ -166,10 +166,12 @@ class CryptoSecurityManager(
                     "AndroidKeyStore is unavailable in a production environment; refusing to use in-memory keys"
                 )
             }
-            if (!memoryKeyMap.containsKey(alias)) {
+            val memoryKeyId = "$keyStoreProvider:$alias"
+            if (!memoryKeyMap.containsKey(memoryKeyId)) {
                 val rawKey = ByteArray(32)
                 SecureRandom().nextBytes(rawKey)
-                memoryKeyMap[alias] = SecretKeySpec(rawKey, "AES")
+                memoryKeyMap[memoryKeyId] = SecretKeySpec(rawKey, "AES")
+                rawKey.fill(0)
             }
         }
     }
@@ -182,10 +184,14 @@ class CryptoSecurityManager(
             if (!allowInMemoryFallback) {
                 throw IllegalStateException("KeyStore unavailable for alias: $alias")
             }
-            memoryKeyMap.getOrPut(alias) {
+            memoryKeyMap.getOrPut("$keyStoreProvider:$alias") {
                 val rawKey = ByteArray(32)
                 SecureRandom().nextBytes(rawKey)
-                SecretKeySpec(rawKey, "AES")
+                try {
+                    SecretKeySpec(rawKey, "AES")
+                } finally {
+                    rawKey.fill(0)
+                }
             }
         }
     }
