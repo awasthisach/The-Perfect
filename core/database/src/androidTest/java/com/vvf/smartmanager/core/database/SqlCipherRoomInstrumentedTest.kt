@@ -1,11 +1,13 @@
 package com.vvf.smartmanager.core.database
 
 import android.content.Context
+import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
 import kotlinx.coroutines.runBlocking
 import net.zetetic.database.sqlcipher.SQLiteDatabase
+import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -111,6 +113,56 @@ class SqlCipherRoomInstrumentedTest {
             wrongDatabase.close()
         }
         assertTrue("Wrong passphrase must fail closed instead of opening the encrypted DB", rejected)
+    }
+
+    @Test
+    fun encryptedRoomMigrationFromV1PreservesRowsAndAddsVaultJournal() = runBlocking {
+        val passphrase = ByteArray(32) { (it + 31).toByte() }
+        val legacyPassphrase = passphrase.copyOf()
+        val path = "/phase4/legacy-room-row.txt"
+        val legacy = Room.databaseBuilder(
+            context,
+            LegacyV1Database::class.java,
+            VVFDatabase.DATABASE_NAME
+        )
+            .openHelperFactory(SupportOpenHelperFactory(legacyPassphrase))
+            .build()
+
+        try {
+            legacy.openHelper.writableDatabase.query("PRAGMA cipher_version").use {
+                assertTrue("Legacy DB must be encrypted with SQLCipher", it.moveToFirst())
+            }
+            // The legacy helper is now keyed and open; it no longer needs the transient key bytes.
+            legacyPassphrase.fill(0)
+            legacy.fileDao().insertOrUpdate(
+                FileMetadataEntity(
+                    path = path,
+                    name = "legacy-room-row.txt",
+                    parentPath = "/phase4",
+                    sizeBytes = 73L,
+                    mimeType = "text/plain",
+                    isDirectory = false,
+                    modifiedDate = 2L
+                )
+            )
+        } finally {
+            legacy.close()
+        }
+
+        val migrated = VVFDatabase.buildEncryptedDatabase(context, passphrase)
+        passphrase.fill(0)
+        try {
+            val row = migrated.fileDao().getByPath(path)
+            assertEquals("legacy-room-row.txt", row?.name)
+            assertEquals(73L, row?.sizeBytes)
+            migrated.openHelper.writableDatabase.query(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'vault_journal'"
+            ).use { cursor ->
+                assertTrue("Migration 1->2 must create vault_journal", cursor.moveToFirst())
+            }
+        } finally {
+            migrated.close()
+        }
     }
 
     private fun deleteDatabaseArtifacts() {
