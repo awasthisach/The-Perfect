@@ -307,6 +307,7 @@ class LocalRestoreApplier(
 
     private fun cleanupTemps(tempDb: File, tempVault: File) {
         runCatching { if (tempDb.exists()) tempDb.delete() }
+        runCatching { File(tempDb.path + "-wal").delete() }
         runCatching { if (tempVault.exists()) tempVault.deleteRecursively() }
     }
 }
