@@ -71,6 +71,10 @@ class CloudViewModel(
         _uiState.update { it.copy(backupPassphrase = value) }
     }
 
+    fun updateVaultPin(value: String) {
+        _uiState.update { it.copy(vaultPin = value) }
+    }
+
     /** Prepares visible state before the activity launches the Google sign-in intent. */
     fun beginGoogleDriveSignIn() {
         _uiState.update {
@@ -163,12 +167,18 @@ class CloudViewModel(
                 _uiState.update { it.copy(statusMessage = "Use a backup passphrase of at least 12 characters.") }
                 return@launch
             }
-            _uiState.update { it.copy(isBackingUp = true, backupPassphrase = "", statusMessage = "Creating passphrase-encrypted portable backup...") }
+            val vaultPin = _uiState.value.vaultPin
+            if (_uiState.value.includeVaultInBackup && vaultPin.isEmpty()) {
+                _uiState.update { it.copy(statusMessage = "Enter the current real vault PIN to include vault contents.") }
+                return@launch
+            }
+            _uiState.update { it.copy(isBackingUp = true, backupPassphrase = "", vaultPin = "", statusMessage = "Creating passphrase-encrypted portable backup...") }
             val result = cloudSyncUseCase.createCloudBackup(
                 providerType = provider,
                 includeVault = _uiState.value.includeVaultInBackup,
                 includeDatabase = true,
-                passphrase = passphrase.toCharArray()
+                passphrase = passphrase.toCharArray(),
+                vaultPin = vaultPin
             )
             if (result.isSuccess) {
                 val backup = result.getOrThrow()
@@ -204,7 +214,11 @@ class CloudViewModel(
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        statusMessage = "Restored ${backupInfo.backupName} successfully."
+                        statusMessage = if (backupInfo.includesVault) {
+                            "Restored ${backupInfo.backupName}. Configure a new local vault PIN before unlocking the restored vault."
+                        } else {
+                            "Restored ${backupInfo.backupName} successfully."
+                        }
                     )
                 }
             } else {
