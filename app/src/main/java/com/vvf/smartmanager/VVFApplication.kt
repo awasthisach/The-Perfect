@@ -263,7 +263,6 @@ class VVFApplication : Application(), Configuration.Provider {
                 }
                 database.close()
                 Log.i(TAG, "Closed Room database before restore apply")
-            }
             },
             cloudSyncDao = database.cloudSyncDao()
         )
