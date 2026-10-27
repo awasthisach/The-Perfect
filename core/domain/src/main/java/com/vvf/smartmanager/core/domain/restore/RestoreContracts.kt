@@ -20,7 +20,8 @@ interface BackupVerifier {
 interface BackupDecryptor {
     suspend fun decrypt(
         verifiedArtifact: VerifiedArtifact,
-        stagingDir: File
+        stagingDir: File,
+        passphrase: CharArray? = null
     ): Result<DecryptedBackup>
 }
 
@@ -50,7 +51,8 @@ data class DecryptedBackup(
     val databaseFile: File,
     val vaultDir: File,
     val backupInfo: CloudBackupInfo,
-    val timestamp: Long
+    val timestamp: Long,
+    val databasePassphraseFile: File? = null
 )
 
 data class RestoreSnapshot(
@@ -61,7 +63,9 @@ data class RestoreSnapshot(
     val databaseExisted: Boolean = databaseSnapshotPath.exists(),
     val vaultExisted: Boolean = vaultSnapshotPath.exists(),
     val databaseWalSnapshotPath: File? = null,
-    val databaseWalExisted: Boolean = databaseWalSnapshotPath?.exists() == true
+    val databaseWalExisted: Boolean = databaseWalSnapshotPath?.exists() == true,
+    val keyStateSnapshotPath: File? = null,
+    val keyStateExisted: Boolean = keyStateSnapshotPath?.exists() == true
 )
 
 data class AppliedRestore(
