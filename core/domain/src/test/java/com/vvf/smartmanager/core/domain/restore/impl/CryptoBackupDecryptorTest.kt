@@ -143,6 +143,45 @@ class CryptoBackupDecryptorTest {
     }
 
     @Test
+    fun rootLevelNonDatabaseFileIsNotAcceptedAsDatabasePayload() {
+        val root = temp.newFolder("legacy-non-db-root")
+        val payload = File(root, "payload.zip")
+        val manifest = """{"version":3,"timestamp":1,"checksumSha256":"","databaseSizeBytes":0,"vaultSizeBytes":0,"fileCount":2,"vaultItemCount":0,"appVersion":"test","schemaVersion":1,"includesDatabase":true,"includesVault":false}"""
+        ZipOutputStream(payload.outputStream()).use { zip ->
+            zip.putNextEntry(ZipEntry("notes.txt"))
+            zip.write("not a database".toByteArray())
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("key-material/database-passphrase.bin"))
+            zip.write(ByteArray(32) { (it + 1).toByte() })
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("metadata.json"))
+            zip.write(manifest.toByteArray())
+            zip.closeEntry()
+        }
+        val encrypted = File(root, "portable.vvfbak")
+        PortableBackupCrypto().encryptFile(payload, encrypted, "a sufficiently long backup passphrase".toCharArray())
+        val info = CloudBackupInfo(
+            backupId = "remote-non-db-root",
+            timestamp = 1L,
+            backupName = "non-db.vvfbak",
+            backupSizeBytes = encrypted.length(),
+            checksumSha256 = "verified-by-caller"
+        )
+        val staging = File(root, "restore-stage").apply { mkdirs() }
+
+        val result = kotlinx.coroutines.runBlocking {
+            CryptoBackupDecryptor(mock<CryptoSecurityManager>()).decrypt(
+                VerifiedArtifact(encrypted, info, "verified-by-caller"),
+                staging,
+                "a sufficiently long backup passphrase".toCharArray()
+            )
+        }
+
+        assertTrue("Non-database root files must not be accepted as the database", result.isFailure)
+        assertFalse("Rejected archive must not leave plaintext staging", staging.exists())
+    }
+
+    @Test
     fun portableArchiveMissingDatabaseKeyMaterialFailsClosed() {
         val root = temp.newFolder("portable-missing-key")
         val payload = File(root, "payload.zip")
