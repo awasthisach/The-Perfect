@@ -410,9 +410,16 @@ class CryptoSecurityManager(
         val remainingMs = if (nowElapsed >= state.lastElapsedMs) {
             state.untilElapsedMs - nowElapsed
         } else {
-            // elapsedRealtime resets after reboot. Wall-clock recovery is only used in
-            // that exceptional case; normal lockout decisions never trust a user clock.
-            state.untilWallClockMs - System.currentTimeMillis()
+            // elapsedRealtime resets after reboot. Restart the original active duration
+            // from the new monotonic origin; never consult a user-adjustable wall clock.
+            val durationMs = (state.untilElapsedMs - state.lastElapsedMs).coerceAtLeast(0L)
+            if (durationMs > 0) {
+                writeLockoutState(state.copy(
+                    untilElapsedMs = nowElapsed + durationMs,
+                    lastElapsedMs = nowElapsed
+                ))
+            }
+            durationMs
         }
         return if (remainingMs > 0) (remainingMs / 1000L).toInt().coerceAtLeast(1) else 0
     }
@@ -428,12 +435,10 @@ class CryptoSecurityManager(
             else -> 0
         }
         val nowElapsed = SystemClock.elapsedRealtime()
-        val nowWallClock = System.currentTimeMillis()
         writeLockoutState(
             LockoutState(
                 failedAttempts = attempts,
                 untilElapsedMs = nowElapsed + lockoutSec * 1000L,
-                untilWallClockMs = nowWallClock + lockoutSec * 1000L,
                 lastElapsedMs = nowElapsed
             )
         )
@@ -448,7 +453,6 @@ class CryptoSecurityManager(
     private data class LockoutState(
         val failedAttempts: Int,
         val untilElapsedMs: Long,
-        val untilWallClockMs: Long,
         val lastElapsedMs: Long
     )
 
@@ -456,7 +460,6 @@ class CryptoSecurityManager(
         val plaintext = listOf(
             state.failedAttempts,
             state.untilElapsedMs,
-            state.untilWallClockMs,
             state.lastElapsedMs
         ).joinToString("|").toByteArray(Charsets.UTF_8)
         val (ciphertext, iv) = encryptBytes(plaintext, VAULT_META_KEY_ALIAS)
@@ -481,12 +484,11 @@ class CryptoSecurityManager(
             )
             try {
                 val fields = plaintext.toString(Charsets.UTF_8).split('|')
-                require(fields.size == 4)
+                require(fields.size == 3)
                 LockoutState(
                     failedAttempts = fields[0].toInt().coerceAtLeast(0),
                     untilElapsedMs = fields[1].toLong().coerceAtLeast(0L),
-                    untilWallClockMs = fields[2].toLong().coerceAtLeast(0L),
-                    lastElapsedMs = fields[3].toLong().coerceAtLeast(0L)
+                    lastElapsedMs = fields[2].toLong().coerceAtLeast(0L)
                 )
             } finally {
                 plaintext.fill(0)
