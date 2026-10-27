@@ -6,12 +6,14 @@ import com.vvf.smartmanager.core.model.CloudBackupInfo
 interface RestorePipeline {
     suspend fun restore(
         remoteBackupId: String,
-        expectedChecksum: String?
+        expectedChecksum: String?,
+        passphrase: CharArray? = null
     ): Result<RestoreResult>
 
     suspend fun dryRun(
         remoteBackupId: String,
-        expectedChecksum: String?
+        expectedChecksum: String?,
+        passphrase: CharArray? = null
     ): Result<DryRunResult>
 
     suspend fun rollback(snapshotToken: String): Result<Unit>
