@@ -57,6 +57,7 @@ class LocalRestoreApplierTest {
             liveVaultDir = liveVault,
             snapshotRoot = temp.newFolder("snaps")
         )
+        applier.prepare().getOrThrow()
         val result = applier.apply(
             DecryptedBackup(
                 stagingDir = staging,
@@ -99,6 +100,7 @@ class LocalRestoreApplierTest {
             snapshotRoot = temp.newFolder("snaps2"),
             beforeApply = { beforeCalled = true }
         )
+        applier.prepare().getOrThrow()
         val result = applier.apply(
             DecryptedBackup(
                 stagingDir = staging,
@@ -142,6 +144,7 @@ class LocalRestoreApplierTest {
             liveVaultDir = liveVault,
             snapshotRoot = temp.newFolder("snaps3")
         )
+        applier.prepare().getOrThrow()
         val result = applier.apply(
             DecryptedBackup(
                 stagingDir = staging,
@@ -171,6 +174,7 @@ class LocalRestoreApplierTest {
         val info = sampleInfo.copy(includesVault = false, includesDatabase = true)
         val applier = LocalRestoreApplier(liveDb, liveVault, temp.newFolder("database-only-snaps"))
 
+        applier.prepare().getOrThrow()
         val result = applier.apply(
             DecryptedBackup(
                 stagingDir = staging,
@@ -200,6 +204,7 @@ class LocalRestoreApplierTest {
         val info = sampleInfo.copy(includesVault = true, includesDatabase = false)
         val applier = LocalRestoreApplier(liveDb, liveVault, temp.newFolder("vault-only-snaps"))
 
+        applier.prepare().getOrThrow()
         val result = applier.apply(
             DecryptedBackup(
                 stagingDir = staging,
