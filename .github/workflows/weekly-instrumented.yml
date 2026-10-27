@@ -117,7 +117,7 @@ jobs:
           adb devices
 
       - name: SQLCipher instrumentation (HARD)
-        run: ./gradlew --no-daemon :core:database-compat:connectedDebugAndroidTest --stacktrace
+        run: ./gradlew --no-daemon :core:database:connectedDebugAndroidTest :core:database-compat:connectedDebugAndroidTest --stacktrace
 
       # Keep ledger freshness aligned with weekly hard gate (environment must contain "emulator")
       - name: Generate CPAS instrumented evidence
