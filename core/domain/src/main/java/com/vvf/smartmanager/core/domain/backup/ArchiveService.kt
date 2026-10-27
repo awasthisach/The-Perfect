@@ -34,9 +34,9 @@ class ArchiveService(
         includeDatabase: Boolean = true,
         passphrase: CharArray? = null
     ): Result<ArchiveArtifact> = withContext(Dispatchers.IO) {
-        if (passphrase == null || passphrase.isEmpty()) {
+        if (passphrase == null || passphrase.size < 12) {
             passphrase?.fill(0.toChar())
-            return@withContext Result.failure(ArchiveException("A non-empty backup passphrase is required"))
+            return@withContext Result.failure(ArchiveException("A backup passphrase of at least 12 characters is required"))
         }
         val timestamp = System.currentTimeMillis()
         val stagingDir = File(cacheDir, "archive-staging-$timestamp")
