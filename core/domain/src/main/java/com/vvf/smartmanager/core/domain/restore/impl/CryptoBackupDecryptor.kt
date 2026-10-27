@@ -27,8 +27,10 @@ class CryptoBackupDecryptor(
             }
             unzip(decryptedZip, stagingDir)
             decryptedZip.delete()
-            val databaseFile = File(stagingDir, "database").walkTopDown().firstOrNull { it.isFile }
-                ?: File(stagingDir, "database")
+            val databaseDir = File(stagingDir, "database")
+            val databaseFile = databaseDir.walkTopDown().firstOrNull {
+                it.isFile && !it.name.endsWith("-wal") && !it.name.endsWith("-shm")
+            } ?: databaseDir
             val vaultDir = File(stagingDir, "vault").also { if (!it.exists()) it.mkdirs() }
             Result.success(
                 DecryptedBackup(
