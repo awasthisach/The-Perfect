@@ -55,9 +55,23 @@ class CryptoBackupDecryptor(
                 json.decodeFromString(ArchiveMetadata.serializer(), it.readText())
             }
             val databaseDir = File(stagingDir, "database")
-            val databaseFile = databaseDir.walkTopDown().firstOrNull {
+            val databaseInCurrentLayout = databaseDir.walkTopDown().firstOrNull {
                 it.isFile && !it.name.endsWith("-wal") && !it.name.endsWith("-shm")
-            } ?: databaseDir
+            }
+            // Archives created before the database/ staging layout stored the DB at the ZIP root.
+            // Keep those device-bound archives restorable on the same device without treating
+            // metadata or legacy PIN metadata as a database payload.
+            val legacyRootDatabase = if (databaseInCurrentLayout == null) {
+                stagingDir.listFiles().orEmpty().firstOrNull {
+                    it.isFile &&
+                        it.name != "metadata.json" &&
+                        it.name != "vault_auth.json" &&
+                        it.name != "payload.zip" &&
+                        !it.name.endsWith("-wal") &&
+                        !it.name.endsWith("-shm")
+                }
+            } else null
+            val databaseFile = databaseInCurrentLayout ?: legacyRootDatabase ?: databaseDir
             val hasDatabasePayload = databaseFile.isFile && databaseFile.length() > 0L
             val vaultDir = File(stagingDir, "vault").also { if (!it.exists()) it.mkdirs() }
             val vaultItemCount = vaultDir.walkTopDown().count { it.isFile }
