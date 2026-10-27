@@ -28,6 +28,46 @@ class PortableBackupRestoreIntegrationTest {
     val temp = TemporaryFolder()
 
     @Test
+    fun interruptedRestoreRecoversDatabaseVaultAndWrappedKeyBeforeStartup() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val crypto = CryptoSecurityManager(context, "Robolectric")
+        val liveDatabase = temp.newFile("interrupted-live.db").apply { writeText("ORIGINAL-DB") }
+        val liveVault = temp.newFolder("interrupted-live-vault").also {
+            File(it, "original.bin").writeText("ORIGINAL-VAULT")
+        }
+        val snapshotRoot = temp.newFolder("interrupted-snapshots")
+        val applier = LocalRestoreApplier(
+            liveDatabaseFile = liveDatabase,
+            liveVaultDir = liveVault,
+            snapshotRoot = snapshotRoot,
+            cryptoSecurityManager = crypto
+        )
+        val originalPassphrase = crypto.getOrCreateDatabasePassphrase()
+        val snapshot = applier.prepare().getOrThrow()
+        liveDatabase.writeText("PARTIAL-DB")
+        File(liveVault, "original.bin").writeText("PARTIAL-VAULT")
+        val replacement = ByteArray(32) { (it + 11).toByte() }
+        crypto.replaceDatabasePassphraseForRestore(replacement)
+
+        LocalRestoreApplier.recoverInterruptedRestore(
+            liveDatabaseFile = liveDatabase,
+            liveVaultDir = liveVault,
+            snapshotRoot = snapshotRoot,
+            cryptoSecurityManager = crypto
+        )
+
+        assertEquals("ORIGINAL-DB", liveDatabase.readText())
+        assertEquals("ORIGINAL-VAULT", File(liveVault, "original.bin").readText())
+        val restoredPassphrase = crypto.getOrCreateDatabasePassphrase()
+        assertArrayEquals(originalPassphrase, restoredPassphrase)
+        assertTrue("Recovery must clear the active journal", !File(snapshotRoot, "active-restore.properties").exists())
+        assertTrue("Recovery must remove consumed rollback snapshots", snapshotRoot.listFiles().orEmpty().isEmpty())
+        originalPassphrase.fill(0)
+        restoredPassphrase.fill(0)
+        replacement.fill(0)
+    }
+
+    @Test
     fun portableArchiveRestoresDatabaseKeyAndRewrapsVaultFiles() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val crypto = CryptoSecurityManager(context, "Robolectric")
