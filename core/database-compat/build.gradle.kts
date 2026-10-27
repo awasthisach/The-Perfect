@@ -18,6 +18,7 @@ android {
 }
 
 dependencies {
+  androidTestImplementation(project(":core:security"))
   // Validate the current SQLCipher Android Room/SQLite integration against the legacy encrypted fixture.
   androidTestImplementation("androidx.sqlite:sqlite:2.7.0")
   androidTestImplementation(libs.androidx.junit)
