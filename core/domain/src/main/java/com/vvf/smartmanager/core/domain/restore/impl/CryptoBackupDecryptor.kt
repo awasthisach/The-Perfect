@@ -35,8 +35,10 @@ class CryptoBackupDecryptor(
                 offset == 4 && magic.contentEquals(byteArrayOf(0x56, 0x56, 0x46, 0x42))
             }
             if (isPortable) {
-                require(!passphrase.isNullOrEmpty()) { "Backup passphrase is required for this portable archive" }
-                portableCrypto.decryptFile(verifiedArtifact.file, decryptedZip, passphrase)
+                val portablePassphrase = passphrase
+                    ?: throw SecurityException("Backup passphrase is required for this portable archive")
+                require(portablePassphrase.isNotEmpty()) { "Backup passphrase must not be empty" }
+                portableCrypto.decryptFile(verifiedArtifact.file, decryptedZip, portablePassphrase)
             } else {
                 crypto.decryptFile(verifiedArtifact.file, decryptedZip)
             }
