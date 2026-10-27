@@ -57,7 +57,9 @@ data class RestoreSnapshot(
     val token: String,
     val timestamp: Long,
     val databaseSnapshotPath: File,
-    val vaultSnapshotPath: File
+    val vaultSnapshotPath: File,
+    val databaseExisted: Boolean = databaseSnapshotPath.exists(),
+    val vaultExisted: Boolean = vaultSnapshotPath.exists()
 )
 
 data class AppliedRestore(
