@@ -151,18 +151,18 @@ class VVFApplication : Application(), Configuration.Provider {
         if (!jvmUnitTest) {
             val liveDatabaseFile = getDatabasePath(VVFDatabase.DATABASE_NAME)
             val liveVaultDir = File(filesDir, "vvf_vault_encrypted")
-            // Recover snapshots created by the previous cacheDir-based restore path before
-            // touching the new filesDir journal. Preserved legacy snapshots must never be ignored.
+            // Recover the current journal first so its swap artifacts cannot be mistaken for
+            // an unjournaled legacy transaction. Then recover/retire the prior cacheDir journal.
             LocalRestoreApplier.recoverInterruptedRestore(
                 liveDatabaseFile = liveDatabaseFile,
                 liveVaultDir = liveVaultDir,
-                snapshotRoot = File(cacheDir, "restore-work/snapshots"),
+                snapshotRoot = File(filesDir, "restore-work/snapshots"),
                 cryptoSecurityManager = cryptoSecurityManager
             )
             LocalRestoreApplier.recoverInterruptedRestore(
                 liveDatabaseFile = liveDatabaseFile,
                 liveVaultDir = liveVaultDir,
-                snapshotRoot = File(filesDir, "restore-work/snapshots"),
+                snapshotRoot = File(cacheDir, "restore-work/snapshots"),
                 cryptoSecurityManager = cryptoSecurityManager
             )
         }
