@@ -46,7 +46,8 @@ object AppCompositionRoot {
         vaultDir: File,
         databaseName: String,
         beforeRestoreApply: (() -> Unit)? = null,
-        cloudSyncDao: CloudSyncDao? = null
+        cloudSyncDao: CloudSyncDao? = null,
+        onRestoreFinished: (() -> Unit)? = null
     ): CloudSyncUseCase {
         val restoreWorkingDir = File(context.filesDir, "restore-work")
         val restorePipeline = FailClosedRestorePipeline(
@@ -70,7 +71,8 @@ object AppCompositionRoot {
             pluginDrivers = pluginDrivers,
             archiveService = archiveService,
             restorePipeline = restorePipeline,
-            cloudSyncDao = cloudSyncDao
+            cloudSyncDao = cloudSyncDao,
+            onRestoreFinished = onRestoreFinished
         )
     }
 }
