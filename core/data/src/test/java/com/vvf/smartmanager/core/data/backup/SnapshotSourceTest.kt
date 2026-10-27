@@ -40,7 +40,7 @@ class SnapshotSourceTest {
             assertTrue(result!!.isFile)
             assertEquals(0L, result.length())
             assertEquals("missing.db", result.name)
-            assertEquals(File(staging, "database/missing.db").canonicalFile, result.canonicalFile)
+            assertEquals(File(staging, "database/missing.db").canonicalFile, result!!.canonicalFile)
         } finally {
             root.deleteRecursively()
         }
