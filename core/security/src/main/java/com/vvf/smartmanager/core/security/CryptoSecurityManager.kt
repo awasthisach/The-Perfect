@@ -242,6 +242,83 @@ class CryptoSecurityManager(
         return freshPassphrase
     }
 
+    /**
+     * Snapshot the wrapped local database passphrase files for an in-process restore transaction.
+     * This snapshot contains Keystore-wrapped ciphertext only, never the raw passphrase.
+     */
+    @Synchronized
+    fun snapshotDatabasePassphraseState(destination: File) {
+        require(destination.exists() || destination.mkdirs()) { "Unable to create key-state snapshot directory" }
+        val names = listOf(DB_PASSPHRASE_V2_FILE, ENCRYPTED_DB_PASSPHRASE_FILE, DB_PASSPHRASE_IV_FILE)
+        val present = names.filter { name ->
+            val source = File(context.filesDir, name)
+            if (source.isFile) {
+                source.copyTo(File(destination, name), overwrite = true)
+                true
+            } else false
+        }
+        File(destination, "present-files.txt").writeText(present.joinToString("\n"))
+    }
+
+    /** Restore a previously captured wrapped-passphrase state; fail closed on incomplete snapshots. */
+    @Synchronized
+    fun restoreDatabasePassphraseState(snapshot: File) {
+        val marker = File(snapshot, "present-files.txt")
+        require(snapshot.isDirectory && marker.isFile) { "Database key-state rollback snapshot is missing" }
+        val allowed = setOf(DB_PASSPHRASE_V2_FILE, ENCRYPTED_DB_PASSPHRASE_FILE, DB_PASSPHRASE_IV_FILE)
+        val present = marker.readLines().filter { it.isNotBlank() }
+        require(present.all { it in allowed }) { "Database key-state snapshot contains unexpected entries" }
+        allowed.forEach { name ->
+            val live = File(context.filesDir, name)
+            if (live.exists() && !live.delete()) throw SecurityException("Unable to clear current database key state")
+        }
+        present.forEach { name ->
+            val source = File(snapshot, name)
+            require(source.isFile) { "Database key-state snapshot is incomplete" }
+            source.copyTo(File(context.filesDir, name), overwrite = true)
+        }
+    }
+
+    /**
+     * Re-wrap the passphrase belonging to an imported SQLCipher database under this device's Keystore.
+     * Caller must keep the database closed and include the key-state snapshot in its rollback transaction.
+     */
+    @Synchronized
+    fun replaceDatabasePassphraseForRestore(passphrase: ByteArray) {
+        require(passphrase.size == DB_KEY_LENGTH_BYTES) { "Invalid database passphrase length" }
+        val target = File(context.filesDir, DB_PASSPHRASE_V2_FILE)
+        val staged = File(context.filesDir, DB_PASSPHRASE_V2_FILE + ".restore-stage")
+        val previous = File(context.filesDir, DB_PASSPHRASE_V2_FILE + ".restore-previous")
+        staged.delete()
+        previous.delete()
+        writeV2DatabasePassphraseAtomically(staged, passphrase)
+        if (target.exists() && !target.renameTo(previous)) {
+            staged.delete()
+            throw SecurityException("Unable to preserve previous database key state")
+        }
+        try {
+            if (!staged.renameTo(target)) throw SecurityException("Unable to publish restored database key state")
+            val verified = readV2DatabasePassphrase(target)
+            try {
+                if (!MessageDigest.isEqual(passphrase, verified)) {
+                    throw SecurityException("Restored database passphrase verification failed")
+                }
+            } finally {
+                verified.fill(0)
+            }
+            File(context.filesDir, ENCRYPTED_DB_PASSPHRASE_FILE).delete()
+            File(context.filesDir, DB_PASSPHRASE_IV_FILE).delete()
+            previous.delete()
+        } catch (error: Throwable) {
+            target.delete()
+            if (previous.exists() && !previous.renameTo(target)) {
+                throw SecurityException("Database key import failed and previous key state could not be restored", error)
+            }
+            staged.delete()
+            throw error
+        }
+    }
+
     private fun readV2DatabasePassphrase(file: File): ByteArray {
         val bytes = file.readBytes()
         val minimumSize = 1 + GCM_IV_LENGTH_BYTES + 16
