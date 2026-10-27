@@ -46,6 +46,13 @@ class ArchiveServiceTest {
         assertTrue("Database-only archive should be created", result.isSuccess)
         assertTrue("Archive creation must consume passphrase", passphrase.all { it == 0.toChar() })
         val artifact = result.getOrThrow()
+        assertTrue(
+            "Successful backup must not leave plaintext ZIP or staging data",
+            cache.listFiles().orEmpty().none {
+                it.name.startsWith("archive-staging-") ||
+                    (it.name.startsWith("backup-") && it.name.endsWith(".zip"))
+            }
+        )
         val zip = File(cache, "inspect.zip")
         PortableBackupCrypto().decryptFile(
             artifact.file,
