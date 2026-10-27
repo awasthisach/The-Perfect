@@ -37,11 +37,15 @@ class LocalRestoreApplier(
             }
             val token = UUID.randomUUID().toString()
             val dbSnap = File(snapshotRoot, "$token-db")
+            val dbWalSnap = File(snapshotRoot, "$token-db-wal")
             val vaultSnap = File(snapshotRoot, "$token-vault")
             val databaseExisted = liveDatabaseFile.exists()
+            val databaseWal = File(liveDatabaseFile.path + "-wal")
+            val databaseWalExisted = databaseWal.isFile
             val vaultExisted = liveVaultDir.exists()
-            // Best-effort consistent copy of live DB file (caller should avoid concurrent writers).
+            // Best-effort consistent copy of live DB + WAL (caller should avoid concurrent writers).
             if (databaseExisted) liveDatabaseFile.copyTo(dbSnap, overwrite = true)
+            if (databaseWalExisted) databaseWal.copyTo(dbWalSnap, overwrite = true)
             if (vaultExisted) liveVaultDir.copyRecursively(vaultSnap, overwrite = true)
             else vaultSnap.mkdirs()
             Result.success(
@@ -51,7 +55,9 @@ class LocalRestoreApplier(
                     databaseSnapshotPath = dbSnap,
                     vaultSnapshotPath = vaultSnap,
                     databaseExisted = databaseExisted,
-                    vaultExisted = vaultExisted
+                    vaultExisted = vaultExisted,
+                    databaseWalSnapshotPath = dbWalSnap,
+                    databaseWalExisted = databaseWalExisted
                 )
             )
         } catch (error: Throwable) {
@@ -108,6 +114,10 @@ class LocalRestoreApplier(
                     tempDb.delete()
                     return Result.failure(RestoreException("Database temp copy size mismatch"))
                 }
+                val sourceWal = File(decryptedBackup.databaseFile.path + "-wal")
+                if (sourceWal.isFile) {
+                    sourceWal.copyTo(File(tempDb.path + "-wal"), overwrite = true)
+                }
             }
 
             // --- Stage vault to temp ---
@@ -119,7 +129,17 @@ class LocalRestoreApplier(
                 decryptedBackup.vaultDir.copyRecursively(tempVault, overwrite = true)
             }
 
-            // --- Commit DB: keep old as .restore-bak then swap temp into place ---
+            // --- Commit DB: clear transient sidecars and keep old DB aside before swapping ---
+            val liveWal = File(liveDatabaseFile.path + "-wal")
+            val liveShm = File(liveDatabaseFile.path + "-shm")
+            if (liveWal.exists() && !liveWal.delete()) {
+                cleanupTemps(tempDb, tempVault)
+                return Result.failure(RestoreException("Unable to remove live database WAL for swap"))
+            }
+            if (liveShm.exists() && !liveShm.delete()) {
+                cleanupTemps(tempDb, tempVault)
+                return Result.failure(RestoreException("Unable to remove live database SHM for swap"))
+            }
             if (backupLiveDb.exists()) backupLiveDb.delete()
             if (liveDatabaseFile.exists()) {
                 if (!liveDatabaseFile.renameTo(backupLiveDb)) {
@@ -140,6 +160,18 @@ class LocalRestoreApplier(
                     if (backupLiveDb.isFile) backupLiveDb.copyTo(liveDatabaseFile, overwrite = true)
                     cleanupTemps(tempDb, tempVault)
                     return Result.failure(RestoreException("Database swap failed"))
+                }
+            }
+            val tempWal = File(tempDb.path + "-wal")
+            if (tempWal.isFile) {
+                val targetWal = File(liveDatabaseFile.path + "-wal")
+                if (!tempWal.renameTo(targetWal)) {
+                    tempWal.copyTo(targetWal, overwrite = true)
+                    tempWal.delete()
+                }
+                if (!targetWal.isFile) {
+                    cleanupTemps(tempDb, tempVault)
+                    return Result.failure(RestoreException("Database WAL swap failed"))
                 }
             }
 
@@ -192,6 +224,10 @@ class LocalRestoreApplier(
             if (snapshot.databaseExisted && !snapshot.databaseSnapshotPath.isFile) {
                 throw RestoreException("Database rollback snapshot is missing")
             }
+            if (snapshot.databaseWalExisted &&
+                (snapshot.databaseWalSnapshotPath?.isFile != true)) {
+                throw RestoreException("Database WAL rollback snapshot is missing")
+            }
             if (snapshot.vaultExisted && !snapshot.vaultSnapshotPath.isDirectory) {
                 throw RestoreException("Vault rollback snapshot is missing")
             }
@@ -219,6 +255,30 @@ class LocalRestoreApplier(
                 }
             } else if (liveDatabaseFile.exists() && !liveDatabaseFile.delete()) {
                 throw RestoreException("Unable to remove database created by failed restore")
+            }
+
+            val liveWal = File(liveDatabaseFile.path + "-wal")
+            if (snapshot.databaseWalExisted) {
+                val walSnapshot = snapshot.databaseWalSnapshotPath
+                    ?: throw RestoreException("Database WAL rollback snapshot is missing")
+                val walTemp = File(liveDatabaseFile.parentFile, "${liveDatabaseFile.name}-wal.rollback-${UUID.randomUUID()}")
+                try {
+                    walSnapshot.copyTo(walTemp, overwrite = true)
+                    if (liveWal.exists() && !liveWal.delete()) {
+                        throw RestoreException("Unable to remove failed database WAL during rollback")
+                    }
+                    if (!walTemp.renameTo(liveWal)) {
+                        throw RestoreException("Unable to publish database WAL rollback snapshot")
+                    }
+                } finally {
+                    walTemp.delete()
+                }
+            } else if (liveWal.exists() && !liveWal.delete()) {
+                throw RestoreException("Unable to remove database WAL created by failed restore")
+            }
+            val liveShm = File(liveDatabaseFile.path + "-shm")
+            if (liveShm.exists() && !liveShm.delete()) {
+                throw RestoreException("Unable to remove transient database SHM during rollback")
             }
 
             if (liveVaultDir.exists() && !liveVaultDir.deleteRecursively()) {
