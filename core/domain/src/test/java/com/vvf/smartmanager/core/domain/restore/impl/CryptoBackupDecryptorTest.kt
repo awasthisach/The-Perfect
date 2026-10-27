@@ -6,6 +6,7 @@ import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import com.vvf.smartmanager.core.security.PortableBackupCrypto
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -96,5 +97,6 @@ class CryptoBackupDecryptorTest {
         }
 
         assertTrue("Missing SQLCipher key material must reject portable restore", result.isFailure)
+        assertFalse("Failed restore must remove plaintext staging", staging.exists())
     }
 }
