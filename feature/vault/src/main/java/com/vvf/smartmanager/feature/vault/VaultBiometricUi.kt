@@ -16,7 +16,7 @@ fun launchVaultBiometricUnlock(
     activity: FragmentActivity?,
     isBiometricEnabled: Boolean,
     createCipher: () -> Cipher?,
-    onSuccess: () -> Unit,
+    onSuccess: (com.vvf.smartmanager.core.security.VaultBiometricProof) -> Unit,
     onError: (String) -> Unit
 ) {
     if (!isBiometricEnabled) {
@@ -60,11 +60,16 @@ fun launchVaultBiometricUnlock(
         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
             super.onAuthenticationSucceeded(result)
             val authenticatedCipher = result.cryptoObject?.cipher
-            if (authenticatedCipher == null || !VaultBiometricCryptoHelper.proveAuthenticatedCipher(authenticatedCipher)) {
+            if (authenticatedCipher == null) {
                 onError("Biometric authentication succeeded but cryptographic proof failed")
                 return
             }
-            onSuccess()
+            val proof = VaultBiometricCryptoHelper.proveAuthenticatedCipher(authenticatedCipher)
+            if (proof == null) {
+                onError("Biometric authentication succeeded but cryptographic proof failed")
+                return
+            }
+            onSuccess(proof)
         }
 
         override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
