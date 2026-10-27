@@ -188,10 +188,15 @@ class LocalRestoreApplier(
 
     override suspend fun rollback(snapshot: RestoreSnapshot): Result<Unit> {
         return try {
+            // Validate every required rollback artifact before mutating either live resource.
+            if (snapshot.databaseExisted && !snapshot.databaseSnapshotPath.isFile) {
+                throw RestoreException("Database rollback snapshot is missing")
+            }
+            if (snapshot.vaultExisted && !snapshot.vaultSnapshotPath.isDirectory) {
+                throw RestoreException("Vault rollback snapshot is missing")
+            }
+
             if (snapshot.databaseExisted) {
-                if (!snapshot.databaseSnapshotPath.isFile) {
-                    throw RestoreException("Database rollback snapshot is missing")
-                }
                 val parent = liveDatabaseFile.parentFile
                     ?: throw RestoreException("Live database parent directory is missing")
                 if (!parent.exists() && !parent.mkdirs()) {
