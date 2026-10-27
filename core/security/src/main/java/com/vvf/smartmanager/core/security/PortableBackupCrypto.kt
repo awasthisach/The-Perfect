@@ -136,11 +136,21 @@ class PortableBackupCrypto(
                                 val count = input.read(buffer)
                                 if (count < 0) break
                                 val plaintext = cipher.update(buffer, 0, count)
-                                if (plaintext != null && plaintext.isNotEmpty()) output.write(plaintext)
+                                if (plaintext != null && plaintext.isNotEmpty()) {
+                                    try {
+                                        output.write(plaintext)
+                                    } finally {
+                                        plaintext.fill(0)
+                                    }
+                                }
                             }
                             // GCM authentication is checked here; destination remains untouched until it succeeds.
                             val finalBytes = cipher.doFinal()
-                            if (finalBytes.isNotEmpty()) output.write(finalBytes)
+                            try {
+                                if (finalBytes.isNotEmpty()) output.write(finalBytes)
+                            } finally {
+                                finalBytes.fill(0)
+                            }
                             output.flush()
                             output.fd.sync()
                         } finally {
