@@ -270,9 +270,13 @@ class LocalRestoreApplier(
             if (snapshot.vaultExisted && !snapshot.vaultSnapshotPath.isDirectory) {
                 throw RestoreException("Vault rollback snapshot is missing")
             }
-            if (snapshot.keyStateExisted &&
-                (snapshot.keyStateSnapshotPath?.let { File(it, "present-files.txt").isFile } != true)) {
-                throw RestoreException("Database key-state rollback snapshot is missing")
+            if (snapshot.keyStateExisted) {
+                val crypto = cryptoSecurityManager
+                    ?: throw RestoreException("Database key-state rollback requires Keystore support")
+                crypto.validateDatabasePassphraseStateSnapshot(
+                    snapshot.keyStateSnapshotPath
+                        ?: throw RestoreException("Database key-state rollback snapshot is missing")
+                )
             }
 
             if (snapshot.databaseExisted) {
