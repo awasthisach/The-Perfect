@@ -39,6 +39,22 @@ class ArchiveService(
             passphrase?.fill(0.toChar())
             return@withContext Result.failure(ArchiveException("A backup passphrase of at least 12 characters is required"))
         }
+        if (!includeDatabase && includeVault) {
+            passphrase.fill(0.toChar())
+            return@withContext Result.failure(
+                ArchiveException("Vault-only backups are unsupported because vault metadata is stored in the encrypted database")
+            )
+        }
+        if (!includeDatabase && !includeVault) {
+            passphrase.fill(0.toChar())
+            return@withContext Result.failure(ArchiveException("At least one backup resource must be selected"))
+        }
+        if (includeDatabase && !includeVault && snapshotSources.none { it.sourceName == "vault" }) {
+            passphrase.fill(0.toChar())
+            return@withContext Result.failure(
+                ArchiveException("Cannot safely omit the vault without a vault snapshot source to validate database metadata consistency")
+            )
+        }
         val timestamp = System.currentTimeMillis()
         val stagingDir = File(cacheDir, "archive-staging-$timestamp")
         val zipFile = File(cacheDir, "backup-$timestamp.zip")
@@ -52,7 +68,7 @@ class ArchiveService(
             }
 
             val requestedSources = snapshotSources.filter { source ->
-                (source.sourceName == "vault" && includeVault) ||
+                (source.sourceName == "vault" && (includeVault || includeDatabase)) ||
                     (source.sourceName == "database" && includeDatabase) ||
                     (source.sourceName != "vault" && source.sourceName != "database")
             }
@@ -64,6 +80,20 @@ class ArchiveService(
                 return@withContext Result.failure(
                     ArchiveException("Snapshot failed for: ${failed.joinToString()}")
                 )
+            }
+
+            // Vault rows are stored in the SQLCipher database. A database-only archive is safe
+            // only when the source vault is empty; otherwise its metadata would reference omitted files.
+            if (includeDatabase && !includeVault) {
+                val stagedVault = File(stagingDir, "vault")
+                if (stagedVault.walkTopDown().any { it.isFile }) {
+                    throw ArchiveException(
+                        "The vault contains files referenced by database metadata; enable vault inclusion to create a consistent backup"
+                    )
+                }
+                if (stagedVault.exists() && !stagedVault.deleteRecursively()) {
+                    throw ArchiveException("Unable to remove empty vault validation staging")
+                }
             }
 
             if (includeDatabase) {
@@ -152,8 +182,8 @@ class ArchiveService(
                 timestamp = timestamp,
                 backupName = "VVF Backup ${formatTimestamp(timestamp)}",
                 backupSizeBytes = encryptedFile.length(),
-                includesVault = snapshots.containsKey("vault"),
-                includesDatabase = snapshots.containsKey("database"),
+                includesVault = includeVault,
+                includesDatabase = includeDatabase,
                 includesPreferences = false,
                 checksumSha256 = checksum
             )

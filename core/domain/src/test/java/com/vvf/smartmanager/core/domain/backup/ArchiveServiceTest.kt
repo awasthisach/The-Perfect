@@ -29,6 +29,7 @@ class ArchiveServiceTest {
         val sourceVault = temp.newFolder("failed-vault-source")
         val sourceCiphertext = File(sourceVault, "enc_item.vvf").apply { writeText("source ciphertext") }
         val crypto = mock<CryptoSecurityManager>()
+        whenever(crypto.getOrCreateDatabasePassphrase()).thenReturn(ByteArray(32) { (it + 5).toByte() })
         whenever(crypto.isVaultConfigured()).thenReturn(true)
         whenever(crypto.verifyVaultPin("1234")).thenReturn(true)
         whenever(crypto.decryptFile(any(), any())).thenAnswer { invocation ->
@@ -52,19 +53,28 @@ class ArchiveServiceTest {
             }
             override fun dataSizeBytes(): Long = sourceCiphertext.length()
         }
-        val service = ArchiveService(cache, listOf(source), crypto)
+        val databaseSource = object : SnapshotSource {
+            override val sourceName: String = "database"
+            override fun snapshot(stagingDir: File): File =
+                File(stagingDir, "database/vvf_smart_manager_enc.db").apply {
+                    parentFile.mkdirs()
+                    writeText("SQLCIPHER-DATABASE")
+                }
+            override fun dataSizeBytes(): Long = 18L
+        }
+        val service = ArchiveService(cache, listOf(source, databaseSource), crypto)
         val passphrase = "portable backup passphrase".toCharArray()
 
         val result = service.createArchive(
             includeVault = true,
-            includeDatabase = false,
+            includeDatabase = true,
             passphrase = passphrase,
             vaultPin = "1234"
         )
 
         assertTrue("Archive must fail when vault decryption fails", result.isFailure)
         assertTrue("Backup passphrase must be consumed on failure", passphrase.all { it == 0.toChar() })
-        verify(crypto, times(2)).secureShredFile(any())
+        verify(crypto, org.mockito.kotlin.atLeast(2)).secureShredFile(any())
         assertTrue("Failed archive must remove plaintext staging", cache.listFiles().orEmpty().isEmpty())
     }
 
@@ -83,9 +93,14 @@ class ArchiveServiceTest {
                 }
             override fun dataSizeBytes(): Long = 18L
         }
+        val emptyVaultSource = object : SnapshotSource {
+            override val sourceName: String = "vault"
+            override fun snapshot(stagingDir: File): File = File(stagingDir, "vault").apply { mkdirs() }
+            override fun dataSizeBytes(): Long = 0L
+        }
         val passphrase = "a sufficiently long backup passphrase".toCharArray()
 
-        val result = ArchiveService(cache, listOf(source), crypto).createArchive(
+        val result = ArchiveService(cache, listOf(source, emptyVaultSource), crypto).createArchive(
             includeVault = false,
             includeDatabase = true,
             passphrase = passphrase
@@ -97,6 +112,66 @@ class ArchiveServiceTest {
             "A failed cleanup must never leave a publishable portable archive",
             cache.listFiles().orEmpty().none { it.name.endsWith(".vvfbak") }
         )
+    }
+
+    @Test
+    fun vaultOnlyArchiveIsRejectedBecauseVaultMetadataRequiresDatabase() = runBlocking {
+        val cache = temp.newFolder("vault-only-rejected")
+        val crypto = mock<CryptoSecurityManager>()
+        val passphrase = "a sufficiently long backup passphrase".toCharArray()
+
+        val result = ArchiveService(cache, emptyList(), crypto).createArchive(
+            includeVault = true,
+            includeDatabase = false,
+            passphrase = passphrase
+        )
+
+        assertTrue("Vault-only archive cannot preserve Room vault metadata", result.isFailure)
+        assertTrue("Rejected backup must consume passphrase", passphrase.all { it == 0.toChar() })
+        assertTrue("Rejected backup must not create artifacts", cache.listFiles().orEmpty().isEmpty())
+    }
+
+    @Test
+    fun databaseOnlyArchiveRejectsNonEmptyVaultToAvoidDanglingMetadata() = runBlocking {
+        val cache = temp.newFolder("database-with-vault-rejected")
+        val crypto = mock<CryptoSecurityManager>()
+        whenever(crypto.getOrCreateDatabasePassphrase()).thenReturn(ByteArray(32) { 1 })
+        whenever(crypto.secureShredFile(any())).thenAnswer { invocation ->
+            val file = invocation.getArgument<File>(0)
+            if (!file.exists()) true else {
+                file.writeBytes(ByteArray(file.length().toInt()))
+                file.delete()
+            }
+        }
+        val databaseSource = object : SnapshotSource {
+            override val sourceName: String = "database"
+            override fun snapshot(stagingDir: File): File =
+                File(stagingDir, "database/vvf_smart_manager_enc.db").apply {
+                    parentFile.mkdirs()
+                    writeText("SQLCIPHER-DATABASE")
+                }
+            override fun dataSizeBytes(): Long = 18L
+        }
+        val vaultSource = object : SnapshotSource {
+            override val sourceName: String = "vault"
+            override fun snapshot(stagingDir: File): File =
+                File(stagingDir, "vault/enc_item.vvf").apply {
+                    parentFile.mkdirs()
+                    writeText("ciphertext")
+                }
+            override fun dataSizeBytes(): Long = 10L
+        }
+        val passphrase = "a sufficiently long backup passphrase".toCharArray()
+
+        val result = ArchiveService(cache, listOf(databaseSource, vaultSource), crypto).createArchive(
+            includeVault = false,
+            includeDatabase = true,
+            passphrase = passphrase
+        )
+
+        assertTrue("Database-only backup must not omit files referenced by vault metadata", result.isFailure)
+        assertTrue("Rejected backup must consume passphrase", passphrase.all { it == 0.toChar() })
+        assertTrue("Rejected backup must not publish an encrypted archive", cache.listFiles().orEmpty().none { it.name.endsWith(".vvfbak") })
     }
 
     @Test
@@ -121,7 +196,12 @@ class ArchiveServiceTest {
             }
             override fun dataSizeBytes(): Long = "SQLCIPHER-DATABASE".length.toLong()
         }
-        val service = ArchiveService(cache, listOf(source), crypto)
+        val emptyVaultSource = object : SnapshotSource {
+            override val sourceName: String = "vault"
+            override fun snapshot(stagingDir: File): File = File(stagingDir, "vault").apply { mkdirs() }
+            override fun dataSizeBytes(): Long = 0L
+        }
+        val service = ArchiveService(cache, listOf(source, emptyVaultSource), crypto)
         val passphrase = "a sufficiently long backup passphrase".toCharArray()
 
         val result = service.createArchive(
