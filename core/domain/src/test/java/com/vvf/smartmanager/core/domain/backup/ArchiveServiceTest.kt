@@ -72,6 +72,13 @@ class ArchiveServiceTest {
     fun databaseOnlyArchiveCarriesAuthenticatedPayloadSelectionFlags() = runBlocking {
         val cache = temp.newFolder("archive-cache")
         val crypto = mock<CryptoSecurityManager>()
+        whenever(crypto.secureShredFile(any())).thenAnswer { invocation ->
+            val file = invocation.getArgument<File>(0)
+            if (!file.exists()) true else {
+                file.writeBytes(ByteArray(file.length().toInt()))
+                file.delete()
+            }
+        }
         whenever(crypto.getOrCreateDatabasePassphrase()).thenReturn(ByteArray(32) { (it + 7).toByte() })
         val source = object : SnapshotSource {
             override val sourceName: String = "database"
