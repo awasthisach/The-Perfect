@@ -1,5 +1,6 @@
 package com.vvf.smartmanager.feature.cloud
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -223,17 +224,31 @@ class CloudViewModel(
                     )
                 }
             } else {
-                val reason = result.exceptionOrNull()?.message
-                    ?.takeIf { it.isNotBlank() }
-                    ?: "unknown error"
+                val error = result.exceptionOrNull()
+                Log.e(TAG, "Cloud backup restore failed", error)
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        statusMessage = "Restore failed: $reason"
+                        statusMessage = safeRestoreFailureMessage(error)
                     )
                 }
             }
         }
+    }
+
+    private fun safeRestoreFailureMessage(error: Throwable?): String {
+        var cause = error
+        while (cause != null) {
+            val message = cause.message.orEmpty()
+            if (
+                message.contains("Database-only restore cannot be applied", ignoreCase = true) ||
+                message.contains("Vault-only restore is unsafe", ignoreCase = true)
+            ) {
+                return "This backup is inconsistent for the selected contents. Use a full backup that includes both the database and vault."
+            }
+            cause = cause.cause
+        }
+        return "Restore failed. Verify the backup passphrase and integrity, then try again."
     }
 
     fun clearStatusMessage() {
@@ -241,6 +256,8 @@ class CloudViewModel(
     }
 
     companion object {
+        private const val TAG = "CloudViewModel"
+
         fun provideFactory(
             cloudSyncUseCase: CloudSyncUseCase,
             googleDriveService: GoogleDriveService,
