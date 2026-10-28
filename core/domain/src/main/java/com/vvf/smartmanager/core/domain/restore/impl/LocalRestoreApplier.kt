@@ -518,6 +518,18 @@ class LocalRestoreApplier(
                 ?: throw IllegalStateException("Legacy restore recovery has no parent directory")
             val db = liveDatabaseFile.name
             val vault = liveVaultDir.name
+            // A process death during legacy recovery can leave partial staging copies. They are
+            // never authoritative; the original .restore-bak sources remain until both targets
+            // have been published, so retire only UUID-scoped recovery staging first.
+            val recoveryStageName = Regex("^\\.legacy-recovery-(db|vault)-[0-9a-fA-F-]{36}$")
+            parent.listFiles().orEmpty()
+                .filter { recoveryStageName.matches(it.name) }
+                .forEach { staged ->
+                    val removed = if (staged.isDirectory) staged.deleteRecursively() else staged.delete()
+                    if (!removed && staged.exists()) {
+                        throw IllegalStateException("Unable to remove interrupted legacy recovery staging: ${staged.name}")
+                    }
+                }
             val entries = parent.listFiles().orEmpty()
             val databaseBackup = File(parent, "$db.restore-bak")
             val vaultBackupArtifacts = entries.filter { it.name.startsWith("$vault.restore-bak-") }
@@ -549,20 +561,9 @@ class LocalRestoreApplier(
                 )
             }
 
-            if (!liveDatabaseFile.exists()) {
-                val stagedDatabase = File(parent, ".legacy-recovery-db-${UUID.randomUUID()}")
-                try {
-                    databaseBackup.copyTo(stagedDatabase, overwrite = false)
-                    if (stagedDatabase.length() != databaseBackup.length()) {
-                        throw IllegalStateException("Legacy database backup recovery size mismatch")
-                    }
-                    if (!stagedDatabase.renameTo(liveDatabaseFile)) {
-                        throw IllegalStateException("Unable to atomically publish recovered legacy database")
-                    }
-                } finally {
-                    stagedDatabase.delete()
-                }
-            }
+            // Recover the vault first, then the database. If the process dies between these
+            // atomic publications, the missing database causes the next launch to retry recovery
+            // instead of treating a newly published database with a missing vault as authoritative.
             if (!liveVaultDir.exists() && vaultBackups.size == 1) {
                 val backup = vaultBackups.single()
                 val stagedVault = File(parent, ".legacy-recovery-vault-${UUID.randomUUID()}")
@@ -576,6 +577,20 @@ class LocalRestoreApplier(
                     }
                 } finally {
                     if (stagedVault.exists()) stagedVault.deleteRecursively()
+                }
+            }
+            if (!liveDatabaseFile.exists()) {
+                val stagedDatabase = File(parent, ".legacy-recovery-db-${UUID.randomUUID()}")
+                try {
+                    databaseBackup.copyTo(stagedDatabase, overwrite = false)
+                    if (stagedDatabase.length() != databaseBackup.length()) {
+                        throw IllegalStateException("Legacy database backup recovery size mismatch")
+                    }
+                    if (!stagedDatabase.renameTo(liveDatabaseFile)) {
+                        throw IllegalStateException("Unable to atomically publish recovered legacy database")
+                    }
+                } finally {
+                    stagedDatabase.delete()
                 }
             }
 
