@@ -405,4 +405,55 @@ class LocalRestoreApplierTest {
         assertFalse("Previously absent vault must remain absent", liveVault.exists())
     }
 
+
+    @Test
+    fun startupRecoveryRetiresLegacySwapArtifactsWithoutJournal() {
+        val root = temp.newFolder("legacy-orphaned-restore")
+        val liveDb = File(root, "live.db").apply { writeText("LIVE-DB") }
+        File(root, "live.db.restore-bak").writeText("STALE-DB-BACKUP")
+        File(root, "live.db.restore-tmp-old").writeText("STALE-TEMP")
+        val liveVault = File(root, "vault").also {
+            it.mkdirs()
+            File(it, "live.bin").writeText("LIVE-VAULT")
+        }
+        File(root, "vault.restore-bak-old").also {
+            it.mkdirs()
+            File(it, "stale.bin").writeText("STALE-VAULT")
+        }
+        val snapshotRoot = File(root, "missing-snapshots")
+
+        LocalRestoreApplier.recoverInterruptedRestore(
+            liveDatabaseFile = liveDb,
+            liveVaultDir = liveVault,
+            snapshotRoot = snapshotRoot,
+            cryptoSecurityManager = mock()
+        )
+
+        assertEquals("Existing live database remains authoritative", "LIVE-DB", liveDb.readText())
+        assertEquals("Existing live vault remains authoritative", "LIVE-VAULT", File(liveVault, "live.bin").readText())
+        assertFalse("Legacy DB backup should be retired", File(root, "live.db.restore-bak").exists())
+        assertFalse("Legacy temp should be retired", File(root, "live.db.restore-tmp-old").exists())
+        assertFalse("Legacy vault backup should be retired", File(root, "vault.restore-bak-old").exists())
+    }
+
+    @Test
+    fun startupRecoveryRestoresLegacyDatabaseBackupWhenLiveDatabaseIsMissing() {
+        val root = temp.newFolder("legacy-missing-live-db")
+        val backup = File(root, "live.db.restore-bak").apply { writeText("RECOVERABLE-DB") }
+        val liveDb = File(root, "live.db")
+        val liveVault = File(root, "vault")
+        val snapshotRoot = File(root, "missing-snapshots")
+
+        LocalRestoreApplier.recoverInterruptedRestore(
+            liveDatabaseFile = liveDb,
+            liveVaultDir = liveVault,
+            snapshotRoot = snapshotRoot,
+            cryptoSecurityManager = mock()
+        )
+
+        assertTrue("Database backup should be restored", liveDb.isFile)
+        assertEquals("RECOVERABLE-DB", liveDb.readText())
+        assertFalse("Consumed backup should be retired", backup.exists())
+    }
+
 }
