@@ -165,8 +165,40 @@ class PortableBackupCrypto(
             }
             publish(temp, destination)
         } catch (error: Throwable) {
-            temp.delete()
+            try {
+                securelyDeletePlaintextTemp(temp)
+            } catch (cleanupError: Throwable) {
+                cleanupError.addSuppressed(error)
+                throw cleanupError
+            }
             throw error
+        }
+    }
+
+    /** Best-effort overwrite before unlinking any failed, possibly partially decrypted plaintext. */
+    private fun securelyDeletePlaintextTemp(file: File) {
+        if (!file.exists()) return
+        try {
+            if (file.isFile && file.length() > 0L) {
+                val length = file.length()
+                FileOutputStream(file).use { output ->
+                    val zeros = ByteArray(BUFFER_SIZE)
+                    var written = 0L
+                    while (written < length) {
+                        val count = minOf(zeros.size.toLong(), length - written).toInt()
+                        output.write(zeros, 0, count)
+                        written += count
+                    }
+                    output.flush()
+                    output.fd.sync()
+                    zeros.fill(0)
+                }
+            }
+        } catch (cleanupError: Throwable) {
+            throw IOException("Unable to overwrite failed plaintext restore temporary file", cleanupError)
+        }
+        if (file.exists() && !file.delete()) {
+            throw IOException("Unable to remove failed plaintext restore temporary file")
         }
     }
 
