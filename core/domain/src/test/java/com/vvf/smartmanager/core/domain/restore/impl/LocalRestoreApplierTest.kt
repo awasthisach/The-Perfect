@@ -482,24 +482,21 @@ class LocalRestoreApplierTest {
     }
 
     @Test
-    fun startupRecoveryPreservesMalformedVaultBackupWhenLiveVaultIsMissing() {
+    fun startupRecoveryDoesNotCrashLoopOnMalformedVaultBackupWhenLiveDatabaseExists() {
         val root = temp.newFolder("legacy-malformed-vault")
         val liveDb = File(root, "live.db").apply { writeText("LIVE-DB") }
         val liveVault = File(root, "vault")
         val malformedBackup = File(root, "vault.restore-bak-corrupt").apply { writeText("not a directory") }
 
-        val result = runCatching {
-            LocalRestoreApplier.recoverInterruptedRestore(
-                liveDatabaseFile = liveDb,
-                liveVaultDir = liveVault,
-                snapshotRoot = File(root, "missing-snapshots"),
-                cryptoSecurityManager = mock()
-            )
-        }
+        LocalRestoreApplier.recoverInterruptedRestore(
+            liveDatabaseFile = liveDb,
+            liveVaultDir = liveVault,
+            snapshotRoot = File(root, "missing-snapshots"),
+            cryptoSecurityManager = mock()
+        )
 
-        assertTrue("Malformed vault recovery must fail closed", result.isFailure)
-        assertFalse("Recovery must not publish a missing vault", liveVault.exists())
-        assertTrue("Malformed recovery material must not be deleted", malformedBackup.isFile)
+        assertFalse("Malformed vault backup must not be published", liveVault.exists())
+        assertTrue("Malformed recovery material must be preserved for manual recovery", malformedBackup.isFile)
         assertEquals("Live database must remain untouched", "LIVE-DB", liveDb.readText())
     }
 
