@@ -450,6 +450,52 @@ class LocalRestoreApplier(
          * unambiguous complete backup. Never fail every app launch merely because stale artifacts
          * exist, and never guess between multiple possible vault backups.
          */
+        private fun cleanupSnapshotArtifacts(snapshotRoot: File, token: String) {
+            require(runCatching { UUID.fromString(token).toString() }.getOrNull() == token) {
+                "Refusing to clean restore artifacts for an invalid token"
+            }
+            val root = snapshotRoot.canonicalFile
+            val names = setOf(
+                "$token-db",
+                "$token-db-wal",
+                "$token-vault",
+                "$token-key-state",
+                JOURNAL_FILE,
+                "$JOURNAL_FILE.tmp"
+            )
+            root.listFiles().orEmpty()
+                .filter { it.name in names && it.canonicalFile.parentFile == root }
+                .forEach { file ->
+                    val removed = if (file.isDirectory) file.deleteRecursively() else file.delete()
+                    if (!removed && file.exists()) {
+                        throw IllegalStateException("Unable to clean restore transaction artifact: ${file.name}")
+                    }
+                }
+        }
+
+        /**
+         * A crash before the journal is published can leave transaction-named snapshots behind.
+         * Remove only known UUID-scoped artifacts directly inside the snapshot root; preserve
+         * unrelated files and reject paths whose canonical parent escapes the root.
+         */
+        private fun cleanupOrphanedSnapshotArtifacts(snapshotRoot: File) {
+            val root = snapshotRoot.canonicalFile
+            val transactionArtifact = Regex(
+                "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}-(db-wal|db|vault|key-state)$"
+            )
+            root.listFiles().orEmpty()
+                .filter { file ->
+                    (transactionArtifact.matches(file.name) || file.name == "$JOURNAL_FILE.tmp") &&
+                        file.canonicalFile.parentFile == root
+                }
+                .forEach { file ->
+                    val removed = if (file.isDirectory) file.deleteRecursively() else file.delete()
+                    if (!removed && file.exists()) {
+                        throw IllegalStateException("Unable to clean orphaned restore artifact: ${file.name}")
+                    }
+                }
+        }
+
         private fun recoverLegacySwapArtifacts(liveDatabaseFile: File, liveVaultDir: File) {
             val parent = liveDatabaseFile.parentFile
                 ?: throw IllegalStateException("Legacy restore recovery has no parent directory")
@@ -534,7 +580,7 @@ class LocalRestoreApplier(
                 if (hasInterruptedSwapArtifacts(liveDatabaseFile, liveVaultDir)) {
                     recoverLegacySwapArtifacts(liveDatabaseFile, liveVaultDir)
                 }
-                snapshotRoot.listFiles().orEmpty().forEach { it.deleteRecursively() }
+                cleanupOrphanedSnapshotArtifacts(snapshotRoot)
                 return
             }
             val properties = Properties().apply { FileInputStream(journal).use(::load) }
@@ -573,7 +619,8 @@ class LocalRestoreApplier(
                     rollback.exceptionOrNull()
                 )
             }
-            snapshotRoot.listFiles().orEmpty().forEach { it.deleteRecursively() }
+            cleanupSnapshotArtifacts(snapshotRoot, token)
+            cleanupOrphanedSnapshotArtifacts(snapshotRoot)
         }
     }
 }
