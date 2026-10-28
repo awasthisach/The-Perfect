@@ -79,8 +79,8 @@ class SqlCipherCompatibilityTest {
                     "Unexpected exception type: ${expected.javaClass.name}",
                     expected.message?.contains("file is not a database", ignoreCase = true) == true ||
                         expected.message?.contains("file is encrypted", ignoreCase = true) == true ||
-                        expected is net.zetetic.database.sqlcipher.SQLiteException ||
-                        expected.cause is net.zetetic.database.sqlcipher.SQLiteException
+                        expected is android.database.sqlite.SQLiteException ||
+                        expected.cause is android.database.sqlite.SQLiteException
                 )
             }
         } finally {
