@@ -76,6 +76,7 @@ class VVFApplication : Application(), Configuration.Provider {
         private const val SETTINGS_PREFS = "vvf_app_settings"
         private const val KEY_AUTO_INDEX_OCR = "auto_index_ocr"
         private const val KEY_OFFLINE_ONLY_MODE = "offline_only_mode"
+        private const val KEY_PENDING_RESTORE_OUTCOME = "pending_restore_outcome"
     }
 
     override val workManagerConfiguration: Configuration
@@ -140,6 +141,36 @@ class VVFApplication : Application(), Configuration.Provider {
 
     fun setOfflineOnlyModeEnabled(enabled: Boolean) {
         settingsPrefs.edit().putBoolean(KEY_OFFLINE_ONLY_MODE, enabled).apply()
+    }
+
+    fun hasPendingRestoreOutcome(): Boolean = settingsPrefs.contains(KEY_PENDING_RESTORE_OUTCOME)
+
+    fun consumePendingRestoreOutcome(): String? {
+        val message = settingsPrefs.getString(KEY_PENDING_RESTORE_OUTCOME, null) ?: return null
+        if (!settingsPrefs.edit().remove(KEY_PENDING_RESTORE_OUTCOME).commit()) {
+            Log.e(TAG, "Unable to clear the displayed restore outcome; it may be shown again")
+        }
+        return message
+    }
+
+    private fun persistPendingRestoreOutcome(outcome: Result<Boolean>) {
+        val message = outcome.fold(
+            onSuccess = { success ->
+                if (success) {
+                    "Restore completed successfully. If the backup included the vault, configure a new local vault PIN before unlocking."
+                } else {
+                    "Restore failed: no successful restore was reported."
+                }
+            },
+            onFailure = { error ->
+                val reason = error.message?.takeIf { it.isNotBlank() }?.take(180)
+                    ?: error.javaClass.simpleName
+                "Restore failed: $reason"
+            }
+        )
+        if (!settingsPrefs.edit().putString(KEY_PENDING_RESTORE_OUTCOME, message).commit()) {
+            Log.e(TAG, "Unable to persist restore outcome before process restart")
+        }
     }
 
     override fun onCreate() {
@@ -294,7 +325,17 @@ class VVFApplication : Application(), Configuration.Provider {
                 Log.i(TAG, "Closed Room database before restore snapshot")
             },
             cloudSyncDao = database.cloudSyncDao(),
-            onRestoreFinished = { restartIfRestoreClosedDatabase() }
+            onRestoreFinished = { outcome ->
+                if (restoreClosedDatabase) {
+                    try {
+                        persistPendingRestoreOutcome(outcome)
+                    } catch (error: Exception) {
+                        Log.e(TAG, "Unable to persist restore outcome before restart", error)
+                    } finally {
+                        restartIfRestoreClosedDatabase()
+                    }
+                }
+            }
         )
         backgroundSyncManager = BackgroundSyncManager(this)
         FileIndexingRuntime.configure { indexPrimaryStorageForSearch() }
