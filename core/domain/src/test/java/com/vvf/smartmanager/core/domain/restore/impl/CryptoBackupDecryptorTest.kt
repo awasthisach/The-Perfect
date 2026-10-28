@@ -148,6 +148,58 @@ class CryptoBackupDecryptorTest {
 
 
     @Test
+    fun portableVaultPayloadIsReencryptedLocallyAndPlaintextIsShredded() {
+        val root = temp.newFolder("successful-vault-reencryption")
+        val payload = File(root, "payload.zip")
+        val manifest = """{"version":3,"timestamp":1,"checksumSha256":"","databaseSizeBytes":0,"vaultSizeBytes":15,"fileCount":1,"vaultItemCount":1,"appVersion":"test","schemaVersion":1,"includesDatabase":false,"includesVault":true}"""
+        ZipOutputStream(payload.outputStream()).use { zip ->
+            zip.putNextEntry(ZipEntry("vault/item.vvf"))
+            zip.write("portable plaintext".toByteArray())
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("metadata.json"))
+            zip.write(manifest.toByteArray())
+            zip.closeEntry()
+        }
+        val encrypted = File(root, "portable.vvfbak")
+        PortableBackupCrypto().encryptFile(payload, encrypted, "a sufficiently long backup passphrase".toCharArray())
+        val info = CloudBackupInfo(
+            backupId = "remote-vault",
+            timestamp = 1L,
+            backupName = "portable-vault.vvfbak",
+            backupSizeBytes = encrypted.length(),
+            includesVault = true,
+            includesDatabase = false,
+            checksumSha256 = "verified-by-caller"
+        )
+        val crypto = mock<CryptoSecurityManager>()
+        whenever(crypto.encryptFile(any(), any())).thenAnswer { invocation ->
+            val source = invocation.getArgument<File>(0)
+            invocation.getArgument<File>(1).writeText("LOCAL-KEY-CIPHERTEXT")
+            CryptoSecurityManager.StreamEncryptionResult("test-iv", source.length())
+        }
+        whenever(crypto.secureShredFile(any())).thenAnswer { invocation ->
+            val file = invocation.getArgument<File>(0)
+            if (!file.exists()) true else {
+                file.writeBytes(ByteArray(file.length().toInt()))
+                file.delete()
+            }
+        }
+        val staging = File(root, "restore-stage").apply { mkdirs() }
+
+        val result = kotlinx.coroutines.runBlocking {
+            CryptoBackupDecryptor(crypto).decrypt(
+                VerifiedArtifact(encrypted, info, "verified-by-caller"),
+                staging,
+                "a sufficiently long backup passphrase".toCharArray()
+            )
+        }
+
+        assertTrue("Portable vault payload should decrypt and re-encrypt", result.isSuccess)
+        assertEquals("LOCAL-KEY-CIPHERTEXT", File(result.getOrThrow().vaultDir, "item.vvf").readText())
+        verify(crypto).secureShredFile(any())
+    }
+
+    @Test
     fun failedVaultReencryptionShredsPlaintextAndPartialCiphertext() {
         val root = temp.newFolder("failed-vault-reencryption")
         val payload = File(root, "payload.zip")
