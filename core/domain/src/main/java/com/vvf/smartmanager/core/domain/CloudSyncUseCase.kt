@@ -246,7 +246,14 @@ class CloudSyncUseCase(
             // The Application persists this before a required process restart.
             val completion = restoreOutcome
                 ?: Result.failure(IllegalStateException("Restore terminated before producing an outcome"))
-            runCatching { onRestoreFinished?.invoke(completion) }
+            try {
+                onRestoreFinished?.invoke(completion)
+            } catch (callbackError: CancellationException) {
+                throw callbackError
+            } catch (_: Exception) {
+                // A completion callback must not mask the restore result, but cancellation must
+                // still propagate to the coroutine caller.
+            }
         }
     }
 
