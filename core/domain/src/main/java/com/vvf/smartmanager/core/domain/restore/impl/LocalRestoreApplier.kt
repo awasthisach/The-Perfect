@@ -611,7 +611,10 @@ class LocalRestoreApplier(
             val journal = File(snapshotRoot, JOURNAL_FILE)
             if (!journal.isFile) {
                 if (hasInterruptedSwapArtifacts(liveDatabaseFile, liveVaultDir)) {
+                    // Legacy swap artifacts may be the only surviving rollback material. Do not
+                    // also delete orphaned snapshot files when recovery had no journal to map them.
                     recoverLegacySwapArtifacts(liveDatabaseFile, liveVaultDir)
+                    return
                 }
                 cleanupOrphanedSnapshotArtifacts(snapshotRoot)
                 return
