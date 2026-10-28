@@ -122,6 +122,15 @@ class CloudSyncUseCase(
         passphrase: CharArray? = null,
         vaultPin: String? = null
     ): Result<CloudBackupInfo> = archiveMutex.withLock {
+        if (includeDatabase && !includeVault) {
+            passphrase?.fill(0.toChar())
+            _syncState.value = CloudSyncStatus.ERROR
+            return Result.failure(
+                IllegalArgumentException(
+                    "Database-only backups are disabled because database vault rows cannot be proven consistent with a separate vault snapshot. Enable vault inclusion for a full backup."
+                )
+            )
+        }
         val service = archiveService
         if (service == null) {
             passphrase?.fill(0.toChar())
