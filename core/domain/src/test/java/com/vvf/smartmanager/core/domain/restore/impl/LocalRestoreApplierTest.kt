@@ -226,6 +226,49 @@ class LocalRestoreApplierTest {
     }
 
     @Test
+    fun legacyRestoreBackupsWithoutJournalDoNotCrashLoopWhenLiveStateExists() {
+        val root = temp.newFolder("legacy-orphaned-restore")
+        val liveDb = File(root, "live.db").apply { writeText("LIVE-DB") }
+        val liveVault = File(root, "vault").also { it.mkdirs(); File(it, "live.bin").writeText("LIVE-VAULT") }
+        val databaseBackup = File(root, "live.db.restore-bak").apply { writeText("OLD-DB-BACKUP") }
+        val vaultBackup = File(root, "vault.restore-bak-legacy").also {
+            it.mkdirs()
+            File(it, "old.bin").writeText("OLD-VAULT-BACKUP")
+        }
+        val snapshotRoot = File(root, "missing-snapshots")
+
+        LocalRestoreApplier.recoverInterruptedRestore(
+            liveDatabaseFile = liveDb,
+            liveVaultDir = liveVault,
+            snapshotRoot = snapshotRoot,
+            cryptoSecurityManager = mock()
+        )
+
+        assertEquals("LIVE-DB", liveDb.readText())
+        assertEquals("LIVE-VAULT", File(liveVault, "live.bin").readText())
+        assertTrue("Legacy database backup must be preserved", databaseBackup.isFile)
+        assertTrue("Legacy vault backup must be preserved", File(vaultBackup, "old.bin").isFile)
+    }
+
+    @Test
+    fun legacyRestoreBackupRecoversMissingLiveDatabaseWithoutJournal() {
+        val root = temp.newFolder("legacy-missing-live-db")
+        val liveDb = File(root, "live.db")
+        val databaseBackup = File(root, "live.db.restore-bak").apply { writeText("RECOVERABLE-DB") }
+        val liveVault = File(root, "vault").also { it.mkdirs(); File(it, "live.bin").writeText("LIVE-VAULT") }
+
+        LocalRestoreApplier.recoverInterruptedRestore(
+            liveDatabaseFile = liveDb,
+            liveVaultDir = liveVault,
+            snapshotRoot = File(root, "missing-snapshots"),
+            cryptoSecurityManager = mock()
+        )
+
+        assertEquals("RECOVERABLE-DB", liveDb.readText())
+        assertTrue("Original backup must remain until a journaled cleanup can retire it", databaseBackup.isFile)
+    }
+
+    @Test
     fun startupRecoveryRestoresDatabaseWalAndVaultFromInterruptedJournal() {
         val root = temp.newFolder("interrupted-restore")
         val snapshotRoot = File(root, "snapshots").apply { mkdirs() }
