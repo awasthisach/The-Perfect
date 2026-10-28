@@ -52,7 +52,7 @@ class CloudSyncIntegrationTest {
         val artifactFile = File(tempDir, "backup.vvfbak").apply { writeText("encrypted-content") }
         whenever(
             archive.createArchive(
-                includeVault = eq(false),
+                includeVault = eq(true),
                 includeDatabase = eq(true),
                 passphrase = anyOrNull(),
                 vaultPin = anyOrNull()
@@ -85,12 +85,25 @@ class CloudSyncIntegrationTest {
         val drive = HttpFakeDriveService(server)
         val archive = mock<ArchiveService>()
         val artifactFile = File(tempDir, "backup.vvfbak").apply { writeText("encrypted-content") }
-        whenever(archive.createArchive(includeVault = false, includeDatabase = true)).thenReturn(
+        whenever(
+            archive.createArchive(
+                includeVault = eq(true),
+                includeDatabase = eq(true),
+                passphrase = anyOrNull(),
+                vaultPin = anyOrNull()
+            )
+        ).thenReturn(
             Result.success(artifact(artifactFile))
         )
         val useCase = CloudSyncUseCase(drive, archiveService = archive)
 
-        val result = useCase.createCloudBackup(CloudProviderType.GOOGLE_DRIVE)
+        val result = useCase.createCloudBackup(
+            CloudProviderType.GOOGLE_DRIVE,
+            includeVault = true,
+            includeDatabase = true,
+            passphrase = "correct horse battery staple".toCharArray(),
+            vaultPin = "1234"
+        )
 
         assertTrue(result.isFailure)
         assertEquals("Upload rejected with HTTP 503", result.exceptionOrNull()?.message)
@@ -102,7 +115,13 @@ class CloudSyncIntegrationTest {
         val drive = HttpFakeDriveService(server)
         val useCase = CloudSyncUseCase(drive)
 
-        val result = useCase.createCloudBackup(CloudProviderType.GOOGLE_DRIVE)
+        val result = useCase.createCloudBackup(
+            CloudProviderType.GOOGLE_DRIVE,
+            includeVault = true,
+            includeDatabase = true,
+            passphrase = "correct horse battery staple".toCharArray(),
+            vaultPin = "1234"
+        )
 
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull() is UnsupportedOperationException)
@@ -114,12 +133,25 @@ class CloudSyncIntegrationTest {
     fun archiveFailurePreventsProviderRequest() = runBlocking {
         val drive = HttpFakeDriveService(server)
         val archive = mock<ArchiveService>()
-        whenever(archive.createArchive(includeVault = false, includeDatabase = true)).thenReturn(
+        whenever(
+            archive.createArchive(
+                includeVault = eq(true),
+                includeDatabase = eq(true),
+                passphrase = anyOrNull(),
+                vaultPin = anyOrNull()
+            )
+        ).thenReturn(
             Result.failure(IllegalStateException("Snapshot failed"))
         )
         val useCase = CloudSyncUseCase(drive, archiveService = archive)
 
-        val result = useCase.createCloudBackup(CloudProviderType.GOOGLE_DRIVE)
+        val result = useCase.createCloudBackup(
+            CloudProviderType.GOOGLE_DRIVE,
+            includeVault = true,
+            includeDatabase = true,
+            passphrase = "correct horse battery staple".toCharArray(),
+            vaultPin = "1234"
+        )
 
         assertTrue(result.isFailure)
         assertEquals("Snapshot failed", result.exceptionOrNull()?.message)
@@ -133,12 +165,25 @@ class CloudSyncIntegrationTest {
         val archive = mock<ArchiveService>()
         val artifactFile = File(tempDir, "backup.vvfbak").apply { writeText("encrypted") }
         val expectedSizeBytes = artifactFile.length()
-        whenever(archive.createArchive(includeVault = false, includeDatabase = true)).thenReturn(
+        whenever(
+            archive.createArchive(
+                includeVault = eq(true),
+                includeDatabase = eq(true),
+                passphrase = anyOrNull(),
+                vaultPin = anyOrNull()
+            )
+        ).thenReturn(
             Result.success(artifact(artifactFile))
         )
         val useCase = CloudSyncUseCase(drive, archiveService = archive)
 
-        val result = useCase.createCloudBackup(CloudProviderType.GOOGLE_DRIVE)
+        val result = useCase.createCloudBackup(
+            CloudProviderType.GOOGLE_DRIVE,
+            includeVault = true,
+            includeDatabase = true,
+            passphrase = "correct horse battery staple".toCharArray(),
+            vaultPin = "1234"
+        )
 
         assertTrue(result.isSuccess)
         val item = drive.lastUploadedItem
@@ -156,7 +201,7 @@ class CloudSyncIntegrationTest {
             timestamp = System.currentTimeMillis(),
             backupName = "Test Backup",
             backupSizeBytes = file.length(),
-            includesVault = false,
+            includesVault = true,
             includesDatabase = true,
             includesPreferences = false
         ),
