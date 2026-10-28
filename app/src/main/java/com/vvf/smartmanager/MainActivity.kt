@@ -34,6 +34,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.animation.core.tween
@@ -150,6 +151,15 @@ fun VVFAppContent(
         TopLevelDestination.SEARCH,
         TopLevelDestination.CLOUD
     )
+
+    LaunchedEffect(app, navController) {
+        if (app.hasPendingRestoreOutcome()) {
+            navController.navigate(TopLevelDestination.CLOUD.route) {
+                popUpTo(navController.graph.findStartDestination().id) { inclusive = false }
+                launchSingleTop = true
+            }
+        }
+    }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize().testTag("vvf_main_container")) {
         val isWideScreen = maxWidth >= 600.dp
@@ -356,7 +366,8 @@ private fun VVFNavHost(
             val cloudViewModel: CloudViewModel = viewModel(
                 factory = CloudViewModel.provideFactory(
                     cloudSyncUseCase = app.cloudSyncUseCase,
-                    googleDriveService = app.googleDriveService
+                    googleDriveService = app.googleDriveService,
+                    initialStatusMessage = app.consumePendingRestoreOutcome()
                 )
             )
             CloudRoute(
