@@ -70,13 +70,14 @@ class PortableBackupRestoreIntegrationTest {
     @Test
     fun portableArchiveRestoresDatabaseKeyAndRewrapsVaultFiles() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val crypto = CryptoSecurityManager(context, "Robolectric")
-        assertTrue("Test must configure a real vault PIN", crypto.saveVaultPin("1234"))
+        val sourceCrypto = CryptoSecurityManager(context, "SourceDeviceKeyStore")
+        val destinationCrypto = CryptoSecurityManager(context, "DestinationDeviceKeyStore")
+        assertTrue("Test must configure a real vault PIN", sourceCrypto.saveVaultPin("1234"))
         val sourceDatabase = temp.newFile("source.db").apply { writeText("SQLCIPHER-DATABASE-CIPHERTEXT") }
         val sourceVault = temp.newFolder("source-vault")
         val sourceVaultPlain = temp.newFile("vault-plain.txt").apply { writeText("vault secret payload") }
         val sourceVaultCipher = File(sourceVault, "enc_fixture.vvf")
-        crypto.encryptFile(sourceVaultPlain, sourceVaultCipher)
+        sourceCrypto.encryptFile(sourceVaultPlain, sourceVaultCipher)
         sourceVaultPlain.delete()
 
         val service = ArchiveService(
@@ -85,9 +86,9 @@ class PortableBackupRestoreIntegrationTest {
                 ReadOnlyDatabaseSnapshotSource(sourceDatabase),
                 InjectedVaultSnapshotSource(sourceVault)
             ),
-            cryptoSecurityManager = crypto
+            cryptoSecurityManager = sourceCrypto
         )
-        val originalPassphrase = crypto.getOrCreateDatabasePassphrase()
+        val originalPassphrase = sourceCrypto.getOrCreateDatabasePassphrase()
         assertTrue("Portable backup must fail closed without a passphrase", service.createArchive(
             includeVault = true,
             includeDatabase = true
@@ -105,8 +106,16 @@ class PortableBackupRestoreIntegrationTest {
             vaultPin = "1234"
         ).getOrThrow()
 
+        // Emulate a second device: it has a different Keystore key and no source-wrapped DB key file.
+        listOf("vvf_db_passphrase_v2.bin", "vvf_db_enc_passphrase.bin", "vvf_db_passphrase_iv.bin")
+            .map { File(context.filesDir, it) }
+            .forEach { file -> check(!file.exists() || file.delete()) { "Unable to reset simulated destination key state" } }
+        val destinationPassphrase = destinationCrypto.getOrCreateDatabasePassphrase()
+        assertTrue("Different devices must start with different wrapped database keys",
+            !originalPassphrase.contentEquals(destinationPassphrase))
+
         val restoreStage = temp.newFolder("restore-stage")
-        val decrypted = CryptoBackupDecryptor(crypto).decrypt(
+        val decrypted = CryptoBackupDecryptor(destinationCrypto).decrypt(
             VerifiedArtifact(archive.file, archive.backupInfo, archive.checksumSha256),
             restoreStage,
             "portable test passphrase 2026".toCharArray()
@@ -116,19 +125,16 @@ class PortableBackupRestoreIntegrationTest {
         assertArrayEquals(originalPassphrase, bundledPassphrase)
         bundledPassphrase.fill(0)
 
-        // Simulate a destination device whose currently wrapped DB passphrase differs from the archive.
-        val destinationPassphrase = ByteArray(32) { (it + 101).toByte() }
-        crypto.replaceDatabasePassphraseForRestore(destinationPassphrase)
         val liveDatabase = temp.newFile("live.db").apply { writeText("OLD-DATABASE") }
         val liveVault = temp.newFolder("live-vault")
         val oldVaultPlain = temp.newFile("old-vault.txt").apply { writeText("old vault item") }
-        crypto.encryptFile(oldVaultPlain, File(liveVault, "enc_old.vvf"))
+        destinationCrypto.encryptFile(oldVaultPlain, File(liveVault, "enc_old.vvf"))
         oldVaultPlain.delete()
         val applier = LocalRestoreApplier(
             liveDatabaseFile = liveDatabase,
             liveVaultDir = liveVault,
             snapshotRoot = temp.newFolder("rollback-snapshots"),
-            cryptoSecurityManager = crypto
+            cryptoSecurityManager = destinationCrypto
         )
         applier.prepare().getOrThrow()
         val applied = applier.apply(decrypted).getOrThrow()
@@ -137,10 +143,18 @@ class PortableBackupRestoreIntegrationTest {
         assertEquals("SQLCIPHER-DATABASE-CIPHERTEXT", liveDatabase.readText())
         assertTrue(File(liveVault, "enc_fixture.vvf").isFile)
         val restoredVaultPlain = File(temp.root, "restored-vault-plain.txt")
-        crypto.decryptFile(File(liveVault, "enc_fixture.vvf"), restoredVaultPlain)
+        destinationCrypto.decryptFile(File(liveVault, "enc_fixture.vvf"), restoredVaultPlain)
         assertEquals("vault secret payload", restoredVaultPlain.readText())
+        val sourceDeviceDecrypt = runCatching {
+            sourceCrypto.decryptFile(
+                File(liveVault, "enc_fixture.vvf"),
+                File(temp.root, "wrong-device-plaintext.txt")
+            )
+        }
+        assertTrue("Restored vault ciphertext must not be decryptable by the source device key", sourceDeviceDecrypt.isFailure)
+        File(temp.root, "wrong-device-plaintext.txt").delete()
 
-        val currentPassphrase = crypto.getOrCreateDatabasePassphrase()
+        val currentPassphrase = destinationCrypto.getOrCreateDatabasePassphrase()
         assertArrayEquals(originalPassphrase, currentPassphrase)
         currentPassphrase.fill(0)
         originalPassphrase.fill(0)
