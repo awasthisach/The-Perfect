@@ -125,14 +125,31 @@ class CryptoBackupDecryptor(
             if (isPortable && actualBackupInfo.includesVault) {
                 vaultDir.walkTopDown().filter { it.isFile }.toList().forEach { plainFile ->
                     val encryptedTemp = File(plainFile.parentFile, plainFile.name + ".local-encrypted")
-                    crypto.encryptFile(plainFile, encryptedTemp)
-                    if (!plainFile.delete()) {
-                        encryptedTemp.delete()
-                        throw SecurityException("Unable to remove plaintext vault staging file")
-                    }
-                    if (!encryptedTemp.renameTo(plainFile)) {
-                        encryptedTemp.copyTo(plainFile, overwrite = true)
-                        if (!encryptedTemp.delete()) throw SecurityException("Unable to clean temporary encrypted vault file")
+                    try {
+                        crypto.encryptFile(plainFile, encryptedTemp)
+                        if (!plainFile.delete()) {
+                            throw SecurityException("Unable to remove plaintext vault staging file")
+                        }
+                        if (!encryptedTemp.renameTo(plainFile)) {
+                            encryptedTemp.copyTo(plainFile, overwrite = true)
+                            if (!encryptedTemp.delete()) {
+                                throw SecurityException("Unable to clean temporary encrypted vault file")
+                            }
+                        }
+                    } catch (error: Throwable) {
+                        // A failed conversion can leave plaintext plus a partial ciphertext file.
+                        // Shred both immediately; outer staging cleanup is only a last resort.
+                        val encryptedRemoved = crypto.secureShredFile(encryptedTemp)
+                        val plaintextRemoved = crypto.secureShredFile(plainFile)
+                        if ((!encryptedRemoved && encryptedTemp.exists()) ||
+                            (!plaintextRemoved && plainFile.exists())
+                        ) {
+                            throw SecurityException(
+                                "Unable to securely remove failed vault conversion artifacts",
+                                error
+                            )
+                        }
+                        throw error
                     }
                 }
             }
