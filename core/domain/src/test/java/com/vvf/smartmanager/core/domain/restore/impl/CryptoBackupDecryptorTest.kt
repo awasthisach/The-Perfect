@@ -11,7 +11,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.times
+import org.mockito.kotlin.verify
+import org.mockito.kotlin.whenever
 import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -140,6 +144,63 @@ class CryptoBackupDecryptorTest {
         assertTrue("Manifest-only portable archive should decrypt", result.isSuccess)
         assertEquals(false, result.getOrThrow().backupInfo.includesDatabase)
         assertEquals(true, result.getOrThrow().backupInfo.includesVault)
+    }
+
+
+    @Test
+    fun failedVaultReencryptionShredsPlaintextAndPartialCiphertext() {
+        val root = temp.newFolder("failed-vault-reencryption")
+        val payload = File(root, "payload.zip")
+        val manifest = """{"version":3,"timestamp":1,"checksumSha256":"","databaseSizeBytes":0,"vaultSizeBytes":12,"fileCount":1,"vaultItemCount":1,"appVersion":"test","schemaVersion":1,"includesDatabase":false,"includesVault":true}"""
+        ZipOutputStream(payload.outputStream()).use { zip ->
+            zip.putNextEntry(ZipEntry("vault/item.vvf"))
+            zip.write("vault plaintext".toByteArray())
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("metadata.json"))
+            zip.write(manifest.toByteArray())
+            zip.closeEntry()
+        }
+        val encrypted = File(root, "portable.vvfbak")
+        PortableBackupCrypto().encryptFile(payload, encrypted, "a sufficiently long backup passphrase".toCharArray())
+        val info = CloudBackupInfo(
+            backupId = "remote-vault",
+            timestamp = 1L,
+            backupName = "portable-vault.vvfbak",
+            backupSizeBytes = encrypted.length(),
+            includesVault = true,
+            includesDatabase = false,
+            checksumSha256 = "verified-by-caller"
+        )
+        val crypto = mock<CryptoSecurityManager>()
+        whenever(crypto.encryptFile(any(), any())).thenAnswer { invocation ->
+            val destination = invocation.getArgument<File>(1)
+            destination.writeText("partial ciphertext")
+            throw java.io.IOException("simulated encryption failure")
+        }
+        whenever(crypto.secureShredFile(any())).thenAnswer { invocation ->
+            val file = invocation.getArgument<File>(0)
+            if (!file.exists()) {
+                true
+            } else {
+                file.writeBytes(ByteArray(file.length().toInt()))
+                file.delete()
+            }
+        }
+        val staging = File(root, "restore-stage").apply { mkdirs() }
+        val passphrase = "a sufficiently long backup passphrase".toCharArray()
+
+        val result = kotlinx.coroutines.runBlocking {
+            CryptoBackupDecryptor(crypto).decrypt(
+                VerifiedArtifact(encrypted, info, "verified-by-caller"),
+                staging,
+                passphrase
+            )
+        }
+
+        assertTrue("Failed vault conversion must fail restore", result.isFailure)
+        assertTrue("Decryptor must consume passphrase on failure", passphrase.all { it == 0.toChar() })
+        verify(crypto, times(2)).secureShredFile(any())
+        assertTrue("Failed restore staging must be removed", staging.listFiles().orEmpty().isEmpty())
     }
 
     @Test
