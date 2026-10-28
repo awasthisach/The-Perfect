@@ -165,7 +165,7 @@ class LocalRestoreApplierTest {
     }
 
     @Test
-    fun databaseOnlyRestorePreservesLiveVault() = runBlocking {
+    fun databaseOnlyRestoreIsRejectedWhenLiveVaultHasFiles() = runBlocking {
         val liveDb = temp.newFile("database-only-live.db").apply { writeText("OLD-DB") }
         val liveVault = temp.newFolder("database-only-vault").also {
             File(it, "keep.bin").writeText("KEEP-VAULT")
@@ -189,13 +189,13 @@ class LocalRestoreApplierTest {
             )
         )
 
-        assertTrue(result.isSuccess)
-        assertEquals("NEW-DB", liveDb.readText())
+        assertTrue("Database-only restore must fail closed when live vault files would become inconsistent", result.isFailure)
+        assertEquals("KEEP-DB", liveDb.readText())
         assertEquals("KEEP-VAULT", File(liveVault, "keep.bin").readText())
     }
 
     @Test
-    fun vaultOnlyRestorePreservesLiveDatabase() = runBlocking {
+    fun vaultOnlyRestoreIsRejectedBecauseMetadataLivesInDatabase() = runBlocking {
         val liveDb = temp.newFile("vault-only-live.db").apply { writeText("KEEP-DB") }
         val liveVault = temp.newFolder("vault-only-live-vault").also {
             File(it, "old.bin").writeText("OLD-VAULT")
@@ -219,10 +219,10 @@ class LocalRestoreApplierTest {
             )
         )
 
-        assertTrue(result.isSuccess)
+        assertTrue("Vault-only restore must fail closed because metadata lives in the database", result.isFailure)
         assertEquals("KEEP-DB", liveDb.readText())
-        assertEquals("NEW-VAULT", File(liveVault, "new.bin").readText())
-        assertFalse(File(liveVault, "old.bin").exists())
+        assertEquals("OLD-VAULT", File(liveVault, "old.bin").readText())
+        assertFalse(File(liveVault, "new.bin").exists())
     }
 
     @Test

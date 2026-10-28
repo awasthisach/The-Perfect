@@ -94,6 +94,11 @@ class CryptoBackupDecryptor(
             if (includesDatabase && !hasDatabasePayload) {
                 throw SecurityException("Archive declares a database but contains no database payload")
             }
+            if (includesVault && !includesDatabase) {
+                throw SecurityException(
+                    "Vault-only archives cannot be restored because vault metadata is stored in the encrypted database"
+                )
+            }
             if (metadata != null && metadata.version >= 3) {
                 if (!includesDatabase && hasDatabasePayload) {
                     throw SecurityException("Archive metadata excludes a database that is present in the payload")

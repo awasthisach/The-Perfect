@@ -116,20 +116,30 @@ class CryptoBackupDecryptorTest {
     fun authenticatedManifestOverridesIncompleteProviderPayloadFlags() {
         val root = temp.newFolder("manifest-flags")
         val payload = File(root, "payload.zip")
-        val manifest = """{"version":3,"timestamp":1,"checksumSha256":"","databaseSizeBytes":0,"vaultSizeBytes":0,"fileCount":0,"vaultItemCount":0,"appVersion":"test","schemaVersion":1,"includesDatabase":false,"includesVault":true}"""
+        val expectedDatabase = "DATABASE-CIPHERTEXT".toByteArray()
+        val expectedPassphrase = ByteArray(32) { (it + 31).toByte() }
+        val manifest = """{"version":3,"timestamp":1,"checksumSha256":"","databaseSizeBytes":0,"vaultSizeBytes":0,"fileCount":2,"vaultItemCount":0,"appVersion":"test","schemaVersion":1,"includesDatabase":true,"includesVault":false}"""
         ZipOutputStream(payload.outputStream()).use { zip ->
+            zip.putNextEntry(ZipEntry("database/db.enc"))
+            zip.write(expectedDatabase)
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("key-material/database-passphrase.bin"))
+            zip.write(expectedPassphrase)
+            zip.closeEntry()
             zip.putNextEntry(ZipEntry("metadata.json"))
             zip.write(manifest.toByteArray())
             zip.closeEntry()
         }
         val encrypted = File(root, "portable.vvfbak")
         PortableBackupCrypto().encryptFile(payload, encrypted, "a sufficiently long backup passphrase".toCharArray())
-        // Provider-created metadata defaults to database=true/vault=false; authenticated archive metadata is authoritative.
+        // Provider flags contradict the authenticated archive manifest; the manifest must win.
         val providerInfo = CloudBackupInfo(
             backupId = "remote-portable",
             timestamp = 1L,
             backupName = "portable.vvfbak",
             backupSizeBytes = encrypted.length(),
+            includesDatabase = false,
+            includesVault = true,
             checksumSha256 = "verified-by-caller"
         )
         val staging = File(root, "restore-stage").apply { mkdirs() }
@@ -141,11 +151,52 @@ class CryptoBackupDecryptorTest {
             )
         }
 
-        assertTrue("Manifest-only portable archive should decrypt", result.isSuccess)
-        assertEquals(false, result.getOrThrow().backupInfo.includesDatabase)
-        assertEquals(true, result.getOrThrow().backupInfo.includesVault)
+        assertTrue("Authenticated database-only manifest should decrypt", result.isSuccess)
+        assertArrayEquals(expectedDatabase, result.getOrThrow().databaseFile.readBytes())
+        assertArrayEquals(expectedPassphrase, result.getOrThrow().databasePassphraseFile!!.readBytes())
+        assertEquals(true, result.getOrThrow().backupInfo.includesDatabase)
+        assertEquals(false, result.getOrThrow().backupInfo.includesVault)
     }
 
+    @Test
+    fun portableVaultOnlyArchiveIsRejectedBecauseDatabaseHoldsVaultMetadata() {
+        val root = temp.newFolder("vault-only-rejected")
+        val payload = File(root, "payload.zip")
+        val manifest = """{"version":3,"timestamp":1,"checksumSha256":"","databaseSizeBytes":0,"vaultSizeBytes":10,"fileCount":1,"vaultItemCount":1,"appVersion":"test","schemaVersion":1,"includesDatabase":false,"includesVault":true}"""
+        ZipOutputStream(payload.outputStream()).use { zip ->
+            zip.putNextEntry(ZipEntry("vault/item.vvf"))
+            zip.write("portable vault plaintext".toByteArray())
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("metadata.json"))
+            zip.write(manifest.toByteArray())
+            zip.closeEntry()
+        }
+        val encrypted = File(root, "portable.vvfbak")
+        PortableBackupCrypto().encryptFile(payload, encrypted, "a sufficiently long backup passphrase".toCharArray())
+        val info = CloudBackupInfo(
+            backupId = "remote-vault-only",
+            timestamp = 1L,
+            backupName = "vault-only.vvfbak",
+            backupSizeBytes = encrypted.length(),
+            includesDatabase = false,
+            includesVault = true,
+            checksumSha256 = "verified-by-caller"
+        )
+        val staging = File(root, "restore-stage").apply { mkdirs() }
+        val passphrase = "a sufficiently long backup passphrase".toCharArray()
+
+        val result = kotlinx.coroutines.runBlocking {
+            CryptoBackupDecryptor(mock<CryptoSecurityManager>()).decrypt(
+                VerifiedArtifact(encrypted, info, "verified-by-caller"),
+                staging,
+                passphrase
+            )
+        }
+
+        assertTrue("Vault-only archive must be rejected", result.isFailure)
+        assertTrue("Passphrase must be consumed", passphrase.all { it == 0.toChar() })
+        assertFalse("Rejected archive must not leave plaintext staging", staging.exists())
+    }
 
     @Test
     fun portableVaultPayloadIsReencryptedLocallyAndPlaintextIsShredded() {
