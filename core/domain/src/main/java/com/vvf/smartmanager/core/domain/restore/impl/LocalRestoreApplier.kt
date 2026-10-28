@@ -550,7 +550,7 @@ class LocalRestoreApplier(
             }
 
             if (!liveDatabaseFile.exists()) {
-                val stagedDatabase = File(parent, "$db.restore-tmp-legacy-recovery-${UUID.randomUUID()}")
+                val stagedDatabase = File(parent, ".legacy-recovery-db-${UUID.randomUUID()}")
                 try {
                     databaseBackup.copyTo(stagedDatabase, overwrite = false)
                     if (stagedDatabase.length() != databaseBackup.length()) {
@@ -565,7 +565,7 @@ class LocalRestoreApplier(
             }
             if (!liveVaultDir.exists() && vaultBackups.size == 1) {
                 val backup = vaultBackups.single()
-                val stagedVault = File(parent, "$vault.restore-tmp-legacy-recovery-${UUID.randomUUID()}")
+                val stagedVault = File(parent, ".legacy-recovery-vault-${UUID.randomUUID()}")
                 try {
                     backup.copyRecursively(stagedVault, overwrite = false)
                     if (!stagedVault.isDirectory) {
