@@ -222,10 +222,13 @@ class CloudViewModel(
                     )
                 }
             } else {
+                val reason = result.exceptionOrNull()?.message
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "unknown error"
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        statusMessage = "Restore failed."
+                        statusMessage = "Restore failed: $reason"
                     )
                 }
             }
