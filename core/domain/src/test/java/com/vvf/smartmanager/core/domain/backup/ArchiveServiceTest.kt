@@ -170,6 +170,10 @@ class ArchiveServiceTest {
         )
 
         assertTrue("Database-only backup must not omit files referenced by vault metadata", result.isFailure)
+        assertTrue(
+            "User must receive an actionable reason for the rejected partial backup",
+            result.exceptionOrNull()?.message?.contains("vault contains files", ignoreCase = true) == true
+        )
         assertTrue("Rejected backup must consume passphrase", passphrase.all { it == 0.toChar() })
         assertTrue("Rejected backup must not publish an encrypted archive", cache.listFiles().orEmpty().none { it.name.endsWith(".vvfbak") })
     }

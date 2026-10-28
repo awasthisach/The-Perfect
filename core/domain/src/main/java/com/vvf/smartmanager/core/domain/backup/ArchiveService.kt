@@ -198,7 +198,12 @@ class ArchiveService(
             if (error is CancellationException) throw error
             runCatching { cleanupPlaintextArtifactsOrThrow(stagingDir, zipFile) }
             encryptedFile.delete()
-            Result.failure(ArchiveException("Archive creation failed; no backup was published", error))
+            val reportedError = if (error is ArchiveException) {
+                error
+            } else {
+                ArchiveException("Archive creation failed; no backup was published", error)
+            }
+            Result.failure(reportedError)
         } finally {
             passphrase.fill(0.toChar())
             // Best-effort second pass if an earlier cleanup attempt encountered a transient error.
