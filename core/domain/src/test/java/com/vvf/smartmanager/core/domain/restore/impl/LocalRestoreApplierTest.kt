@@ -410,7 +410,7 @@ class LocalRestoreApplierTest {
 
 
     @Test
-    fun startupRecoveryFailsClosedAndPreservesAmbiguousLegacySwapArtifacts() {
+    fun startupRecoveryPreservesAmbiguousLegacySwapArtifactsWithoutCrashLoop() {
         val root = temp.newFolder("legacy-orphaned-restore")
         val liveDb = File(root, "live.db").apply { writeText("LIVE-DB") }
         val databaseBackup = File(root, "live.db.restore-bak").apply { writeText("ROLLBACK-DB") }
@@ -425,16 +425,13 @@ class LocalRestoreApplierTest {
         }
         val snapshotRoot = File(root, "missing-snapshots")
 
-        val result = runCatching {
-            LocalRestoreApplier.recoverInterruptedRestore(
-                liveDatabaseFile = liveDb,
-                liveVaultDir = liveVault,
-                snapshotRoot = snapshotRoot,
-                cryptoSecurityManager = mock()
-            )
-        }
+        LocalRestoreApplier.recoverInterruptedRestore(
+            liveDatabaseFile = liveDb,
+            liveVaultDir = liveVault,
+            snapshotRoot = snapshotRoot,
+            cryptoSecurityManager = mock()
+        )
 
-        assertTrue("Ambiguous legacy DB swap must fail closed", result.isFailure)
         assertEquals("Live database must remain untouched", "LIVE-DB", liveDb.readText())
         assertEquals("Live vault must remain untouched", "LIVE-VAULT", File(liveVault, "live.bin").readText())
         assertTrue("Rollback DB must be preserved for recovery", databaseBackup.isFile)
