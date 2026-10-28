@@ -11,6 +11,7 @@ import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.security.MessageDigest
 import java.util.Properties
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
@@ -513,6 +514,26 @@ class LocalRestoreApplier(
                 }
         }
 
+        private fun filesHaveSameContents(first: File, second: File): Boolean {
+            if (!first.isFile || !second.isFile || first.length() != second.length()) return false
+
+            fun digest(file: File): ByteArray {
+                val sha256 = MessageDigest.getInstance("SHA-256")
+                file.inputStream().use { input ->
+                    val buffer = ByteArray(8192)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        sha256.update(buffer, 0, count)
+                    }
+                    buffer.fill(0)
+                }
+                return sha256.digest()
+            }
+
+            return digest(first).contentEquals(digest(second))
+        }
+
         private fun recoverLegacySwapArtifacts(liveDatabaseFile: File, liveVaultDir: File) {
             val parent = liveDatabaseFile.parentFile
                 ?: throw IllegalStateException("Legacy restore recovery has no parent directory")
@@ -542,7 +563,17 @@ class LocalRestoreApplier(
             if (liveDatabaseFile.exists() &&
                 (databaseBackup.exists() || vaultBackupArtifacts.isNotEmpty())
             ) {
-                return
+                // Resume the narrow legacy crash window where recovery already copied the DB
+                // from its rollback backup but died before publishing the matching vault. Only
+                // pair the vault backup when the live DB is byte-identical to that backup.
+                val canResumeVaultPublication =
+                    !liveVaultDir.exists() &&
+                        databaseBackup.isFile &&
+                        databaseBackup.length() > 0L &&
+                        vaultBackupArtifacts.size == 1 &&
+                        vaultBackups.size == 1 &&
+                        filesHaveSameContents(liveDatabaseFile, databaseBackup)
+                if (!canResumeVaultPublication) return
             }
 
             if (!liveDatabaseFile.exists() && (!databaseBackup.isFile || databaseBackup.length() == 0L)) {
