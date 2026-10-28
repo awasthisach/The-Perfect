@@ -153,6 +153,7 @@ class FailClosedRestorePipeline(
             Result.failure(RestoreException("Fail-closed restore dry-run aborted", error))
         } finally {
             passphrase?.fill(0.toChar())
+            decryptedBackup?.databasePassphrase?.fill(0)
             stagingDir.deleteRecursively()
         }
     }
