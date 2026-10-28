@@ -52,7 +52,7 @@ data class DecryptedBackup(
     val vaultDir: File,
     val backupInfo: CloudBackupInfo,
     val timestamp: Long,
-    val databasePassphraseFile: File? = null
+    val databasePassphrase: ByteArray? = null
 )
 
 data class RestoreSnapshot(

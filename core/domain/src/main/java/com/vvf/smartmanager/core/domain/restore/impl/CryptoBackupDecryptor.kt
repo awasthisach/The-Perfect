@@ -9,6 +9,7 @@ import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import com.vvf.smartmanager.core.security.PortableBackupCrypto
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.io.FileOutputStream
 import java.util.zip.ZipInputStream
 
 /** Decrypts a verified .vvfbak archive into isolated staging (zip-slip safe). */
@@ -22,6 +23,7 @@ class CryptoBackupDecryptor(
         stagingDir: File,
         passphrase: CharArray?
     ): Result<DecryptedBackup> {
+        var extractedDatabasePassphrase: ByteArray? = null
         return try {
             if (!stagingDir.exists() && !stagingDir.mkdirs()) {
                 return Result.failure(RestoreException("Unable to create decrypt staging directory"))
@@ -49,7 +51,7 @@ class CryptoBackupDecryptor(
                 return Result.failure(RestoreException("Decryption produced no payload"))
             }
             unzip(decryptedZip, stagingDir)
-            decryptedZip.delete()
+            secureDeleteFile(decryptedZip)
             val metadataFile = File(stagingDir, "metadata.json")
             val metadata = metadataFile.takeIf { it.isFile }?.let {
                 json.decodeFromString(ArchiveMetadata.serializer(), it.readText())
@@ -83,7 +85,7 @@ class CryptoBackupDecryptor(
             } else {
                 hasDatabasePayload
             }
-            if (metadata != null && metadata.version !in 1..3) {
+            if (metadata != null && metadata.version !in 1..4) {
                 throw SecurityException("Unsupported archive metadata version: ${metadata.version}")
             }
             val includesVault = if (metadata != null && metadata.version >= 3) {
@@ -126,6 +128,8 @@ class CryptoBackupDecryptor(
                 require(databasePassphraseFile.isFile && databasePassphraseFile.length() == 32L) {
                     "Portable archive is missing valid database key material"
                 }
+                extractedDatabasePassphrase = databasePassphraseFile.readBytes()
+                secureDeleteFile(databasePassphraseFile)
             }
             if (isPortable && actualBackupInfo.includesVault) {
                 vaultDir.walkTopDown().filter { it.isFile }.toList().forEach { plainFile ->
@@ -165,15 +169,67 @@ class CryptoBackupDecryptor(
                     vaultDir = vaultDir,
                     backupInfo = actualBackupInfo,
                     timestamp = System.currentTimeMillis(),
-                    databasePassphraseFile = databasePassphraseFile.takeIf { isPortable && it.isFile }
+                    databasePassphrase = extractedDatabasePassphrase.also { extractedDatabasePassphrase = null }
                 )
             )
         } catch (error: Throwable) {
             passphrase?.fill(0.toChar())
-            // This directory is isolated and owned by the restore attempt; it may contain
-            // plaintext vault payload or the imported SQLCipher passphrase after partial unzip.
-            stagingDir.deleteRecursively()
-            Result.failure(RestoreException("Backup decryption failed", error))
+            extractedDatabasePassphrase?.fill(0)
+            val cleanupFailure = runCatching { secureCleanupStaging(stagingDir) }.exceptionOrNull()
+            val failure = if (cleanupFailure != null) {
+                RestoreException("Backup decryption failed and plaintext cleanup could not be confirmed", cleanupFailure)
+                    .also { it.addSuppressed(error) }
+            } else {
+                RestoreException("Backup decryption failed", error)
+            }
+            Result.failure(failure)
+        }
+    }
+
+    private fun secureDeleteFile(file: File) {
+        if (!file.exists()) return
+        try {
+            if (file.isFile && file.length() > 0L) {
+                val length = file.length()
+                FileOutputStream(file).use { output ->
+                    val zeros = ByteArray(64 * 1024)
+                    try {
+                        var written = 0L
+                        while (written < length) {
+                            val count = minOf(zeros.size.toLong(), length - written).toInt()
+                            output.write(zeros, 0, count)
+                            written += count
+                        }
+                        output.flush()
+                        output.fd.sync()
+                    } finally {
+                        zeros.fill(0)
+                    }
+                }
+            }
+        } catch (cleanupError: Throwable) {
+            throw SecurityException("Unable to overwrite plaintext restore staging file", cleanupError)
+        }
+        if (file.exists() && !file.delete()) {
+            throw SecurityException("Unable to remove plaintext restore staging file")
+        }
+    }
+
+    private fun secureCleanupStaging(stagingDir: File) {
+        if (!stagingDir.exists()) return
+        val failures = mutableListOf<String>()
+        stagingDir.walkBottomUp().filter { it.isFile }.forEach { file ->
+            try {
+                secureDeleteFile(file)
+            } catch (_: Throwable) {
+                failures += file.name
+            }
+        }
+        stagingDir.walkBottomUp().filter { it.isDirectory }.forEach { directory ->
+            if (!directory.delete() && directory.exists()) failures += directory.name
+        }
+        if (failures.isNotEmpty()) {
+            throw SecurityException("Unable to securely remove restore staging artifacts: ${failures.distinct().joinToString()}")
         }
     }
 

@@ -154,12 +154,14 @@ class ArchiveService(
             }
 
             val metadata = ArchiveMetadata(
-                version = 3,
+                version = 4,
                 timestamp = timestamp,
                 checksumSha256 = "",
                 databaseSizeBytes = requestedSources.firstOrNull { it.sourceName == "database" }?.dataSizeBytes() ?: 0L,
                 vaultSizeBytes = requestedSources.firstOrNull { it.sourceName == "vault" }?.dataSizeBytes() ?: 0L,
-                fileCount = stagingDir.walkTopDown().count { it.isFile },
+                fileCount = stagingDir.walkTopDown().count {
+                    it.isFile && it.relativeTo(stagingDir).invariantSeparatorsPath != "key-material/database-passphrase.bin"
+                },
                 vaultItemCount = File(stagingDir, "vault").walkTopDown().count { it.isFile },
                 appVersion = appVersion,
                 schemaVersion = schemaVersion,

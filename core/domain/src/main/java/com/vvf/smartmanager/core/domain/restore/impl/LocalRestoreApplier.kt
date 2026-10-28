@@ -115,10 +115,14 @@ class LocalRestoreApplier(
                 val manifest = json.decodeFromString(ArchiveMetadata.serializer(), manifestFile.readText())
                 val actualFiles = decryptedBackup.stagingDir.walkTopDown()
                     .count { it.isFile && it.name != "metadata.json" }
-                if (actualFiles < manifest.fileCount) {
+                val removedLegacyKeyMaterial = if (
+                    decryptedBackup.databasePassphrase != null && manifest.version < 4
+                ) 1 else 0
+                val expectedFiles = manifest.fileCount - removedLegacyKeyMaterial
+                if (actualFiles < expectedFiles) {
                     return Result.failure(
                         RestoreException(
-                            "Incomplete restore: expected ${manifest.fileCount} files, extracted $actualFiles"
+                            "Incomplete restore: expected $expectedFiles files after secure key-material extraction, found $actualFiles"
                         )
                     )
                 }
@@ -231,10 +235,10 @@ class LocalRestoreApplier(
                 }
             }
 
-            if (decryptedBackup.backupInfo.includesDatabase && decryptedBackup.databasePassphraseFile != null) {
+            if (decryptedBackup.backupInfo.includesDatabase && decryptedBackup.databasePassphrase != null) {
                 val crypto = cryptoSecurityManager
                     ?: throw RestoreException("Portable database restore requires local Keystore migration support")
-                val importedPassphrase = decryptedBackup.databasePassphraseFile.readBytes()
+                val importedPassphrase = decryptedBackup.databasePassphrase
                 try {
                     crypto.replaceDatabasePassphraseForRestore(importedPassphrase)
                 } finally {

@@ -244,7 +244,7 @@ class ArchiveServiceTest {
         assertTrue("Encrypted archive must contain metadata", manifestText != null)
         val manifest = Json { ignoreUnknownKeys = true }
             .decodeFromString(ArchiveMetadata.serializer(), manifestText!!)
-        assertEquals(3, manifest.version)
+        assertEquals(4, manifest.version)
         assertEquals(true, manifest.includesDatabase)
         assertEquals(false, manifest.includesVault)
     }

@@ -31,12 +31,14 @@ class FailClosedRestorePipeline(
         val token = UUID.randomUUID().toString()
         val stagingDir = File(workingDir, "restore-$token")
         var snapshot: RestoreSnapshot? = null
+        var decryptedBackup: DecryptedBackup? = null
         return try {
             requireWorkingDirectory(stagingDir)
 
             val downloaded = downloader.download(remoteBackupId).getOrElse { return Result.failure(it) }
             val verified = verifier.verify(downloaded, expectedChecksum).getOrElse { return Result.failure(it) }
             val decrypted = decryptor.decrypt(verified, stagingDir, passphrase).getOrElse { return Result.failure(it) }
+            decryptedBackup = decrypted
 
             snapshot = applier.prepare().getOrElse { return Result.failure(it) }
             preparedSnapshots[snapshot!!.token] = snapshot!!
@@ -112,6 +114,7 @@ class FailClosedRestorePipeline(
             Result.failure(RestoreException("Fail-closed restore aborted", error))
         } finally {
             passphrase?.fill(0.toChar())
+            decryptedBackup?.databasePassphrase?.fill(0)
             stagingDir.deleteRecursively()
         }
     }
@@ -127,11 +130,13 @@ class FailClosedRestorePipeline(
         }
         val token = UUID.randomUUID().toString()
         val stagingDir = File(workingDir, "dry-run-$token")
+        var decryptedBackup: DecryptedBackup? = null
         return try {
             requireWorkingDirectory(stagingDir)
             val downloaded = downloader.download(remoteBackupId).getOrElse { return Result.failure(it) }
             val verified = verifier.verify(downloaded, expectedChecksum).getOrElse { return Result.failure(it) }
             val decrypted = decryptor.decrypt(verified, stagingDir, passphrase).getOrElse { return Result.failure(it) }
+            decryptedBackup = decrypted
             val fileCount = decrypted.stagingDir.walkTopDown().count { it.isFile }
             val vaultCount = decrypted.vaultDir.walkTopDown().count { it.isFile }
             Result.success(

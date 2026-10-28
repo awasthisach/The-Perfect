@@ -65,8 +65,8 @@ class CryptoBackupDecryptorTest {
         assertTrue("Portable archive should decrypt", result.isSuccess)
         val decrypted = result.getOrThrow()
         assertArrayEquals(expectedDatabase, decrypted.databaseFile.readBytes())
-        assertArrayEquals(expectedPassphrase, decrypted.databasePassphraseFile!!.readBytes())
-        assertEquals("Portable key material must be exactly 32 bytes", 32L, decrypted.databasePassphraseFile.length())
+        assertArrayEquals(expectedPassphrase, decrypted.databasePassphrase!!)
+        assertEquals("Portable key material must be exactly 32 bytes", 32L, decrypted.databasePassphrase!!.size.toLong())
         assertTrue("Decryptor must consume the passphrase", passphrase.all { it == 0.toChar() })
     }
 
@@ -109,7 +109,7 @@ class CryptoBackupDecryptorTest {
         assertTrue("Legacy root-level database layout should decrypt", result.isSuccess)
         assertEquals("vvf_smart_manager_enc.db", result.getOrThrow().databaseFile.name)
         assertArrayEquals(expectedDatabase, result.getOrThrow().databaseFile.readBytes())
-        assertArrayEquals(expectedPassphrase, result.getOrThrow().databasePassphraseFile!!.readBytes())
+        assertArrayEquals(expectedPassphrase, result.getOrThrow().databasePassphrase!!)
     }
 
     @Test
@@ -153,7 +153,7 @@ class CryptoBackupDecryptorTest {
 
         assertTrue("Authenticated database-only manifest should decrypt", result.isSuccess)
         assertArrayEquals(expectedDatabase, result.getOrThrow().databaseFile.readBytes())
-        assertArrayEquals(expectedPassphrase, result.getOrThrow().databasePassphraseFile!!.readBytes())
+        assertArrayEquals(expectedPassphrase, result.getOrThrow().databasePassphrase!!)
         assertEquals(true, result.getOrThrow().backupInfo.includesDatabase)
         assertEquals(false, result.getOrThrow().backupInfo.includesVault)
     }
