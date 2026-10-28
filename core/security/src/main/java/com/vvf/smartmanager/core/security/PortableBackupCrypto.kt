@@ -175,29 +175,46 @@ class PortableBackupCrypto(
         }
     }
 
-    /** Best-effort overwrite before unlinking any failed, possibly partially decrypted plaintext. */
+    /** Overwrite if possible, but always attempt unlinking failed plaintext output. */
     private fun securelyDeletePlaintextTemp(file: File) {
         if (!file.exists()) return
+        var overwriteFailure: Throwable? = null
         try {
             if (file.isFile && file.length() > 0L) {
                 val length = file.length()
-                FileOutputStream(file).use { output ->
-                    val zeros = ByteArray(BUFFER_SIZE)
-                    var written = 0L
-                    while (written < length) {
-                        val count = minOf(zeros.size.toLong(), length - written).toInt()
-                        output.write(zeros, 0, count)
-                        written += count
+                val zeros = ByteArray(BUFFER_SIZE)
+                try {
+                    FileOutputStream(file).use { output ->
+                        var written = 0L
+                        while (written < length) {
+                            val count = minOf(zeros.size.toLong(), length - written).toInt()
+                            output.write(zeros, 0, count)
+                            written += count
+                        }
+                        output.flush()
+                        output.fd.sync()
                     }
-                    output.flush()
-                    output.fd.sync()
+                } finally {
                     zeros.fill(0)
                 }
             }
         } catch (cleanupError: Throwable) {
-            throw IOException("Unable to overwrite failed plaintext restore temporary file", cleanupError)
+            overwriteFailure = cleanupError
         }
-        if (file.exists() && !file.delete()) {
+
+        val removed = !file.exists() || file.delete()
+        if (overwriteFailure != null) {
+            val failure = IOException(
+                if (removed) {
+                    "Unable to overwrite failed plaintext restore temporary file; deletion was attempted"
+                } else {
+                    "Unable to overwrite or remove failed plaintext restore temporary file"
+                },
+                overwriteFailure
+            )
+            throw failure
+        }
+        if (!removed) {
             throw IOException("Unable to remove failed plaintext restore temporary file")
         }
     }
