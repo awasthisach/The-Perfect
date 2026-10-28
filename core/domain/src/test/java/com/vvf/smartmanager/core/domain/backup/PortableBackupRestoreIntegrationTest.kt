@@ -14,9 +14,8 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.mockito.kotlin.any
-import org.mockito.kotlin.argThat
 import org.mockito.kotlin.mock
-import org.mockito.kotlin.verify
+import org.mockito.kotlin.doAnswer
 import org.mockito.kotlin.whenever
 import java.io.File
 
@@ -37,6 +36,11 @@ class PortableBackupRestoreIntegrationTest {
         val destinationPassphrase = ByteArray(32) { (it + 11).toByte() }
         val crypto = mock<CryptoSecurityManager>()
         whenever(crypto.getOrCreateDatabasePassphrase()).thenReturn(destinationPassphrase.clone())
+        var restoredPassphrase: ByteArray? = null
+        doAnswer { invocation ->
+            restoredPassphrase = invocation.getArgument<ByteArray>(0).clone()
+            Unit
+        }.whenever(crypto).replaceDatabasePassphraseForRestore(any())
         whenever(crypto.isVaultConfigured()).thenReturn(true)
         whenever(crypto.verifyVaultPin("1234")).thenReturn(true)
         whenever(crypto.decryptFile(any(), any())).thenAnswer { invocation ->
@@ -121,6 +125,6 @@ class PortableBackupRestoreIntegrationTest {
         assertTrue("Portable plaintext must not be present in the live vault", liveVault.walkTopDown().none {
             it.isFile && it.readText().contains("PORTABLE-VAULT-PLAINTEXT")
         })
-        verify(crypto).replaceDatabasePassphraseForRestore(argThat { contentEquals(destinationPassphrase) })
+        assertArrayEquals(destinationPassphrase, restoredPassphrase)
     }
 }
