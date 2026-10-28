@@ -62,7 +62,13 @@ class CloudSyncIntegrationTest {
         )
         val useCase = CloudSyncUseCase(drive, archiveService = archive)
 
-        val result = useCase.createCloudBackup(CloudProviderType.GOOGLE_DRIVE, passphrase = "correct horse battery staple".toCharArray())
+        val result = useCase.createCloudBackup(
+            CloudProviderType.GOOGLE_DRIVE,
+            includeVault = true,
+            includeDatabase = true,
+            passphrase = "correct horse battery staple".toCharArray(),
+            vaultPin = "1234"
+        )
         val request = server.takeRequest(2, TimeUnit.SECONDS)
 
         assertTrue(result.isSuccess)
