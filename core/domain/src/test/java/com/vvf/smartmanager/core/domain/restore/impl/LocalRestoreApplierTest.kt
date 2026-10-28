@@ -410,33 +410,36 @@ class LocalRestoreApplierTest {
 
 
     @Test
-    fun startupRecoveryRetiresLegacySwapArtifactsWithoutJournal() {
+    fun startupRecoveryFailsClosedAndPreservesAmbiguousLegacySwapArtifacts() {
         val root = temp.newFolder("legacy-orphaned-restore")
         val liveDb = File(root, "live.db").apply { writeText("LIVE-DB") }
-        File(root, "live.db.restore-bak").writeText("STALE-DB-BACKUP")
-        File(root, "live.db.restore-tmp-old").writeText("STALE-TEMP")
+        val databaseBackup = File(root, "live.db.restore-bak").apply { writeText("ROLLBACK-DB") }
+        val tempDb = File(root, "live.db.restore-tmp-old").apply { writeText("STAGED-DB") }
         val liveVault = File(root, "vault").also {
             it.mkdirs()
             File(it, "live.bin").writeText("LIVE-VAULT")
         }
-        File(root, "vault.restore-bak-old").also {
+        val vaultBackup = File(root, "vault.restore-bak-old").also {
             it.mkdirs()
-            File(it, "stale.bin").writeText("STALE-VAULT")
+            File(it, "stale.bin").writeText("ROLLBACK-VAULT")
         }
         val snapshotRoot = File(root, "missing-snapshots")
 
-        LocalRestoreApplier.recoverInterruptedRestore(
-            liveDatabaseFile = liveDb,
-            liveVaultDir = liveVault,
-            snapshotRoot = snapshotRoot,
-            cryptoSecurityManager = mock()
-        )
+        val result = runCatching {
+            LocalRestoreApplier.recoverInterruptedRestore(
+                liveDatabaseFile = liveDb,
+                liveVaultDir = liveVault,
+                snapshotRoot = snapshotRoot,
+                cryptoSecurityManager = mock()
+            )
+        }
 
-        assertEquals("Existing live database remains authoritative", "LIVE-DB", liveDb.readText())
-        assertEquals("Existing live vault remains authoritative", "LIVE-VAULT", File(liveVault, "live.bin").readText())
-        assertFalse("Legacy DB backup should be retired", File(root, "live.db.restore-bak").exists())
-        assertFalse("Legacy temp should be retired", File(root, "live.db.restore-tmp-old").exists())
-        assertFalse("Legacy vault backup should be retired", File(root, "vault.restore-bak-old").exists())
+        assertTrue("Ambiguous legacy DB swap must fail closed", result.isFailure)
+        assertEquals("Live database must remain untouched", "LIVE-DB", liveDb.readText())
+        assertEquals("Live vault must remain untouched", "LIVE-VAULT", File(liveVault, "live.bin").readText())
+        assertTrue("Rollback DB must be preserved for recovery", databaseBackup.isFile)
+        assertTrue("Staged DB must be preserved for diagnosis", tempDb.isFile)
+        assertTrue("Rollback vault must be preserved for recovery", File(vaultBackup, "stale.bin").isFile)
     }
 
     @Test
