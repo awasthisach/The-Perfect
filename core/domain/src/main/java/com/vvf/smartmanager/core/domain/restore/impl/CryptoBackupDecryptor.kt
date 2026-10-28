@@ -127,8 +127,8 @@ class CryptoBackupDecryptor(
                     val encryptedTemp = File(plainFile.parentFile, plainFile.name + ".local-encrypted")
                     try {
                         crypto.encryptFile(plainFile, encryptedTemp)
-                        if (!plainFile.delete()) {
-                            throw SecurityException("Unable to remove plaintext vault staging file")
+                        if (!crypto.secureShredFile(plainFile) && plainFile.exists()) {
+                            throw SecurityException("Unable to securely remove plaintext vault staging file")
                         }
                         if (!encryptedTemp.renameTo(plainFile)) {
                             encryptedTemp.copyTo(plainFile, overwrite = true)
