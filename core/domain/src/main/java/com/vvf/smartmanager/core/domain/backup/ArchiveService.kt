@@ -139,14 +139,9 @@ class ArchiveService(
             File(stagingDir, "metadata.json").writeText(json.encodeToString(metadata))
             zipDirectory(stagingDir, zipFile)
             portableCrypto.encryptFile(zipFile, encryptedFile, passphrase)
-            if (zipFile.exists() && !zipFile.delete()) {
-                throw ArchiveException("Unable to remove plaintext ZIP after encryption")
-            }
             // The staging tree contains the raw SQLCipher passphrase and temporarily decrypted
-            // vault payloads. Do not publish/upload a backup unless this plaintext is removed.
-            if (stagingDir.exists() && !stagingDir.deleteRecursively()) {
-                throw ArchiveException("Unable to remove plaintext backup staging")
-            }
+            // vault payloads. Overwrite staged files before unlinking; never publish if cleanup fails.
+            cleanupPlaintextArtifactsOrThrow(stagingDir, zipFile)
 
             if (!encryptedFile.isFile || encryptedFile.length() == 0L) {
                 return@withContext Result.failure(ArchiveException("Encryption produced no artifact"))
@@ -171,12 +166,33 @@ class ArchiveService(
             )
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
+            runCatching { cleanupPlaintextArtifactsOrThrow(stagingDir, zipFile) }
             encryptedFile.delete()
-            Result.failure(ArchiveException("Archive creation failed", error))
+            Result.failure(ArchiveException("Archive creation failed; no backup was published", error))
         } finally {
             passphrase.fill(0.toChar())
-            stagingDir.deleteRecursively()
-            zipFile.delete()
+            // Best-effort second pass if an earlier cleanup attempt encountered a transient error.
+            runCatching { cleanupPlaintextArtifactsOrThrow(stagingDir, zipFile) }
+        }
+    }
+
+    private fun cleanupPlaintextArtifactsOrThrow(stagingDir: File, zipFile: File) {
+        val failed = mutableListOf<String>()
+        if (zipFile.exists() && !cryptoSecurityManager.secureShredFile(zipFile) && zipFile.exists()) {
+            failed += zipFile.name
+        }
+        if (stagingDir.exists()) {
+            stagingDir.walkBottomUp().filter { it.isFile }.forEach { file ->
+                if (!cryptoSecurityManager.secureShredFile(file) && file.exists()) {
+                    failed += file.name
+                }
+            }
+            stagingDir.walkBottomUp().filter { it.isDirectory }.forEach { directory ->
+                if (!directory.delete() && directory.exists()) failed += directory.name
+            }
+        }
+        if (failed.isNotEmpty()) {
+            throw ArchiveException("Unable to securely remove plaintext staging artifacts: ${failed.distinct().joinToString()}")
         }
     }
 
