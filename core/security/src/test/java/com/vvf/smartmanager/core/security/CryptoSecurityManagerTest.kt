@@ -39,6 +39,33 @@ class CryptoSecurityManagerTest {
     }
 
     @Test
+    fun databasePassphraseMigrationCanBeRolledBack() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val original = cryptoSecurityManager.getOrCreateDatabasePassphrase()
+        val snapshot = java.io.File(context.cacheDir, "db-key-state-snapshot").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val replacement = ByteArray(32) { (it + 1).toByte() }
+        try {
+            cryptoSecurityManager.snapshotDatabasePassphraseState(snapshot)
+            cryptoSecurityManager.replaceDatabasePassphraseForRestore(replacement)
+            val imported = cryptoSecurityManager.getOrCreateDatabasePassphrase()
+            assertArrayEquals(replacement, imported)
+            imported.fill(0)
+
+            cryptoSecurityManager.restoreDatabasePassphraseState(snapshot)
+            val restored = cryptoSecurityManager.getOrCreateDatabasePassphrase()
+            assertArrayEquals(original, restored)
+            restored.fill(0)
+        } finally {
+            original.fill(0)
+            replacement.fill(0)
+            snapshot.deleteRecursively()
+        }
+    }
+
+    @Test
     fun testByteEncryptionDecryptionRoundtrip() {
         val originalBytes = "VVF Smart Manager Ultra Confidential Note #12345".toByteArray(Charsets.UTF_8)
 
@@ -123,6 +150,62 @@ class CryptoSecurityManagerTest {
         assertFalse(cryptoSecurityManager.isValidPinFormat("1234567"))
         assertFalse(cryptoSecurityManager.isValidPinFormat("12a4"))
         assertFalse(cryptoSecurityManager.isValidPinFormat(""))
+    }
+
+    @Test
+    fun lockoutStateIsAuthenticatedAndUsesMonotonicRuntimeTime() {
+        assertTrue(cryptoSecurityManager.setupVaultPin("482951"))
+        repeat(4) {
+            assertTrue(
+                cryptoSecurityManager.verifyVaultPinWithResult("000000") is
+                    CryptoSecurityManager.VaultAuthResult.INVALID_PIN
+            )
+        }
+        val fifth = cryptoSecurityManager.verifyVaultPinWithResult("000000")
+        assertTrue(fifth is CryptoSecurityManager.VaultAuthResult.INVALID_PIN)
+        assertTrue(cryptoSecurityManager.getRemainingLockoutSeconds() > 0)
+        assertTrue(
+            cryptoSecurityManager.verifyVaultPinWithResult("482951") is
+                CryptoSecurityManager.VaultAuthResult.LOCKED_OUT
+        )
+
+        val prefs = ApplicationProvider.getApplicationContext<android.content.Context>()
+            .getSharedPreferences("vvf_secure_vault_prefs", android.content.Context.MODE_PRIVATE)
+        assertFalse(prefs.contains("vault_failed_attempts"))
+        assertFalse(prefs.contains("vault_lockout_until_ms"))
+        assertTrue(prefs.contains("vault_lockout_state_v2"))
+    }
+
+    @Test
+    fun portableBackupEncryptionWorksWithoutDeviceKeystoreKey() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val source = java.io.File(context.cacheDir, "portable-backup-source.bin").apply {
+            writeText("portable backup payload")
+        }
+        val encrypted = java.io.File(context.cacheDir, "portable-backup.vvfbak")
+        val restored = java.io.File(context.cacheDir, "portable-backup-restored.bin")
+        try {
+            val portableCrypto = PortableBackupCrypto()
+            portableCrypto.encryptFile(source, encrypted, "portable backup passphrase".toCharArray())
+            portableCrypto.decryptFile(encrypted, restored, "portable backup passphrase".toCharArray())
+
+            assertEquals(source.readText(), restored.readText())
+        } finally {
+            source.delete()
+            encrypted.delete()
+            restored.delete()
+            CryptoSecurityManager.clearInMemoryKeysForTests()
+        }
+    }
+
+    @Test
+    fun customKeyStoreProviderMustNotEnableProductionInMemoryFallback() {
+        assertFalse(
+            CryptoSecurityManager.shouldAllowInMemoryFallback(
+                keyStoreProvider = "InjectedProvider",
+                isJvmUnitTestEnvironment = false
+            )
+        )
     }
 
     private fun assertThrowsSecurityFailure(block: () -> Unit) {

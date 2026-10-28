@@ -32,7 +32,7 @@ class ReadOnlyDatabaseSnapshotSource(
         if (source == null) {
             // Fresh install / empty DB: stage empty placeholder so cloud backup is not hard-blocked.
             return runCatching {
-                val target = File(stagingDir, databaseFile.name.ifBlank { "vvf_smart_manager_enc.db" })
+                val target = File(File(stagingDir, "database"), databaseFile.name.ifBlank { "vvf_smart_manager_enc.db" })
                 target.parentFile?.mkdirs()
                 if (!target.exists()) {
                     target.writeBytes(ByteArray(0))
@@ -44,10 +44,11 @@ class ReadOnlyDatabaseSnapshotSource(
         return try {
             beforeSnapshot?.invoke()
             try {
-                val target = File(stagingDir, source.name)
+                val target = File(File(stagingDir, "database"), source.name)
                 copyFileStreaming(source, target)
                 copyIfPresent(File(source.path + "-wal"), File(target.path + "-wal"))
-                copyIfPresent(File(source.path + "-shm"), File(target.path + "-shm"))
+                // SQLite shared-memory indexes are transient and must be regenerated on restore.
+                File(target.path + "-shm").delete()
                 if (!target.isFile) {
                     throw IOException("DB copy produced no file at ${target.absolutePath}")
                 }

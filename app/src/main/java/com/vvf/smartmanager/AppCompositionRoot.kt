@@ -46,9 +46,10 @@ object AppCompositionRoot {
         vaultDir: File,
         databaseName: String,
         beforeRestoreApply: (() -> Unit)? = null,
-        cloudSyncDao: CloudSyncDao? = null
+        cloudSyncDao: CloudSyncDao? = null,
+        onRestoreFinished: (() -> Unit)? = null
     ): CloudSyncUseCase {
-        val restoreWorkingDir = File(context.cacheDir, "restore-work")
+        val restoreWorkingDir = File(context.filesDir, "restore-work")
         val restorePipeline = FailClosedRestorePipeline(
             workingDir = restoreWorkingDir,
             downloader = GoogleDriveBackupDownloader(
@@ -61,8 +62,8 @@ object AppCompositionRoot {
                 liveDatabaseFile = context.getDatabasePath(databaseName),
                 liveVaultDir = vaultDir,
                 snapshotRoot = File(restoreWorkingDir, "snapshots"),
-                vaultAuthImporter = { meta -> cryptoSecurityManager.importVaultAuthMetadata(meta) },
-                beforeApply = beforeRestoreApply
+                beforeApply = beforeRestoreApply,
+                cryptoSecurityManager = cryptoSecurityManager
             )
         )
         return CloudSyncUseCase(
@@ -70,7 +71,8 @@ object AppCompositionRoot {
             pluginDrivers = pluginDrivers,
             archiveService = archiveService,
             restorePipeline = restorePipeline,
-            cloudSyncDao = cloudSyncDao
+            cloudSyncDao = cloudSyncDao,
+            onRestoreFinished = onRestoreFinished
         )
     }
 }

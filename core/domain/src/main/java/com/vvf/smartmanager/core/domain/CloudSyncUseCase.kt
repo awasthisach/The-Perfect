@@ -34,7 +34,8 @@ class CloudSyncUseCase(
     private val pluginDrivers: Map<CloudProviderType, CloudDriverSPI> = emptyMap(),
     private val archiveService: ArchiveService? = null,
     private val restorePipeline: RestorePipeline? = null,
-    private val cloudSyncDao: CloudSyncDao? = null
+    private val cloudSyncDao: CloudSyncDao? = null,
+    private val onRestoreFinished: (() -> Unit)? = null
 ) {
 
     private val _syncState = MutableStateFlow(CloudSyncStatus.IDLE)
@@ -117,10 +118,13 @@ class CloudSyncUseCase(
     suspend fun createCloudBackup(
         providerType: CloudProviderType,
         includeVault: Boolean = false,
-        includeDatabase: Boolean = true
+        includeDatabase: Boolean = true,
+        passphrase: CharArray? = null,
+        vaultPin: String? = null
     ): Result<CloudBackupInfo> = archiveMutex.withLock {
         val service = archiveService
         if (service == null) {
+            passphrase?.fill(0.toChar())
             _syncState.value = CloudSyncStatus.ERROR
             return Result.failure(
                 UnsupportedOperationException(
@@ -132,7 +136,9 @@ class CloudSyncUseCase(
         _syncState.value = CloudSyncStatus.SYNCING
         return service.createArchive(
             includeVault = includeVault,
-            includeDatabase = includeDatabase
+            includeDatabase = includeDatabase,
+            passphrase = passphrase,
+            vaultPin = vaultPin
         ).fold(
             onSuccess = { artifact ->
                 try {
@@ -197,9 +203,13 @@ class CloudSyncUseCase(
         )
     }
 
-    suspend fun restoreCloudBackup(backupInfo: CloudBackupInfo): Result<Boolean> = archiveMutex.withLock {
+    suspend fun restoreCloudBackup(
+        backupInfo: CloudBackupInfo,
+        passphrase: CharArray? = null
+    ): Result<Boolean> = archiveMutex.withLock {
         val pipeline = restorePipeline
         if (pipeline == null) {
+            passphrase?.fill(0.toChar())
             _syncState.value = CloudSyncStatus.ERROR
             return Result.failure(
                 UnsupportedOperationException(
@@ -208,25 +218,31 @@ class CloudSyncUseCase(
             )
         }
         if (backupInfo.backupId.isBlank()) {
+            passphrase?.fill(0.toChar())
             _syncState.value = CloudSyncStatus.ERROR
             return Result.failure(IllegalArgumentException("Backup id is blank; refusing restore"))
         }
         _syncState.value = CloudSyncStatus.DOWNLOADING
-        return pipeline.restore(backupInfo.backupId, backupInfo.checksumSha256).fold(
-            onSuccess = { result: RestoreResult ->
-                if (result.success) {
-                    _syncState.value = CloudSyncStatus.SUCCESS
-                    Result.success(true)
-                } else {
+        try {
+            pipeline.restore(backupInfo.backupId, backupInfo.checksumSha256, passphrase).fold(
+                onSuccess = { result: RestoreResult ->
+                    if (result.success) {
+                        _syncState.value = CloudSyncStatus.SUCCESS
+                        Result.success(true)
+                    } else {
+                        _syncState.value = CloudSyncStatus.ERROR
+                        Result.failure(IllegalStateException(result.message.ifBlank { "Restore completed without success" }))
+                    }
+                },
+                onFailure = { error ->
                     _syncState.value = CloudSyncStatus.ERROR
-                    Result.failure(IllegalStateException(result.message.ifBlank { "Restore completed without success" }))
+                    Result.failure(error)
                 }
-            },
-            onFailure = { error ->
-                _syncState.value = CloudSyncStatus.ERROR
-                Result.failure(error)
-            }
-        )
+            )
+        } finally {
+            // The Application may restart after Room was closed for a restore transaction.
+            onRestoreFinished?.invoke()
+        }
     }
 
     suspend fun syncFileToCloud(

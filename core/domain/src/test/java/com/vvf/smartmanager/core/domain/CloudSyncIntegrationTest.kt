@@ -20,6 +20,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.mockito.kotlin.anyOrNull
+import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
 import java.io.File
@@ -48,12 +50,19 @@ class CloudSyncIntegrationTest {
         val drive = HttpFakeDriveService(server)
         val archive = mock<ArchiveService>()
         val artifactFile = File(tempDir, "backup.vvfbak").apply { writeText("encrypted-content") }
-        whenever(archive.createArchive(includeVault = false, includeDatabase = true)).thenReturn(
+        whenever(
+            archive.createArchive(
+                includeVault = eq(false),
+                includeDatabase = eq(true),
+                passphrase = anyOrNull(),
+                vaultPin = anyOrNull()
+            )
+        ).thenReturn(
             Result.success(artifact(artifactFile))
         )
         val useCase = CloudSyncUseCase(drive, archiveService = archive)
 
-        val result = useCase.createCloudBackup(CloudProviderType.GOOGLE_DRIVE)
+        val result = useCase.createCloudBackup(CloudProviderType.GOOGLE_DRIVE, passphrase = "correct horse battery staple".toCharArray())
         val request = server.takeRequest(2, TimeUnit.SECONDS)
 
         assertTrue(result.isSuccess)

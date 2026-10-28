@@ -20,9 +20,11 @@ class FailClosedRestorePipeline(
 
     override suspend fun restore(
         remoteBackupId: String,
-        expectedChecksum: String?
+        expectedChecksum: String?,
+        passphrase: CharArray?
     ): Result<RestoreResult> {
         if (remoteBackupId.isBlank()) {
+            passphrase?.fill(0.toChar())
             return Result.failure(VerificationFailedException("Remote backup id is blank"))
         }
 
@@ -34,7 +36,7 @@ class FailClosedRestorePipeline(
 
             val downloaded = downloader.download(remoteBackupId).getOrElse { return Result.failure(it) }
             val verified = verifier.verify(downloaded, expectedChecksum).getOrElse { return Result.failure(it) }
-            val decrypted = decryptor.decrypt(verified, stagingDir).getOrElse { return Result.failure(it) }
+            val decrypted = decryptor.decrypt(verified, stagingDir, passphrase).getOrElse { return Result.failure(it) }
 
             snapshot = applier.prepare().getOrElse { return Result.failure(it) }
             preparedSnapshots[snapshot!!.token] = snapshot!!
@@ -50,6 +52,7 @@ class FailClosedRestorePipeline(
                         )
                     )
                 }
+                cleanupSnapshot(snapshot!!)
                 return Result.failure(error)
             }
 
@@ -64,16 +67,18 @@ class FailClosedRestorePipeline(
                         )
                     )
                 }
+                cleanupSnapshot(snapshot!!)
                 return Result.failure(RestoreException(applied.message))
             }
 
             preparedSnapshots.remove(snapshot!!.token)
+            cleanupSnapshot(snapshot!!)
             Result.success(
                 RestoreResult(
                     success = true,
                     restoredFileCount = applied.restoredFileCount,
                     restoredVaultItemCount = applied.restoredVaultItemCount,
-                    backupInfo = verified.backupInfo,
+                    backupInfo = decrypted.backupInfo,
                     snapshotToken = snapshot!!.token,
                     message = applied.message,
                     timestamp = System.currentTimeMillis()
@@ -100,18 +105,24 @@ class FailClosedRestorePipeline(
                         )
                     )
                 }
+                if (rollbackAttempt.isSuccess && rollbackResult?.isSuccess == true) {
+                    cleanupSnapshot(snapshot!!)
+                }
             }
             Result.failure(RestoreException("Fail-closed restore aborted", error))
         } finally {
+            passphrase?.fill(0.toChar())
             stagingDir.deleteRecursively()
         }
     }
 
     override suspend fun dryRun(
         remoteBackupId: String,
-        expectedChecksum: String?
+        expectedChecksum: String?,
+        passphrase: CharArray?
     ): Result<DryRunResult> {
         if (remoteBackupId.isBlank()) {
+            passphrase?.fill(0.toChar())
             return Result.failure(VerificationFailedException("Remote backup id is blank"))
         }
         val token = UUID.randomUUID().toString()
@@ -120,12 +131,12 @@ class FailClosedRestorePipeline(
             requireWorkingDirectory(stagingDir)
             val downloaded = downloader.download(remoteBackupId).getOrElse { return Result.failure(it) }
             val verified = verifier.verify(downloaded, expectedChecksum).getOrElse { return Result.failure(it) }
-            val decrypted = decryptor.decrypt(verified, stagingDir).getOrElse { return Result.failure(it) }
+            val decrypted = decryptor.decrypt(verified, stagingDir, passphrase).getOrElse { return Result.failure(it) }
             val fileCount = decrypted.stagingDir.walkTopDown().count { it.isFile }
             val vaultCount = decrypted.vaultDir.walkTopDown().count { it.isFile }
             Result.success(
                 DryRunResult(
-                    backupInfo = verified.backupInfo,
+                    backupInfo = decrypted.backupInfo,
                     fileCount = fileCount,
                     vaultItemCount = vaultCount,
                     totalSizeBytes = decrypted.stagingDir.walkTopDown().filter { it.isFile }.sumOf { it.length() },
@@ -136,6 +147,7 @@ class FailClosedRestorePipeline(
         } catch (error: Throwable) {
             Result.failure(RestoreException("Fail-closed restore dry-run aborted", error))
         } finally {
+            passphrase?.fill(0.toChar())
             stagingDir.deleteRecursively()
         }
     }
@@ -147,8 +159,18 @@ class FailClosedRestorePipeline(
         val snapshot = preparedSnapshots[snapshotToken]
             ?: return Result.failure(VerificationFailedException("Snapshot token is not active in this process"))
         return applier.rollback(snapshot).also {
-            if (it.isSuccess) preparedSnapshots.remove(snapshotToken)
+            if (it.isSuccess) {
+                preparedSnapshots.remove(snapshotToken)
+                cleanupSnapshot(snapshot)
+            }
         }
+    }
+
+    private fun cleanupSnapshot(snapshot: RestoreSnapshot) {
+        runCatching { snapshot.databaseSnapshotPath.delete() }
+        runCatching { snapshot.databaseWalSnapshotPath?.delete() }
+        runCatching { snapshot.keyStateSnapshotPath?.deleteRecursively() }
+        runCatching { snapshot.vaultSnapshotPath.deleteRecursively() }
     }
 
     private fun requireWorkingDirectory(stagingDir: File) {

@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Phase-1 security: no root-path / no broad external-path (filesystem disclosure). -->
-    <cache-path name="app_cache" path="." />
-    <files-path name="internal_files" path="." />
-    <external-files-path name="external_files" path="." />
+    <!-- Narrow share paths only. Do not expose entire filesDir / cacheDir / external-files. -->
+    <cache-path name="share_cache" path="share/" />
+    <cache-path name="export_cache" path="exports/" />
+    <files-path name="share_files" path="share/" />
+    <files-path name="export_files" path="exports/" />
+    <external-files-path name="share_external" path="share/" />
+    <external-files-path name="export_external" path="exports/" />
 </paths>

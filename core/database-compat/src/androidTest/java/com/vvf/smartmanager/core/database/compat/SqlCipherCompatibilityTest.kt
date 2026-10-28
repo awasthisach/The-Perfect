@@ -7,6 +7,7 @@ import net.zetetic.database.sqlcipher.SQLiteDatabase
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -38,7 +39,7 @@ class SqlCipherCompatibilityTest {
     }
 
     @Test
-    fun sqlCipher_4_5_4_database_is_readable_by_4_5_6() {
+    fun sqlCipher_4_5_4_database_is_readable_by_current_sqlcipher_android() {
         System.loadLibrary("sqlcipher")
         val database = SQLiteDatabase.openDatabase(
             databaseFile.absolutePath,
@@ -55,6 +56,35 @@ class SqlCipherCompatibilityTest {
             }
         } finally {
             database.close()
+        }
+    }
+
+    @Test
+    fun wrongPassphraseFailsClosed() {
+        System.loadLibrary("sqlcipher")
+        val wrong = "definitely-not-the-fixture-passphrase".toByteArray(Charsets.UTF_8)
+        try {
+            try {
+                SQLiteDatabase.openDatabase(
+                    databaseFile.absolutePath,
+                    wrong,
+                    null,
+                    SQLiteDatabase.OPEN_READONLY,
+                    null,
+                    null
+                ).close()
+                fail("Expected SQLCipher to reject the wrong passphrase")
+            } catch (expected: Exception) {
+                assertTrue(
+                    "Unexpected exception type: ${expected.javaClass.name}",
+                    expected.message?.contains("file is not a database", ignoreCase = true) == true ||
+                        expected.message?.contains("file is encrypted", ignoreCase = true) == true ||
+                        expected is android.database.sqlite.SQLiteException ||
+                        expected.cause is android.database.sqlite.SQLiteException
+                )
+            }
+        } finally {
+            wrong.fill(0)
         }
     }
 }

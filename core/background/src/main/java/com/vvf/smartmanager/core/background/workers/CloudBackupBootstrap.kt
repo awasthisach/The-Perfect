@@ -1,44 +1,24 @@
 package com.vvf.smartmanager.core.background.workers
 
 import com.vvf.smartmanager.core.domain.CloudSyncUseCase
-import com.vvf.smartmanager.core.model.CloudProviderType
 
 /**
- * Wires [CloudBackupRuntime] to the real [CloudSyncUseCase.createCloudBackup] pipeline.
- * Call once from Application.onCreate after cloudSyncUseCase is constructed.
+ * Wires the cloud backup runtime after application startup.
+ *
+ * Scheduled backups are intentionally fail-closed for now: the current archive
+ * format is encrypted with a device-bound Keystore key and this worker has no
+ * safe passphrase/key-wrapping input. Do not upload a backup that appears
+ * portable but cannot be restored on another device. Re-enable only after the
+ * portable envelope includes rewrapped database/vault keys and has end-to-end
+ * restore coverage.
  */
 object CloudBackupBootstrap {
+    @Suppress("UNUSED_PARAMETER")
     fun wire(cloudSyncUseCase: CloudSyncUseCase) {
-        CloudBackupRuntime.configure { includeVault ->
-            try {
-                val result = cloudSyncUseCase.createCloudBackup(
-                    providerType = CloudProviderType.GOOGLE_DRIVE,
-                    includeVault = includeVault
-                )
-                result.fold(
-                    onSuccess = { info ->
-                        CloudBackupOutcome.Completed(
-                            backupId = info.backupId,
-                            sizeBytes = info.backupSizeBytes,
-                            uploaded = true
-                        )
-                    },
-                    onFailure = { err ->
-                        val msg = err.message.orEmpty()
-                        val lower = msg.lowercase()
-                        when {
-                            "unavailable" in lower || "not configured" in lower ->
-                                CloudBackupOutcome.NotConfigured(msg)
-                            "network" in lower || "timeout" in lower || "token" in lower ->
-                                CloudBackupOutcome.RetryableFailure(msg)
-                            else ->
-                                CloudBackupOutcome.PermanentFailure(msg.ifBlank { "backup failed" })
-                        }
-                    }
-                )
-            } catch (e: Exception) {
-                CloudBackupOutcome.RetryableFailure(e.message ?: "backup error")
-            }
+        CloudBackupRuntime.configure {
+            CloudBackupOutcome.PermanentFailure(
+                "Scheduled backups are disabled until portable backup key wrapping and restore are implemented"
+            )
         }
     }
 }

@@ -21,9 +21,9 @@ class SnapshotSourceTest {
             val result = ReadOnlyDatabaseSnapshotSource(database).snapshot(staging)
 
             assertNotNull(result)
-            assertEquals("db", File(staging, "vvf.db").readText())
-            assertEquals("wal", File(staging, "vvf.db-wal").readText())
-            assertEquals("shm", File(staging, "vvf.db-shm").readText())
+            assertEquals("db", File(staging, "database/vvf.db").readText())
+            assertEquals("wal", File(staging, "database/vvf.db-wal").readText())
+            assertFalse("Transient SQLite shared-memory files must not be archived", File(staging, "database/vvf.db-shm").exists())
             assertEquals("db", database.readText())
         } finally {
             root.deleteRecursively()
@@ -40,6 +40,7 @@ class SnapshotSourceTest {
             assertTrue(result!!.isFile)
             assertEquals(0L, result.length())
             assertEquals("missing.db", result.name)
+            assertEquals(File(staging, "database/missing.db").canonicalFile, result!!.canonicalFile)
         } finally {
             root.deleteRecursively()
         }

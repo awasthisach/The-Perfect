@@ -41,6 +41,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -256,10 +257,39 @@ fun CloudScreen(
                                 onCheckedChange = { viewModel.toggleVaultBackup(it) }
                             )
                         }
+                        if (uiState.includeVaultInBackup) {
+                            Text(
+                                "Your current real vault PIN is checked locally and is never included in the backup. A new local PIN must be configured after restore.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            OutlinedTextField(
+                                value = uiState.vaultPin,
+                                onValueChange = viewModel::updateVaultPin,
+                                label = { Text("Current vault PIN") },
+                                singleLine = true,
+                                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Portable backups are encrypted with this passphrase. Keep it safe; the app cannot recover it.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        OutlinedTextField(
+                            value = uiState.backupPassphrase,
+                            onValueChange = viewModel::updateBackupPassphrase,
+                            label = { Text("Backup passphrase (12+ characters)") },
+                            singleLine = true,
+                            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                            modifier = Modifier.fillMaxWidth()
+                        )
                         Spacer(modifier = Modifier.height(8.dp))
                         Button(
                             onClick = { viewModel.triggerCloudBackup() },
-                            enabled = !uiState.isBackingUp,
+                            enabled = !uiState.isBackingUp && uiState.backupPassphrase.length >= 12 && (!uiState.includeVaultInBackup || uiState.vaultPin.isNotEmpty()),
                             colors = ButtonDefaults.buttonColors(containerColor = BhagwaOrange),
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -299,7 +329,10 @@ fun CloudScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            OutlinedButton(onClick = { viewModel.restoreBackup(backup) }) {
+                            OutlinedButton(
+                                onClick = { viewModel.restoreBackup(backup) },
+                                enabled = uiState.backupPassphrase.isNotEmpty()
+                            ) {
                                 Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text("Restore", fontSize = 11.sp)

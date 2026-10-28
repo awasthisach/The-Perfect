@@ -60,7 +60,8 @@ class FailClosedRestorePipelineTest {
             decryptor = object : BackupDecryptor {
                 override suspend fun decrypt(
                     verifiedArtifact: VerifiedArtifact,
-                    stagingDir: File
+                    stagingDir: File,
+                passphrase: CharArray?
                 ): Result<DecryptedBackup> = decryptResult
             },
             applier = object : RestoreApplier {
@@ -106,7 +107,8 @@ class FailClosedRestorePipelineTest {
             decryptor = object : BackupDecryptor {
                 override suspend fun decrypt(
                     verifiedArtifact: VerifiedArtifact,
-                    stagingDir: File
+                    stagingDir: File,
+                passphrase: CharArray?
                 ): Result<DecryptedBackup> =
                     error("should not decrypt")
             },
@@ -143,7 +145,8 @@ class FailClosedRestorePipelineTest {
             decryptor = object : BackupDecryptor {
                 override suspend fun decrypt(
                     verifiedArtifact: VerifiedArtifact,
-                    stagingDir: File
+                    stagingDir: File,
+                passphrase: CharArray?
                 ): Result<DecryptedBackup> =
                     Result.success(
                         DecryptedBackup(stagingDir, temp.newFile("db2"), temp.newFolder("v2"), sampleInfo, 1L)
@@ -183,7 +186,8 @@ class FailClosedRestorePipelineTest {
             decryptor = object : BackupDecryptor {
                 override suspend fun decrypt(
                     verifiedArtifact: VerifiedArtifact,
-                    stagingDir: File
+                    stagingDir: File,
+                passphrase: CharArray?
                 ): Result<DecryptedBackup> = Result.success(
                     DecryptedBackup(stagingDir, temp.newFile("db4"), temp.newFolder("v4"), sampleInfo, 1L)
                 )
@@ -208,6 +212,56 @@ class FailClosedRestorePipelineTest {
     }
 
     @Test
+    fun dryRunPassesPortablePassphraseToDecryptorAndConsumesIt() = runBlocking {
+        val info = sampleInfo
+        val artifact = temp.newFile("portable-dry-run.vvfbak")
+        var received: CharArray? = null
+        val passphrase = "portable backup passphrase".toCharArray()
+        val p = FailClosedRestorePipeline(
+            workingDir = temp.newFolder("portable-dry-run-work"),
+            downloader = object : BackupDownloader {
+                override suspend fun download(remoteBackupId: String) =
+                    Result.success(DownloadedArtifact(artifact, info, "abc"))
+            },
+            verifier = object : BackupVerifier {
+                override suspend fun verify(artifact: DownloadedArtifact, expectedChecksum: String?) =
+                    Result.success(VerifiedArtifact(artifact.file, info, "abc"))
+            },
+            decryptor = object : BackupDecryptor {
+                override suspend fun decrypt(
+                    verifiedArtifact: VerifiedArtifact,
+                    stagingDir: File,
+                    passphrase: CharArray?
+                ): Result<DecryptedBackup> {
+                    received = passphrase
+                    return Result.success(
+                        DecryptedBackup(
+                            stagingDir = stagingDir,
+                            databaseFile = temp.newFile("dry-run-db"),
+                            vaultDir = temp.newFolder("dry-run-vault"),
+                            backupInfo = info,
+                            timestamp = 1L
+                        )
+                    )
+                }
+            },
+            applier = object : RestoreApplier {
+                override suspend fun prepare(): Result<RestoreSnapshot> = error("dry-run must not prepare")
+                override suspend fun apply(decryptedBackup: DecryptedBackup): Result<AppliedRestore> =
+                    error("dry-run must not apply")
+                override suspend fun rollback(snapshot: RestoreSnapshot): Result<Unit> =
+                    error("dry-run must not rollback")
+            }
+        )
+
+        val result = p.dryRun("remote-1", "abc", passphrase)
+
+        assertTrue(result.isSuccess)
+        assertTrue("dry-run must pass the passphrase to the decryptor", received === passphrase)
+        assertTrue("pipeline must clear passphrase on exit", passphrase.all { it == 0.toChar() })
+    }
+
+    @Test
     fun dryRunDoesNotLeaveStagingArtifacts() = runBlocking {
         val work = temp.newFolder("work4")
         val p = FailClosedRestorePipeline(
@@ -227,7 +281,8 @@ class FailClosedRestorePipelineTest {
             decryptor = object : BackupDecryptor {
                 override suspend fun decrypt(
                     verifiedArtifact: VerifiedArtifact,
-                    stagingDir: File
+                    stagingDir: File,
+                passphrase: CharArray?
                 ): Result<DecryptedBackup> =
                     Result.success(
                         DecryptedBackup(

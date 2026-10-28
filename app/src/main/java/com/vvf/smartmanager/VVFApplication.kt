@@ -1,6 +1,11 @@
 package com.vvf.smartmanager
 
+import android.app.AlarmManager
 import android.app.Application
+import android.app.PendingIntent
+import android.content.Intent
+import android.os.Process
+import android.os.SystemClock
 import android.util.Log
 import androidx.work.Configuration
 import com.google.firebase.appcheck.FirebaseAppCheck
@@ -46,6 +51,7 @@ import com.vvf.smartmanager.core.domain.SearchIndexManagementUseCase
 import com.vvf.smartmanager.core.domain.SemanticSearchUseCase
 import com.vvf.smartmanager.core.domain.TagManagementUseCase
 import com.vvf.smartmanager.core.domain.VaultAuthUseCase
+import com.vvf.smartmanager.core.domain.restore.impl.LocalRestoreApplier
 import com.vvf.smartmanager.core.model.CloudProviderType
 import com.vvf.smartmanager.core.plugin.spi.ISemanticSearchEngine
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
@@ -113,6 +119,9 @@ class VVFApplication : Application(), Configuration.Provider {
     lateinit var semanticSearchPlugin: ISemanticSearchEngine
 
     @Volatile
+    private var restoreClosedDatabase = false
+
+    @Volatile
     var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -136,16 +145,31 @@ class VVFApplication : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         cryptoSecurityManager = CryptoSecurityManager(this)
-
         val jvmUnitTest = CryptoSecurityManager.isJvmUnitTestEnvironment(this)
+        // Remove orphaned plaintext staging even if recovery subsequently fails closed.
+        cleanupStalePlaintextBackupStaging()
+        if (!jvmUnitTest) {
+            val liveDatabaseFile = getDatabasePath(VVFDatabase.DATABASE_NAME)
+            val liveVaultDir = File(filesDir, "vvf_vault_encrypted")
+            // Recover the current journal first so its swap artifacts cannot be mistaken for
+            // an unjournaled legacy transaction. Then recover/retire the prior cacheDir journal.
+            LocalRestoreApplier.recoverInterruptedRestore(
+                liveDatabaseFile = liveDatabaseFile,
+                liveVaultDir = liveVaultDir,
+                snapshotRoot = File(filesDir, "restore-work/snapshots"),
+                cryptoSecurityManager = cryptoSecurityManager
+            )
+            LocalRestoreApplier.recoverInterruptedRestore(
+                liveDatabaseFile = liveDatabaseFile,
+                liveVaultDir = liveVaultDir,
+                snapshotRoot = File(cacheDir, "restore-work/snapshots"),
+                cryptoSecurityManager = cryptoSecurityManager
+            )
+        }
         // Play Integrity App Check is device/Play-only; skip on JVM unit tests (Robolectric).
         if (!jvmUnitTest) {
-            try {
-                FirebaseAppCheck.getInstance().apply {
-                    installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Firebase App Check init skipped: ${e.message}")
+            FirebaseAppCheck.getInstance().apply {
+                installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
             }
         }
         if (jvmUnitTest) {
@@ -238,12 +262,15 @@ class VVFApplication : Application(), Configuration.Provider {
                 ReadOnlyDatabaseSnapshotSource(
                     databaseFile = getDatabasePath(VVFDatabase.DATABASE_NAME),
                     beforeSnapshot = {
-                        runCatching {
-                            if (::database.isInitialized) {
-                                database.openHelper.writableDatabase.execSQL("PRAGMA wal_checkpoint(FULL)")
-                                Log.i(TAG, "WAL checkpoint before backup DB snapshot")
+                        check(::database.isInitialized) {
+                            "Database is not initialized; refusing an inconsistent backup snapshot"
+                        }
+                        database.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(FULL)").use { cursor ->
+                            check(cursor.moveToFirst() && cursor.getInt(0) == 0) {
+                                "SQLite WAL checkpoint was busy or did not complete"
                             }
-                        }.onFailure { e -> Log.w(TAG, "WAL checkpoint before snapshot failed", e) }
+                        }
+                        Log.i(TAG, "WAL checkpoint before backup DB snapshot")
                     }
                 ),
                 InjectedVaultSnapshotSource(vaultDir)
@@ -259,16 +286,15 @@ class VVFApplication : Application(), Configuration.Provider {
             vaultDir = vaultDir,
             databaseName = VVFDatabase.DATABASE_NAME,
             beforeRestoreApply = {
-                runCatching {
-                    if (::database.isInitialized) {
-                        database.close()
-                        Log.i(TAG, "Closed Room database before restore apply")
-                    }
-                }.onFailure { err ->
-                    Log.w(TAG, "Room close before restore failed (continuing)", err)
+                check(::database.isInitialized) {
+                    "Database is not initialized; refusing to mutate live restore targets"
                 }
+                restoreClosedDatabase = true
+                database.close()
+                Log.i(TAG, "Closed Room database before restore snapshot")
             },
-            cloudSyncDao = database.cloudSyncDao()
+            cloudSyncDao = database.cloudSyncDao(),
+            onRestoreFinished = { restartIfRestoreClosedDatabase() }
         )
         backgroundSyncManager = BackgroundSyncManager(this)
         FileIndexingRuntime.configure { indexPrimaryStorageForSearch() }
@@ -287,6 +313,67 @@ class VVFApplication : Application(), Configuration.Provider {
                 Log.e(TAG, "Background sync scheduling failed", e)
             }
         }
+    }
+
+
+    /**
+     * Remove abandoned app-private plaintext ZIP/staging artifacts left by a prior process death.
+     * Do not delete restore-work snapshots here: those may be the only rollback material after a crash.
+     */
+    private fun cleanupStalePlaintextBackupStaging() {
+        cacheDir.listFiles().orEmpty()
+            .filter { file ->
+                file.name.startsWith("archive-staging-") ||
+                    (file.name.startsWith("backup-") && file.name.endsWith(".zip"))
+            }
+            .forEach(::deleteStalePlaintextArtifact)
+
+        // Restore staging can contain decrypted payloads or temporary GCM plaintext files.
+        // Preserve the separate snapshots directory: it may contain the only rollback copy.
+        // The previous app version staged restore plaintext under cacheDir/restore-work.
+        // Clean only transient attempt directories there; preserve legacy snapshots because they
+        // may be the only recovery material for a process interrupted before this upgrade.
+        listOf(File(filesDir, "restore-work"), File(cacheDir, "restore-work"))
+            .forEach { restoreRoot ->
+                restoreRoot.listFiles().orEmpty()
+                    .filter { it.name.startsWith("restore-") || it.name.startsWith("dry-run-") }
+                    .forEach(::deleteStalePlaintextArtifact)
+            }
+    }
+
+    private fun deleteStalePlaintextArtifact(file: File) {
+        val removed = if (file.isDirectory) file.deleteRecursively() else file.delete()
+        if (!removed && file.exists()) {
+            Log.w(TAG, "Unable to remove stale plaintext backup staging: ${file.name}")
+        }
+    }
+
+
+    /**
+     * Room and repositories are bound to the old database instance. Once restore closes Room,
+     * relaunch the app after the transaction (success or rollback) so every DAO is rebound to
+     * the database/key state on disk instead of leaving the current process half-alive.
+     */
+    private fun restartIfRestoreClosedDatabase() {
+        if (!restoreClosedDatabase) return
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+            ?: throw IllegalStateException("Cannot safely restart after database restore: launch intent is missing")
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            74031,
+            launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val alarmManager = getSystemService(ALARM_SERVICE) as? AlarmManager
+            ?: throw IllegalStateException("Cannot safely restart after database restore: AlarmManager unavailable")
+        alarmManager.set(
+            AlarmManager.ELAPSED_REALTIME_WAKEUP,
+            SystemClock.elapsedRealtime() + 1_500L,
+            pendingIntent
+        )
+        Log.w(TAG, "Restarting app to reopen Room against restored database/key state")
+        Process.killProcess(Process.myPid())
     }
 
     private suspend fun indexPrimaryStorageForSearch(): FileIndexingOutcome {

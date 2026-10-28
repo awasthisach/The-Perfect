@@ -30,6 +30,7 @@ dependencies {
   implementation(libs.androidx.room.ktx)
   implementation(libs.sqlcipher.android)
   "ksp"(libs.androidx.room.compiler)
+  "kspAndroidTest"(libs.androidx.room.compiler)
 
   testImplementation(libs.junit)
   testImplementation(libs.robolectric)

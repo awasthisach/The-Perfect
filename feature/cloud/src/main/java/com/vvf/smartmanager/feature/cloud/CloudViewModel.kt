@@ -67,6 +67,14 @@ class CloudViewModel(
         _uiState.update { it.copy(includeVaultInBackup = enabled) }
     }
 
+    fun updateBackupPassphrase(value: String) {
+        _uiState.update { it.copy(backupPassphrase = value) }
+    }
+
+    fun updateVaultPin(value: String) {
+        _uiState.update { it.copy(vaultPin = value) }
+    }
+
     /** Prepares visible state before the activity launches the Google sign-in intent. */
     fun beginGoogleDriveSignIn() {
         _uiState.update {
@@ -154,11 +162,23 @@ class CloudViewModel(
     fun triggerCloudBackup() {
         viewModelScope.launch {
             val provider = _uiState.value.selectedProvider
-            _uiState.update { it.copy(isBackingUp = true, statusMessage = "Creating encrypted backup snapshot...") }
+            val passphrase = _uiState.value.backupPassphrase
+            if (passphrase.length < 12) {
+                _uiState.update { it.copy(statusMessage = "Use a backup passphrase of at least 12 characters.") }
+                return@launch
+            }
+            val vaultPin = _uiState.value.vaultPin
+            if (_uiState.value.includeVaultInBackup && vaultPin.isEmpty()) {
+                _uiState.update { it.copy(statusMessage = "Enter the current real vault PIN to include vault contents.") }
+                return@launch
+            }
+            _uiState.update { it.copy(isBackingUp = true, backupPassphrase = "", vaultPin = "", statusMessage = "Creating passphrase-encrypted portable backup...") }
             val result = cloudSyncUseCase.createCloudBackup(
                 providerType = provider,
                 includeVault = _uiState.value.includeVaultInBackup,
-                includeDatabase = true
+                includeDatabase = true,
+                passphrase = passphrase.toCharArray(),
+                vaultPin = vaultPin
             )
             if (result.isSuccess) {
                 val backup = result.getOrThrow()
@@ -183,13 +203,22 @@ class CloudViewModel(
 
     fun restoreBackup(backupInfo: CloudBackupInfo) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, statusMessage = "Restoring ${backupInfo.backupName}...") }
-            val result = cloudSyncUseCase.restoreCloudBackup(backupInfo)
+            val passphrase = _uiState.value.backupPassphrase
+            if (passphrase.isEmpty()) {
+                _uiState.update { it.copy(statusMessage = "Enter the backup passphrase before restoring.") }
+                return@launch
+            }
+            _uiState.update { it.copy(isLoading = true, backupPassphrase = "", statusMessage = "Restoring ${backupInfo.backupName}...") }
+            val result = cloudSyncUseCase.restoreCloudBackup(backupInfo, passphrase.toCharArray())
             if (result.isSuccess) {
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        statusMessage = "Restored ${backupInfo.backupName} successfully."
+                        statusMessage = if (backupInfo.includesVault) {
+                            "Restored ${backupInfo.backupName}. Configure a new local vault PIN before unlocking the restored vault."
+                        } else {
+                            "Restored ${backupInfo.backupName} successfully."
+                        }
                     )
                 }
             } else {

@@ -19,6 +19,8 @@ data class CloudUiState(
     val isLoading: Boolean = false,
     val isBackingUp: Boolean = false,
     val includeVaultInBackup: Boolean = false,
+    val backupPassphrase: String = "",
+    val vaultPin: String = "",
     val backupHistory: List<CloudBackupInfo> = emptyList(),
     val statusMessage: String? = null
 )
