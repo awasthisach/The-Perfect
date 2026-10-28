@@ -520,11 +520,17 @@ class LocalRestoreApplier(
             val vault = liveVaultDir.name
             val entries = parent.listFiles().orEmpty()
             val databaseBackup = File(parent, "$db.restore-bak")
-            val vaultBackups = entries.filter { it.name.startsWith("$vault.restore-bak-") && it.isDirectory }
+            val vaultBackupArtifacts = entries.filter { it.name.startsWith("$vault.restore-bak-") }
+            val vaultBackups = vaultBackupArtifacts.filter { it.isDirectory }
 
-            if (!liveDatabaseFile.exists() && !databaseBackup.isFile) {
+            if (!liveDatabaseFile.exists() && (!databaseBackup.isFile || databaseBackup.length() == 0L)) {
                 throw IllegalStateException(
-                    "Legacy restore artifacts exist but neither the live database nor a complete database backup is available"
+                    "Legacy restore artifacts exist but no non-empty live database or complete database backup is available"
+                )
+            }
+            if (!liveVaultDir.exists() && vaultBackupArtifacts.any { !it.isDirectory }) {
+                throw IllegalStateException(
+                    "Legacy restore left a malformed vault backup and no live vault; preserving artifacts for manual recovery"
                 )
             }
             if (!liveVaultDir.exists() && vaultBackups.size > 1) {
