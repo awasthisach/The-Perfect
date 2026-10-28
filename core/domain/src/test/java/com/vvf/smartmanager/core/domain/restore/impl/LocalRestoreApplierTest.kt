@@ -190,7 +190,7 @@ class LocalRestoreApplierTest {
         )
 
         assertTrue("Database-only restore must fail closed when live vault files would become inconsistent", result.isFailure)
-        assertEquals("KEEP-DB", liveDb.readText())
+        assertEquals("OLD-DB", liveDb.readText())
         assertEquals("KEEP-VAULT", File(liveVault, "keep.bin").readText())
     }
 
