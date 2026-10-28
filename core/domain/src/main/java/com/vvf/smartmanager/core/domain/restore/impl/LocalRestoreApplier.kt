@@ -523,6 +523,15 @@ class LocalRestoreApplier(
             val vaultBackupArtifacts = entries.filter { it.name.startsWith("$vault.restore-bak-") }
             val vaultBackups = vaultBackupArtifacts.filter { it.isDirectory }
 
+            // Without a journal, both a live DB and its rollback copy are ambiguous: the live
+            // file may be the new DB from an interrupted swap. Preserve every artifact for
+            // explicit recovery rather than deleting the only known-good rollback candidate.
+            if (liveDatabaseFile.exists() && databaseBackup.exists()) {
+                throw IllegalStateException(
+                    "Legacy restore left both a live database and rollback backup; preserving artifacts for manual recovery"
+                )
+            }
+
             if (!liveDatabaseFile.exists() && (!databaseBackup.isFile || databaseBackup.length() == 0L)) {
                 throw IllegalStateException(
                     "Legacy restore artifacts exist but no non-empty live database or complete database backup is available"
