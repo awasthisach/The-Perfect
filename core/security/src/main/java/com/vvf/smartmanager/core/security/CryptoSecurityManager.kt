@@ -10,6 +10,7 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.OutputStream
+import java.io.RandomAccessFile
 import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -346,23 +347,38 @@ class CryptoSecurityManager(
     private fun decryptWithKeystore(encryptedData: ByteArray, iv: ByteArray, alias: String): ByteArray =
         decryptBytes(encryptedData, iv, alias)
 
+    /**
+     * Attempts an in-place overwrite before unlinking. A delete after a failed overwrite is not
+     * reported as a secure shred: callers must fail closed rather than publish on that basis.
+     */
     fun secureShredFile(file: File): Boolean {
         if (!file.exists()) return true
-        return try {
-            if (file.isFile && file.length() > 0) {
-                val length = file.length()
-                FileOutputStream(file).use { fos ->
+        var overwriteSucceeded = true
+        if (file.isFile && file.length() > 0L) {
+            val length = file.length()
+            try {
+                RandomAccessFile(file, "rw").use { output ->
                     val zeroBuffer = ByteArray(STREAM_BUFFER_SIZE)
-                    var written = 0L
-                    while (written < length) {
-                        val toWrite = minOf(zeroBuffer.size.toLong(), length - written).toInt()
-                        fos.write(zeroBuffer, 0, toWrite); written += toWrite
+                    try {
+                        output.seek(0L)
+                        var written = 0L
+                        while (written < length) {
+                            val toWrite = minOf(zeroBuffer.size.toLong(), length - written).toInt()
+                            output.write(zeroBuffer, 0, toWrite)
+                            written += toWrite
+                        }
+                        output.fd.sync()
+                        if (output.length() != length) overwriteSucceeded = false
+                    } finally {
+                        zeroBuffer.fill(0)
                     }
-                    fos.flush(); fos.fd.sync()
                 }
+            } catch (_: Exception) {
+                overwriteSucceeded = false
             }
-            file.delete()
-        } catch (_: Exception) { file.delete() }
+        }
+        val deleted = !file.exists() || file.delete()
+        return overwriteSucceeded && deleted
     }
 
     sealed interface VaultAuthResult {
