@@ -69,6 +69,37 @@ class ArchiveServiceTest {
     }
 
     @Test
+    fun plaintextCleanupFailurePreventsPublishingPortableArchive() = runBlocking {
+        val cache = temp.newFolder("cleanup-failure-cache")
+        val crypto = mock<CryptoSecurityManager>()
+        whenever(crypto.getOrCreateDatabasePassphrase()).thenReturn(ByteArray(32) { (it + 3).toByte() })
+        whenever(crypto.secureShredFile(any())).thenReturn(false)
+        val source = object : SnapshotSource {
+            override val sourceName: String = "database"
+            override fun snapshot(stagingDir: File): File =
+                File(stagingDir, "database/vvf_smart_manager_enc.db").apply {
+                    parentFile.mkdirs()
+                    writeText("SQLCIPHER-DATABASE")
+                }
+            override fun dataSizeBytes(): Long = 18L
+        }
+        val passphrase = "a sufficiently long backup passphrase".toCharArray()
+
+        val result = ArchiveService(cache, listOf(source), crypto).createArchive(
+            includeVault = false,
+            includeDatabase = true,
+            passphrase = passphrase
+        )
+
+        assertTrue("Backup must fail if plaintext staging cannot be securely removed", result.isFailure)
+        assertTrue("Backup passphrase must be consumed", passphrase.all { it == 0.toChar() })
+        assertTrue(
+            "A failed cleanup must never leave a publishable portable archive",
+            cache.listFiles().orEmpty().none { it.name.endsWith(".vvfbak") }
+        )
+    }
+
+    @Test
     fun databaseOnlyArchiveCarriesAuthenticatedPayloadSelectionFlags() = runBlocking {
         val cache = temp.newFolder("archive-cache")
         val crypto = mock<CryptoSecurityManager>()
