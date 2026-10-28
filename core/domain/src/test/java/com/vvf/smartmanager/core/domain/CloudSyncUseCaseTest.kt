@@ -72,6 +72,9 @@ class CloudSyncUseCaseTest {
         )
 
         assertTrue(backup.isFailure)
+        assertTrue(
+            backup.exceptionOrNull()?.message?.contains("Enable vault inclusion") == true
+        )
         assertTrue(restore.isFailure)
         assertEquals(CloudSyncStatus.ERROR, useCase.syncState.value)
     }
