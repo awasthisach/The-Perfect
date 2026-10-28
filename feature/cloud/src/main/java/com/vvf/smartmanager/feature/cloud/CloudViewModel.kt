@@ -17,10 +17,11 @@ import kotlinx.coroutines.launch
 
 class CloudViewModel(
     private val cloudSyncUseCase: CloudSyncUseCase,
-    private val googleDriveService: GoogleDriveService
+    private val googleDriveService: GoogleDriveService,
+    initialStatusMessage: String? = null
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(CloudUiState())
+    private val _uiState = MutableStateFlow(CloudUiState(statusMessage = initialStatusMessage))
     val uiState = _uiState.asStateFlow()
 
     init {
@@ -242,12 +243,13 @@ class CloudViewModel(
     companion object {
         fun provideFactory(
             cloudSyncUseCase: CloudSyncUseCase,
-            googleDriveService: GoogleDriveService
+            googleDriveService: GoogleDriveService,
+            initialStatusMessage: String? = null
         ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return CloudViewModel(cloudSyncUseCase, googleDriveService) as T
+                    return CloudViewModel(cloudSyncUseCase, googleDriveService, initialStatusMessage) as T
                 }
             }
     }
