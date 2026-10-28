@@ -163,9 +163,19 @@ class VVFApplication : Application(), Configuration.Provider {
                 }
             },
             onFailure = { error ->
-                val reason = error.message?.takeIf { it.isNotBlank() }?.take(180)
-                    ?: error.javaClass.simpleName
-                "Restore failed: $reason"
+                Log.e(TAG, "Cloud restore failed before the required app restart", error)
+                val causes = generateSequence(error as Throwable?) { it.cause }
+                    .map { it.message.orEmpty() }
+                    .toList()
+                if (causes.any {
+                        it.contains("Database-only restore cannot be applied", ignoreCase = true) ||
+                            it.contains("Vault-only restore is unsafe", ignoreCase = true)
+                    }
+                ) {
+                    "This backup is inconsistent for the selected contents. Use a full backup that includes both the database and vault."
+                } else {
+                    "Restore failed. Verify the backup passphrase and integrity, then try again."
+                }
             }
         )
         if (!settingsPrefs.edit().putString(KEY_PENDING_RESTORE_OUTCOME, message).commit()) {
