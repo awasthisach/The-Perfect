@@ -98,14 +98,27 @@ class ArchiveService(
                 }
                 vaultFiles.forEach { encryptedVaultFile ->
                     val plainTemp = File(encryptedVaultFile.parentFile, encryptedVaultFile.name + ".portable-plain")
-                    cryptoSecurityManager.decryptFile(encryptedVaultFile, plainTemp)
-                    if (!encryptedVaultFile.delete()) {
-                        plainTemp.delete()
-                        throw ArchiveException("Unable to replace staged vault ciphertext with portable payload")
-                    }
-                    if (!plainTemp.renameTo(encryptedVaultFile)) {
-                        plainTemp.copyTo(encryptedVaultFile, overwrite = true)
-                        if (!plainTemp.delete()) throw ArchiveException("Unable to clean staged vault plaintext")
+                    try {
+                        cryptoSecurityManager.decryptFile(encryptedVaultFile, plainTemp)
+                        if (!encryptedVaultFile.delete()) {
+                            throw ArchiveException("Unable to replace staged vault ciphertext with portable payload")
+                        }
+                        if (!plainTemp.renameTo(encryptedVaultFile)) {
+                            plainTemp.copyTo(encryptedVaultFile, overwrite = true)
+                            if (!plainTemp.delete()) {
+                                throw ArchiveException("Unable to clean staged vault plaintext")
+                            }
+                        }
+                    } catch (error: Throwable) {
+                        // A failed decrypt/replace may leave plaintext or partial output in staging.
+                        val plaintextRemoved = cryptoSecurityManager.secureShredFile(plainTemp)
+                        val stagedRemoved = cryptoSecurityManager.secureShredFile(encryptedVaultFile)
+                        if ((!plaintextRemoved && plainTemp.exists()) ||
+                            (!stagedRemoved && encryptedVaultFile.exists())
+                        ) {
+                            throw ArchiveException("Unable to securely clean failed vault export staging", error)
+                        }
+                        throw error
                     }
                 }
             }
