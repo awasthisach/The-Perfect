@@ -71,6 +71,48 @@ class CryptoBackupDecryptorTest {
     }
 
     @Test
+    fun portableV4FileCountDoesNotLetBundledKeyMaskMissingPayload() {
+        val root = temp.newFolder("portable-v4-missing-payload")
+        val payload = File(root, "payload.zip")
+        val manifest = """{"version":4,"timestamp":1,"checksumSha256":"","databaseSizeBytes":12,"vaultSizeBytes":0,"fileCount":2,"vaultItemCount":0,"appVersion":"test","schemaVersion":1,"includesDatabase":true,"includesVault":false}"""
+        ZipOutputStream(payload.outputStream()).use { zip ->
+            zip.putNextEntry(ZipEntry("database/portable.db"))
+            zip.write("DATABASE-CIPHERTEXT".toByteArray())
+            zip.closeEntry()
+            // The authenticated manifest expects one more payload file, deliberately omitted.
+            zip.putNextEntry(ZipEntry("key-material/database-passphrase.bin"))
+            zip.write(ByteArray(32) { (it + 1).toByte() })
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("metadata.json"))
+            zip.write(manifest.toByteArray())
+            zip.closeEntry()
+        }
+        val encrypted = File(root, "portable.vvfbak")
+        PortableBackupCrypto().encryptFile(payload, encrypted, "a sufficiently long backup passphrase".toCharArray())
+        val info = CloudBackupInfo(
+            backupId = "remote-incomplete-v4",
+            timestamp = 1L,
+            backupName = "incomplete.vvfbak",
+            backupSizeBytes = encrypted.length(),
+            includesDatabase = true,
+            includesVault = false,
+            checksumSha256 = "verified-by-caller"
+        )
+        val staging = File(root, "restore-stage").apply { mkdirs() }
+
+        val result = kotlinx.coroutines.runBlocking {
+            CryptoBackupDecryptor(mock<CryptoSecurityManager>()).decrypt(
+                VerifiedArtifact(encrypted, info, "verified-by-caller"),
+                staging,
+                "a sufficiently long backup passphrase".toCharArray()
+            )
+        }
+
+        assertTrue("Missing v4 payload must be rejected even when bundled key material exists", result.isFailure)
+        assertFalse("Rejected archive must not leave plaintext staging", staging.exists())
+    }
+
+    @Test
     fun legacyRootLevelDatabaseLayoutIsRecognized() {
         val root = temp.newFolder("legacy-root-db")
         val payload = File(root, "payload.zip")
