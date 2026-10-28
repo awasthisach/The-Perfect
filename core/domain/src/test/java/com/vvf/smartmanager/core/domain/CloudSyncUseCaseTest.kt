@@ -160,11 +160,17 @@ class CloudSyncUseCaseTest {
                 override suspend fun rollback(snapshot: RestoreSnapshot) = Result.success(Unit)
             }
         )
-        val useCase = CloudSyncUseCase(FakeDriveService(), restorePipeline = pipeline)
+        var callbackOutcome: Result<Boolean>? = null
+        val useCase = CloudSyncUseCase(
+            FakeDriveService(),
+            restorePipeline = pipeline,
+            onRestoreFinished = { outcome -> callbackOutcome = outcome }
+        )
 
         val result = useCase.restoreCloudBackup(info)
 
         assertTrue(result.isSuccess)
         assertEquals(CloudSyncStatus.SUCCESS, useCase.syncState.value)
+        assertEquals("Completion callback must receive the actual restore result", true, callbackOutcome?.getOrNull())
     }
 }
