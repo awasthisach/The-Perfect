@@ -176,6 +176,15 @@ class CryptoBackupDecryptor(
             passphrase?.fill(0.toChar())
             extractedDatabasePassphrase?.fill(0)
             val cleanupFailure = runCatching { secureCleanupStaging(stagingDir) }.exceptionOrNull()
+            if (error is kotlinx.coroutines.CancellationException) {
+                if (cleanupFailure != null) {
+                    throw SecurityException(
+                        "Restore was cancelled but plaintext cleanup could not be confirmed",
+                        cleanupFailure
+                    ).also { it.addSuppressed(error) }
+                }
+                throw error
+            }
             val failure = if (cleanupFailure != null) {
                 RestoreException("Backup decryption failed and plaintext cleanup could not be confirmed", cleanupFailure)
                     .also { it.addSuppressed(error) }
