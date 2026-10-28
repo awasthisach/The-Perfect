@@ -121,7 +121,7 @@ class PortableBackupRestoreIntegrationTest {
             "portable test passphrase 2026".toCharArray()
         ).getOrThrow()
 
-        val bundledPassphrase = decrypted.databasePassphraseFile!!.readBytes()
+        val bundledPassphrase = decrypted.databasePassphrase!!.copyOf()
         assertArrayEquals(originalPassphrase, bundledPassphrase)
         bundledPassphrase.fill(0)
 
@@ -140,8 +140,8 @@ class PortableBackupRestoreIntegrationTest {
 
         // Force key import validation to fail after the DB/vault swaps; rollback must restore all live state.
         val failedSnapshot = applier.prepare().getOrThrow()
-        val invalidKeyMaterial = temp.newFile("invalid-db-key.bin").apply { writeBytes(byteArrayOf(1, 2, 3)) }
-        val failedApply = applier.apply(decrypted.copy(databasePassphraseFile = invalidKeyMaterial))
+        val invalidKeyMaterial = byteArrayOf(1, 2, 3)
+        val failedApply = applier.apply(decrypted.copy(databasePassphrase = invalidKeyMaterial))
         assertTrue("Restore must fail closed on malformed imported DB key material", failedApply.isFailure)
         assertTrue("Rollback must recover the pre-restore DB/vault/key state", applier.rollback(failedSnapshot).isSuccess)
         assertEquals("OLD-DATABASE", liveDatabase.readText())
@@ -149,7 +149,7 @@ class PortableBackupRestoreIntegrationTest {
         val keyAfterRollback = destinationCrypto.getOrCreateDatabasePassphrase()
         assertArrayEquals(destinationPassphrase, keyAfterRollback)
         keyAfterRollback.fill(0)
-        invalidKeyMaterial.delete()
+        invalidKeyMaterial.fill(0)
 
         applier.prepare().getOrThrow()
         val applied = applier.apply(decrypted).getOrThrow()
