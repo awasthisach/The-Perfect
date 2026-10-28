@@ -4,6 +4,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.RandomAccessFile
 import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.SecretKeyFactory
@@ -184,15 +185,18 @@ class PortableBackupCrypto(
                 val length = file.length()
                 val zeros = ByteArray(BUFFER_SIZE)
                 try {
-                    FileOutputStream(file).use { output ->
+                    RandomAccessFile(file, "rw").use { output ->
+                        output.seek(0L)
                         var written = 0L
                         while (written < length) {
                             val count = minOf(zeros.size.toLong(), length - written).toInt()
                             output.write(zeros, 0, count)
                             written += count
                         }
-                        output.flush()
                         output.fd.sync()
+                        if (output.length() != length) {
+                            throw IOException("Plaintext overwrite length changed unexpectedly")
+                        }
                     }
                 } finally {
                     zeros.fill(0)
