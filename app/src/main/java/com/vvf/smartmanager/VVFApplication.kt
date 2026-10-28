@@ -367,13 +367,18 @@ class VVFApplication : Application(), Configuration.Provider {
         )
         val alarmManager = getSystemService(ALARM_SERVICE) as? AlarmManager
             ?: throw IllegalStateException("Cannot safely restart after database restore: AlarmManager unavailable")
+        // Let restoreCloudBackup return its Result to CloudViewModel so the UI can display
+        // success/failure guidance before this process exits. Relaunch only after that window.
         alarmManager.set(
             AlarmManager.ELAPSED_REALTIME_WAKEUP,
-            SystemClock.elapsedRealtime() + 1_500L,
+            SystemClock.elapsedRealtime() + 6_000L,
             pendingIntent
         )
-        Log.w(TAG, "Restarting app to reopen Room against restored database/key state")
-        Process.killProcess(Process.myPid())
+        Log.w(TAG, "Scheduling app restart after restore result can reach the UI")
+        applicationScope.launch {
+            kotlinx.coroutines.delay(4_500L)
+            Process.killProcess(Process.myPid())
+        }
     }
 
     private suspend fun indexPrimaryStorageForSearch(): FileIndexingOutcome {
