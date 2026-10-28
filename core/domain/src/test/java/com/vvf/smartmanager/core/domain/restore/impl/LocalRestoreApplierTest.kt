@@ -229,6 +229,7 @@ class LocalRestoreApplierTest {
     fun startupRecoveryRestoresDatabaseWalAndVaultFromInterruptedJournal() {
         val root = temp.newFolder("interrupted-restore")
         val snapshotRoot = File(root, "snapshots").apply { mkdirs() }
+        val unrelated = File(snapshotRoot, "keep-unrelated.txt").apply { writeText("DO NOT DELETE") }
         val liveDb = File(root, "live.db").apply { writeText("PARTIAL-DB") }
         File(root, "live.db-wal").writeText("PARTIAL-WAL")
         val liveVault = File(root, "vault").also {
@@ -266,6 +267,8 @@ class LocalRestoreApplierTest {
         assertEquals("ORIGINAL-VAULT", File(liveVault, "original.bin").readText())
         assertFalse("Partial vault must be removed", File(liveVault, "partial.bin").exists())
         assertFalse("Recovery journal must be cleared", File(snapshotRoot, "active-restore.properties").exists())
+        assertTrue("Recovery must preserve unrelated files in the snapshot root", unrelated.isFile)
+        assertEquals("DO NOT DELETE", unrelated.readText())
     }
 
     @Test
@@ -434,6 +437,25 @@ class LocalRestoreApplierTest {
         assertFalse("Legacy DB backup should be retired", File(root, "live.db.restore-bak").exists())
         assertFalse("Legacy temp should be retired", File(root, "live.db.restore-tmp-old").exists())
         assertFalse("Legacy vault backup should be retired", File(root, "vault.restore-bak-old").exists())
+    }
+
+    @Test
+    fun recoveryWithoutJournalPreservesUnrelatedSnapshotRootFiles() {
+        val root = temp.newFolder("unrelated-snapshot-data")
+        val snapshotRoot = File(root, "snapshots").apply { mkdirs() }
+        val unrelated = File(snapshotRoot, "user-data.bin").apply { writeText("KEEP") }
+        val liveDb = File(root, "live.db").apply { writeText("LIVE-DB") }
+        val liveVault = File(root, "vault").also { it.mkdirs() }
+
+        LocalRestoreApplier.recoverInterruptedRestore(
+            liveDatabaseFile = liveDb,
+            liveVaultDir = liveVault,
+            snapshotRoot = snapshotRoot,
+            cryptoSecurityManager = mock()
+        )
+
+        assertTrue("Unrelated files must not be recursively deleted", unrelated.isFile)
+        assertEquals("KEEP", unrelated.readText())
     }
 
     @Test
