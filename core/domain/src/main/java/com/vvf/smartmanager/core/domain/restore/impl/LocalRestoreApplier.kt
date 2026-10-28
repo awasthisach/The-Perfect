@@ -576,7 +576,9 @@ class LocalRestoreApplier(
                         throw IllegalStateException("Unable to atomically publish recovered legacy vault")
                     }
                 } finally {
-                    if (stagedVault.exists()) stagedVault.deleteRecursively()
+                    if (stagedVault.exists() && !stagedVault.deleteRecursively()) {
+                        throw IllegalStateException("Unable to remove legacy vault recovery staging")
+                    }
                 }
             }
             if (!liveDatabaseFile.exists()) {
@@ -590,7 +592,9 @@ class LocalRestoreApplier(
                         throw IllegalStateException("Unable to atomically publish recovered legacy database")
                     }
                 } finally {
-                    stagedDatabase.delete()
+                    if (stagedDatabase.exists() && !stagedDatabase.delete()) {
+                        throw IllegalStateException("Unable to remove legacy database recovery staging")
+                    }
                 }
             }
 
