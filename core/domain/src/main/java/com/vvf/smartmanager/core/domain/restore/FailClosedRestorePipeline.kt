@@ -111,6 +111,7 @@ class FailClosedRestorePipeline(
                     cleanupSnapshot(snapshot!!)
                 }
             }
+            if (error is kotlinx.coroutines.CancellationException) throw error
             Result.failure(RestoreException("Fail-closed restore aborted", error))
         } finally {
             passphrase?.fill(0.toChar())
@@ -150,6 +151,7 @@ class FailClosedRestorePipeline(
                 )
             )
         } catch (error: Throwable) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
             Result.failure(RestoreException("Fail-closed restore dry-run aborted", error))
         } finally {
             passphrase?.fill(0.toChar())
