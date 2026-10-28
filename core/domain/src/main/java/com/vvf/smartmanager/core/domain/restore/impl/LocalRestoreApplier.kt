@@ -467,10 +467,17 @@ class LocalRestoreApplier(
             if (legacyArtifacts.isEmpty()) return false
 
             val databaseBackup = File(parent, "$db.restore-bak")
-            if (!liveDatabaseFile.exists() && databaseBackup.isFile) {
-                databaseBackup.copyTo(liveDatabaseFile, overwrite = false)
+            if (liveDatabaseFile.exists()) {
+                // The current database is the only trustworthy transaction marker left. Do not
+                // combine it with a possibly older vault backup; preserve all orphaned artifacts.
+                return true
             }
+            if (!databaseBackup.isFile) return false
 
+            databaseBackup.copyTo(liveDatabaseFile, overwrite = false)
+
+            // With no live database, both resources may have been moved aside by the old swap
+            // sequence. Restore the newest legacy vault backup if the live vault is also absent.
             if (!liveVaultDir.exists()) {
                 val vaultBackup = legacyArtifacts
                     .filter { it.name.startsWith("$vault.restore-bak-") && it.isDirectory }
@@ -480,9 +487,8 @@ class LocalRestoreApplier(
                 }
             }
 
-            // A missing live resource with no recoverable backup remains a hard failure.
-            // Existing backups and temp artifacts are deliberately retained for manual recovery.
-            return liveDatabaseFile.exists() && liveVaultDir.exists()
+            // The DB backup is retained until a later journaled transaction can retire it.
+            return liveDatabaseFile.isFile
         }
 
         fun recoverInterruptedRestore(
