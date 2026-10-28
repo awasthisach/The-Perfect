@@ -459,6 +459,49 @@ class LocalRestoreApplierTest {
     }
 
     @Test
+    fun startupRecoveryRejectsEmptyLegacyDatabaseBackupAndPreservesIt() {
+        val root = temp.newFolder("legacy-empty-live-db")
+        val backup = File(root, "live.db.restore-bak").apply { createNewFile() }
+        val liveDb = File(root, "live.db")
+        val liveVault = File(root, "vault").apply { mkdirs() }
+
+        val result = runCatching {
+            LocalRestoreApplier.recoverInterruptedRestore(
+                liveDatabaseFile = liveDb,
+                liveVaultDir = liveVault,
+                snapshotRoot = File(root, "missing-snapshots"),
+                cryptoSecurityManager = mock()
+            )
+        }
+
+        assertTrue("Empty legacy database backup must not be published", result.isFailure)
+        assertFalse("An empty database must not become live", liveDb.exists())
+        assertTrue("Invalid recovery material must be preserved for diagnosis", backup.isFile)
+    }
+
+    @Test
+    fun startupRecoveryPreservesMalformedVaultBackupWhenLiveVaultIsMissing() {
+        val root = temp.newFolder("legacy-malformed-vault")
+        val liveDb = File(root, "live.db").apply { writeText("LIVE-DB") }
+        val liveVault = File(root, "vault")
+        val malformedBackup = File(root, "vault.restore-bak-corrupt").apply { writeText("not a directory") }
+
+        val result = runCatching {
+            LocalRestoreApplier.recoverInterruptedRestore(
+                liveDatabaseFile = liveDb,
+                liveVaultDir = liveVault,
+                snapshotRoot = File(root, "missing-snapshots"),
+                cryptoSecurityManager = mock()
+            )
+        }
+
+        assertTrue("Malformed vault recovery must fail closed", result.isFailure)
+        assertFalse("Recovery must not publish a missing vault", liveVault.exists())
+        assertTrue("Malformed recovery material must not be deleted", malformedBackup.isFile)
+        assertEquals("Live database must remain untouched", "LIVE-DB", liveDb.readText())
+    }
+
+    @Test
     fun startupRecoveryRestoresLegacyDatabaseBackupWhenLiveDatabaseIsMissing() {
         val root = temp.newFolder("legacy-missing-live-db")
         val backup = File(root, "live.db.restore-bak").apply { writeText("RECOVERABLE-DB") }
