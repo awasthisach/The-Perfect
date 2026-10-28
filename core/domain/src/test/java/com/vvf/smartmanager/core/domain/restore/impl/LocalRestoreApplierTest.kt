@@ -532,6 +532,30 @@ class LocalRestoreApplierTest {
     }
 
     @Test
+    fun startupRecoveryResumesLegacyVaultPublicationWhenDatabaseMatchesRollbackCopy() {
+        val root = temp.newFolder("legacy-resume-vault")
+        val liveDb = File(root, "live.db").apply { writeText("ROLLBACK-DB") }
+        val databaseBackup = File(root, "live.db.restore-bak").apply { writeText("ROLLBACK-DB") }
+        val liveVault = File(root, "vault")
+        val vaultBackup = File(root, "vault.restore-bak-old").also {
+            it.mkdirs()
+            File(it, "item.bin").writeText("ROLLBACK-VAULT")
+        }
+
+        LocalRestoreApplier.recoverInterruptedRestore(
+            liveDatabaseFile = liveDb,
+            liveVaultDir = liveVault,
+            snapshotRoot = File(root, "missing-snapshots"),
+            cryptoSecurityManager = mock()
+        )
+
+        assertEquals("ROLLBACK-DB", liveDb.readText())
+        assertEquals("ROLLBACK-VAULT", File(liveVault, "item.bin").readText())
+        assertFalse("Recovered database backup must be retired", databaseBackup.exists())
+        assertFalse("Recovered vault backup must be retired", vaultBackup.exists())
+    }
+
+    @Test
     fun startupRecoveryRestoresLegacyDatabaseBackupWhenLiveDatabaseIsMissing() {
         val root = temp.newFolder("legacy-missing-live-db")
         val backup = File(root, "live.db.restore-bak").apply { writeText("RECOVERABLE-DB") }
