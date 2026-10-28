@@ -145,7 +145,7 @@ class CryptoBackupDecryptor(
                     val encryptedTemp = File(plainFile.parentFile, plainFile.name + ".local-encrypted")
                     try {
                         crypto.encryptFile(plainFile, encryptedTemp)
-                        if (!crypto.secureShredFile(plainFile) && plainFile.exists()) {
+                        if (!crypto.secureShredFile(plainFile)) {
                             throw SecurityException("Unable to securely remove plaintext vault staging file")
                         }
                         if (!encryptedTemp.renameTo(plainFile)) {
@@ -159,9 +159,7 @@ class CryptoBackupDecryptor(
                         // Shred both immediately; outer staging cleanup is only a last resort.
                         val encryptedRemoved = crypto.secureShredFile(encryptedTemp)
                         val plaintextRemoved = crypto.secureShredFile(plainFile)
-                        if ((!encryptedRemoved && encryptedTemp.exists()) ||
-                            (!plaintextRemoved && plainFile.exists())
-                        ) {
+                        if (!encryptedRemoved || !plaintextRemoved) {
                             throw SecurityException(
                                 "Unable to securely remove failed vault conversion artifacts",
                                 error
@@ -206,6 +204,7 @@ class CryptoBackupDecryptor(
 
     private fun secureDeleteFile(file: File) {
         if (!file.exists()) return
+        var overwriteFailure: Throwable? = null
         try {
             if (file.isFile && file.length() > 0L) {
                 val length = file.length()
@@ -228,9 +227,20 @@ class CryptoBackupDecryptor(
                 }
             }
         } catch (cleanupError: Throwable) {
-            throw SecurityException("Unable to overwrite plaintext restore staging file", cleanupError)
+            overwriteFailure = cleanupError
         }
-        if (file.exists() && !file.delete()) {
+        val removed = !file.exists() || file.delete()
+        if (overwriteFailure != null) {
+            throw SecurityException(
+                if (removed) {
+                    "Unable to overwrite plaintext restore staging file; deletion was attempted"
+                } else {
+                    "Unable to overwrite or remove plaintext restore staging file"
+                },
+                overwriteFailure
+            )
+        }
+        if (!removed) {
             throw SecurityException("Unable to remove plaintext restore staging file")
         }
     }
