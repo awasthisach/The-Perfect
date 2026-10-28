@@ -423,7 +423,8 @@ class LocalRestoreApplierTest {
             it.mkdirs()
             File(it, "stale.bin").writeText("ROLLBACK-VAULT")
         }
-        val snapshotRoot = File(root, "missing-snapshots")
+        val snapshotRoot = File(root, "snapshots").apply { mkdirs() }
+        val orphanedSnapshot = File(snapshotRoot, "${UUID.randomUUID()}-db").apply { writeText("POSSIBLE-ROLLBACK") }
 
         LocalRestoreApplier.recoverInterruptedRestore(
             liveDatabaseFile = liveDb,
@@ -437,6 +438,7 @@ class LocalRestoreApplierTest {
         assertTrue("Rollback DB must be preserved for recovery", databaseBackup.isFile)
         assertTrue("Staged DB must be preserved for diagnosis", tempDb.isFile)
         assertTrue("Rollback vault must be preserved for recovery", File(vaultBackup, "stale.bin").isFile)
+        assertTrue("Unmapped snapshot must not be deleted without a recovery journal", orphanedSnapshot.isFile)
     }
 
     @Test
