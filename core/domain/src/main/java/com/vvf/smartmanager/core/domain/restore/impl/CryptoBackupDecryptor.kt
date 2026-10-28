@@ -110,8 +110,17 @@ class CryptoBackupDecryptor(
                 }
             }
             if (metadata != null) {
-                val actualFileCount = stagingDir.walkTopDown()
-                    .count { it.isFile && it.name != "metadata.json" }
+                val actualFileCount = stagingDir.walkTopDown().count { file ->
+                    if (!file.isFile || file.name == "metadata.json") {
+                        false
+                    } else {
+                        // v4 excludes the raw DB passphrase from fileCount because it is
+                        // extracted and securely deleted before apply/dry-run completes.
+                        !(metadata.version >= 4 &&
+                            file.relativeTo(stagingDir).invariantSeparatorsPath ==
+                            "key-material/database-passphrase.bin")
+                    }
+                }
                 if (actualFileCount < metadata.fileCount) {
                     throw SecurityException("Archive payload is incomplete: expected ${metadata.fileCount} files, found $actualFileCount")
                 }
