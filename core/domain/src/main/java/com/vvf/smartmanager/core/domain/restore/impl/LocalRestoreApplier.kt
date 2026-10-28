@@ -444,6 +444,65 @@ class LocalRestoreApplier(
             }
         }
 
+        /**
+         * Older releases could leave swap artifacts without a journal. Keep an existing live
+         * database/vault authoritative; if a live target is absent, recover only from one
+         * unambiguous complete backup. Never fail every app launch merely because stale artifacts
+         * exist, and never guess between multiple possible vault backups.
+         */
+        private fun recoverLegacySwapArtifacts(liveDatabaseFile: File, liveVaultDir: File) {
+            val parent = liveDatabaseFile.parentFile
+                ?: throw IllegalStateException("Legacy restore recovery has no parent directory")
+            val db = liveDatabaseFile.name
+            val vault = liveVaultDir.name
+            val entries = parent.listFiles().orEmpty()
+            val databaseBackup = File(parent, "$db.restore-bak")
+            val vaultBackups = entries.filter { it.name.startsWith("$vault.restore-bak-") && it.isDirectory }
+
+            if (!liveDatabaseFile.exists() && !databaseBackup.isFile) {
+                throw IllegalStateException(
+                    "Legacy restore artifacts exist but neither the live database nor a complete database backup is available"
+                )
+            }
+            if (!liveVaultDir.exists() && vaultBackups.size > 1) {
+                throw IllegalStateException(
+                    "Legacy restore left multiple vault backups and no live vault; refusing ambiguous recovery"
+                )
+            }
+
+            if (!liveDatabaseFile.exists()) {
+                databaseBackup.copyTo(liveDatabaseFile, overwrite = false)
+                if (liveDatabaseFile.length() != databaseBackup.length()) {
+                    throw IllegalStateException("Legacy database backup recovery size mismatch")
+                }
+            }
+            if (!liveVaultDir.exists() && vaultBackups.size == 1) {
+                val backup = vaultBackups.single()
+                if (!backup.renameTo(liveVaultDir)) {
+                    backup.copyRecursively(liveVaultDir, overwrite = false)
+                    if (!liveVaultDir.isDirectory) {
+                        throw IllegalStateException("Legacy vault backup recovery failed")
+                    }
+                }
+            }
+
+            parent.listFiles().orEmpty()
+                .filter { file ->
+                    file.name == "$db.restore-bak" ||
+                        file.name.startsWith("$db.restore-tmp") ||
+                        file.name.startsWith("$db.rollback-") ||
+                        file.name.startsWith("$db-wal.rollback-") ||
+                        file.name.startsWith("$vault.restore-bak-") ||
+                        file.name.startsWith("$vault.restore-tmp-")
+                }
+                .forEach { file ->
+                    val removed = if (file.isDirectory) file.deleteRecursively() else file.delete()
+                    if (!removed && file.exists()) {
+                        throw IllegalStateException("Unable to retire legacy restore artifact: ${file.name}")
+                    }
+                }
+        }
+
         fun recoverInterruptedRestore(
             liveDatabaseFile: File,
             liveVaultDir: File,
@@ -452,18 +511,14 @@ class LocalRestoreApplier(
         ) {
             if (!snapshotRoot.exists()) {
                 if (hasInterruptedSwapArtifacts(liveDatabaseFile, liveVaultDir)) {
-                    throw IllegalStateException(
-                        "Restore swap artifacts exist without rollback snapshots; refusing to open the database"
-                    )
+                    recoverLegacySwapArtifacts(liveDatabaseFile, liveVaultDir)
                 }
                 return
             }
             val journal = File(snapshotRoot, JOURNAL_FILE)
             if (!journal.isFile) {
                 if (hasInterruptedSwapArtifacts(liveDatabaseFile, liveVaultDir)) {
-                    throw IllegalStateException(
-                        "Restore swap artifacts exist without a recovery journal; refusing to open the database"
-                    )
+                    recoverLegacySwapArtifacts(liveDatabaseFile, liveVaultDir)
                 }
                 snapshotRoot.listFiles().orEmpty().forEach { it.deleteRecursively() }
                 return
