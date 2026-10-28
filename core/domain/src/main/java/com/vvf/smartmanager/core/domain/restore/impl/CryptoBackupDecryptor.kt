@@ -9,7 +9,7 @@ import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import com.vvf.smartmanager.core.security.PortableBackupCrypto
 import kotlinx.serialization.json.Json
 import java.io.File
-import java.io.FileOutputStream
+import java.io.RandomAccessFile
 import java.util.zip.ZipInputStream
 
 /** Decrypts a verified .vvfbak archive into isolated staging (zip-slip safe). */
@@ -191,16 +191,18 @@ class CryptoBackupDecryptor(
         try {
             if (file.isFile && file.length() > 0L) {
                 val length = file.length()
-                FileOutputStream(file).use { output ->
+                RandomAccessFile(file, "rw").use { output ->
                     val zeros = ByteArray(64 * 1024)
                     try {
+                        output.seek(0L)
                         var written = 0L
                         while (written < length) {
                             val count = minOf(zeros.size.toLong(), length - written).toInt()
                             output.write(zeros, 0, count)
                             written += count
                         }
-                        output.flush()
+                        output.fd.sync()
+                        output.setLength(0L)
                         output.fd.sync()
                     } finally {
                         zeros.fill(0)

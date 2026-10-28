@@ -202,8 +202,14 @@ class CryptoBackupDecryptorTest {
     fun portableVaultPayloadIsReencryptedLocallyAndPlaintextIsShredded() {
         val root = temp.newFolder("successful-vault-reencryption")
         val payload = File(root, "payload.zip")
-        val manifest = """{"version":3,"timestamp":1,"checksumSha256":"","databaseSizeBytes":0,"vaultSizeBytes":15,"fileCount":1,"vaultItemCount":1,"appVersion":"test","schemaVersion":1,"includesDatabase":false,"includesVault":true}"""
+        val manifest = """{"version":4,"timestamp":1,"checksumSha256":"","databaseSizeBytes":12,"vaultSizeBytes":15,"fileCount":2,"vaultItemCount":1,"appVersion":"test","schemaVersion":1,"includesDatabase":true,"includesVault":true}"""
         ZipOutputStream(payload.outputStream()).use { zip ->
+            zip.putNextEntry(ZipEntry("database/portable.db"))
+            zip.write("portable-db".toByteArray())
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("key-material/database-passphrase.bin"))
+            zip.write(ByteArray(32) { (it + 1).toByte() })
+            zip.closeEntry()
             zip.putNextEntry(ZipEntry("vault/item.vvf"))
             zip.write("portable plaintext".toByteArray())
             zip.closeEntry()
@@ -219,7 +225,7 @@ class CryptoBackupDecryptorTest {
             backupName = "portable-vault.vvfbak",
             backupSizeBytes = encrypted.length(),
             includesVault = true,
-            includesDatabase = false,
+            includesDatabase = true,
             checksumSha256 = "verified-by-caller"
         )
         val crypto = mock<CryptoSecurityManager>()
@@ -254,8 +260,14 @@ class CryptoBackupDecryptorTest {
     fun failedVaultReencryptionShredsPlaintextAndPartialCiphertext() {
         val root = temp.newFolder("failed-vault-reencryption")
         val payload = File(root, "payload.zip")
-        val manifest = """{"version":3,"timestamp":1,"checksumSha256":"","databaseSizeBytes":0,"vaultSizeBytes":12,"fileCount":1,"vaultItemCount":1,"appVersion":"test","schemaVersion":1,"includesDatabase":false,"includesVault":true}"""
+        val manifest = """{"version":4,"timestamp":1,"checksumSha256":"","databaseSizeBytes":12,"vaultSizeBytes":12,"fileCount":2,"vaultItemCount":1,"appVersion":"test","schemaVersion":1,"includesDatabase":true,"includesVault":true}"""
         ZipOutputStream(payload.outputStream()).use { zip ->
+            zip.putNextEntry(ZipEntry("database/portable.db"))
+            zip.write("portable-db".toByteArray())
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("key-material/database-passphrase.bin"))
+            zip.write(ByteArray(32) { (it + 1).toByte() })
+            zip.closeEntry()
             zip.putNextEntry(ZipEntry("vault/item.vvf"))
             zip.write("vault plaintext".toByteArray())
             zip.closeEntry()
@@ -271,7 +283,7 @@ class CryptoBackupDecryptorTest {
             backupName = "portable-vault.vvfbak",
             backupSizeBytes = encrypted.length(),
             includesVault = true,
-            includesDatabase = false,
+            includesDatabase = true,
             checksumSha256 = "verified-by-caller"
         )
         val crypto = mock<CryptoSecurityManager>()

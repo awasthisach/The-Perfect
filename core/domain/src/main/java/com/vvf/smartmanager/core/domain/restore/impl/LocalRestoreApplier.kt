@@ -82,8 +82,12 @@ class LocalRestoreApplier(
 
     override suspend fun apply(decryptedBackup: DecryptedBackup): Result<AppliedRestore> {
         val parent = liveDatabaseFile.parentFile
-            ?: return Result.failure(RestoreException("Live database parent directory is missing"))
+            ?: run {
+                decryptedBackup.databasePassphrase?.fill(0)
+                return Result.failure(RestoreException("Live database parent directory is missing"))
+            }
         if (!parent.exists() && !parent.mkdirs()) {
+            decryptedBackup.databasePassphrase?.fill(0)
             return Result.failure(RestoreException("Unable to create live database parent directory"))
         }
 
@@ -238,12 +242,7 @@ class LocalRestoreApplier(
             if (decryptedBackup.backupInfo.includesDatabase && decryptedBackup.databasePassphrase != null) {
                 val crypto = cryptoSecurityManager
                     ?: throw RestoreException("Portable database restore requires local Keystore migration support")
-                val importedPassphrase = decryptedBackup.databasePassphrase
-                try {
-                    crypto.replaceDatabasePassphraseForRestore(importedPassphrase)
-                } finally {
-                    importedPassphrase.fill(0)
-                }
+                crypto.replaceDatabasePassphraseForRestore(decryptedBackup.databasePassphrase)
             }
 
             if (backupLiveDb.exists() && !backupLiveDb.delete()) {
@@ -270,6 +269,7 @@ class LocalRestoreApplier(
         } catch (error: Throwable) {
             Result.failure(RestoreException("Restore apply failed", error))
         } finally {
+            decryptedBackup.databasePassphrase?.fill(0)
             cleanupTemps(tempDb, tempVault)
         }
     }
