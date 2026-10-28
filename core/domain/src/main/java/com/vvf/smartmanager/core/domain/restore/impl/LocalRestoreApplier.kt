@@ -471,18 +471,32 @@ class LocalRestoreApplier(
             }
 
             if (!liveDatabaseFile.exists()) {
-                databaseBackup.copyTo(liveDatabaseFile, overwrite = false)
-                if (liveDatabaseFile.length() != databaseBackup.length()) {
-                    throw IllegalStateException("Legacy database backup recovery size mismatch")
+                val stagedDatabase = File(parent, "$db.restore-tmp-legacy-recovery-${UUID.randomUUID()}")
+                try {
+                    databaseBackup.copyTo(stagedDatabase, overwrite = false)
+                    if (stagedDatabase.length() != databaseBackup.length()) {
+                        throw IllegalStateException("Legacy database backup recovery size mismatch")
+                    }
+                    if (!stagedDatabase.renameTo(liveDatabaseFile)) {
+                        throw IllegalStateException("Unable to atomically publish recovered legacy database")
+                    }
+                } finally {
+                    stagedDatabase.delete()
                 }
             }
             if (!liveVaultDir.exists() && vaultBackups.size == 1) {
                 val backup = vaultBackups.single()
-                if (!backup.renameTo(liveVaultDir)) {
-                    backup.copyRecursively(liveVaultDir, overwrite = false)
-                    if (!liveVaultDir.isDirectory) {
+                val stagedVault = File(parent, "$vault.restore-tmp-legacy-recovery-${UUID.randomUUID()}")
+                try {
+                    backup.copyRecursively(stagedVault, overwrite = false)
+                    if (!stagedVault.isDirectory) {
                         throw IllegalStateException("Legacy vault backup recovery failed")
                     }
+                    if (!stagedVault.renameTo(liveVaultDir)) {
+                        throw IllegalStateException("Unable to atomically publish recovered legacy vault")
+                    }
+                } finally {
+                    if (stagedVault.exists()) stagedVault.deleteRecursively()
                 }
             }
 
