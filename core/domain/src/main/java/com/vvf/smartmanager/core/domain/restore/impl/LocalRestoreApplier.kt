@@ -444,6 +444,47 @@ class LocalRestoreApplier(
             }
         }
 
+        /**
+         * Older releases did not write a durable journal. Their .restore-bak files can survive
+         * an interrupted restore and must not permanently crash-loop an otherwise usable install.
+         * Never delete these backups: use one only when its corresponding live resource is absent,
+         * and otherwise preserve both copies for recovery without mutating live user data.
+         */
+        private fun recoverLegacyRestoreArtifacts(
+            liveDatabaseFile: File,
+            liveVaultDir: File
+        ): Boolean {
+            val parent = liveDatabaseFile.parentFile ?: return false
+            val entries = parent.listFiles().orEmpty()
+            val db = liveDatabaseFile.name
+            val vault = liveVaultDir.name
+            val legacyArtifacts = entries.filter { file ->
+                file.name == "$db.restore-bak" ||
+                    file.name.startsWith("$db.restore-tmp") ||
+                    file.name.startsWith("$vault.restore-bak-") ||
+                    file.name.startsWith("$vault.restore-tmp-")
+            }
+            if (legacyArtifacts.isEmpty()) return false
+
+            val databaseBackup = File(parent, "$db.restore-bak")
+            if (!liveDatabaseFile.exists() && databaseBackup.isFile) {
+                databaseBackup.copyTo(liveDatabaseFile, overwrite = false)
+            }
+
+            if (!liveVaultDir.exists()) {
+                val vaultBackup = legacyArtifacts
+                    .filter { it.name.startsWith("$vault.restore-bak-") && it.isDirectory }
+                    .maxByOrNull { it.lastModified() }
+                if (vaultBackup != null) {
+                    vaultBackup.copyRecursively(liveVaultDir, overwrite = false)
+                }
+            }
+
+            // A missing live resource with no recoverable backup remains a hard failure.
+            // Existing backups and temp artifacts are deliberately retained for manual recovery.
+            return liveDatabaseFile.exists() && liveVaultDir.exists()
+        }
+
         fun recoverInterruptedRestore(
             liveDatabaseFile: File,
             liveVaultDir: File,
@@ -451,6 +492,7 @@ class LocalRestoreApplier(
             cryptoSecurityManager: CryptoSecurityManager
         ) {
             if (!snapshotRoot.exists()) {
+                if (recoverLegacyRestoreArtifacts(liveDatabaseFile, liveVaultDir)) return
                 if (hasInterruptedSwapArtifacts(liveDatabaseFile, liveVaultDir)) {
                     throw IllegalStateException(
                         "Restore swap artifacts exist without rollback snapshots; refusing to open the database"
@@ -460,6 +502,7 @@ class LocalRestoreApplier(
             }
             val journal = File(snapshotRoot, JOURNAL_FILE)
             if (!journal.isFile) {
+                if (recoverLegacyRestoreArtifacts(liveDatabaseFile, liveVaultDir)) return
                 if (hasInterruptedSwapArtifacts(liveDatabaseFile, liveVaultDir)) {
                     throw IllegalStateException(
                         "Restore swap artifacts exist without a recovery journal; refusing to open the database"
