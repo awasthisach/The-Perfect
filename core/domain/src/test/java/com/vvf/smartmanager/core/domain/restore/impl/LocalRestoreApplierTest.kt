@@ -501,6 +501,37 @@ class LocalRestoreApplierTest {
     }
 
     @Test
+    fun startupRecoveryRemovesOrphanedStagingAndRestoresVaultBeforeDatabase() {
+        val root = temp.newFolder("legacy-staged-vault-first")
+        val databaseBackup = File(root, "live.db.restore-bak").apply { writeText("ROLLBACK-DB") }
+        val vaultBackup = File(root, "vault.restore-bak-old").also {
+            it.mkdirs()
+            File(it, "item.bin").writeText("ROLLBACK-VAULT")
+        }
+        val liveDb = File(root, "live.db")
+        val liveVault = File(root, "vault")
+        val orphanedDbStage = File(root, ".legacy-recovery-db-${UUID.randomUUID()}").apply { writeText("PARTIAL-DB") }
+        val orphanedVaultStage = File(root, ".legacy-recovery-vault-${UUID.randomUUID()}").also {
+            it.mkdirs()
+            File(it, "partial.bin").writeText("PARTIAL-VAULT")
+        }
+
+        LocalRestoreApplier.recoverInterruptedRestore(
+            liveDatabaseFile = liveDb,
+            liveVaultDir = liveVault,
+            snapshotRoot = File(root, "missing-snapshots"),
+            cryptoSecurityManager = mock()
+        )
+
+        assertEquals("ROLLBACK-DB", liveDb.readText())
+        assertEquals("ROLLBACK-VAULT", File(liveVault, "item.bin").readText())
+        assertFalse("Interrupted database staging must be removed", orphanedDbStage.exists())
+        assertFalse("Interrupted vault staging must be removed", orphanedVaultStage.exists())
+        assertFalse("Recovered database backup must be retired", databaseBackup.exists())
+        assertFalse("Recovered vault backup must be retired", vaultBackup.exists())
+    }
+
+    @Test
     fun startupRecoveryRestoresLegacyDatabaseBackupWhenLiveDatabaseIsMissing() {
         val root = temp.newFolder("legacy-missing-live-db")
         val backup = File(root, "live.db.restore-bak").apply { writeText("RECOVERABLE-DB") }
