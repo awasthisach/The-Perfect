@@ -13,6 +13,8 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.After
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -26,6 +28,35 @@ import java.io.File
 class PortableBackupRestoreIntegrationTest {
     @get:Rule
     val temp = TemporaryFolder()
+
+    @Before
+    fun isolateDeviceSecurityState() {
+        resetDeviceSecurityState()
+    }
+
+    @After
+    fun clearDeviceSecurityState() {
+        resetDeviceSecurityState()
+    }
+
+    private fun resetDeviceSecurityState() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("vvf_secure_vault_prefs", Context.MODE_PRIVATE)
+            .edit().clear().commit()
+        listOf(
+            "vvf_db_passphrase_v2.bin",
+            "vvf_db_enc_passphrase.bin",
+            "vvf_db_passphrase_iv.bin",
+            "vvf_vault_data_key_v1.bin",
+            "vvf_vault_data_key_v1.bin.previous",
+            "vvf_vault_data_key_v1.bin.tmp"
+        ).forEach { name ->
+            val file = File(context.filesDir, name)
+            check(!file.exists() || file.delete()) { "Unable to reset test key artifact: $name" }
+        }
+        File(context.filesDir, "vvf_vault_encrypted").deleteRecursively()
+        CryptoSecurityManager.clearInMemoryKeysForTests()
+    }
 
     @Test
     fun interruptedRestoreRecoversDatabaseVaultAndWrappedKeyBeforeStartup() = runBlocking {
