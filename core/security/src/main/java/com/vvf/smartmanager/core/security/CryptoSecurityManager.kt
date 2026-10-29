@@ -287,11 +287,81 @@ class CryptoSecurityManager(
         }
     }
 
+    private fun readPinWrappedVaultKeyEnvelope(file: File): ByteArray {
+        recoverVaultKeyEnvelopeFile(file)
+        val payload = file.readBytes()
+        try {
+            require(payload.size >= 1 + GCM_IV_LENGTH_BYTES + 16) { "PIN-wrapped vault key file is truncated" }
+            require(payload[0] == VAULT_KEY_OUTER_FORMAT_VERSION) { "Unsupported vault key storage version" }
+            val iv = payload.copyOfRange(1, 1 + GCM_IV_LENGTH_BYTES)
+            val ciphertext = payload.copyOfRange(1 + GCM_IV_LENGTH_BYTES, payload.size)
+            return try {
+                decryptBytes(ciphertext, iv, alias = VAULT_META_KEY_ALIAS)
+            } finally {
+                iv.fill(0)
+                ciphertext.fill(0)
+            }
+        } finally {
+            payload.fill(0)
+        }
+    }
+
+    private fun writePinWrappedVaultKeyEnvelope(file: File, innerEnvelope: ByteArray) {
+        val (ciphertext, iv) = encryptBytes(innerEnvelope, alias = VAULT_META_KEY_ALIAS)
+        val payload = byteArrayOf(VAULT_KEY_OUTER_FORMAT_VERSION) + iv + ciphertext
+        val temporary = File(context.filesDir, "$VAULT_DATA_KEY_FILE.tmp")
+        val previous = File(context.filesDir, "$VAULT_DATA_KEY_FILE.previous")
+        try {
+            recoverVaultKeyEnvelopeFile(file)
+            FileOutputStream(temporary).use { output ->
+                output.write(payload)
+                output.flush()
+                output.fd.sync()
+            }
+            if (file.exists()) check(file.renameTo(previous)) { "Unable to preserve previous vault key envelope" }
+            try {
+                check(temporary.renameTo(file)) { "Unable to publish PIN-wrapped vault data key" }
+                val readBack = readPinWrappedVaultKeyEnvelope(file)
+                try {
+                    check(MessageDigest.isEqual(innerEnvelope, readBack)) { "Vault key envelope write verification failed" }
+                } finally {
+                    readBack.fill(0)
+                }
+                if (previous.exists()) check(previous.delete()) { "Unable to remove previous vault key envelope" }
+            } catch (error: Throwable) {
+                if (file.exists()) file.delete()
+                if (previous.exists() && !previous.renameTo(file)) {
+                    throw SecurityException("Vault key envelope write failed and previous state could not be restored", error)
+                }
+                throw error
+            }
+        } finally {
+            temporary.delete()
+            payload.fill(0)
+            ciphertext.fill(0)
+            iv.fill(0)
+            if (previous.exists() && file.exists()) previous.delete()
+        }
+    }
+
+    private fun recoverVaultKeyEnvelopeFile(file: File) {
+        val previous = File(context.filesDir, "$VAULT_DATA_KEY_FILE.previous")
+        val temporary = File(context.filesDir, "$VAULT_DATA_KEY_FILE.tmp")
+        if (!file.exists() && previous.exists()) {
+            check(previous.renameTo(file)) { "Unable to recover previous vault key envelope" }
+        } else if (file.exists() && previous.exists()) {
+            check(previous.delete()) { "Unable to remove stale previous vault key envelope" }
+        }
+        if (temporary.exists()) check(temporary.delete()) { "Unable to remove stale vault key envelope staging" }
+    }
+
     @Synchronized
     private fun rewrapOrCreateVaultDataKey(pin: String) {
         val envelopeFile = File(context.filesDir, VAULT_DATA_KEY_FILE)
         val current = activeVaultDataKey?.copyOf() ?: if (envelopeFile.isFile) {
-            pinWrappedVaultKey.unwrap(envelopeFile.readBytes(), pin.toCharArray())
+            val innerEnvelope = readPinWrappedVaultKeyEnvelope(envelopeFile)
+            try { pinWrappedVaultKey.unwrap(innerEnvelope, pin.toCharArray()) }
+            finally { innerEnvelope.fill(0) }
         } else {
             ByteArray(DB_KEY_LENGTH_BYTES).also(SecureRandom()::nextBytes)
         }
@@ -302,19 +372,9 @@ class CryptoSecurityManager(
             } finally {
                 keyToWrap.fill(0)
             }
-            val temporary = File(context.filesDir, "$VAULT_DATA_KEY_FILE.tmp")
             try {
-                FileOutputStream(temporary).use { output ->
-                    output.write(envelope)
-                    output.flush()
-                    output.fd.sync()
-                }
-                check(temporary.renameTo(envelopeFile) || run {
-                    if (envelopeFile.exists() && !envelopeFile.delete()) false
-                    else temporary.renameTo(envelopeFile)
-                }) { "Unable to publish PIN-wrapped vault data key" }
+                writePinWrappedVaultKeyEnvelope(envelopeFile, envelope)
             } finally {
-                temporary.delete()
                 envelope.fill(0)
             }
             activeVaultDataKey?.fill(0)
@@ -328,7 +388,9 @@ class CryptoSecurityManager(
     private fun activateVaultDataKey(pin: String) {
         val envelopeFile = File(context.filesDir, VAULT_DATA_KEY_FILE)
         val key = if (envelopeFile.isFile) {
-            pinWrappedVaultKey.unwrap(envelopeFile.readBytes(), pin.toCharArray())
+            val innerEnvelope = readPinWrappedVaultKeyEnvelope(envelopeFile)
+            try { pinWrappedVaultKey.unwrap(innerEnvelope, pin.toCharArray()) }
+            finally { innerEnvelope.fill(0) }
         } else {
             ByteArray(DB_KEY_LENGTH_BYTES).also(SecureRandom()::nextBytes).also { fresh ->
                 val keyToWrap = fresh.copyOf()
@@ -337,19 +399,9 @@ class CryptoSecurityManager(
                 } finally {
                     keyToWrap.fill(0)
                 }
-                val temporary = File(context.filesDir, "$VAULT_DATA_KEY_FILE.tmp")
                 try {
-                    FileOutputStream(temporary).use { output ->
-                        output.write(envelope)
-                        output.flush()
-                        output.fd.sync()
-                    }
-                    check(temporary.renameTo(envelopeFile) || run {
-                        if (envelopeFile.exists() && !envelopeFile.delete()) false
-                        else temporary.renameTo(envelopeFile)
-                    }) { "Unable to publish PIN-wrapped vault data key" }
+                    writePinWrappedVaultKeyEnvelope(envelopeFile, envelope)
                 } finally {
-                    temporary.delete()
                     envelope.fill(0)
                 }
             }
