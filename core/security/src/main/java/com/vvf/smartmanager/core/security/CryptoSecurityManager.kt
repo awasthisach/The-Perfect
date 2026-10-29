@@ -290,7 +290,12 @@ class CryptoSecurityManager(
             ByteArray(DB_KEY_LENGTH_BYTES).also(SecureRandom()::nextBytes)
         }
         try {
-            val envelope = pinWrappedVaultKey.wrap(current.copyOf(), pin.toCharArray())
+            val keyToWrap = current.copyOf()
+            val envelope = try {
+                pinWrappedVaultKey.wrap(keyToWrap, pin.toCharArray())
+            } finally {
+                keyToWrap.fill(0)
+            }
             val temporary = File(context.filesDir, "$VAULT_DATA_KEY_FILE.tmp")
             try {
                 FileOutputStream(temporary).use { output ->
@@ -320,7 +325,12 @@ class CryptoSecurityManager(
             pinWrappedVaultKey.unwrap(envelopeFile.readBytes(), pin.toCharArray())
         } else {
             ByteArray(DB_KEY_LENGTH_BYTES).also(SecureRandom()::nextBytes).also { fresh ->
-                val envelope = pinWrappedVaultKey.wrap(fresh.copyOf(), pin.toCharArray())
+                val keyToWrap = fresh.copyOf()
+                val envelope = try {
+                    pinWrappedVaultKey.wrap(keyToWrap, pin.toCharArray())
+                } finally {
+                    keyToWrap.fill(0)
+                }
                 val temporary = File(context.filesDir, "$VAULT_DATA_KEY_FILE.tmp")
                 try {
                     FileOutputStream(temporary).use { output ->
@@ -369,7 +379,7 @@ class CryptoSecurityManager(
         try {
             plain.delete()
             encrypted.delete()
-            verify.delete()
+            if (verify.exists()) secureShredFile(verify)
             decryptFile(file, plain)
             encryptFile(plain, encrypted)
             decryptFile(encrypted, verify)
