@@ -2,7 +2,7 @@ name: CPAS Production Gate
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/phase3-vault-pin-key-migration]
   pull_request:
     branches: [main]
   workflow_dispatch:
