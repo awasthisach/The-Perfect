@@ -13,7 +13,8 @@ permissions:
 
 concurrency:
   group: nightly-ort-${{ github.ref }}
-  cancel-in-progress: false
+  # Cancel stale PR scans when a newer candidate SHA supersedes them.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   ort-scan:
@@ -33,8 +34,6 @@ jobs:
 
       - name: Checkout Repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
         with:
           ref: ${{ steps.rev.outputs.sha }}
           # Need full history + write token so successful PR scans can push SBOM evidence.
@@ -149,46 +148,6 @@ jobs:
           fi
 
           ls -lh "$ASSURANCE_DIR"/ort-* || echo "No ORT files found"
-
-      # PR path: commit SBOM evidence onto the PR head branch so CPAS can see
-      # ort-*.json on a real candidate SHA (artifact-only evidence is not enough).
-      - name: Commit ORT SBOMs onto PR head branch
-        if: success() && github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEAD_REF: ${{ github.head_ref }}
-          SCAN_SHA: ${{ steps.rev.outputs.sha }}
-        run: |
-          set -euo pipefail
-          if [ ! -f docs/assurance/ort-bom.cyclonedx.json ] || \
-             [ ! -f docs/assurance/ort-bom.spdx.json ] || \
-             [ ! -f docs/assurance/ort-status.json ]; then
-            echo "Required ORT assurance files missing; not committing"
-            exit 1
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          # Detach → branch tip of the PR head so we do not commit onto a merge ref.
-          git fetch origin "$HEAD_REF"
-          git checkout -B "$HEAD_REF" "origin/$HEAD_REF"
-
-          mkdir -p docs/assurance
-          # Re-copy from workspace evidence produced earlier in this job workspace.
-          # Files may already be present from Extract step on the scanned tree.
-          git add docs/assurance/ort-bom.cyclonedx.json \
-                  docs/assurance/ort-bom.spdx.json \
-                  docs/assurance/ort-status.json
-
-          if git diff --cached --quiet; then
-            echo "ORT assurance files already up to date on $HEAD_REF"
-            exit 0
-          fi
-
-          git commit -m "chore(compliance): add ORT SBOM evidence for ${SCAN_SHA}"
-          git push origin "HEAD:$HEAD_REF"
-          echo "Pushed ORT assurance evidence to origin/$HEAD_REF"
 
       - name: Create PR with ORT SBOMs
         if: success() && github.event_name != 'pull_request'
