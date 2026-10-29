@@ -428,15 +428,24 @@ class CryptoSecurityManager(
             "Vault migration target escaped the vault directory"
         }
         val backup = File(file.parentFile, file.name + ".pin-migration-legacy")
-        if (!file.exists() && backup.isFile) {
-            check(backup.renameTo(file)) { "Unable to recover interrupted vault key migration" }
+        if (backup.exists()) {
+            when {
+                !file.exists() -> check(backup.renameTo(file)) {
+                    "Unable to recover interrupted vault key migration"
+                }
+                isPinWrappedVaultFile(file) -> check(backup.delete()) {
+                    "Unable to remove completed migration backup"
+                }
+                else -> {
+                    // A non-magic target beside the backup may be a partial/corrupt publication.
+                    // Preserve the known-good legacy ciphertext rather than deleting it.
+                    check(secureShredFile(file)) { "Unable to remove incomplete migrated vault ciphertext" }
+                    check(backup.renameTo(file)) { "Unable to recover legacy vault ciphertext" }
+                }
+            }
         }
         if (!file.isFile) throw SecurityException("Vault item is missing during key migration")
-        if (isPinWrappedVaultFile(file)) {
-            if (backup.exists()) check(backup.delete()) { "Unable to remove completed migration backup" }
-            return false
-        }
-        if (backup.exists()) check(backup.delete()) { "Unable to remove stale legacy migration backup" }
+        if (isPinWrappedVaultFile(file)) return false
         activeVaultDataKey ?: throw SecurityException("Vault is locked during key migration")
         val plain = File(file.parentFile, ".${file.name}.migration-plain")
         val encrypted = File(file.parentFile, ".${file.name}.migration-new")
@@ -482,10 +491,23 @@ class CryptoSecurityManager(
             when {
                 artifact.name.endsWith(".pin-migration-legacy") -> {
                     val original = File(artifact.parentFile, artifact.name.removeSuffix(".pin-migration-legacy"))
-                    if (!original.exists()) {
-                        check(artifact.renameTo(original)) { "Unable to recover legacy vault ciphertext" }
-                    } else if (isPinWrappedVaultFile(original) || original.isFile) {
-                        check(artifact.delete()) { "Unable to remove stale legacy vault ciphertext" }
+                    when {
+                        !original.exists() -> check(artifact.renameTo(original)) {
+                            "Unable to recover legacy vault ciphertext"
+                        }
+                        isPinWrappedVaultFile(original) -> check(artifact.delete()) {
+                            "Unable to remove completed legacy migration backup"
+                        }
+                        else -> {
+                            // Only discard the legacy backup after a valid PIN-wrapped replacement
+                            // exists. An arbitrary file is not proof that the new ciphertext is intact.
+                            check(secureShredFile(original)) {
+                                "Unable to remove incomplete migrated vault ciphertext"
+                            }
+                            check(artifact.renameTo(original)) {
+                                "Unable to recover legacy vault ciphertext"
+                            }
+                        }
                     }
                 }
                 artifact.name.endsWith(".migration-plain") ||
