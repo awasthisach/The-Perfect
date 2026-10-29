@@ -383,7 +383,10 @@ class CryptoSecurityManager(
             decryptFile(file, plain)
             encryptFile(plain, encrypted)
             decryptFile(encrypted, verify)
-            check(plain.length() == verify.length()) { "Vault key migration verification size mismatch" }
+            check(
+                plain.length() == verify.length() &&
+                    MessageDigest.isEqual(sha256File(plain), sha256File(verify))
+            ) { "Vault key migration verification mismatch" }
             check(secureShredFile(plain)) { "Unable to remove plaintext during vault key migration" }
             check(file.renameTo(backup)) { "Unable to preserve legacy vault ciphertext" }
             try {
@@ -396,10 +399,24 @@ class CryptoSecurityManager(
             return true
         } finally {
             if (plain.exists()) secureShredFile(plain)
-            verify.delete()
+            if (verify.exists()) secureShredFile(verify)
             encrypted.delete()
             if (!file.exists() && backup.exists()) backup.renameTo(file)
         }
+    }
+
+    private fun sha256File(file: File): ByteArray {
+        val digest = MessageDigest.getInstance("SHA-256")
+        FileInputStream(file).use { input ->
+            val buffer = ByteArray(STREAM_BUFFER_SIZE)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+            buffer.fill(0)
+        }
+        return digest.digest()
     }
 
     /** Clears the unwrapped data key when the vault session is locked. */
