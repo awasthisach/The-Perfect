@@ -288,6 +288,7 @@ class SecureVaultRepository(
         true
     }
 
+    fun lockVaultSession() = cryptoManager.lockVaultDataKey()
     fun isVaultConfigured(): Boolean = cryptoManager.isVaultConfigured()
     fun isDecoyVaultConfigured(): Boolean = cryptoManager.isDecoyVaultConfigured()
     fun setupPin(pin: String): Boolean = cryptoManager.setupVaultPin(pin)
