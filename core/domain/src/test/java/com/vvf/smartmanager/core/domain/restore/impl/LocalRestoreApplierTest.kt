@@ -236,6 +236,7 @@ class LocalRestoreApplierTest {
             File(it, "partial.bin").writeText("PARTIAL-VAULT")
         }
         val token = UUID.randomUUID().toString()
+        val unrelatedRecoveryNote = File(snapshotRoot, "unrelated-recovery-note.txt").apply { writeText("keep this file") }
         File(snapshotRoot, "$token-db").writeText("ORIGINAL-DB")
         File(snapshotRoot, "$token-db-wal").writeText("ORIGINAL-WAL")
         File(snapshotRoot, "$token-vault").also {
@@ -266,6 +267,9 @@ class LocalRestoreApplierTest {
         assertEquals("ORIGINAL-VAULT", File(liveVault, "original.bin").readText())
         assertFalse("Partial vault must be removed", File(liveVault, "partial.bin").exists())
         assertFalse("Recovery journal must be cleared", File(snapshotRoot, "active-restore.properties").exists())
+        assertTrue("Unrelated snapshot-root file must be preserved", unrelatedRecoveryNote.isFile)
+        assertEquals("keep this file", unrelatedRecoveryNote.readText())
+        assertFalse("Validated transaction snapshot must be retired", File(snapshotRoot, "$token-db").exists())
     }
 
     @Test
