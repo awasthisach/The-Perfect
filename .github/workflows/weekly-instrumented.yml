@@ -119,23 +119,28 @@ jobs:
       - name: SQLCipher instrumentation (HARD)
         run: ./gradlew --no-daemon :core:database:connectedDebugAndroidTest :core:database-compat:connectedDebugAndroidTest --stacktrace
 
-      # Keep ledger freshness aligned with weekly hard gate (environment must contain "emulator")
+      # Produce SHA-bound DB evidence on PRs too. Only scheduled/manual runs
+      # update the persistent ledger; PR evidence remains an artifact for review.
       - name: Generate CPAS instrumented evidence
-        if: success() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        if: success()
         run: |
           set -euo pipefail
-          python3 tools/audit/generate_evidence.py \
-            --commit-sha "${{ github.sha }}" \
-            --run-id "${{ github.run_id }}" \
-            --job-id "${{ github.job }}" \
-            --result PASS \
-            --include-db \
-            --environment "github-actions-API35-emulator-weekly" \
-            --output docs/assurance/cpas-evidence-weekly.json \
-            --merge-ledger
+          args=(
+            --commit-sha "${{ github.event.pull_request.head.sha || github.sha }}"
+            --run-id "${{ github.run_id }}"
+            --job-id "${{ github.job }}"
+            --result PASS
+            --include-db
+            --environment "github-actions-API35-emulator-weekly"
+            --output docs/assurance/cpas-evidence-weekly.json
+          )
+          if [[ "${{ github.event_name }}" == "schedule" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            args+=(--merge-ledger)
+          fi
+          python3 tools/audit/generate_evidence.py "${args[@]}"
 
       - name: Upload weekly CPAS evidence artifacts
-        if: success() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        if: success()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: weekly-cpas-evidence
