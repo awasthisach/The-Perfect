@@ -164,7 +164,7 @@ class PortableBackupRestoreIntegrationTest {
         val liveDatabase = temp.newFile("live.db").apply { writeText("OLD-DATABASE") }
         val liveVault = temp.newFolder("live-vault")
         val oldVaultPlain = temp.newFile("old-vault.txt").apply { writeText("old vault item") }
-        destinationCrypto.encryptFile(oldVaultPlain, File(liveVault, "enc_old.vvf"))
+        destinationCrypto.encryptLegacyFile(oldVaultPlain, File(liveVault, "enc_old.vvf"))
         oldVaultPlain.delete()
         val snapshotRoot = temp.newFolder("rollback-snapshots")
         val applier = LocalRestoreApplier(
