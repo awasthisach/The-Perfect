@@ -543,16 +543,8 @@ class LocalRestoreApplier(
                 if (hasInterruptedSwapArtifacts(liveDatabaseFile, liveVaultDir)) {
                     recoverLegacyUnjournaledSwapArtifacts(liveDatabaseFile, liveVaultDir)
                 }
-                // No transaction journal means there is no trustworthy token-to-snapshot mapping.
-                // Only after safely reconciling legacy swap files may the unreferenced snapshot
-                // directory be retired.
-                if (snapshotRoot.exists()) {
-                    snapshotRoot.listFiles().orEmpty().forEach { child ->
-                        if (!child.deleteRecursively() && child.exists()) {
-                            throw IllegalStateException("Unable to clean unreferenced restore snapshot artifact")
-                        }
-                    }
-                }
+                // Without a validated journal token, snapshot-root contents are unowned. Preserve
+                // them rather than recursively deleting potentially unrelated recovery material.
                 return
             }
             val properties = Properties().apply { FileInputStream(journal).use(::load) }
@@ -591,7 +583,26 @@ class LocalRestoreApplier(
                     rollback.exceptionOrNull()
                 )
             }
-            snapshotRoot.listFiles().orEmpty().forEach { it.deleteRecursively() }
+            cleanupRecoveryArtifacts(snapshotRoot, token)
+        }
+
+        private fun cleanupRecoveryArtifacts(snapshotRoot: File, token: String) {
+            val owned = listOf(
+                File(snapshotRoot, JOURNAL_FILE),
+                File(snapshotRoot, "$JOURNAL_FILE.tmp"),
+                File(snapshotRoot, "$token-db"),
+                File(snapshotRoot, "$token-db-wal"),
+                File(snapshotRoot, "$token-key-state"),
+                File(snapshotRoot, "$token-vault")
+            )
+            owned.forEach { artifact ->
+                if (artifact.exists()) {
+                    val removed = if (artifact.isDirectory) artifact.deleteRecursively() else artifact.delete()
+                    if (!removed && artifact.exists()) {
+                        throw IllegalStateException("Unable to clean restore-owned artifact: ${artifact.name}")
+                    }
+                }
+            }
         }
     }
 }
