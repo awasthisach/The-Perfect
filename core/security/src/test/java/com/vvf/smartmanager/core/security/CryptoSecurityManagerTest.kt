@@ -204,6 +204,37 @@ class CryptoSecurityManagerTest {
     }
 
     @Test
+    fun interruptedMigrationWithInvalidTargetRestoresKnownGoodLegacyCiphertext() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val vaultDir = java.io.File(context.filesDir, "vvf_vault_encrypted").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val source = java.io.File(context.cacheDir, "migration-recovery-source.txt").apply {
+            writeText("preserve the original encrypted vault payload")
+        }
+        val restored = java.io.File(context.cacheDir, "migration-recovery-restored.txt")
+        val original = java.io.File(vaultDir, "enc_recovery.vvf").apply {
+            writeText("partial or invalid migrated ciphertext")
+        }
+        val legacyBackup = java.io.File(vaultDir, "enc_recovery.vvf.pin-migration-legacy")
+        try {
+            cryptoSecurityManager.encryptLegacyFile(source, legacyBackup)
+            cryptoSecurityManager.recoverVaultMigrationArtifacts(vaultDir)
+
+            assertTrue("Legacy backup must be recovered to the original filename", original.isFile)
+            assertTrue("Recovered target must be legacy ciphertext", !cryptoSecurityManager.isPinWrappedVaultFile(original))
+            assertTrue("Legacy backup must be consumed after recovery", !legacyBackup.exists())
+            cryptoSecurityManager.decryptFile(original, restored)
+            assertEquals(source.readText(), restored.readText())
+        } finally {
+            source.delete()
+            restored.delete()
+            vaultDir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun legacyVaultCiphertextMigratesToPinWrappedKeyAfterRealPinUnlock() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val vaultDir = java.io.File(context.filesDir, "vvf_vault_encrypted").apply {
