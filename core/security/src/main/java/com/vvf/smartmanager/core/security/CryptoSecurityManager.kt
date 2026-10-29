@@ -449,6 +449,8 @@ class CryptoSecurityManager(
         return digest.digest()
     }
 
+    fun isVaultDataKeyActive(): Boolean = activeVaultDataKey?.size == DB_KEY_LENGTH_BYTES
+
     /** Clears the unwrapped data key when the vault session is locked. */
     @Synchronized
     fun lockVaultDataKey() {
