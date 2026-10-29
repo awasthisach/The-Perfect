@@ -603,7 +603,7 @@ class CryptoSecurityManager(
             keyCopy.fill(0)
             keyCopy = null
             val saved = prefs.edit()
-                .putString("vault_pin_hash", Base64.encodeToString(hash, Base64.NO_WRAP))
+                .putString("vault_pin_hash", Base64.encodeToString(encHash, Base64.NO_WRAP))
                 .putString("vault_pin_hash_iv", Base64.encodeToString(hashIv, Base64.NO_WRAP))
                 .putString("vault_pin_salt", Base64.encodeToString(encSalt, Base64.NO_WRAP))
                 .putString("vault_pin_salt_iv", Base64.encodeToString(saltIv, Base64.NO_WRAP))
