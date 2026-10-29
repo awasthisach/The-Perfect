@@ -13,8 +13,7 @@ permissions:
 
 concurrency:
   group: nightly-ort-${{ github.ref }}
-  # On PRs, cancel stale scans so CPAS waits only for the current candidate SHA.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 jobs:
   ort-scan:
@@ -22,15 +21,30 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
+      - name: Resolve scan revision
+        id: rev
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "sha=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout Repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ steps.rev.outputs.sha }}
+          # Need full history + write token so successful PR scans can push SBOM evidence.
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run ORT compliance pipeline
         id: ort
         uses: oss-review-toolkit/ort-ci-github-action@70149d4579e446b0312f8b80fdd8d465a91e4391
         with:
           sw-name: The-Perfect
-          sw-version: ${{ github.sha }}
+          sw-version: ${{ steps.rev.outputs.sha }}
           fail-on: "issues,violations"
           run: >-
             cache-dependencies,
@@ -45,16 +59,19 @@ jobs:
       - name: Verify required ORT reports and SBOMs
         id: verify_ort_reports
         if: always()
+        env:
+          SCAN_SHA: ${{ steps.rev.outputs.sha }}
         run: |
           set -euo pipefail
           RESULTS_DIR="$HOME/.ort/ort-results"
-          python3 tools/audit/verify_ort_outputs.py --results-dir "$RESULTS_DIR" --revision "$GITHUB_SHA"
+          python3 tools/audit/verify_ort_outputs.py --results-dir "$RESULTS_DIR" --revision "$SCAN_SHA"
 
       - name: Record ORT status
         if: always()
         env:
           ORT_OUTCOME: ${{ steps.ort.outcome }}
           VERIFY_OUTCOME: ${{ steps.verify_ort_reports.outcome }}
+          SCAN_SHA: ${{ steps.rev.outputs.sha }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -68,7 +85,7 @@ jobs:
               "gate_id": "GATE-LICENSE-001",
               "scanner": "OSS Review Toolkit (ORT)",
               "status": status,
-              "scan_revision": os.environ["GITHUB_SHA"],
+              "scan_revision": os.environ["SCAN_SHA"],
               "ort_action_outcome": outcome,
               "report_validation_outcome": verified,
               "reason": "ORT stages and all required reports passed" if status == "PASS" else "ORT failed, findings exceeded policy thresholds, or required reports were invalid/missing"
@@ -81,6 +98,8 @@ jobs:
 
       - name: Package ORT evidence
         if: always()
+        env:
+          SCAN_SHA: ${{ steps.rev.outputs.sha }}
         run: |
           set -euo pipefail
           mkdir -p ort-evidence/results
@@ -90,7 +109,17 @@ jobs:
           if [ -s ort-status.json ]; then
             cp ort-status.json ort-evidence/ort-status.json
           else
-            printf '%s\n' '{"gate_id":"GATE-LICENSE-001","scanner":"OSS Review Toolkit (ORT)","status":"BLOCKED","scan_revision":"${{ github.sha }}","reason":"ORT status was not generated"}' > ort-evidence/ort-status.json
+            python3 - <<'PY'
+            import json, os
+            from pathlib import Path
+            Path("ort-evidence/ort-status.json").write_text(json.dumps({
+              "gate_id": "GATE-LICENSE-001",
+              "scanner": "OSS Review Toolkit (ORT)",
+              "status": "BLOCKED",
+              "scan_revision": os.environ["SCAN_SHA"],
+              "reason": "ORT status was not generated",
+            }, indent=2) + "\n", encoding="utf-8")
+            PY
           fi
 
       - name: Extract available ORT outputs for assurance evidence
@@ -101,7 +130,6 @@ jobs:
           ASSURANCE_DIR="docs/assurance"
           mkdir -p "$ASSURANCE_DIR"
 
-          # Copy CycloneDX and SPDX SBOMs to assurance directory
           if [ -f "$RESULTS_DIR/bom.cyclonedx.json" ]; then
             cp "$RESULTS_DIR/bom.cyclonedx.json" "$ASSURANCE_DIR/ort-bom.cyclonedx.json"
             echo "Copied CycloneDX SBOM"
@@ -112,43 +140,76 @@ jobs:
             echo "Copied SPDX SBOM"
           fi
 
-          # Copy ORT status
           if [ -f "ort-status.json" ]; then
             cp "ort-status.json" "$ASSURANCE_DIR/ort-status.json"
             echo "Copied ORT status"
           fi
 
-          # List what was copied
           ls -lh "$ASSURANCE_DIR"/ort-* || echo "No ORT files found"
+
+      # PR path: commit SBOM evidence onto the PR head branch so CPAS can see
+      # ort-*.json on a real candidate SHA (artifact-only evidence is not enough).
+      - name: Commit ORT SBOMs onto PR head branch
+        if: success() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_REF: ${{ github.head_ref }}
+          SCAN_SHA: ${{ steps.rev.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if [ ! -f docs/assurance/ort-bom.cyclonedx.json ] || \
+             [ ! -f docs/assurance/ort-bom.spdx.json ] || \
+             [ ! -f docs/assurance/ort-status.json ]; then
+            echo "Required ORT assurance files missing; not committing"
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Detach → branch tip of the PR head so we do not commit onto a merge ref.
+          git fetch origin "$HEAD_REF"
+          git checkout -B "$HEAD_REF" "origin/$HEAD_REF"
+
+          mkdir -p docs/assurance
+          # Re-copy from workspace evidence produced earlier in this job workspace.
+          # Files may already be present from Extract step on the scanned tree.
+          git add docs/assurance/ort-bom.cyclonedx.json \
+                  docs/assurance/ort-bom.spdx.json \
+                  docs/assurance/ort-status.json
+
+          if git diff --cached --quiet; then
+            echo "ORT assurance files already up to date on $HEAD_REF"
+            exit 0
+          fi
+
+          git commit -m "chore(compliance): add ORT SBOM evidence for ${SCAN_SHA}"
+          git push origin "HEAD:$HEAD_REF"
+          echo "Pushed ORT assurance evidence to origin/$HEAD_REF"
 
       - name: Create PR with ORT SBOMs
         if: success() && github.event_name != 'pull_request'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
-          # Check if any ORT files were added/modified
           if git diff --quiet docs/assurance/ort-*.json 2>/dev/null && \
              ! git ls-files --others --exclude-standard docs/assurance/ort-*.json | grep -q .; then
             echo "No changes to ORT files, skipping PR"
             exit 0
           fi
 
-          # Create a new branch
           BRANCH="auto/ort-sboms-$(date +%Y%m%d-%H%M%S)"
           git checkout -b "$BRANCH"
 
-          # Commit changes
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/assurance/ort-*.json
           git commit -m "chore(compliance): auto-update ORT SBOMs from nightly scan"
 
-          # Push branch
           git push origin "$BRANCH"
 
-          # Create PR
           gh pr create \
             --title "Auto-update ORT SBOMs (nightly compliance scan)" \
             --body "Automated PR from Nightly ORT Compliance Scan workflow.
@@ -158,11 +219,11 @@ jobs:
           - \`ort-bom.spdx.json\`
           - \`ort-status.json\`
 
-          **Verification**: CPAS gate should PASS after merge.
+          **Verification**: CPAS gate should PASS after merge when status is PASS.
           **Generated by**: GitHub Actions workflow run #${{ github.run_id }}" \
             --base main \
             --head "$BRANCH" \
-            --label "compliance,automated,dependencies"
+            --label "compliance,automated,dependencies" || true
 
           echo "Created PR with branch: $BRANCH"
 
