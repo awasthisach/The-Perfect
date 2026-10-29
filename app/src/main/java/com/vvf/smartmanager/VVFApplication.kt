@@ -151,6 +151,9 @@ class VVFApplication : Application(), Configuration.Provider {
         if (!jvmUnitTest) {
             val liveDatabaseFile = getDatabasePath(VVFDatabase.DATABASE_NAME)
             val liveVaultDir = File(filesDir, "vvf_vault_encrypted")
+            // Interrupted per-file migration may leave plaintext staging beside encrypted vault data.
+            // Recover it before any UI or repository can observe the vault directory.
+            cryptoSecurityManager.recoverVaultMigrationArtifacts(liveVaultDir)
             // Recover the current journal first so its swap artifacts cannot be mistaken for
             // an unjournaled legacy transaction. Then recover/retire the prior cacheDir journal.
             LocalRestoreApplier.recoverInterruptedRestore(
@@ -344,7 +347,8 @@ class VVFApplication : Application(), Configuration.Provider {
     private fun deleteStalePlaintextArtifact(file: File) {
         val removed = if (file.isDirectory) file.deleteRecursively() else file.delete()
         if (!removed && file.exists()) {
-            Log.w(TAG, "Unable to remove stale plaintext backup staging: ${file.name}")
+            Log.e(TAG, "Unable to remove stale plaintext backup staging: ${file.name}")
+            throw IllegalStateException("Unable to remove stale plaintext backup staging: ${file.name}")
         }
     }
 
