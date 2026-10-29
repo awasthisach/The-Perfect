@@ -24,7 +24,7 @@ jobs:
   cpas-verify:
     name: CPAS Verify (fail-closed)
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 360
     steps:
       - name: Checkout
         # v6 runs on Node 24
@@ -34,6 +34,7 @@ jobs:
 
       - name: Import exact-SHA ORT evidence when available
         if: github.event_name == 'workflow_run' || github.event_name == 'pull_request'
+        timeout-minutes: 330
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
@@ -42,12 +43,22 @@ jobs:
           set -euo pipefail
           RUN_ID="$ORT_RUN_ID"
           if [ -z "$RUN_ID" ]; then
-            RUN_ID="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/nightly-ort.yml/runs?head_sha=$TARGET_SHA&per_page=20" --jq '.workflow_runs[] | select(.head_sha == env.TARGET_SHA and .status == "completed") | .id' | head -n 1 || true)"
+            echo "Waiting for a completed ORT run for exact candidate SHA $TARGET_SHA"
+            ELAPSED=0
+            while [ "$ELAPSED" -lt 19800 ]; do
+              RUN_ID="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/nightly-ort.yml/runs?head_sha=$TARGET_SHA&per_page=20" --jq '.workflow_runs[] | select(.head_sha == env.TARGET_SHA and .status == "completed") | .id' | head -n 1 || true)"
+              if [ -n "$RUN_ID" ]; then
+                break
+              fi
+              sleep 60
+              ELAPSED=$((ELAPSED + 60))
+            done
           fi
           if [ -z "$RUN_ID" ]; then
-            echo "::notice::No completed ORT run for exact SHA $TARGET_SHA; CPAS will remain blocked unless committed evidence exists."
+            echo "::warning::No completed ORT run for exact SHA $TARGET_SHA before timeout; CPAS remains fail-closed."
             exit 0
           fi
+
           DOWNLOAD_DIR="$RUNNER_TEMP/ort-download"
           mkdir -p "$DOWNLOAD_DIR"
           if ! gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name ort-results-evidence --dir "$DOWNLOAD_DIR"; then
