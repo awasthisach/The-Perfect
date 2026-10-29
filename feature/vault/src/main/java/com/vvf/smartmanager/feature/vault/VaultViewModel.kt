@@ -287,6 +287,16 @@ class VaultViewModel(
             return
         }
         val state = _uiState.value
+        if (!vaultAuthUseCase.isVaultDataKeyUnlocked()) {
+            _uiState.update {
+                it.copy(
+                    isUnlocked = false,
+                    sessionMode = VaultSessionMode.LOCKED,
+                    errorMessage = "Biometric proof succeeded, but the vault key is PIN-wrapped. Unlock with PIN until biometric key wrapping is available."
+                )
+            }
+            return
+        }
         if (state.isConfigured && !state.isLockedOut && state.isBiometricEnabled) {
             _uiState.update {
                 it.copy(
