@@ -47,7 +47,7 @@ object AppCompositionRoot {
         databaseName: String,
         beforeRestoreApply: (() -> Unit)? = null,
         cloudSyncDao: CloudSyncDao? = null,
-        onRestoreFinished: (() -> Unit)? = null
+        onRestoreFinished: ((Result<Boolean>) -> Unit)? = null
     ): CloudSyncUseCase {
         val restoreWorkingDir = File(context.filesDir, "restore-work")
         val restorePipeline = FailClosedRestorePipeline(
