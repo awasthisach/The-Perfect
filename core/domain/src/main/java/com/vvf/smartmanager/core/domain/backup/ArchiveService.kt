@@ -215,12 +215,14 @@ class ArchiveService(
 
     private fun cleanupPlaintextArtifactsOrThrow(stagingDir: File, zipFile: File) {
         val failed = mutableListOf<String>()
-        if (zipFile.exists() && !cryptoSecurityManager.secureShredFile(zipFile) && zipFile.exists()) {
+        if (zipFile.exists() && !cryptoSecurityManager.secureShredFile(zipFile)) {
+            // A successful unlink after a failed overwrite is not proof of secure cleanup.
             failed += zipFile.name
         }
         if (stagingDir.exists()) {
             stagingDir.walkBottomUp().filter { it.isFile }.forEach { file ->
-                if (!cryptoSecurityManager.secureShredFile(file) && file.exists()) {
+                if (!cryptoSecurityManager.secureShredFile(file)) {
+                    // Fail closed even if unlink succeeded after the overwrite could not be verified.
                     failed += file.name
                 }
             }
