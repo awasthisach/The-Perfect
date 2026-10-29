@@ -49,7 +49,11 @@ class VaultViewModel(
     fun checkVaultStatus() {
         val configured = vaultAuthUseCase.isVaultConfigured()
         val decoyConfigured = vaultAuthUseCase.isDecoyConfigured()
-        val bioEnabled = vaultAuthUseCase.isBiometricEnabled()
+        val storedBiometricEnabled = vaultAuthUseCase.isBiometricEnabled()
+        // A biometric proof currently cannot unwrap the PIN-wrapped vault data key. Disable any
+        // persisted toggle instead of advertising a biometric unlock path that cannot unlock.
+        if (storedBiometricEnabled) vaultAuthUseCase.setBiometricEnabled(false)
+        val bioEnabled = false
         val autoLockSec = vaultAuthUseCase.getAutoLockTimeoutSeconds()
         val lockoutSec = vaultAuthUseCase.getRemainingLockoutSeconds()
         val failedAttempts = vaultAuthUseCase.getFailedAttemptsCount()
@@ -65,7 +69,11 @@ class VaultViewModel(
                 enteredPin = "",
                 firstEnteredPin = "",
                 failedAttempts = failedAttempts,
-                errorMessage = null
+                errorMessage = if (storedBiometricEnabled) {
+                    "Biometric unlock is temporarily unavailable. Use your vault PIN."
+                } else {
+                    null
+                }
             )
         }
 
@@ -242,6 +250,17 @@ class VaultViewModel(
                     _uiState.update { it.copy(isPinVerifying = false) }
                     startLockoutTimer(result.remainingSeconds)
                 }
+                is com.vvf.smartmanager.core.security.CryptoSecurityManager.VaultAuthResult.SECURITY_ERROR -> {
+                    _uiState.update {
+                        it.copy(
+                            enteredPin = "",
+                            isPinVerifying = false,
+                            isUnlocked = false,
+                            sessionMode = VaultSessionMode.LOCKED,
+                            errorMessage = "Vault key migration or authentication failed. Vault remains locked."
+                        )
+                    }
+                }
                 is com.vvf.smartmanager.core.security.CryptoSecurityManager.VaultAuthResult.INVALID_FORMAT -> {
                     _uiState.update {
                         it.copy(
@@ -276,6 +295,16 @@ class VaultViewModel(
             return
         }
         val state = _uiState.value
+        if (!vaultAuthUseCase.isVaultDataKeyUnlocked()) {
+            _uiState.update {
+                it.copy(
+                    isUnlocked = false,
+                    sessionMode = VaultSessionMode.LOCKED,
+                    errorMessage = "Biometric proof succeeded, but the vault key is PIN-wrapped. Unlock with PIN until biometric key wrapping is available."
+                )
+            }
+            return
+        }
         if (state.isConfigured && !state.isLockedOut && state.isBiometricEnabled) {
             _uiState.update {
                 it.copy(
@@ -456,6 +485,7 @@ class VaultViewModel(
 
     fun lockVaultNow() {
         autoLockJob?.cancel()
+        vaultAuthUseCase.lockVaultSession()
         _uiState.update {
             it.copy(
                 isUnlocked = false,
@@ -662,8 +692,18 @@ class VaultViewModel(
     }
 
     fun setBiometricEnabled(enabled: Boolean) {
-        vaultAuthUseCase.setBiometricEnabled(enabled)
-        _uiState.update { it.copy(isBiometricEnabled = enabled) }
+        // Do not persist a setting that the current PIN-wrapped key architecture cannot honor.
+        vaultAuthUseCase.setBiometricEnabled(false)
+        _uiState.update {
+            it.copy(
+                isBiometricEnabled = false,
+                errorMessage = if (enabled) {
+                    "Biometric unlock is temporarily unavailable until a biometric-wrapped vault key is implemented. Use PIN."
+                } else {
+                    it.errorMessage
+                }
+            )
+        }
     }
 
     fun setAutoLockSeconds(seconds: Int) {

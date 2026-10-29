@@ -51,19 +51,27 @@ object FileOpenHelper {
      */
     internal fun ensureShareableFile(context: Context, file: File): File? {
         val canonical = runCatching { file.canonicalFile }.getOrElse { return null }
-        val allowedRoots = buildList {
-            add(context.cacheDir)
-            add(context.filesDir)
-            context.getExternalFilesDir(null)?.let { add(it) }
-            context.externalCacheDir?.let { add(it) }
+        // Match only the narrow subdirectories declared in file_paths.xml. Returning an
+        // arbitrary file directly from cacheDir/filesDir would fail FileProvider's path check.
+        val providerRoots = buildList {
+            add(File(context.cacheDir, "share"))
+            add(File(context.cacheDir, "exports"))
+            add(File(context.cacheDir, "shared-open"))
+            add(File(context.filesDir, "share"))
+            add(File(context.filesDir, "exports"))
+            context.getExternalFilesDir(null)?.let {
+                add(File(it, "share"))
+                add(File(it, "exports"))
+            }
         }.mapNotNull { runCatching { it.canonicalFile }.getOrNull() }
 
-        val alreadyAllowed = allowedRoots.any { root ->
+        val alreadyAllowed = providerRoots.any { root ->
             canonical.path == root.path || canonical.path.startsWith(root.path + File.separator)
         }
         if (alreadyAllowed) return canonical
 
-        val shareDir = File(context.cacheDir, "shared-open").apply { mkdirs() }
+        val shareDir = File(context.cacheDir, "shared-open")
+        if (!shareDir.exists() && !shareDir.mkdirs()) return null
         val dest = File(shareDir, canonical.name)
         return runCatching {
             canonical.copyTo(dest, overwrite = true)

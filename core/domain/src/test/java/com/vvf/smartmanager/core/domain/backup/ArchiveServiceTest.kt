@@ -10,6 +10,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
 import java.io.File
@@ -24,6 +25,9 @@ class ArchiveServiceTest {
         val cache = temp.newFolder("archive-cache")
         val crypto = mock<CryptoSecurityManager>()
         whenever(crypto.getOrCreateDatabasePassphrase()).thenReturn(ByteArray(32) { (it + 7).toByte() })
+        whenever(crypto.secureShredFile(any())).thenAnswer { invocation ->
+            invocation.getArgument<File>(0).delete()
+        }
         val source = object : SnapshotSource {
             override val sourceName: String = "database"
             override fun snapshot(stagingDir: File): File {

@@ -167,9 +167,17 @@ class VVFApplication : Application(), Configuration.Provider {
             )
         }
         // Play Integrity App Check is device/Play-only; skip on JVM unit tests (Robolectric).
+        // Release startup deliberately fails closed: never silently continue with App Check disabled.
         if (!jvmUnitTest) {
-            FirebaseAppCheck.getInstance().apply {
-                installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
+            try {
+                FirebaseAppCheck.getInstance().apply {
+                    installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
+                }
+            } catch (error: Exception) {
+                throw IllegalStateException(
+                    "Play Integrity App Check initialization failed; refusing startup without App Check",
+                    error
+                )
             }
         }
         if (jvmUnitTest) {

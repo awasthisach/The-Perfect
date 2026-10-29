@@ -1,6 +1,7 @@
 package com.vvf.smartmanager.core.domain.restore
 
 import java.io.File
+import java.io.FileOutputStream
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -112,7 +113,9 @@ class FailClosedRestorePipeline(
             Result.failure(RestoreException("Fail-closed restore aborted", error))
         } finally {
             passphrase?.fill(0.toChar())
-            stagingDir.deleteRecursively()
+            if (!securelyDeleteTree(stagingDir)) {
+                throw RestoreException("Unable to securely remove plaintext restore staging")
+            }
         }
     }
 
@@ -148,7 +151,9 @@ class FailClosedRestorePipeline(
             Result.failure(RestoreException("Fail-closed restore dry-run aborted", error))
         } finally {
             passphrase?.fill(0.toChar())
-            stagingDir.deleteRecursively()
+            if (!securelyDeleteTree(stagingDir)) {
+                throw RestoreException("Unable to securely remove plaintext dry-run staging")
+            }
         }
     }
 
@@ -164,6 +169,41 @@ class FailClosedRestorePipeline(
                 cleanupSnapshot(snapshot)
             }
         }
+    }
+
+    /**
+     * Best-effort overwrite before unlinking plaintext restore artifacts. Flash storage wear-leveling
+     * means this is not a forensic-erasure guarantee; app-private staging must still be short-lived.
+     */
+    private fun securelyDeleteTree(root: File): Boolean {
+        if (!root.exists()) return true
+        var success = true
+        root.walkBottomUp().toList().forEach { entry ->
+            if (!entry.exists()) return@forEach
+            val removed = if (entry.isFile) {
+                try {
+                    val length = entry.length()
+                    FileOutputStream(entry).use { output ->
+                        val zeros = ByteArray(64 * 1024)
+                        var written = 0L
+                        while (written < length) {
+                            val count = minOf(zeros.size.toLong(), length - written).toInt()
+                            output.write(zeros, 0, count)
+                            written += count
+                        }
+                        output.flush()
+                        output.fd.sync()
+                    }
+                    entry.delete()
+                } catch (_: Exception) {
+                    entry.delete()
+                }
+            } else {
+                entry.delete()
+            }
+            if (!removed && entry.exists()) success = false
+        }
+        return success && !root.exists()
     }
 
     private fun cleanupSnapshot(snapshot: RestoreSnapshot) {

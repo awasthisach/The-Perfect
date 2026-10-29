@@ -55,7 +55,7 @@ data class VaultUiState(
     val showChangePinDialog: Boolean = false,
     val showSetupDecoyDialog: Boolean = false,
     val showConfirmDeleteDialog: Boolean = false,
-    val isBiometricSupported: Boolean = true,
+    val isBiometricSupported: Boolean = false,
     val isBiometricEnabled: Boolean = false,
     val autoLockSeconds: Int = 60,
     val totalVaultSizeBytes: Long = 0L,

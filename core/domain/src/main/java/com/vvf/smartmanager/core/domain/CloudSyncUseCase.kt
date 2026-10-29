@@ -35,7 +35,8 @@ class CloudSyncUseCase(
     private val archiveService: ArchiveService? = null,
     private val restorePipeline: RestorePipeline? = null,
     private val cloudSyncDao: CloudSyncDao? = null,
-    private val onRestoreFinished: (() -> Unit)? = null
+    private val onRestoreFinished: (() -> Unit)? = null,
+    private val restoreOutcomeStore: RestoreOutcomeStore? = null
 ) {
 
     private val _syncState = MutableStateFlow(CloudSyncStatus.IDLE)
@@ -46,6 +47,9 @@ class CloudSyncUseCase(
 
     /** Serializes backup vs restore so both cannot mutate live storage concurrently. */
     private val archiveMutex = Mutex()
+
+    /** Consumes the persisted result of a restore that required a process restart. */
+    fun consumeLastRestoreOutcome(): String? = restoreOutcomeStore?.consume()
 
     suspend fun authenticateProvider(providerType: CloudProviderType): Result<Boolean> {
         return if (providerType == CloudProviderType.GOOGLE_DRIVE) {
@@ -205,7 +209,8 @@ class CloudSyncUseCase(
 
     suspend fun restoreCloudBackup(
         backupInfo: CloudBackupInfo,
-        passphrase: CharArray? = null
+        passphrase: CharArray? = null,
+        vaultPin: String? = null
     ): Result<Boolean> = archiveMutex.withLock {
         val pipeline = restorePipeline
         if (pipeline == null) {
@@ -222,9 +227,39 @@ class CloudSyncUseCase(
             _syncState.value = CloudSyncStatus.ERROR
             return Result.failure(IllegalArgumentException("Backup id is blank; refusing restore"))
         }
+        if (backupInfo.includesVault && vaultPin.isNullOrBlank()) {
+            passphrase?.fill(0.toChar())
+            _syncState.value = CloudSyncStatus.ERROR
+            return Result.failure(
+                SecurityException(
+                    "Configure a local vault PIN in Vault before restoring backup contents, then enter that PIN here."
+                )
+            )
+        }
+        var lockVaultAfterAttempt = false
+        if (!vaultPin.isNullOrBlank()) {
+            val unlocked = try {
+                archiveService?.unlockVaultForRestore(vaultPin) == true
+            } catch (error: Exception) {
+                passphrase?.fill(0.toChar())
+                _syncState.value = CloudSyncStatus.ERROR
+                return Result.failure(
+                    SecurityException("Local vault PIN verification failed; restore was not started", error)
+                )
+            }
+            if (!unlocked) {
+                passphrase?.fill(0.toChar())
+                _syncState.value = CloudSyncStatus.ERROR
+                return Result.failure(SecurityException("Local vault PIN verification failed; restore was not started"))
+            }
+            lockVaultAfterAttempt = true
+        }
         _syncState.value = CloudSyncStatus.DOWNLOADING
+        var outcome: Result<Boolean> = Result.failure(
+            IllegalStateException("Restore ended without a reported outcome")
+        )
         try {
-            pipeline.restore(backupInfo.backupId, backupInfo.checksumSha256, passphrase).fold(
+            outcome = pipeline.restore(backupInfo.backupId, backupInfo.checksumSha256, passphrase).fold(
                 onSuccess = { result: RestoreResult ->
                     if (result.success) {
                         _syncState.value = CloudSyncStatus.SUCCESS
@@ -239,7 +274,27 @@ class CloudSyncUseCase(
                     Result.failure(error)
                 }
             )
+            return outcome
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            _syncState.value = CloudSyncStatus.ERROR
+            outcome = Result.failure(error)
+            return outcome
         } finally {
+            // Persist the result before Application restarts the process; otherwise the UI loses
+            // both success guidance (new local vault PIN) and actionable failure information.
+            val message = outcome.fold(
+                onSuccess = {
+                    "Restored ${backupInfo.backupName} successfully. If it included vault contents, unlock them with the local vault PIN configured on this device."
+                },
+                onFailure = { error ->
+                    "Restore failed: ${error.message ?: "unexpected restore failure"}"
+                }
+            )
+            runCatching { restoreOutcomeStore?.save(message) }
+            if (lockVaultAfterAttempt) {
+                runCatching { archiveService?.lockVaultAfterRestoreAttempt() }
+            }
             // The Application may restart after Room was closed for a restore transaction.
             onRestoreFinished?.invoke()
         }
@@ -330,4 +385,11 @@ class CloudSyncUseCase(
             )
         )
     }
+}
+
+
+/** Persists a user-facing restore result across the required process restart. */
+interface RestoreOutcomeStore {
+    fun save(message: String)
+    fun consume(): String?
 }
