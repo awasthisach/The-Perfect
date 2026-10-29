@@ -6,8 +6,13 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  workflow_run:
+    workflows: ["Nightly ORT Compliance Scan"]
+    types: [completed]
+    branches: [main, rebuild/stabilize-v1]
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -25,7 +30,63 @@ jobs:
         # v6 runs on Node 24
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
+
+      - name: Import exact-SHA ORT evidence when available
+        if: github.event_name == 'workflow_run' || github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
+          ORT_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          RUN_ID="$ORT_RUN_ID"
+          if [ -z "$RUN_ID" ]; then
+            RUN_ID="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/nightly-ort.yml/runs?head_sha=$TARGET_SHA&per_page=20" --jq '.workflow_runs[] | select(.head_sha == env.TARGET_SHA and .status == "completed") | .id' | head -n 1 || true)"
+          fi
+          if [ -z "$RUN_ID" ]; then
+            echo "::notice::No completed ORT run for exact SHA $TARGET_SHA; CPAS will remain blocked unless committed evidence exists."
+            exit 0
+          fi
+          DOWNLOAD_DIR="$RUNNER_TEMP/ort-download"
+          mkdir -p "$DOWNLOAD_DIR"
+          if ! gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name ort-results-evidence --dir "$DOWNLOAD_DIR"; then
+            echo "::warning::No ORT evidence artifact found for run $RUN_ID; CPAS remains fail-closed."
+            exit 0
+          fi
+
+          RESULTS_DIR="$DOWNLOAD_DIR/ort-evidence/results"
+          STATUS_FILE="$(find "$DOWNLOAD_DIR" -type f -name 'ort-status.json' -print -quit || true)"
+          mkdir -p docs/assurance
+
+          if [ -n "$STATUS_FILE" ]; then
+            python3 - "$STATUS_FILE" "$TARGET_SHA" <<'PY'
+          import json, sys
+          from pathlib import Path
+          p, sha = Path(sys.argv[1]), sys.argv[2]
+          data = json.loads(p.read_text(encoding="utf-8"))
+          revision = data.get("scan_revision", data.get("revision"))
+          if revision != sha:
+              raise SystemExit(f"ORT status SHA mismatch: {revision!r} != {sha!r}")
+          PY
+            cp "$STATUS_FILE" docs/assurance/ort-status.json
+          fi
+
+          if [ -d "$RESULTS_DIR" ]; then
+            set +e
+            python3 tools/audit/verify_ort_outputs.py --results-dir "$RESULTS_DIR" --revision "$TARGET_SHA"
+            VERIFY_CODE=$?
+            set -e
+            if [ "$VERIFY_CODE" -eq 0 ]; then
+              cp "$RESULTS_DIR/bom.cyclonedx.json" docs/assurance/ort-bom.cyclonedx.json
+              cp "$RESULTS_DIR/bom.spdx.json" docs/assurance/ort-bom.spdx.json
+              echo "Imported validated ORT SBOMs for exact SHA $TARGET_SHA"
+            else
+              echo "::warning::ORT reports failed validation; SBOMs were not imported."
+            fi
+          else
+            echo "::warning::ORT result reports are missing from the evidence artifact."
+          fi
 
       - name: Verify Python
         run: python3 --version
