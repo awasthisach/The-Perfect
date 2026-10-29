@@ -36,6 +36,11 @@ class ArchiveService(
     fun unlockVaultForRestore(localVaultPin: String): Boolean =
         cryptoSecurityManager.isVaultConfigured() && cryptoSecurityManager.verifyVaultPin(localVaultPin)
 
+    /** Lock the in-memory vault data key after a restore attempt so PIN entry is required again. */
+    fun lockVaultAfterRestoreAttempt() {
+        cryptoSecurityManager.lockVaultDataKey()
+    }
+
     suspend fun createArchive(
         includeVault: Boolean = true,
         includeDatabase: Boolean = true,
