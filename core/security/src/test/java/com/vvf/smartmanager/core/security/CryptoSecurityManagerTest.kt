@@ -109,6 +109,7 @@ class CryptoSecurityManagerTest {
 
     @Test
     fun testStreamingEncryptionDecryptionRoundtrip() {
+        assertTrue(cryptoSecurityManager.setupVaultPin("482951"))
         val payload = "Testing AES-256-GCM Streaming File Encryption for Secure Vault.\n".repeat(500)
         val originalBytes = payload.toByteArray(Charsets.UTF_8)
 
