@@ -287,6 +287,18 @@ class VaultViewModel(
             return
         }
         val state = _uiState.value
+        if (state.isConfigured && !state.isLockedOut && state.isBiometricEnabled &&
+            !vaultAuthUseCase.isVaultDataKeyActive()
+        ) {
+            _uiState.update {
+                it.copy(
+                    isUnlocked = false,
+                    sessionMode = VaultSessionMode.LOCKED,
+                    errorMessage = "Use your vault PIN once after app restart to unlock the protected data key."
+                )
+            }
+            return
+        }
         if (state.isConfigured && !state.isLockedOut && state.isBiometricEnabled) {
             _uiState.update {
                 it.copy(
