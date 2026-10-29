@@ -29,6 +29,13 @@ class ArchiveService(
     private val json = Json { prettyPrint = true; encodeDefaults = true }
     private val portableCrypto = PortableBackupCrypto()
 
+    /**
+     * Unlock the destination device's PIN-wrapped vault key before portable vault payloads
+     * are re-encrypted during restore. The PIN is never persisted or included in archive data.
+     */
+    fun unlockVaultForRestore(localVaultPin: String): Boolean =
+        cryptoSecurityManager.isVaultConfigured() && cryptoSecurityManager.verifyVaultPin(localVaultPin)
+
     suspend fun createArchive(
         includeVault: Boolean = true,
         includeDatabase: Boolean = true,
