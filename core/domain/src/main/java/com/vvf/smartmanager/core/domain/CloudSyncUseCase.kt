@@ -233,6 +233,7 @@ class CloudSyncUseCase(
         }
         _syncState.value = CloudSyncStatus.DOWNLOADING
         var restoreOutcome: Result<Boolean>? = null
+        var restoreCancelled = false
         try {
             val outcome = pipeline.restore(backupInfo.backupId, backupInfo.checksumSha256, passphrase).fold(
                 onSuccess = { result: RestoreResult ->
@@ -251,10 +252,17 @@ class CloudSyncUseCase(
             )
             restoreOutcome = outcome
             return outcome
+        } catch (cancelled: CancellationException) {
+            restoreCancelled = true
+            throw cancelled
         } finally {
-            // The Application persists this before a required process restart.
-            val completion = restoreOutcome
-                ?: Result.failure(IllegalStateException("Restore terminated before producing an outcome"))
+            // The Application persists this before a required process restart. Cancellation is
+            // reported distinctly so it can restart a closed database without showing false failure guidance.
+            val completion = restoreOutcome ?: if (restoreCancelled) {
+                Result.failure(CancellationException("Restore cancelled before producing an outcome"))
+            } else {
+                Result.failure(IllegalStateException("Restore terminated before producing an outcome"))
+            }
             try {
                 onRestoreFinished?.invoke(completion)
             } catch (callbackError: CancellationException) {
