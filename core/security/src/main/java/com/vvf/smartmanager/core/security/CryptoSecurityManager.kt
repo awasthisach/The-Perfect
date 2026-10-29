@@ -431,9 +431,40 @@ class CryptoSecurityManager(
     }
 
     private fun readLockoutState(): LockoutState? {
-        val encoded = prefs.getString(LOCKOUT_STATE_KEY, null) ?: return null
+        val encoded = prefs.getString(LOCKOUT_STATE_KEY, null)
         val encodedIv = prefs.getString(LOCKOUT_STATE_IV_KEY, null)
-            ?: throw SecurityException("Authenticated vault lockout state is incomplete")
+
+        if (encoded == null && encodedIv == null) {
+            // Migrate legacy unauthenticated state conservatively. Never trust its wall-clock
+            // deadline: if a legacy lockout deadline exists, impose the longest current delay
+            // from monotonic time and immediately persist authenticated v2 state.
+            val hasLegacyAttempts = prefs.contains("vault_failed_attempts")
+            val hasLegacyDeadline = prefs.contains("vault_lockout_until_ms")
+            if (!hasLegacyAttempts && !hasLegacyDeadline) return null
+            val legacyAttempts = try {
+                prefs.getInt("vault_failed_attempts", 0).coerceAtLeast(0)
+            } catch (error: ClassCastException) {
+                throw SecurityException("Legacy vault lockout state has an invalid attempt counter", error)
+            }
+            val attempts = maxOf(legacyAttempts, if (hasLegacyDeadline) 15 else 0)
+            val lockoutSeconds = when {
+                hasLegacyDeadline || attempts >= 15 -> 1800
+                attempts >= 10 -> 300
+                attempts >= 5 -> 30
+                else -> 0
+            }
+            val nowElapsed = SystemClock.elapsedRealtime()
+            return LockoutState(
+                failedAttempts = attempts,
+                untilElapsedMs = nowElapsed + lockoutSeconds * 1000L,
+                lastElapsedMs = nowElapsed
+            ).also(::writeLockoutState)
+        }
+
+        // Either half missing is tampering/corruption, not an unlocked state.
+        if (encoded == null || encodedIv == null) {
+            throw SecurityException("Authenticated vault lockout state is incomplete")
+        }
         return try {
             val plaintext = decryptBytes(
                 Base64.decode(encoded, Base64.NO_WRAP),
