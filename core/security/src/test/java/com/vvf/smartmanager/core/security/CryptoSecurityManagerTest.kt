@@ -177,6 +177,41 @@ class CryptoSecurityManagerTest {
     }
 
     @Test
+    fun incompleteAuthenticatedLockoutStateFailsClosed() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val prefs = context.getSharedPreferences("vvf_secure_vault_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit()
+            .remove("vault_lockout_state_v2")
+            .putString("vault_lockout_state_v2_iv", "AA==")
+            .remove("vault_failed_attempts")
+            .remove("vault_lockout_until_ms")
+            .commit()
+
+        assertThrowsSecurityFailure {
+            cryptoSecurityManager.getRemainingLockoutSeconds()
+        }
+    }
+
+    @Test
+    fun legacyLockoutDeadlineMigratesToConservativeMonotonicLockout() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val prefs = context.getSharedPreferences("vvf_secure_vault_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit()
+            .remove("vault_lockout_state_v2")
+            .remove("vault_lockout_state_v2_iv")
+            .putInt("vault_failed_attempts", 2)
+            .putLong("vault_lockout_until_ms", 1L)
+            .commit()
+
+        assertTrue(cryptoSecurityManager.getRemainingLockoutSeconds() > 0)
+        assertTrue(cryptoSecurityManager.getFailedAttemptsCount() >= 15)
+        assertTrue(prefs.contains("vault_lockout_state_v2"))
+        assertTrue(prefs.contains("vault_lockout_state_v2_iv"))
+        assertFalse(prefs.contains("vault_failed_attempts"))
+        assertFalse(prefs.contains("vault_lockout_until_ms"))
+    }
+
+    @Test
     fun portableBackupEncryptionWorksWithoutDeviceKeystoreKey() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val source = java.io.File(context.cacheDir, "portable-backup-source.bin").apply {
