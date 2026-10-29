@@ -215,7 +215,7 @@ class CloudViewModel(
                     it.copy(
                         isLoading = false,
                         statusMessage = if (backupInfo.includesVault) {
-                            "Restored ${backupInfo.backupName}. Configure a new local vault PIN before unlocking the restored vault."
+                            "Restored ${backupInfo.backupName}. Use the vault PIN already configured on this device; on a new device, configure a local PIN before unlocking the restored vault."
                         } else {
                             "Restored ${backupInfo.backupName} successfully."
                         }
