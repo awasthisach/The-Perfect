@@ -4,6 +4,8 @@ on:
   schedule:
     - cron: "0 2 * * *"
   workflow_dispatch:
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
@@ -90,12 +92,13 @@ jobs:
             printf '%s\n' '{"gate_id":"GATE-LICENSE-001","scanner":"OSS Review Toolkit (ORT)","status":"BLOCKED","scan_revision":"${{ github.sha }}","reason":"ORT status was not generated"}' > ort-evidence/ort-status.json
           fi
 
-      - name: Extract SBOMs for assurance docs
-        if: success()
+      - name: Extract available ORT outputs for assurance evidence
+        if: always()
         run: |
           set -euo pipefail
           RESULTS_DIR="$HOME/.ort/ort-results"
           ASSURANCE_DIR="docs/assurance"
+          mkdir -p "$ASSURANCE_DIR"
 
           # Copy CycloneDX and SPDX SBOMs to assurance directory
           if [ -f "$RESULTS_DIR/bom.cyclonedx.json" ]; then
@@ -118,7 +121,7 @@ jobs:
           ls -lh "$ASSURANCE_DIR"/ort-* || echo "No ORT files found"
 
       - name: Create PR with ORT SBOMs
-        if: success()
+        if: success() && github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
