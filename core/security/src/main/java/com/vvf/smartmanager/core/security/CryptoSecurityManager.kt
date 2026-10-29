@@ -372,6 +372,7 @@ class CryptoSecurityManager(
             if (backup.exists()) check(backup.delete()) { "Unable to remove completed migration backup" }
             return false
         }
+        if (backup.exists()) check(backup.delete()) { "Unable to remove stale legacy migration backup" }
         activeVaultDataKey ?: throw SecurityException("Vault is locked during key migration")
         val plain = File(file.parentFile, ".${file.name}.migration-plain")
         val encrypted = File(file.parentFile, ".${file.name}.migration-new")
@@ -402,6 +403,35 @@ class CryptoSecurityManager(
             if (verify.exists()) secureShredFile(verify)
             encrypted.delete()
             if (!file.exists() && backup.exists()) backup.renameTo(file)
+        }
+    }
+
+    /** Recovers or securely removes interrupted per-file migration artifacts before vault use. */
+    fun recoverVaultMigrationArtifacts(vaultDirectory: File) {
+        if (!vaultDirectory.exists()) return
+        val canonicalRoot = vaultDirectory.canonicalFile
+        canonicalRoot.walkTopDown().filter { it.isFile }.toList().forEach { artifact ->
+            val canonical = artifact.canonicalFile
+            if (!canonical.path.startsWith(canonicalRoot.path + File.separator)) {
+                throw SecurityException("Vault migration artifact escaped the vault directory")
+            }
+            when {
+                artifact.name.endsWith(".pin-migration-legacy") -> {
+                    val original = File(artifact.parentFile, artifact.name.removeSuffix(".pin-migration-legacy"))
+                    if (!original.exists()) {
+                        check(artifact.renameTo(original)) { "Unable to recover legacy vault ciphertext" }
+                    } else if (isPinWrappedVaultFile(original) || original.isFile) {
+                        check(artifact.delete()) { "Unable to remove stale legacy vault ciphertext" }
+                    }
+                }
+                artifact.name.endsWith(".migration-plain") ||
+                    artifact.name.endsWith(".migration-verify") -> {
+                    check(secureShredFile(artifact)) { "Unable to securely remove interrupted plaintext migration artifact" }
+                }
+                artifact.name.endsWith(".migration-new") -> {
+                    check(artifact.delete()) { "Unable to remove interrupted encrypted migration staging file" }
+                }
+            }
         }
     }
 
