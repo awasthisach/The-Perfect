@@ -169,7 +169,8 @@ class VVFApplication : Application(), Configuration.Provider {
                     .toList()
                 if (causes.any {
                         it.contains("Database-only restore cannot be applied", ignoreCase = true) ||
-                            it.contains("Vault-only restore is unsafe", ignoreCase = true)
+                            it.contains("Vault-only restore is unsafe", ignoreCase = true) ||
+                            it.contains("Vault-only archives cannot be restored", ignoreCase = true)
                     }
                 ) {
                     "This backup is inconsistent for the selected contents. Use a full backup that includes both the database and vault."
