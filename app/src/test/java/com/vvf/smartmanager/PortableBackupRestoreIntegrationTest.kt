@@ -106,6 +106,7 @@ class PortableBackupRestoreIntegrationTest {
         assertTrue("Test must configure a real vault PIN", sourceCrypto.saveVaultPin("1234"))
         val sourceDatabase = temp.newFile("source.db").apply { writeText("SQLCIPHER-DATABASE-CIPHERTEXT") }
         val sourceVault = temp.newFolder("source-vault")
+        File(sourceVault, ".interrupted.migration-plain").writeText("sensitive interrupted migration plaintext")
         val sourceVaultPlain = temp.newFile("vault-plain.txt").apply { writeText("vault secret payload") }
         val sourceVaultCipher = File(sourceVault, "enc_fixture.vvf")
         sourceCrypto.encryptFile(sourceVaultPlain, sourceVaultCipher)
@@ -151,6 +152,10 @@ class PortableBackupRestoreIntegrationTest {
             restoreStage,
             "portable test passphrase 2026".toCharArray()
         ).getOrThrow()
+        assertTrue(
+            "Portable archive must not include interrupted plaintext migration artifacts",
+            decrypted.vaultDir.walkTopDown().none { it.isFile && it.name.endsWith(".migration-plain") }
+        )
 
         val bundledPassphrase = decrypted.databasePassphraseFile!!.readBytes()
         assertArrayEquals(originalPassphrase, bundledPassphrase)
