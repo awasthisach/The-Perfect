@@ -24,6 +24,9 @@ class CloudViewModel(
     val uiState = _uiState.asStateFlow()
 
     init {
+        cloudSyncUseCase.consumeLastRestoreOutcome()?.let { outcome ->
+            _uiState.update { it.copy(statusMessage = outcome) }
+        }
         loadAllAccounts()
         observeSyncState()
     }
