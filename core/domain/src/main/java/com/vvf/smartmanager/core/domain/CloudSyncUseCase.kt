@@ -238,7 +238,7 @@ class CloudSyncUseCase(
         }
         var lockVaultAfterAttempt = false
         if (!vaultPin.isNullOrBlank()) {
-            if (!archiveService.unlockVaultForRestore(vaultPin)) {
+            if (archiveService == null || !archiveService.unlockVaultForRestore(vaultPin)) {
                 passphrase?.fill(0.toChar())
                 _syncState.value = CloudSyncStatus.ERROR
                 return Result.failure(SecurityException("Local vault PIN verification failed; restore was not started"))
@@ -284,7 +284,7 @@ class CloudSyncUseCase(
             )
             runCatching { restoreOutcomeStore?.save(message) }
             if (lockVaultAfterAttempt) {
-                runCatching { archiveService.lockVaultAfterRestoreAttempt() }
+                runCatching { archiveService?.lockVaultAfterRestoreAttempt() }
             }
             // The Application may restart after Room was closed for a restore transaction.
             onRestoreFinished?.invoke()
