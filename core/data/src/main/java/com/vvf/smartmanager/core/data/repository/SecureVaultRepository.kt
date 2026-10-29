@@ -325,6 +325,7 @@ class SecureVaultRepository(
     }
 
     private suspend fun migrateLegacyRealVaultFiles() {
+        cryptoManager.recoverVaultMigrationArtifacts(vaultDirectory)
         val realItems = vaultDao.getAllVaultItems(isDecoy = false).first()
         for (item in realItems) {
             val encryptedFile = File(vaultDirectory, item.encryptedFileName)
