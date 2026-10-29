@@ -3,6 +3,7 @@
     <!-- Narrow share paths only. Do not expose entire filesDir / cacheDir / external-files. -->
     <cache-path name="share_cache" path="share/" />
     <cache-path name="export_cache" path="exports/" />
+    <cache-path name="shared_open_cache" path="shared-open/" />
     <files-path name="share_files" path="share/" />
     <files-path name="export_files" path="exports/" />
     <external-files-path name="share_external" path="share/" />
