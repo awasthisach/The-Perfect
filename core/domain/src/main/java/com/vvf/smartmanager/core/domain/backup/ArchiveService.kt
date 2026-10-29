@@ -198,12 +198,16 @@ class ArchiveService(
             )
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
-            runCatching { cleanupPlaintextArtifactsOrThrow(stagingDir, zipFile) }
+            val cleanupError = runCatching {
+                cleanupPlaintextArtifactsOrThrow(stagingDir, zipFile)
+            }.exceptionOrNull()
+            if (cleanupError != null) error.addSuppressed(cleanupError)
             encryptedFile.delete()
-            val reportedError = if (error is ArchiveException) {
-                error
-            } else {
-                ArchiveException("Archive creation failed; no backup was published", error)
+            val reportedError = when {
+                cleanupError != null ->
+                    ArchiveException("Archive creation failed; plaintext cleanup could not be verified", error)
+                error is ArchiveException -> error
+                else -> ArchiveException("Archive creation failed; no backup was published", error)
             }
             Result.failure(reportedError)
         } finally {
