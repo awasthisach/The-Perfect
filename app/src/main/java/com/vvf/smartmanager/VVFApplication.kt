@@ -154,6 +154,10 @@ class VVFApplication : Application(), Configuration.Provider {
     }
 
     private fun persistPendingRestoreOutcome(outcome: Result<Boolean>) {
+        if (outcome.exceptionOrNull() is kotlinx.coroutines.CancellationException) {
+            Log.i(TAG, "Restore was cancelled; suppressing failure guidance before the required restart")
+            return
+        }
         val message = outcome.fold(
             onSuccess = { success ->
                 if (success) {
