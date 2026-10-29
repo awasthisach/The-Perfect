@@ -178,6 +178,66 @@ class CryptoSecurityManagerTest {
     }
 
     @Test
+    fun legacyVaultCiphertextMigratesToPinWrappedKeyAfterRealPinUnlock() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val vaultDir = java.io.File(context.filesDir, "vvf_vault_encrypted").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val source = java.io.File(context.cacheDir, "vault-migration-source.txt").apply {
+            writeText("legacy vault payload that must survive key migration")
+        }
+        val legacy = java.io.File(vaultDir, "enc_legacy.vvf")
+        val restored = java.io.File(context.cacheDir, "vault-migration-restored.txt")
+        try {
+            assertTrue(cryptoSecurityManager.setupVaultPin("482951"))
+            cryptoSecurityManager.encryptLegacyFile(source, legacy)
+            assertFalse(cryptoSecurityManager.isPinWrappedVaultFile(legacy))
+
+            cryptoSecurityManager.lockVaultDataKey()
+            assertTrue(
+                cryptoSecurityManager.verifyVaultPinWithResult("482951") is
+                    CryptoSecurityManager.VaultAuthResult.SUCCESS_REAL
+            )
+            assertTrue(cryptoSecurityManager.migrateLegacyVaultFile(legacy, vaultDir))
+            assertTrue(cryptoSecurityManager.isPinWrappedVaultFile(legacy))
+            cryptoSecurityManager.decryptFile(legacy, restored)
+            assertEquals(source.readText(), restored.readText())
+        } finally {
+            cryptoSecurityManager.lockVaultDataKey()
+            source.delete()
+            legacy.delete()
+            restored.delete()
+            vaultDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun pinChangeRewrapsTheSameVaultDataKey() {
+        assertTrue(cryptoSecurityManager.setupVaultPin("482951"))
+        val source = java.io.File(ApplicationProvider.getApplicationContext<android.content.Context>().cacheDir, "pin-change-source.txt")
+            .apply { writeText("same data key across PIN change") }
+        val encrypted = java.io.File(source.parentFile, "pin-change.vvf")
+        val restored = java.io.File(source.parentFile, "pin-change-restored.txt")
+        try {
+            cryptoSecurityManager.encryptFile(source, encrypted)
+            assertTrue(cryptoSecurityManager.changeVaultPin("482951", "739152"))
+            cryptoSecurityManager.lockVaultDataKey()
+            assertTrue(
+                cryptoSecurityManager.verifyVaultPinWithResult("739152") is
+                    CryptoSecurityManager.VaultAuthResult.SUCCESS_REAL
+            )
+            cryptoSecurityManager.decryptFile(encrypted, restored)
+            assertEquals(source.readText(), restored.readText())
+        } finally {
+            cryptoSecurityManager.lockVaultDataKey()
+            source.delete()
+            encrypted.delete()
+            restored.delete()
+        }
+    }
+
+    @Test
     fun portableBackupEncryptionWorksWithoutDeviceKeystoreKey() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val source = java.io.File(context.cacheDir, "portable-backup-source.bin").apply {
