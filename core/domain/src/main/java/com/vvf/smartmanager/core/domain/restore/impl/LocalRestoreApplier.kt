@@ -568,6 +568,12 @@ class LocalRestoreApplier(
                     // to this state; preserve them for explicit/manual recovery.
                     return
                 }
+                if (vaultBackupArtifacts.isNotEmpty() && vaultBackups.isEmpty()) {
+                    // A malformed non-directory artifact is not a usable vault backup. Preserve
+                    // it for diagnosis without trapping an otherwise usable installation in a
+                    // startup crash loop.
+                    return
+                }
 
                 // Resume only the narrow legacy crash window where recovery already published
                 // the DB from its rollback backup but died before publishing the matching vault.
