@@ -678,6 +678,7 @@ class CryptoSecurityManager(
         data class INVALID_PIN(val failedAttempts: Int, val lockoutSeconds: Int) : VaultAuthResult
         data class LOCKED_OUT(val remainingSeconds: Int) : VaultAuthResult
         data object INVALID_FORMAT : VaultAuthResult
+        data object SECURITY_FAILURE : VaultAuthResult
     }
 
     private val prefs by lazy { context.getSharedPreferences("vvf_secure_vault_prefs", Context.MODE_PRIVATE) }
@@ -765,18 +766,49 @@ class CryptoSecurityManager(
     fun isDecoyVaultConfigured(): Boolean = prefs.contains("vault_decoy_pin_hash") && prefs.contains("vault_decoy_pin_salt")
 
     fun setupVaultPin(pin: String): Boolean {
-        if (!isValidPinFormat(pin)) return false
-        val salt = ByteArray(16); SecureRandom().nextBytes(salt)
+        if (!isValidPinFormat(pin) || isVaultConfigured()) return false
+        val envelopeFile = File(context.filesDir, VAULT_DATA_KEY_FILE)
+        return try {
+            // A crash during first-time setup can leave an envelope without PIN credentials.
+            // With no configured PIN it is an orphan, not recoverable key material.
+            recoverVaultKeyEnvelopeFile(envelopeFile)
+            if (envelopeFile.exists()) {
+                check(secureShredFile(envelopeFile)) { "Unable to remove orphaned vault key envelope" }
+            }
+            rewrapOrCreateVaultDataKey(pin)
+            check(persistVaultPinCredentials(pin)) { "Unable to persist vault PIN credentials" }
+            true
+        } catch (_: Exception) {
+            lockVaultDataKey()
+            if (!isVaultConfigured()) {
+                secureShredFile(envelopeFile)
+                File(context.filesDir, "$VAULT_DATA_KEY_FILE.previous").delete()
+                File(context.filesDir, "$VAULT_DATA_KEY_FILE.tmp").delete()
+            }
+            false
+        }
+    }
+
+    private fun persistVaultPinCredentials(pin: String): Boolean {
+        val salt = ByteArray(16).also(SecureRandom()::nextBytes)
         val hash = hashPin(pin, salt)
         val (encHash, hashIv) = encryptBytes(hash, alias = VAULT_META_KEY_ALIAS)
         val (encSalt, saltIv) = encryptBytes(salt, alias = VAULT_META_KEY_ALIAS)
-        prefs.edit()
-            .putString("vault_pin_hash", Base64.encodeToString(encHash, Base64.NO_WRAP))
-            .putString("vault_pin_hash_iv", Base64.encodeToString(hashIv, Base64.NO_WRAP))
-            .putString("vault_pin_salt", Base64.encodeToString(encSalt, Base64.NO_WRAP))
-            .putString("vault_pin_salt_iv", Base64.encodeToString(saltIv, Base64.NO_WRAP))
-            .apply()
-        return true
+        return try {
+            prefs.edit()
+                .putString("vault_pin_hash", Base64.encodeToString(encHash, Base64.NO_WRAP))
+                .putString("vault_pin_hash_iv", Base64.encodeToString(hashIv, Base64.NO_WRAP))
+                .putString("vault_pin_salt", Base64.encodeToString(encSalt, Base64.NO_WRAP))
+                .putString("vault_pin_salt_iv", Base64.encodeToString(saltIv, Base64.NO_WRAP))
+                .commit()
+        } finally {
+            salt.fill(0)
+            hash.fill(0)
+            encHash.fill(0)
+            hashIv.fill(0)
+            encSalt.fill(0)
+            saltIv.fill(0)
+        }
     }
 
     fun setupDecoyPin(decoyPin: String): Boolean {
@@ -809,7 +841,16 @@ class CryptoSecurityManager(
         if (!isValidPinFormat(pin)) return VaultAuthResult.INVALID_FORMAT
         val remainingLockout = getRemainingLockoutSeconds()
         if (remainingLockout > 0) return VaultAuthResult.LOCKED_OUT(remainingLockout)
-        if (matchesRealPin(pin)) { resetFailedAttempts(); return VaultAuthResult.SUCCESS_REAL }
+        if (matchesRealPin(pin)) {
+            return try {
+                activateVaultDataKey(pin)
+                resetFailedAttempts()
+                VaultAuthResult.SUCCESS_REAL
+            } catch (_: Exception) {
+                lockVaultDataKey()
+                VaultAuthResult.SECURITY_FAILURE
+            }
+        }
         if (matchesDecoyPin(pin)) { resetFailedAttempts(); return VaultAuthResult.SUCCESS_DECOY }
         return recordFailedAttempt()
     }
@@ -829,9 +870,31 @@ class CryptoSecurityManager(
         } catch (_: Exception) { false }
     }
 
+    @Synchronized
     fun changeVaultPin(oldPin: String, newPin: String): Boolean {
-        if (!verifyVaultPin(oldPin)) return false
-        return setupVaultPin(newPin)
+        if (!isValidPinFormat(newPin) || !verifyVaultPin(oldPin)) return false
+        val envelopeFile = File(context.filesDir, VAULT_DATA_KEY_FILE)
+        val previousEnvelope = try {
+            readPinWrappedVaultKeyEnvelope(envelopeFile)
+        } catch (_: Exception) {
+            lockVaultDataKey()
+            return false
+        }
+        return try {
+            // Re-wrap the same active data key first; never rotate the key without re-encrypting files.
+            rewrapOrCreateVaultDataKey(newPin)
+            check(persistVaultPinCredentials(newPin)) { "Unable to persist replacement vault PIN" }
+            true
+        } catch (_: Exception) {
+            val rolledBack = runCatching {
+                writePinWrappedVaultKeyEnvelope(envelopeFile, previousEnvelope)
+                check(persistVaultPinCredentials(oldPin)) { "Unable to restore prior vault PIN credentials" }
+            }.isSuccess
+            if (!rolledBack) lockVaultDataKey()
+            false
+        } finally {
+            previousEnvelope.fill(0)
+        }
     }
 
     fun isBiometricEnabled(): Boolean = prefs.getBoolean("vault_biometric_enabled", false)
