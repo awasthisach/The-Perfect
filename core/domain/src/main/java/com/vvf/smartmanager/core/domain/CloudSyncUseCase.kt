@@ -238,7 +238,16 @@ class CloudSyncUseCase(
         }
         var lockVaultAfterAttempt = false
         if (!vaultPin.isNullOrBlank()) {
-            if (archiveService == null || !archiveService.unlockVaultForRestore(vaultPin)) {
+            val unlocked = try {
+                archiveService?.unlockVaultForRestore(vaultPin) == true
+            } catch (error: Exception) {
+                passphrase?.fill(0.toChar())
+                _syncState.value = CloudSyncStatus.ERROR
+                return Result.failure(
+                    SecurityException("Local vault PIN verification failed; restore was not started", error)
+                )
+            }
+            if (!unlocked) {
                 passphrase?.fill(0.toChar())
                 _syncState.value = CloudSyncStatus.ERROR
                 return Result.failure(SecurityException("Local vault PIN verification failed; restore was not started"))
