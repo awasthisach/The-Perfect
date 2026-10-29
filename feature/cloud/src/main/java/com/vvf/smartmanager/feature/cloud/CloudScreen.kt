@@ -257,21 +257,19 @@ fun CloudScreen(
                                 onCheckedChange = { viewModel.toggleVaultBackup(it) }
                             )
                         }
-                        if (uiState.includeVaultInBackup) {
-                            Text(
-                                "Your current real vault PIN is checked locally and is never included in the backup. A new local PIN must be configured after restore.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            OutlinedTextField(
-                                value = uiState.vaultPin,
-                                onValueChange = viewModel::updateVaultPin,
-                                label = { Text("Current vault PIN") },
-                                singleLine = true,
-                                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
+                        Text(
+                            "Enter the current real vault PIN to include vault data in a backup. To restore a backup containing vault data, configure a local PIN in Vault on this device first, then enter that PIN here. PINs are never included in backup files.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        OutlinedTextField(
+                            value = uiState.vaultPin,
+                            onValueChange = viewModel::updateVaultPin,
+                            label = { Text("Local vault PIN (needed for vault backup/restore)") },
+                            singleLine = true,
+                            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                            modifier = Modifier.fillMaxWidth()
+                        )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             "Portable backups are encrypted with this passphrase. Keep it safe; the app cannot recover it.",
