@@ -445,6 +445,11 @@ class CryptoSecurityManager(
         }
     }
 
+    fun decryptFile(sourceFile: File, destinationFile: File): Long =
+        FileInputStream(sourceFile).use { fis ->
+            FileOutputStream(destinationFile).use { fos -> decryptStream(fis, fos) }
+        }
+
     fun encryptBytes(data: ByteArray, alias: String = VAULT_KEY_ALIAS): Pair<ByteArray, ByteArray> {
         val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, getSecretKey(alias))
