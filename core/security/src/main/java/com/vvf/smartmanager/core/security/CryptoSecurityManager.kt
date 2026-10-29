@@ -342,6 +342,56 @@ class CryptoSecurityManager(
         activeVaultDataKey = key
     }
 
+    /**
+     * Re-encrypts one legacy device-key vault item under the active PIN-wrapped data key.
+     * A same-directory backup allows recovery if the process dies between the two renames.
+     */
+    @Synchronized
+    fun migrateLegacyVaultFile(file: File, vaultDirectory: File): Boolean {
+        val canonicalVault = vaultDirectory.canonicalFile
+        val canonicalFile = file.canonicalFile
+        require(canonicalFile.path.startsWith(canonicalVault.path + File.separator)) {
+            "Vault migration target escaped the vault directory"
+        }
+        val backup = File(file.parentFile, file.name + ".pin-migration-legacy")
+        if (!file.exists() && backup.isFile) {
+            check(backup.renameTo(file)) { "Unable to recover interrupted vault key migration" }
+        }
+        if (!file.isFile) throw SecurityException("Vault item is missing during key migration")
+        if (isPinWrappedVaultFile(file)) {
+            if (backup.exists()) check(backup.delete()) { "Unable to remove completed migration backup" }
+            return false
+        }
+        activeVaultDataKey ?: throw SecurityException("Vault is locked during key migration")
+        val plain = File(file.parentFile, ".${file.name}.migration-plain")
+        val encrypted = File(file.parentFile, ".${file.name}.migration-new")
+        val verify = File(file.parentFile, ".${file.name}.migration-verify")
+        try {
+            plain.delete()
+            encrypted.delete()
+            verify.delete()
+            decryptFile(file, plain)
+            encryptFile(plain, encrypted)
+            decryptFile(encrypted, verify)
+            check(plain.length() == verify.length()) { "Vault key migration verification size mismatch" }
+            check(secureShredFile(plain)) { "Unable to remove plaintext during vault key migration" }
+            check(file.renameTo(backup)) { "Unable to preserve legacy vault ciphertext" }
+            try {
+                check(encrypted.renameTo(file)) { "Unable to publish migrated vault ciphertext" }
+                check(backup.delete()) { "Unable to remove legacy vault ciphertext after migration" }
+            } catch (error: Throwable) {
+                if (!file.exists() && backup.exists()) backup.renameTo(file)
+                throw error
+            }
+            return true
+        } finally {
+            if (plain.exists()) secureShredFile(plain)
+            verify.delete()
+            encrypted.delete()
+            if (!file.exists() && backup.exists()) backup.renameTo(file)
+        }
+    }
+
     /** Clears the unwrapped data key when the vault session is locked. */
     @Synchronized
     fun lockVaultDataKey() {
