@@ -193,20 +193,30 @@ class VVFApplication : Application(), Configuration.Provider {
         if (!jvmUnitTest) {
             val liveDatabaseFile = getDatabasePath(VVFDatabase.DATABASE_NAME)
             val liveVaultDir = File(filesDir, "vvf_vault_encrypted")
-            // Recover the current journal first so its swap artifacts cannot be mistaken for
-            // an unjournaled legacy transaction. Then recover/retire the prior cacheDir journal.
-            LocalRestoreApplier.recoverInterruptedRestore(
-                liveDatabaseFile = liveDatabaseFile,
-                liveVaultDir = liveVaultDir,
-                snapshotRoot = File(filesDir, "restore-work/snapshots"),
-                cryptoSecurityManager = cryptoSecurityManager
-            )
-            LocalRestoreApplier.recoverInterruptedRestore(
-                liveDatabaseFile = liveDatabaseFile,
-                liveVaultDir = liveVaultDir,
-                snapshotRoot = File(cacheDir, "restore-work/snapshots"),
-                cryptoSecurityManager = cryptoSecurityManager
-            )
+            val currentSnapshotRoot = File(filesDir, "restore-work/snapshots")
+            val legacySnapshotRoot = File(cacheDir, "restore-work/snapshots")
+            val currentJournal = File(currentSnapshotRoot, "active-restore.properties")
+            val legacyJournal = File(legacySnapshotRoot, "active-restore.properties")
+            check(!(currentJournal.isFile && legacyJournal.isFile)) {
+                "Multiple restore journals exist; refusing to mutate live database or vault during ambiguous recovery"
+            }
+
+            // A journaled transaction must recover before the other root inspects shared live swap
+            // artifacts. In particular, never let the journal-less legacy root retire artifacts
+            // owned by a still-pending cacheDir journal.
+            val snapshotRoots = if (legacyJournal.isFile && !currentJournal.isFile) {
+                listOf(legacySnapshotRoot, currentSnapshotRoot)
+            } else {
+                listOf(currentSnapshotRoot, legacySnapshotRoot)
+            }
+            snapshotRoots.forEach { snapshotRoot ->
+                LocalRestoreApplier.recoverInterruptedRestore(
+                    liveDatabaseFile = liveDatabaseFile,
+                    liveVaultDir = liveVaultDir,
+                    snapshotRoot = snapshotRoot,
+                    cryptoSecurityManager = cryptoSecurityManager
+                )
+            }
         }
         // Play Integrity App Check is device/Play-only; skip on JVM unit tests (Robolectric).
         if (!jvmUnitTest) {
