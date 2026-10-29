@@ -13,7 +13,8 @@ permissions:
 
 concurrency:
   group: nightly-ort-${{ github.ref }}
-  cancel-in-progress: false
+  # On PRs, cancel stale scans so CPAS waits only for the current candidate SHA.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   ort-scan:
