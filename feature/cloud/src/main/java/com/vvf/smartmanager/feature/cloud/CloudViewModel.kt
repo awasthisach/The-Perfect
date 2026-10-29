@@ -207,18 +207,38 @@ class CloudViewModel(
     fun restoreBackup(backupInfo: CloudBackupInfo) {
         viewModelScope.launch {
             val passphrase = _uiState.value.backupPassphrase
+            val vaultPin = _uiState.value.vaultPin
             if (passphrase.isEmpty()) {
                 _uiState.update { it.copy(statusMessage = "Enter the backup passphrase before restoring.") }
                 return@launch
             }
-            _uiState.update { it.copy(isLoading = true, backupPassphrase = "", statusMessage = "Restoring ${backupInfo.backupName}...") }
-            val result = cloudSyncUseCase.restoreCloudBackup(backupInfo, passphrase.toCharArray())
+            if (backupInfo.includesVault && vaultPin.isBlank()) {
+                _uiState.update {
+                    it.copy(
+                        statusMessage = "This backup includes vault contents. Configure a local vault PIN in Vault first, then enter it here before restoring."
+                    )
+                }
+                return@launch
+            }
+            _uiState.update {
+                it.copy(
+                    isLoading = true,
+                    backupPassphrase = "",
+                    vaultPin = "",
+                    statusMessage = "Restoring ${backupInfo.backupName}..."
+                )
+            }
+            val result = cloudSyncUseCase.restoreCloudBackup(
+                backupInfo = backupInfo,
+                passphrase = passphrase.toCharArray(),
+                vaultPin = vaultPin.takeIf { it.isNotBlank() }
+            )
             if (result.isSuccess) {
                 _uiState.update {
                     it.copy(
                         isLoading = false,
                         statusMessage = if (backupInfo.includesVault) {
-                            "Restored ${backupInfo.backupName}. Configure a new local vault PIN before unlocking the restored vault."
+                            "Restored ${backupInfo.backupName}. The restored vault is protected by the local PIN entered for this device."
                         } else {
                             "Restored ${backupInfo.backupName} successfully."
                         }
@@ -228,7 +248,7 @@ class CloudViewModel(
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        statusMessage = "Restore failed."
+                        statusMessage = "Restore failed: ${result.exceptionOrNull()?.message ?: "unexpected error"}"
                     )
                 }
             }
