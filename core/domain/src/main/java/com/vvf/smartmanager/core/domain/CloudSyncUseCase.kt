@@ -35,7 +35,7 @@ class CloudSyncUseCase(
     private val archiveService: ArchiveService? = null,
     private val restorePipeline: RestorePipeline? = null,
     private val cloudSyncDao: CloudSyncDao? = null,
-    private val onRestoreFinished: (() -> Unit)? = null
+    private val onRestoreFinished: ((Result<Boolean>) -> Unit)? = null
 ) {
 
     private val _syncState = MutableStateFlow(CloudSyncStatus.IDLE)
@@ -223,8 +223,10 @@ class CloudSyncUseCase(
             return Result.failure(IllegalArgumentException("Backup id is blank; refusing restore"))
         }
         _syncState.value = CloudSyncStatus.DOWNLOADING
+        var restoreOutcome: Result<Boolean>? = null
+        var restoreCancelled = false
         try {
-            pipeline.restore(backupInfo.backupId, backupInfo.checksumSha256, passphrase).fold(
+            val outcome = pipeline.restore(backupInfo.backupId, backupInfo.checksumSha256, passphrase).fold(
                 onSuccess = { result: RestoreResult ->
                     if (result.success) {
                         _syncState.value = CloudSyncStatus.SUCCESS
@@ -239,9 +241,26 @@ class CloudSyncUseCase(
                     Result.failure(error)
                 }
             )
+            restoreOutcome = outcome
+            return outcome
+        } catch (error: Throwable) {
+            if (error is CancellationException) {
+                restoreCancelled = true
+                throw error
+            }
+            _syncState.value = CloudSyncStatus.ERROR
+            val outcome = Result.failure<Boolean>(error)
+            restoreOutcome = outcome
+            return outcome
         } finally {
-            // The Application may restart after Room was closed for a restore transaction.
-            onRestoreFinished?.invoke()
+            // The Application persists this outcome before a required process restart so the
+            // user sees the result even though the current Room-bound process must be discarded.
+            val completion = restoreOutcome ?: if (restoreCancelled) {
+                Result.failure(CancellationException("Cloud restore was cancelled"))
+            } else {
+                Result.failure(IllegalStateException("Cloud restore ended without an outcome"))
+            }
+            onRestoreFinished?.invoke(completion)
         }
     }
 
