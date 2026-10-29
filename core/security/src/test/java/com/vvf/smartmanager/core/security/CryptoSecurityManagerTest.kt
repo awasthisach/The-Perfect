@@ -204,6 +204,19 @@ class CryptoSecurityManagerTest {
     }
 
     @Test
+    fun decoyPinLocksAnyPreviouslyActiveRealVaultDataKey() {
+        assertTrue(cryptoSecurityManager.setupVaultPin("482951"))
+        assertTrue(cryptoSecurityManager.isVaultDataKeyActive())
+        assertTrue(cryptoSecurityManager.setupDecoyPin("135790"))
+
+        assertTrue(
+            cryptoSecurityManager.verifyVaultPinWithResult("135790") is
+                CryptoSecurityManager.VaultAuthResult.SUCCESS_DECOY
+        )
+        assertFalse("Decoy session must not retain the real vault data key", cryptoSecurityManager.isVaultDataKeyActive())
+    }
+
+    @Test
     fun interruptedMigrationWithInvalidTargetRestoresKnownGoodLegacyCiphertext() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val vaultDir = java.io.File(context.filesDir, "vvf_vault_encrypted").apply {
