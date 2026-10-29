@@ -336,6 +336,8 @@ class SecureVaultRepository(
         }
     }
 
+    fun isVaultDataKeyActive(): Boolean = cryptoManager.isVaultDataKeyActive()
+
     fun lockVaultDataKey() {
         // Biometric unlock is separately gated by a one-use authenticated cipher proof.
         // Keep the in-process data key available for that existing fallback path.
