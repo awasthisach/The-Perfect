@@ -673,6 +673,8 @@ class CryptoSecurityManager(
         activeVaultDataKey = null
     }
 
+    fun isVaultDataKeyUnlocked(): Boolean = activeVaultDataKey != null
+
     private fun getOrCreateVaultDevicePepper(): ByteArray {
         val encoded = prefs.getString(VAULT_DEVICE_PEPPER_PREF, null)
         val encodedIv = prefs.getString(VAULT_DEVICE_PEPPER_IV_PREF, null)
