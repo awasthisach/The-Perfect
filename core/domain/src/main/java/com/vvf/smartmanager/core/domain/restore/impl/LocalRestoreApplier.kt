@@ -445,6 +445,30 @@ class LocalRestoreApplier(
         }
 
         /**
+         * With no active journal, only canonical UUID-named transaction artifacts are owned by
+         * this restore implementation. Retire those orphaned snapshots after legacy swap recovery,
+         * while preserving unrelated files and directories in the caller-owned snapshot root.
+         */
+        private fun cleanupOrphanedSnapshots(snapshotRoot: File) {
+            if (!snapshotRoot.isDirectory) return
+            val knownSuffixes = setOf("-db", "-db-wal", "-vault", "-key-state")
+            snapshotRoot.listFiles().orEmpty().forEach { file ->
+                val name = file.name
+                val token = name.take(36)
+                val suffix = name.drop(36)
+                val canonicalToken = runCatching { UUID.fromString(token).toString() }.getOrNull()
+                val isOwnedSnapshot = suffix in knownSuffixes && canonicalToken == token
+                val isUnpublishedJournal = name == "$JOURNAL_FILE.tmp"
+                if (isOwnedSnapshot || isUnpublishedJournal) {
+                    val removed = if (file.isDirectory) file.deleteRecursively() else file.delete()
+                    if (!removed && file.exists()) {
+                        throw IllegalStateException("Unable to retire orphaned restore artifact: ${file.name}")
+                    }
+                }
+            }
+        }
+
+        /**
          * Older releases could leave swap files without a journal. Prefer a retained pre-restore
          * backup over any live target, because the live target may be the interrupted new payload.
          * If no backup exists, keep an existing live target and discard only transient staging.
@@ -543,8 +567,9 @@ class LocalRestoreApplier(
                 if (hasInterruptedSwapArtifacts(liveDatabaseFile, liveVaultDir)) {
                     recoverLegacyUnjournaledSwapArtifacts(liveDatabaseFile, liveVaultDir)
                 }
-                // Without a validated journal token, snapshot-root contents are unowned. Preserve
-                // them rather than recursively deleting potentially unrelated recovery material.
+                // The live targets are safe (no journal and no unrecovered swap artifacts). Clean
+                // only UUID-named artifacts owned by this pipeline; preserve unrelated files.
+                cleanupOrphanedSnapshots(snapshotRoot)
                 return
             }
             val properties = Properties().apply { FileInputStream(journal).use(::load) }
