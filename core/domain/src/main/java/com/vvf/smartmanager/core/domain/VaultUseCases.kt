@@ -44,16 +44,16 @@ class DeleteVaultItemUseCase(private val repository: SecureVaultRepository) {
 class VaultAuthUseCase(private val repository: SecureVaultRepository) {
     fun isVaultConfigured(): Boolean = repository.isVaultConfigured()
     fun isDecoyConfigured(): Boolean = repository.isDecoyVaultConfigured()
-    fun setupPin(pin: String): Boolean = repository.setupPin(pin)
+    suspend fun setupPin(pin: String): Boolean = repository.setupPin(pin)
     fun setupDecoyPin(pin: String): Boolean = repository.setupDecoyPin(pin)
     fun removeDecoyPin(): Boolean = repository.removeDecoyPin()
     fun verifyPin(pin: String): Boolean = repository.verifyPin(pin)
     fun isSameAsVaultPin(pin: String): Boolean = repository.isSameAsVaultPin(pin)
-    fun verifyPinWithResult(pin: String): CryptoSecurityManager.VaultAuthResult =
+    suspend fun verifyPinWithResult(pin: String): CryptoSecurityManager.VaultAuthResult =
         repository.verifyPinWithResult(pin)
     fun getRemainingLockoutSeconds(): Int = repository.getRemainingLockoutSeconds()
     fun getFailedAttemptsCount(): Int = repository.getFailedAttemptsCount()
-    fun changePin(oldPin: String, newPin: String): Boolean = repository.changePin(oldPin, newPin)
+    suspend fun changePin(oldPin: String, newPin: String): Boolean = repository.changePin(oldPin, newPin)
     fun isBiometricEnabled(): Boolean = repository.isBiometricEnabled()
     fun setBiometricEnabled(enabled: Boolean) = repository.setBiometricEnabled(enabled)
     fun createVaultBiometricCipher(): javax.crypto.Cipher? = repository.createVaultBiometricCipher()
