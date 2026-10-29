@@ -281,55 +281,194 @@ class CryptoSecurityManager(
         }
     }
 
-    data class StreamEncryptionResult(val ivBase64: String, val totalBytesEncrypted: Long)
-
-    fun encryptStream(sourceStream: InputStream, destinationStream: OutputStream): StreamEncryptionResult {
-        val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
-        try {
-            cipher.init(Cipher.ENCRYPT_MODE, getSecretKey(VAULT_KEY_ALIAS))
-        } catch (e: android.security.keystore.UserNotAuthenticatedException) {
-            throw SecurityException("Vault key requires device authentication that is incompatible with PIN unlock.", e)
+    @Synchronized
+    private fun rewrapOrCreateVaultDataKey(pin: String) {
+        val envelopeFile = File(context.filesDir, VAULT_DATA_KEY_FILE)
+        val current = activeVaultDataKey?.copyOf() ?: if (envelopeFile.isFile) {
+            pinWrappedVaultKey.unwrap(envelopeFile.readBytes(), pin.toCharArray())
+        } else {
+            ByteArray(DB_KEY_LENGTH_BYTES).also(SecureRandom()::nextBytes)
         }
-        val iv = cipher.iv
-        destinationStream.write(iv)
-        var totalBytes: Long = 0
-        CipherOutputStream(destinationStream, cipher).use { cos ->
-            val buffer = ByteArray(STREAM_BUFFER_SIZE)
-            var bytesRead: Int
-            while (sourceStream.read(buffer).also { bytesRead = it } != -1) {
-                cos.write(buffer, 0, bytesRead); totalBytes += bytesRead
+        try {
+            val envelope = pinWrappedVaultKey.wrap(current.copyOf(), pin.toCharArray())
+            val temporary = File(context.filesDir, "$VAULT_DATA_KEY_FILE.tmp")
+            try {
+                FileOutputStream(temporary).use { output ->
+                    output.write(envelope)
+                    output.flush()
+                    output.fd.sync()
+                }
+                check(temporary.renameTo(envelopeFile) || run {
+                    if (envelopeFile.exists() && !envelopeFile.delete()) false
+                    else temporary.renameTo(envelopeFile)
+                }) { "Unable to publish PIN-wrapped vault data key" }
+            } finally {
+                temporary.delete()
+                envelope.fill(0)
             }
-            cos.flush()
+            activeVaultDataKey?.fill(0)
+            activeVaultDataKey = current.copyOf()
+        } finally {
+            current.fill(0)
+        }
+    }
+
+    @Synchronized
+    private fun activateVaultDataKey(pin: String) {
+        val envelopeFile = File(context.filesDir, VAULT_DATA_KEY_FILE)
+        val key = if (envelopeFile.isFile) {
+            pinWrappedVaultKey.unwrap(envelopeFile.readBytes(), pin.toCharArray())
+        } else {
+            ByteArray(DB_KEY_LENGTH_BYTES).also(SecureRandom()::nextBytes).also { fresh ->
+                val envelope = pinWrappedVaultKey.wrap(fresh.copyOf(), pin.toCharArray())
+                val temporary = File(context.filesDir, "$VAULT_DATA_KEY_FILE.tmp")
+                try {
+                    FileOutputStream(temporary).use { output ->
+                        output.write(envelope)
+                        output.flush()
+                        output.fd.sync()
+                    }
+                    check(temporary.renameTo(envelopeFile) || run {
+                        if (envelopeFile.exists() && !envelopeFile.delete()) false
+                        else temporary.renameTo(envelopeFile)
+                    }) { "Unable to publish PIN-wrapped vault data key" }
+                } finally {
+                    temporary.delete()
+                    envelope.fill(0)
+                }
+            }
+        }
+        activeVaultDataKey?.fill(0)
+        activeVaultDataKey = key
+    }
+
+    /** Clears the unwrapped data key when the vault session is locked. */
+    @Synchronized
+    fun lockVaultDataKey() {
+        activeVaultDataKey?.fill(0)
+        activeVaultDataKey = null
+    }
+
+    /** Legacy device-key encryption is reserved for decoy files and staged restore migration. */
+    fun encryptLegacyFile(sourceFile: File, destinationFile: File): StreamEncryptionResult =
+        FileInputStream(sourceFile).use { input ->
+            FileOutputStream(destinationFile).use { output ->
+                encryptStreamWithKey(input, output, getSecretKey(VAULT_KEY_ALIAS), includeMagic = false)
+            }
+        }
+
+    private fun encryptStreamWithKey(
+        sourceStream: InputStream,
+        destinationStream: OutputStream,
+        key: javax.crypto.SecretKey,
+        includeMagic: Boolean
+    ): StreamEncryptionResult {
+        val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, key)
+        val iv = cipher.iv
+        if (includeMagic) destinationStream.write(vaultFileMagic())
+        destinationStream.write(iv)
+        var totalBytes = 0L
+        CipherOutputStream(destinationStream, cipher).use { encrypted ->
+            val buffer = ByteArray(STREAM_BUFFER_SIZE)
+            while (true) {
+                val count = sourceStream.read(buffer)
+                if (count < 0) break
+                encrypted.write(buffer, 0, count)
+                totalBytes += count
+            }
+            encrypted.flush()
+            buffer.fill(0)
         }
         return StreamEncryptionResult(Base64.encodeToString(iv, Base64.NO_WRAP), totalBytes)
     }
 
+    private fun vaultFileMagic(): ByteArray = byteArrayOf(
+        VAULT_FILE_MAGIC_0, VAULT_FILE_MAGIC_1, VAULT_FILE_MAGIC_2, VAULT_FILE_MAGIC_3
+    )
+
+    fun isPinWrappedVaultFile(file: File): Boolean {
+        if (!file.isFile || file.length() < 4) return false
+        return FileInputStream(file).use { input ->
+            val prefix = ByteArray(4)
+            readFully(input, prefix) && prefix.contentEquals(vaultFileMagic())
+        }
+    }
+
+    private fun readFully(input: InputStream, target: ByteArray): Boolean {
+        var offset = 0
+        while (offset < target.size) {
+            val count = input.read(target, offset, target.size - offset)
+            if (count < 0) return false
+            if (count == 0) continue
+            offset += count
+        }
+        return true
+    }
+
+    data class StreamEncryptionResult(val ivBase64: String, val totalBytesEncrypted: Long)
+
+    fun encryptStream(sourceStream: InputStream, destinationStream: OutputStream): StreamEncryptionResult {
+        val keyBytes = activeVaultDataKey?.copyOf()
+            ?: throw SecurityException("Vault is locked; PIN-wrapped data key is unavailable")
+        return try {
+            encryptStreamWithKey(
+                sourceStream,
+                destinationStream,
+                SecretKeySpec(keyBytes, "AES"),
+                includeMagic = true
+            )
+        } finally {
+            keyBytes.fill(0)
+        }
+    }
+
     fun encryptFile(sourceFile: File, destinationFile: File): StreamEncryptionResult =
-        FileInputStream(sourceFile).use { fis -> FileOutputStream(destinationFile).use { fos -> encryptStream(fis, fos) } }
+        FileInputStream(sourceFile).use { input ->
+            FileOutputStream(destinationFile).use { output -> encryptStream(input, output) }
+        }
 
     fun decryptStream(sourceStream: InputStream, destinationStream: OutputStream): Long {
-        val iv = ByteArray(GCM_IV_LENGTH_BYTES)
-        require(sourceStream.read(iv) == GCM_IV_LENGTH_BYTES) { "Invalid encrypted stream: Missing or corrupt IV header" }
-        val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
-        try {
-            cipher.init(Cipher.DECRYPT_MODE, getSecretKey(VAULT_KEY_ALIAS), GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv))
-        } catch (e: android.security.keystore.UserNotAuthenticatedException) {
-            throw SecurityException("Vault key requires device authentication that is incompatible with PIN unlock.", e)
+        val prefix = ByteArray(4)
+        if (!readFully(sourceStream, prefix)) {
+            throw SecurityException("Invalid encrypted stream: truncated header")
         }
-        var totalBytes: Long = 0
-        CipherInputStream(sourceStream, cipher).use { cis ->
+        val pinWrapped = prefix.contentEquals(vaultFileMagic())
+        val payloadStream = if (pinWrapped) sourceStream else {
+            java.io.SequenceInputStream(java.io.ByteArrayInputStream(prefix), sourceStream)
+        }
+        val iv = ByteArray(GCM_IV_LENGTH_BYTES)
+        if (!readFully(payloadStream, iv)) {
+            throw SecurityException("Invalid encrypted stream: missing or corrupt IV header")
+        }
+        val key = if (pinWrapped) {
+            val keyBytes = activeVaultDataKey?.copyOf()
+                ?: throw SecurityException("Vault is locked; PIN-wrapped data key is unavailable")
+            try { SecretKeySpec(keyBytes, "AES") } finally { keyBytes.fill(0) }
+        } else {
+            getSecretKey(VAULT_KEY_ALIAS)
+        }
+        val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
+        cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv))
+        var totalBytes = 0L
+        CipherInputStream(payloadStream, cipher).use { decrypted ->
             val buffer = ByteArray(STREAM_BUFFER_SIZE)
-            var bytesRead: Int
-            while (cis.read(buffer).also { bytesRead = it } != -1) {
-                destinationStream.write(buffer, 0, bytesRead); totalBytes += bytesRead
+            while (true) {
+                val count = decrypted.read(buffer)
+                if (count < 0) break
+                destinationStream.write(buffer, 0, count)
+                totalBytes += count
             }
             destinationStream.flush()
+            buffer.fill(0)
         }
         return totalBytes
     }
 
     fun decryptFile(sourceFile: File, destinationFile: File): Long =
-        FileInputStream(sourceFile).use { fis -> FileOutputStream(destinationFile).use { fos -> decryptStream(fis, fos) } }
+        FileInputStream(sourceFile).use { input ->
+            FileOutputStream(destinationFile).use { output -> decryptStream(input, output) }
+        }
 
     fun encryptBytes(data: ByteArray, alias: String = VAULT_KEY_ALIAS): Pair<ByteArray, ByteArray> {
         val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
