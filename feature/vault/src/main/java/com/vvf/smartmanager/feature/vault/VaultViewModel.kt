@@ -224,6 +224,17 @@ class VaultViewModel(
                     observeVaultMetrics(isDecoy = false)
                     scheduleAutoLock()
                 }
+                is com.vvf.smartmanager.core.security.CryptoSecurityManager.VaultAuthResult.SECURITY_FAILURE -> {
+                    _uiState.update {
+                        it.copy(
+                            enteredPin = "",
+                            isPinVerifying = false,
+                            isUnlocked = false,
+                            sessionMode = VaultSessionMode.LOCKED,
+                            errorMessage = "Vault key migration failed. Your vault remains locked; retry or recover from a verified backup."
+                        )
+                    }
+                }
                 is com.vvf.smartmanager.core.security.CryptoSecurityManager.VaultAuthResult.SUCCESS_DECOY -> {
                     _uiState.update {
                         it.copy(
@@ -456,6 +467,7 @@ class VaultViewModel(
 
     fun lockVaultNow() {
         autoLockJob?.cancel()
+        vaultAuthUseCase.lockVaultDataKey()
         _uiState.update {
             it.copy(
                 isUnlocked = false,
