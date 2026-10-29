@@ -4,7 +4,7 @@ name: Weekly Instrumented Hard Gate
 # emulator continue-on-error skips on the primary CI job.
 on:
   push:
-    branches: [fix/portable-backup-security]
+    branches: [fix/portable-backup-security, fix/phase3-vault-pin-key-migration]
   schedule:
     - cron: "0 3 * * 1"
   workflow_dispatch:
