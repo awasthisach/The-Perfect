@@ -878,7 +878,12 @@ class CryptoSecurityManager(
                 VaultAuthResult.SECURITY_FAILURE
             }
         }
-        if (matchesDecoyPin(pin)) { resetFailedAttempts(); return VaultAuthResult.SUCCESS_DECOY }
+        if (matchesDecoyPin(pin)) {
+            // Never let a prior real-vault session key remain active in a decoy session.
+            lockVaultDataKey()
+            resetFailedAttempts()
+            return VaultAuthResult.SUCCESS_DECOY
+        }
         return recordFailedAttempt()
     }
 
