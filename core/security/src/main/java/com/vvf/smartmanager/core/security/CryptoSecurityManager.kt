@@ -38,6 +38,12 @@ class CryptoSecurityManager(
         private const val DB_KEY_ALIAS = "vvf_db_passphrase_key_v1"
         private const val VAULT_KEY_ALIAS = "vvf_vault_master_key_v1"
         private const val VAULT_META_KEY_ALIAS = "vvf_vault_meta_key_v1"
+        private const val VAULT_DATA_KEY_FILE = "vvf_vault_data_key_v1.bin"
+        private const val VAULT_KEY_OUTER_FORMAT_VERSION: Byte = 1
+        private const val VAULT_FILE_MAGIC_0: Byte = 0x56
+        private const val VAULT_FILE_MAGIC_1: Byte = 0x56
+        private const val VAULT_FILE_MAGIC_2: Byte = 0x4b
+        private const val VAULT_FILE_MAGIC_3: Byte = 0x31
         private const val AES_GCM_TRANSFORMATION = "AES/GCM/NoPadding"
         private const val GCM_TAG_LENGTH_BITS = 128
         private const val GCM_IV_LENGTH_BYTES = 12
