@@ -226,6 +226,51 @@ class LocalRestoreApplierTest {
     }
 
     @Test
+    fun startupRecoveryCleansOnlyOrphanedTransactionArtifactsWithoutJournal() {
+        val root = temp.newFolder("orphaned-restore-artifacts")
+        val snapshotRoot = File(root, "snapshots").apply { mkdirs() }
+        val liveDb = File(root, "live.db").apply { writeText("STABLE-DB") }
+        val liveVault = File(root, "vault").also {
+            it.mkdirs()
+            File(it, "stable.bin").writeText("STABLE-VAULT")
+        }
+        val token = UUID.randomUUID().toString()
+        File(snapshotRoot, "$token-db").writeText("STALE-DB-SNAPSHOT")
+        File(snapshotRoot, "$token-db-wal").writeText("STALE-WAL-SNAPSHOT")
+        File(snapshotRoot, "$token-vault").also {
+            it.mkdirs()
+            File(it, "stale.bin").writeText("STALE-VAULT-SNAPSHOT")
+        }
+        File(snapshotRoot, "$token-key-state").also {
+            it.mkdirs()
+            File(it, "present-files.txt").writeText("")
+        }
+        val unpublishedJournal = File(snapshotRoot, "active-restore.properties.tmp").apply {
+            writeText("incomplete journal")
+        }
+        val unrelated = File(snapshotRoot, "unrelated-recovery-note.txt").apply {
+            writeText("keep this file")
+        }
+
+        LocalRestoreApplier.recoverInterruptedRestore(
+            liveDatabaseFile = liveDb,
+            liveVaultDir = liveVault,
+            snapshotRoot = snapshotRoot,
+            cryptoSecurityManager = mock()
+        )
+
+        assertEquals("STABLE-DB", liveDb.readText())
+        assertEquals("STABLE-VAULT", File(liveVault, "stable.bin").readText())
+        assertFalse(File(snapshotRoot, "$token-db").exists())
+        assertFalse(File(snapshotRoot, "$token-db-wal").exists())
+        assertFalse(File(snapshotRoot, "$token-vault").exists())
+        assertFalse(File(snapshotRoot, "$token-key-state").exists())
+        assertFalse(unpublishedJournal.exists())
+        assertTrue("Unrelated recovery material must be preserved", unrelated.isFile)
+        assertEquals("keep this file", unrelated.readText())
+    }
+
+    @Test
     fun startupRecoveryRestoresDatabaseWalAndVaultFromInterruptedJournal() {
         val root = temp.newFolder("interrupted-restore")
         val snapshotRoot = File(root, "snapshots").apply { mkdirs() }
