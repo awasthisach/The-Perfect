@@ -107,13 +107,15 @@ jobs:
 
       - name: Run semantic CPAS verification
         id: cpas
+        env:
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
         # Fail-closed: BLOCKED is an expected production state while critical
         # findings remain open. Emit a warning annotation, not an error, so the
         # job stays green without hiding the BLOCKED status.
         # Unexpected verifier crashes (no status file) still fail the job.
         run: |
           set +e
-          python3 tools/audit/cpas_verify.py --root .
+          python3 tools/audit/cpas_verify.py --root . --revision "$TARGET_SHA"
           code=$?
           set -e
 
