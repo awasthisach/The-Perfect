@@ -76,6 +76,23 @@ class CpasVerifySelfTests(unittest.TestCase):
             checks = {item["name"]: item for item in status["checks"]}
             self.assertEqual(checks["ort_sboms_present"]["status"], "BLOCKED")
 
+    def test_ort_status_requires_exact_candidate_revision(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("cpas_verify", VERIFY)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+        candidate = "a" * 40
+        status = {"status": "PASS", "scan_revision": candidate}
+        self.assertEqual(mod.validate_ort_status(status, candidate)[0], True)
+        ok, detail = mod.validate_ort_status(status, "b" * 40)
+        self.assertFalse(ok)
+        self.assertIn("does not match candidate revision", detail)
+        blocked, detail = mod.validate_ort_status({"status": "BLOCKED", "scan_revision": candidate}, candidate)
+        self.assertFalse(blocked)
+        self.assertIn("not PASS", detail)
+
     def test_invalid_risk_id_fails_grammar_check(self) -> None:
         self.assertTrue(VERIFY.is_file())
         # Live repo should reject non-PROD risk IDs if introduced; smoke the regex path
