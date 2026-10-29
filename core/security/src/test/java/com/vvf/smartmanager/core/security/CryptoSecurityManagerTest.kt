@@ -178,6 +178,32 @@ class CryptoSecurityManagerTest {
     }
 
     @Test
+    fun setupAndRealPinUnlockActivateThePinWrappedDataKey() {
+        assertTrue(cryptoSecurityManager.setupVaultPin("482951"))
+        assertTrue(cryptoSecurityManager.isVaultDataKeyActive())
+
+        cryptoSecurityManager.lockVaultDataKey()
+        assertFalse(cryptoSecurityManager.isVaultDataKeyActive())
+        assertTrue(
+            cryptoSecurityManager.verifyVaultPinWithResult("482951") is
+                CryptoSecurityManager.VaultAuthResult.SUCCESS_REAL
+        )
+        assertTrue(cryptoSecurityManager.isVaultDataKeyActive())
+    }
+
+    @Test
+    fun failedRealPinDoesNotActivateTheVaultDataKey() {
+        assertTrue(cryptoSecurityManager.setupVaultPin("482951"))
+        cryptoSecurityManager.lockVaultDataKey()
+
+        assertTrue(
+            cryptoSecurityManager.verifyVaultPinWithResult("000000") is
+                CryptoSecurityManager.VaultAuthResult.INVALID_PIN
+        )
+        assertFalse(cryptoSecurityManager.isVaultDataKeyActive())
+    }
+
+    @Test
     fun legacyVaultCiphertextMigratesToPinWrappedKeyAfterRealPinUnlock() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val vaultDir = java.io.File(context.filesDir, "vvf_vault_encrypted").apply {
@@ -223,6 +249,10 @@ class CryptoSecurityManagerTest {
             cryptoSecurityManager.encryptFile(source, encrypted)
             assertTrue(cryptoSecurityManager.changeVaultPin("482951", "739152"))
             cryptoSecurityManager.lockVaultDataKey()
+            assertTrue(
+                cryptoSecurityManager.verifyVaultPinWithResult("482951") is
+                    CryptoSecurityManager.VaultAuthResult.INVALID_PIN
+            )
             assertTrue(
                 cryptoSecurityManager.verifyVaultPinWithResult("739152") is
                     CryptoSecurityManager.VaultAuthResult.SUCCESS_REAL
