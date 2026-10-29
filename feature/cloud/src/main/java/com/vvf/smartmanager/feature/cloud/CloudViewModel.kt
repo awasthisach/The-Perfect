@@ -242,7 +242,8 @@ class CloudViewModel(
             val message = cause.message.orEmpty()
             if (
                 message.contains("Database-only restore cannot be applied", ignoreCase = true) ||
-                message.contains("Vault-only restore is unsafe", ignoreCase = true)
+                message.contains("Vault-only restore is unsafe", ignoreCase = true) ||
+                message.contains("Vault-only archives cannot be restored", ignoreCase = true)
             ) {
                 return "This backup is inconsistent for the selected contents. Use a full backup that includes both the database and vault."
             }
