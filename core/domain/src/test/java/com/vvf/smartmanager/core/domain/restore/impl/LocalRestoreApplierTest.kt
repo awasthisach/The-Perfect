@@ -532,6 +532,31 @@ class LocalRestoreApplierTest {
     }
 
     @Test
+    fun startupRecoveryFailsClosedWhenVaultBackupCannotBePairedWithLiveDatabase() {
+        val root = temp.newFolder("legacy-unpaired-vault")
+        val liveDb = File(root, "live.db").apply { writeText("LIVE-DB") }
+        val liveVault = File(root, "vault")
+        val vaultBackup = File(root, "vault.restore-bak-old").also {
+            it.mkdirs()
+            File(it, "item.bin").writeText("POSSIBLY-MISMATCHED-VAULT")
+        }
+
+        val result = runCatching {
+            LocalRestoreApplier.recoverInterruptedRestore(
+                liveDatabaseFile = liveDb,
+                liveVaultDir = liveVault,
+                snapshotRoot = File(root, "missing-snapshots"),
+                cryptoSecurityManager = mock()
+            )
+        }
+
+        assertTrue("Recovery must fail closed when the vault cannot be paired to a known DB snapshot", result.isFailure)
+        assertFalse("Potentially mismatched vault must not be published", liveVault.exists())
+        assertTrue("Ambiguous vault recovery material must be preserved", File(vaultBackup, "item.bin").isFile)
+        assertEquals("Live database must remain untouched", "LIVE-DB", liveDb.readText())
+    }
+
+    @Test
     fun startupRecoveryResumesLegacyVaultPublicationWhenDatabaseMatchesRollbackCopy() {
         val root = temp.newFolder("legacy-resume-vault")
         val liveDb = File(root, "live.db").apply { writeText("ROLLBACK-DB") }
