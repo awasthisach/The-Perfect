@@ -282,7 +282,8 @@ fun VaultUnlockedContent(
                 },
                 onRemoveDecoyClick = { viewModel.removeDecoyPin() },
                 onPopulateDecoyDataClick = { viewModel.populateSampleDecoyData(context.filesDir) },
-                onDismiss = { viewModel.dismissSettingsDialog() }
+                onDismiss = { viewModel.dismissSettingsDialog() },
+                isBiometricSupported = uiState.isBiometricSupported
             )
         }
 
