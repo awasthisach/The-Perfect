@@ -209,7 +209,8 @@ class CloudSyncUseCase(
 
     suspend fun restoreCloudBackup(
         backupInfo: CloudBackupInfo,
-        passphrase: CharArray? = null
+        passphrase: CharArray? = null,
+        vaultPin: String? = null
     ): Result<Boolean> = archiveMutex.withLock {
         val pipeline = restorePipeline
         if (pipeline == null) {
@@ -225,6 +226,20 @@ class CloudSyncUseCase(
             passphrase?.fill(0.toChar())
             _syncState.value = CloudSyncStatus.ERROR
             return Result.failure(IllegalArgumentException("Backup id is blank; refusing restore"))
+        }
+        if (backupInfo.includesVault && vaultPin.isNullOrBlank()) {
+            passphrase?.fill(0.toChar())
+            _syncState.value = CloudSyncStatus.ERROR
+            return Result.failure(
+                SecurityException(
+                    "Configure a local vault PIN in Vault before restoring backup contents, then enter that PIN here."
+                )
+            )
+        }
+        if (!vaultPin.isNullOrBlank() && !archiveService.unlockVaultForRestore(vaultPin)) {
+            passphrase?.fill(0.toChar())
+            _syncState.value = CloudSyncStatus.ERROR
+            return Result.failure(SecurityException("Local vault PIN verification failed; restore was not started"))
         }
         _syncState.value = CloudSyncStatus.DOWNLOADING
         var outcome: Result<Boolean> = Result.failure(
