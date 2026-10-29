@@ -35,7 +35,8 @@ class CloudSyncUseCase(
     private val archiveService: ArchiveService? = null,
     private val restorePipeline: RestorePipeline? = null,
     private val cloudSyncDao: CloudSyncDao? = null,
-    private val onRestoreFinished: (() -> Unit)? = null
+    private val onRestoreFinished: (() -> Unit)? = null,
+    private val restoreOutcomeStore: RestoreOutcomeStore? = null
 ) {
 
     private val _syncState = MutableStateFlow(CloudSyncStatus.IDLE)
@@ -46,6 +47,9 @@ class CloudSyncUseCase(
 
     /** Serializes backup vs restore so both cannot mutate live storage concurrently. */
     private val archiveMutex = Mutex()
+
+    /** Consumes the persisted result of a restore that required a process restart. */
+    fun consumeLastRestoreOutcome(): String? = restoreOutcomeStore?.consume()
 
     suspend fun authenticateProvider(providerType: CloudProviderType): Result<Boolean> {
         return if (providerType == CloudProviderType.GOOGLE_DRIVE) {
@@ -223,8 +227,11 @@ class CloudSyncUseCase(
             return Result.failure(IllegalArgumentException("Backup id is blank; refusing restore"))
         }
         _syncState.value = CloudSyncStatus.DOWNLOADING
+        var outcome: Result<Boolean> = Result.failure(
+            IllegalStateException("Restore ended without a reported outcome")
+        )
         try {
-            pipeline.restore(backupInfo.backupId, backupInfo.checksumSha256, passphrase).fold(
+            outcome = pipeline.restore(backupInfo.backupId, backupInfo.checksumSha256, passphrase).fold(
                 onSuccess = { result: RestoreResult ->
                     if (result.success) {
                         _syncState.value = CloudSyncStatus.SUCCESS
@@ -239,7 +246,28 @@ class CloudSyncUseCase(
                     Result.failure(error)
                 }
             )
+            return outcome
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            _syncState.value = CloudSyncStatus.ERROR
+            outcome = Result.failure(error)
+            return outcome
         } finally {
+            // Persist the result before Application restarts the process; otherwise the UI loses
+            // both success guidance (new local vault PIN) and actionable failure information.
+            val message = outcome.fold(
+                onSuccess = {
+                    if (backupInfo.includesVault) {
+                        "Restored ${backupInfo.backupName}. Configure a new local vault PIN before unlocking the restored vault."
+                    } else {
+                        "Restored ${backupInfo.backupName} successfully."
+                    }
+                },
+                onFailure = { error ->
+                    "Restore failed: ${error.message ?: "unexpected restore failure"}"
+                }
+            )
+            runCatching { restoreOutcomeStore?.save(message) }
             // The Application may restart after Room was closed for a restore transaction.
             onRestoreFinished?.invoke()
         }
@@ -330,4 +358,11 @@ class CloudSyncUseCase(
             )
         )
     }
+}
+
+
+/** Persists a user-facing restore result across the required process restart. */
+interface RestoreOutcomeStore {
+    fun save(message: String)
+    fun consume(): String?
 }
