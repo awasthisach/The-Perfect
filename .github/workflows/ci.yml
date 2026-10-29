@@ -84,7 +84,7 @@ jobs:
         if: success()
         run: |
           set -euo pipefail
-          python3 tools/audit/generate_evidence.py --commit-sha "${{ github.sha }}" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --environment "github-actions-${{ runner.os }}-unit" --output docs/assurance/cpas-evidence-run.json
+          python3 tools/audit/generate_evidence.py --commit-sha "${{ github.event.pull_request.head.sha || github.sha }}" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --environment "github-actions-${{ runner.os }}-unit" --output docs/assurance/cpas-evidence-run.json
       - name: Upload CPAS unit evidence
         if: success()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -105,10 +105,23 @@ jobs:
         run: |
           set -uo pipefail
           mkdir -p "$ANDROID_AVD_HOME"
-          export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH"
+          export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
           echo "no" | avdmanager create avd --force --name vvf-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2" || { echo "booted=false" >> "$GITHUB_OUTPUT"; echo "::warning::AVD creation failed; emulator infrastructure unavailable."; exit 0; }
+          # Prefer hardware acceleration: software-only emulation did not reach
+          # sys.boot_completed on the 2026-10-29 run. The separate hard gate
+          # remains authoritative if this runner genuinely has no KVM.
+          if [ ! -e /dev/kvm ]; then
+            echo "::warning::KVM unavailable on this hosted runner; primary-job emulator is an infrastructure skip. Weekly Instrumented Hard Gate remains mandatory."
+            echo "booted=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! sudo chown "$USER" /dev/kvm || ! test -r /dev/kvm || ! test -w /dev/kvm; then
+            echo "::warning::KVM is not accessible; primary-job emulator is an infrastructure skip. Weekly Instrumented Hard Gate remains mandatory."
+            echo "booted=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           adb start-server || true
-          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel off -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel on -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/emulator.pid"
           if ! timeout 180 adb wait-for-device; then
             echo "::warning::adb wait-for-device timed out; treating emulator as an infrastructure skip."
@@ -143,7 +156,7 @@ jobs:
         if: ${{ steps.emulator.outputs.booted == 'true' && steps.sqlcipher_instrumented.outcome == 'success' }}
         run: |
           set -euo pipefail
-          python3 tools/audit/generate_evidence.py --commit-sha "${{ github.sha }}" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --include-db --environment "github-actions-API35-emulator" --output docs/assurance/cpas-evidence-full.json
+          python3 tools/audit/generate_evidence.py --commit-sha "${{ github.event.pull_request.head.sha || github.sha }}" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --include-db --environment "github-actions-API35-emulator" --output docs/assurance/cpas-evidence-full.json
       - name: Publish gate summary
         if: always()
         run: |
@@ -202,12 +215,12 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
       - name: Upload full CPAS evidence
-        if: always()
+        if: ${{ steps.emulator.outputs.booted == 'true' && steps.sqlcipher_instrumented.outcome == 'success' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: cpas-evidence-full
           path: docs/assurance/cpas-evidence-full.json
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 30
       - name: Upload debug APK
         if: success()
