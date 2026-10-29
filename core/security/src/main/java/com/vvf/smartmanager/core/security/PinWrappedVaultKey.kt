@@ -24,20 +24,23 @@ internal class PinWrappedVaultKey(
     }
 
     fun wrap(dataKey: ByteArray, pin: CharArray): ByteArray {
-        require(dataKey.size == DATA_KEY_BYTES) { "Vault data key must be 256 bits" }
-        require(pin.isNotEmpty()) { "Vault PIN must not be empty" }
-        val salt = ByteArray(SALT_BYTES).also(random::nextBytes)
-        val nonce = ByteArray(NONCE_BYTES).also(random::nextBytes)
-        val header = byteArrayOf(MAGIC_0, MAGIC_1, VERSION) + intBytes(iterations) + salt + nonce
-        val derived = derive(pin, salt, iterations)
-        return try {
-            val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(derived, "AES"), GCMParameterSpec(TAG_BITS, nonce))
-            cipher.updateAAD(header)
-            header + cipher.doFinal(dataKey)
+        try {
+            require(dataKey.size == DATA_KEY_BYTES) { "Vault data key must be 256 bits" }
+            require(pin.isNotEmpty()) { "Vault PIN must not be empty" }
+            val salt = ByteArray(SALT_BYTES).also(random::nextBytes)
+            val nonce = ByteArray(NONCE_BYTES).also(random::nextBytes)
+            val header = byteArrayOf(MAGIC_0, MAGIC_1, VERSION) + intBytes(iterations) + salt + nonce
+            val derived = derive(pin, salt, iterations)
+            return try {
+                val cipher = Cipher.getInstance(TRANSFORMATION)
+                cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(derived, "AES"), GCMParameterSpec(TAG_BITS, nonce))
+                cipher.updateAAD(header)
+                header + cipher.doFinal(dataKey)
+            } finally {
+                derived.fill(0)
+            }
         } finally {
-            derived.fill(0)
-            pin.fill('\u0000')
+            pin.fill('\\u0000')
         }
     }
 
