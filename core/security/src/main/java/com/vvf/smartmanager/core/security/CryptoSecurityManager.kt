@@ -84,6 +84,11 @@ class CryptoSecurityManager(
     private val allowInMemoryFallback: Boolean =
         shouldAllowInMemoryFallback(keyStoreProvider, isJvmUnitTestEnvironment(context))
 
+    private val pinWrappedVaultKey = PinWrappedVaultKey()
+
+    @Volatile
+    private var activeVaultDataKey: ByteArray? = null
+
     private val isAndroidKeyStoreAvailable: Boolean = try {
         Security.getProvider(ANDROID_KEYSTORE) != null
     } catch (_: Exception) {
