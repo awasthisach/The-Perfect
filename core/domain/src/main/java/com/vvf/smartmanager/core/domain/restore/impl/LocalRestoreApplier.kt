@@ -444,28 +444,107 @@ class LocalRestoreApplier(
             }
         }
 
+        /**
+         * Older releases could leave swap files without a journal. Prefer a retained pre-restore
+         * backup over any live target, because the live target may be the interrupted new payload.
+         * If no backup exists, keep an existing live target and discard only transient staging.
+         * Ambiguous multiple vault backups fail closed rather than guessing which data is valid.
+         */
+        private fun recoverLegacyUnjournaledSwapArtifacts(
+            liveDatabaseFile: File,
+            liveVaultDir: File
+        ) {
+            val parent = liveDatabaseFile.parentFile
+                ?: throw IllegalStateException("Restore recovery has no database parent directory")
+            val dbPrefix = liveDatabaseFile.name
+            val vaultPrefix = liveVaultDir.name
+            val entries = parent.listFiles().orEmpty()
+            val dbBackup = File(parent, "$dbPrefix.restore-bak")
+            val vaultBackups = entries.filter {
+                it.name.startsWith("$vaultPrefix.restore-bak-") && it.isDirectory
+            }
+            if (vaultBackups.size > 1) {
+                throw IllegalStateException("Multiple legacy vault rollback snapshots exist; manual recovery is required")
+            }
+
+            if (dbBackup.exists()) {
+                if (!dbBackup.isFile || dbBackup.length() == 0L) {
+                    throw IllegalStateException("Legacy database rollback artifact is invalid")
+                }
+                val recoveryTemp = File(parent, "$dbPrefix.legacy-recovery-tmp")
+                if (recoveryTemp.exists() && !recoveryTemp.delete()) {
+                    throw IllegalStateException("Unable to clear legacy database recovery temporary file")
+                }
+                dbBackup.copyTo(recoveryTemp, overwrite = true)
+                if (recoveryTemp.length() != dbBackup.length()) {
+                    recoveryTemp.delete()
+                    throw IllegalStateException("Legacy database rollback copy is incomplete")
+                }
+                if (liveDatabaseFile.exists() && !liveDatabaseFile.delete()) {
+                    recoveryTemp.delete()
+                    throw IllegalStateException("Unable to replace interrupted database with its rollback copy")
+                }
+                if (!recoveryTemp.renameTo(liveDatabaseFile)) {
+                    recoveryTemp.delete()
+                    throw IllegalStateException("Unable to publish legacy database rollback copy")
+                }
+            } else if (!liveDatabaseFile.isFile) {
+                throw IllegalStateException(
+                    "Restore swap artifacts exist but neither a live database nor a rollback copy is available"
+                )
+            }
+
+            val vaultBackup = vaultBackups.singleOrNull()
+            if (vaultBackup != null) {
+                val recoveryTemp = File(parent, "$vaultPrefix.legacy-recovery-tmp")
+                if (recoveryTemp.exists() && !recoveryTemp.deleteRecursively()) {
+                    throw IllegalStateException("Unable to clear legacy vault recovery temporary directory")
+                }
+                vaultBackup.copyRecursively(recoveryTemp, overwrite = true)
+                if (!recoveryTemp.isDirectory) {
+                    recoveryTemp.deleteRecursively()
+                    throw IllegalStateException("Legacy vault rollback copy is incomplete")
+                }
+                if (liveVaultDir.exists() && !liveVaultDir.deleteRecursively()) {
+                    recoveryTemp.deleteRecursively()
+                    throw IllegalStateException("Unable to replace interrupted vault with its rollback copy")
+                }
+                if (!recoveryTemp.renameTo(liveVaultDir)) {
+                    recoveryTemp.copyRecursively(liveVaultDir, overwrite = true)
+                    if (!recoveryTemp.deleteRecursively()) {
+                        throw IllegalStateException("Unable to publish legacy vault rollback copy")
+                    }
+                }
+            }
+
+            entries.filter { file ->
+                file.name.startsWith("$dbPrefix.restore-tmp") ||
+                    file.name.startsWith("$dbPrefix.rollback-") ||
+                    file.name.startsWith("$dbPrefix-wal.rollback-") ||
+                    file.name.startsWith("$vaultPrefix.restore-tmp-") ||
+                    file.name == "$dbPrefix.restore-bak" ||
+                    file.name.startsWith("$vaultPrefix.restore-bak-")
+            }.forEach { file ->
+                val removed = if (file.isDirectory) file.deleteRecursively() else file.delete()
+                if (!removed && file.exists()) {
+                    throw IllegalStateException("Unable to retire legacy restore artifact: ${file.name}")
+                }
+            }
+        }
+
         fun recoverInterruptedRestore(
             liveDatabaseFile: File,
             liveVaultDir: File,
             snapshotRoot: File,
             cryptoSecurityManager: CryptoSecurityManager
         ) {
-            if (!snapshotRoot.exists()) {
-                if (hasInterruptedSwapArtifacts(liveDatabaseFile, liveVaultDir)) {
-                    throw IllegalStateException(
-                        "Restore swap artifacts exist without rollback snapshots; refusing to open the database"
-                    )
-                }
-                return
-            }
             val journal = File(snapshotRoot, JOURNAL_FILE)
             if (!journal.isFile) {
                 if (hasInterruptedSwapArtifacts(liveDatabaseFile, liveVaultDir)) {
-                    throw IllegalStateException(
-                        "Restore swap artifacts exist without a recovery journal; refusing to open the database"
-                    )
+                    recoverLegacyUnjournaledSwapArtifacts(liveDatabaseFile, liveVaultDir)
                 }
-                snapshotRoot.listFiles().orEmpty().forEach { it.deleteRecursively() }
+                // Without a validated journal token, snapshot-root contents are unowned. Preserve
+                // them rather than recursively deleting potentially unrelated recovery material.
                 return
             }
             val properties = Properties().apply { FileInputStream(journal).use(::load) }
@@ -504,7 +583,26 @@ class LocalRestoreApplier(
                     rollback.exceptionOrNull()
                 )
             }
-            snapshotRoot.listFiles().orEmpty().forEach { it.deleteRecursively() }
+            cleanupRecoveryArtifacts(snapshotRoot, token)
+        }
+
+        private fun cleanupRecoveryArtifacts(snapshotRoot: File, token: String) {
+            val owned = listOf(
+                File(snapshotRoot, JOURNAL_FILE),
+                File(snapshotRoot, "$JOURNAL_FILE.tmp"),
+                File(snapshotRoot, "$token-db"),
+                File(snapshotRoot, "$token-db-wal"),
+                File(snapshotRoot, "$token-key-state"),
+                File(snapshotRoot, "$token-vault")
+            )
+            owned.forEach { artifact ->
+                if (artifact.exists()) {
+                    val removed = if (artifact.isDirectory) artifact.deleteRecursively() else artifact.delete()
+                    if (!removed && artifact.exists()) {
+                        throw IllegalStateException("Unable to clean restore-owned artifact: ${artifact.name}")
+                    }
+                }
+            }
         }
     }
 }
