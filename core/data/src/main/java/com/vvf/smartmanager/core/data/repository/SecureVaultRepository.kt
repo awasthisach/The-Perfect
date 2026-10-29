@@ -7,6 +7,7 @@ import com.vvf.smartmanager.core.database.model.VaultJournalEntity
 import com.vvf.smartmanager.core.model.VaultItem
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.io.File
 import java.io.IOException
@@ -104,7 +105,11 @@ class SecureVaultRepository(
         ) ?: 0L
 
         try {
-            val result = cryptoManager.encryptFile(sourceFile, destinationFile)
+            val result = if (isDecoy) {
+                cryptoManager.encryptLegacyFile(sourceFile, destinationFile)
+            } else {
+                cryptoManager.encryptFile(sourceFile, destinationFile)
+            }
 
             val entity = VaultItemEntity(
                 id = fileId,
@@ -290,16 +295,60 @@ class SecureVaultRepository(
 
     fun isVaultConfigured(): Boolean = cryptoManager.isVaultConfigured()
     fun isDecoyVaultConfigured(): Boolean = cryptoManager.isDecoyVaultConfigured()
-    fun setupPin(pin: String): Boolean = cryptoManager.setupVaultPin(pin)
+
+    suspend fun setupPin(pin: String): Boolean {
+        if (!cryptoManager.setupVaultPin(pin)) return false
+        return try {
+            migrateLegacyRealVaultFiles()
+            true
+        } catch (_: Exception) {
+            cryptoManager.lockVaultDataKey()
+            false
+        }
+    }
+
     fun setupDecoyPin(pin: String): Boolean = cryptoManager.setupDecoyPin(pin)
     fun removeDecoyPin(): Boolean = cryptoManager.removeDecoyPin()
     fun verifyPin(pin: String): Boolean = cryptoManager.verifyVaultPin(pin)
     fun isSameAsVaultPin(pin: String): Boolean = cryptoManager.isSameAsVaultPin(pin)
-    fun verifyPinWithResult(pin: String): CryptoSecurityManager.VaultAuthResult =
-        cryptoManager.verifyVaultPinWithResult(pin)
+
+    suspend fun verifyPinWithResult(pin: String): CryptoSecurityManager.VaultAuthResult {
+        val result = cryptoManager.verifyVaultPinWithResult(pin)
+        if (result != CryptoSecurityManager.VaultAuthResult.SUCCESS_REAL) return result
+        return try {
+            migrateLegacyRealVaultFiles()
+            result
+        } catch (_: Exception) {
+            cryptoManager.lockVaultDataKey()
+            CryptoSecurityManager.VaultAuthResult.SECURITY_FAILURE
+        }
+    }
+
+    private suspend fun migrateLegacyRealVaultFiles() {
+        val realItems = vaultDao.getAllVaultItems(isDecoy = false).first()
+        for (item in realItems) {
+            val encryptedFile = File(vaultDirectory, item.encryptedFileName)
+            if (!encryptedFile.exists()) {
+                throw IOException("Vault item is missing during PIN key migration: ${item.encryptedFileName}")
+            }
+            cryptoManager.migrateLegacyVaultFile(encryptedFile, vaultDirectory)
+        }
+    }
+
+    fun lockVaultDataKey() {
+        // Biometric unlock is separately gated by a one-use authenticated cipher proof.
+        // Keep the in-process data key available for that existing fallback path.
+        if (!cryptoManager.isBiometricEnabled()) cryptoManager.lockVaultDataKey()
+    }
+
     fun getRemainingLockoutSeconds(): Int = cryptoManager.getRemainingLockoutSeconds()
     fun getFailedAttemptsCount(): Int = cryptoManager.getFailedAttemptsCount()
-    fun changePin(oldPin: String, newPin: String): Boolean = cryptoManager.changeVaultPin(oldPin, newPin)
+
+    suspend fun changePin(oldPin: String, newPin: String): Boolean {
+        if (verifyPinWithResult(oldPin) != CryptoSecurityManager.VaultAuthResult.SUCCESS_REAL) return false
+        return cryptoManager.changeVaultPin(oldPin, newPin)
+    }
+
     fun isBiometricEnabled(): Boolean = cryptoManager.isBiometricEnabled()
     fun setBiometricEnabled(enabled: Boolean) = cryptoManager.setBiometricEnabled(enabled)
     fun getAutoLockTimeoutSeconds(): Int = cryptoManager.getAutoLockTimeoutSeconds()
