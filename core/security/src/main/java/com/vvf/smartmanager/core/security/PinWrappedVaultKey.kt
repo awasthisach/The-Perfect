@@ -40,7 +40,7 @@ internal class PinWrappedVaultKey(
                 derived.fill(0)
             }
         } finally {
-            pin.fill('\\u0000')
+            pin.fill('\u0000')
         }
     }
 
