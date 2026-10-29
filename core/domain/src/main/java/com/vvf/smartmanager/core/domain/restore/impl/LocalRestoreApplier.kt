@@ -97,6 +97,19 @@ class LocalRestoreApplier(
                 throw RestoreException("Restore transaction journal is missing; refusing to mutate live data")
             }
 
+            // Vault item metadata is stored in the database. Replacing only one side can make
+            // existing records point at missing files or make restored files invisible to the UI.
+            if (decryptedBackup.backupInfo.includesVault && !decryptedBackup.backupInfo.includesDatabase) {
+                throw RestoreException("Vault-only restore is unsafe because vault metadata lives in the database")
+            }
+            if (decryptedBackup.backupInfo.includesDatabase && !decryptedBackup.backupInfo.includesVault &&
+                liveVaultDir.walkTopDown().any { it.isFile }
+            ) {
+                throw RestoreException(
+                    "Database-only restore cannot be applied while the live vault contains files; use a consistent full backup"
+                )
+            }
+
             val manifestFile = File(decryptedBackup.stagingDir, "metadata.json")
             if (manifestFile.isFile) {
                 val manifest = json.decodeFromString(ArchiveMetadata.serializer(), manifestFile.readText())
