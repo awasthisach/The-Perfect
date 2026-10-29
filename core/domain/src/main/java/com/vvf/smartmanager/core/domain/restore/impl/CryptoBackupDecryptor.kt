@@ -125,14 +125,30 @@ class CryptoBackupDecryptor(
             if (isPortable && actualBackupInfo.includesVault) {
                 vaultDir.walkTopDown().filter { it.isFile }.toList().forEach { plainFile ->
                     val encryptedTemp = File(plainFile.parentFile, plainFile.name + ".local-encrypted")
-                    crypto.encryptFile(plainFile, encryptedTemp)
-                    if (!plainFile.delete()) {
-                        encryptedTemp.delete()
-                        throw SecurityException("Unable to remove plaintext vault staging file")
+                    try {
+                        crypto.encryptFile(plainFile, encryptedTemp)
+                    } catch (error: Throwable) {
+                        // A failed encrypt may leave a partial ciphertext artifact. Wipe both it and
+                        // the plaintext before the outer restore cleanup runs.
+                        crypto.secureShredFile(encryptedTemp)
+                        crypto.secureShredFile(plainFile)
+                        throw SecurityException("Unable to encrypt portable vault payload for this device", error)
+                    }
+                    if (!crypto.secureShredFile(plainFile)) {
+                        crypto.secureShredFile(encryptedTemp)
+                        throw SecurityException("Unable to securely remove plaintext vault staging file")
                     }
                     if (!encryptedTemp.renameTo(plainFile)) {
-                        encryptedTemp.copyTo(plainFile, overwrite = true)
-                        if (!encryptedTemp.delete()) throw SecurityException("Unable to clean temporary encrypted vault file")
+                        try {
+                            encryptedTemp.copyTo(plainFile, overwrite = true)
+                        } catch (error: Throwable) {
+                            crypto.secureShredFile(encryptedTemp)
+                            plainFile.delete()
+                            throw SecurityException("Unable to publish locally encrypted vault payload", error)
+                        }
+                        if (!crypto.secureShredFile(encryptedTemp)) {
+                            throw SecurityException("Unable to clean temporary encrypted vault file")
+                        }
                     }
                 }
             }
