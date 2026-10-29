@@ -1,6 +1,5 @@
 package com.vvf.smartmanager.core.security
 
-import java.security.MessageDigest
 import java.security.SecureRandom
 import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
