@@ -151,9 +151,6 @@ class VVFApplication : Application(), Configuration.Provider {
         if (!jvmUnitTest) {
             val liveDatabaseFile = getDatabasePath(VVFDatabase.DATABASE_NAME)
             val liveVaultDir = File(filesDir, "vvf_vault_encrypted")
-            // Interrupted per-file migration may leave plaintext staging beside encrypted vault data.
-            // Recover it before any UI or repository can observe the vault directory.
-            cryptoSecurityManager.recoverVaultMigrationArtifacts(liveVaultDir)
             // Recover the current journal first so its swap artifacts cannot be mistaken for
             // an unjournaled legacy transaction. Then recover/retire the prior cacheDir journal.
             LocalRestoreApplier.recoverInterruptedRestore(
@@ -168,6 +165,9 @@ class VVFApplication : Application(), Configuration.Provider {
                 snapshotRoot = File(cacheDir, "restore-work/snapshots"),
                 cryptoSecurityManager = cryptoSecurityManager
             )
+            // After restore recovery has selected the authoritative live vault, recover any
+            // interrupted per-file migration artifacts before repositories/UI can observe it.
+            cryptoSecurityManager.recoverVaultMigrationArtifacts(liveVaultDir)
         }
         // Play Integrity App Check is device/Play-only; skip on JVM unit tests (Robolectric).
         if (!jvmUnitTest) {
