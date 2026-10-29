@@ -12,6 +12,8 @@ import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -121,6 +123,18 @@ class PortableBackupRestoreIntegrationTest {
         assertTrue("Destination must configure a local PIN before vault restore",
             destinationCrypto.saveVaultPin("5678"))
 
+        val lockedRestoreStage = temp.newFolder("restore-locked-stage")
+        destinationCrypto.lockVaultDataKey()
+        val lockedRestore = CryptoBackupDecryptor(destinationCrypto).decrypt(
+            VerifiedArtifact(archive.file, archive.backupInfo, archive.checksumSha256),
+            lockedRestoreStage,
+            "portable test passphrase 2026".toCharArray()
+        )
+        assertTrue("Vault restore must fail closed until a local PIN unlocks the destination key", lockedRestore.isFailure)
+        assertFalse(destinationCrypto.isVaultDataKeyUnlocked())
+        assertTrue("Correct local PIN must unlock the destination vault key",
+            destinationCrypto.verifyVaultPin("5678"))
+
         val restoreStage = temp.newFolder("restore-stage")
         val decrypted = CryptoBackupDecryptor(destinationCrypto).decrypt(
             VerifiedArtifact(archive.file, archive.backupInfo, archive.checksumSha256),
@@ -164,7 +178,15 @@ class PortableBackupRestoreIntegrationTest {
         assertTrue(applied.success)
         assertEquals("SQLCIPHER-DATABASE-CIPHERTEXT", liveDatabase.readText())
         assertTrue(File(liveVault, "enc_fixture.vvf").isFile)
+        destinationCrypto.lockVaultDataKey()
+        assertFalse("Restore completion must leave the in-memory vault key locked",
+            destinationCrypto.isVaultDataKeyUnlocked())
         val restoredVaultPlain = File(temp.root, "restored-vault-plain.txt")
+        assertThrows(SecurityException::class.java) {
+            destinationCrypto.decryptFile(File(liveVault, "enc_fixture.vvf"), restoredVaultPlain)
+        }
+        assertTrue("The configured local PIN must unlock the restored vault",
+            destinationCrypto.verifyVaultPin("5678"))
         destinationCrypto.decryptFile(File(liveVault, "enc_fixture.vvf"), restoredVaultPlain)
         assertEquals("vault secret payload", restoredVaultPlain.readText())
         val sourceDeviceDecrypt = runCatching {
