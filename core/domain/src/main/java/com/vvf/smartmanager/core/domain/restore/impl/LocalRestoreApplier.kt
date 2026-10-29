@@ -563,17 +563,27 @@ class LocalRestoreApplier(
             if (liveDatabaseFile.exists() &&
                 (databaseBackup.exists() || vaultBackupArtifacts.isNotEmpty())
             ) {
-                // Resume the narrow legacy crash window where recovery already copied the DB
-                // from its rollback backup but died before publishing the matching vault. Only
-                // pair the vault backup when the live DB is byte-identical to that backup.
+                if (liveVaultDir.exists()) {
+                    // Both live targets are present. Do not guess whether stale backups belong
+                    // to this state; preserve them for explicit/manual recovery.
+                    return
+                }
+
+                // Resume only the narrow legacy crash window where recovery already published
+                // the DB from its rollback backup but died before publishing the matching vault.
+                // If the pair cannot be proven, fail closed instead of opening with missing or
+                // potentially mismatched vault contents.
                 val canResumeVaultPublication =
-                    !liveVaultDir.exists() &&
-                        databaseBackup.isFile &&
+                    databaseBackup.isFile &&
                         databaseBackup.length() > 0L &&
                         vaultBackupArtifacts.size == 1 &&
                         vaultBackups.size == 1 &&
                         filesHaveSameContents(liveDatabaseFile, databaseBackup)
-                if (!canResumeVaultPublication) return
+                if (!canResumeVaultPublication) {
+                    throw IllegalStateException(
+                        "Legacy restore left a live database but no unambiguous matching vault recovery pair; preserving artifacts"
+                    )
+                }
             }
 
             if (!liveDatabaseFile.exists() && (!databaseBackup.isFile || databaseBackup.length() == 0L)) {
