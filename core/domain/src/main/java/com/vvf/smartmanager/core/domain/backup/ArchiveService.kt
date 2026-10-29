@@ -87,15 +87,19 @@ class ArchiveService(
             if (includeVault) {
                 val vaultDir = File(stagingDir, "vault")
                 if (!vaultDir.isDirectory) throw ArchiveException("Vault snapshot is missing")
-                val vaultFiles = vaultDir.walkTopDown().filter { it.isFile }.toList()
-                if (vaultFiles.isNotEmpty()) {
-                    if (vaultPin.isNullOrBlank() ||
-                        !cryptoSecurityManager.isVaultConfigured() ||
-                        !cryptoSecurityManager.verifyVaultPin(vaultPin)
-                    ) {
-                        throw ArchiveException("The current real vault PIN is required to include vault contents")
-                    }
+                val hasVaultPayload = vaultDir.walkTopDown().any { it.isFile }
+                if (hasVaultPayload && (
+                        vaultPin.isNullOrBlank() ||
+                            !cryptoSecurityManager.isVaultConfigured() ||
+                            !cryptoSecurityManager.verifyVaultPin(vaultPin)
+                    )
+                ) {
+                    throw ArchiveException("The current real vault PIN is required to include vault contents")
                 }
+                // A crash during per-file migration can leave plaintext or stale encrypted artifacts.
+                // Recover the isolated snapshot before enumerating it so these artifacts never ship.
+                cryptoSecurityManager.recoverVaultMigrationArtifacts(vaultDir)
+                val vaultFiles = vaultDir.walkTopDown().filter { it.isFile }.toList()
                 vaultFiles.forEach { encryptedVaultFile ->
                     val plainTemp = File(encryptedVaultFile.parentFile, encryptedVaultFile.name + ".portable-plain")
                     cryptoSecurityManager.decryptFile(encryptedVaultFile, plainTemp)
