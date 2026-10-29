@@ -83,7 +83,12 @@ class ArchiveServiceTest {
         val cache = temp.newFolder("cleanup-failure-cache")
         val crypto = mock<CryptoSecurityManager>()
         whenever(crypto.getOrCreateDatabasePassphrase()).thenReturn(ByteArray(32) { (it + 3).toByte() })
-        whenever(crypto.secureShredFile(any())).thenReturn(false)
+        whenever(crypto.secureShredFile(any())).thenAnswer { invocation ->
+            val file = invocation.getArgument<File>(0)
+            if (file.exists()) file.delete()
+            // Model unlink succeeding after overwrite verification fails.
+            false
+        }
         val source = object : SnapshotSource {
             override val sourceName: String = "database"
             override fun snapshot(stagingDir: File): File =
