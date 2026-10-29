@@ -167,4 +167,57 @@ class CloudSyncUseCaseTest {
         assertTrue(result.isSuccess)
         assertEquals(CloudSyncStatus.SUCCESS, useCase.syncState.value)
     }
+
+    @Test
+    fun restoreOutcomeIsPersistedBeforeRestartCallbackAndCanBeConsumed() = runBlocking {
+        val info = CloudBackupInfo("remote-outcome", 1L, "backup-outcome.vvfbak", 10L, checksumSha256 = "abc")
+        val pipeline = FailClosedRestorePipeline(
+            workingDir = temp.newFolder("restore-outcome-work"),
+            downloader = object : BackupDownloader {
+                override suspend fun download(remoteBackupId: String) = Result.success(
+                    DownloadedArtifact(temp.newFile("outcome-artifact"), info, "abc")
+                )
+            },
+            verifier = object : BackupVerifier {
+                override suspend fun verify(artifact: DownloadedArtifact, expectedChecksum: String?) =
+                    Result.success(VerifiedArtifact(artifact.file, info, "abc"))
+            },
+            decryptor = object : BackupDecryptor {
+                override suspend fun decrypt(
+                    verifiedArtifact: VerifiedArtifact,
+                    stagingDir: File,
+                    passphrase: CharArray?
+                ) = Result.success(
+                    DecryptedBackup(stagingDir, temp.newFile("outcome-db"), temp.newFolder("outcome-vault"), info, 1L)
+                )
+            },
+            applier = object : RestoreApplier {
+                override suspend fun prepare() = Result.success(
+                    RestoreSnapshot("outcome-snapshot", 1L, temp.newFile("outcome-sdb"), temp.newFolder("outcome-sv"))
+                )
+                override suspend fun apply(decryptedBackup: DecryptedBackup) =
+                    Result.success(AppliedRestore(true, 1, 0, "restored"))
+                override suspend fun rollback(snapshot: RestoreSnapshot) = Result.success(Unit)
+            }
+        )
+        var savedMessage: String? = null
+        var callbackSawPersistedMessage = false
+        val store = object : RestoreOutcomeStore {
+            override fun save(message: String) { savedMessage = message }
+            override fun consume(): String? = savedMessage.also { savedMessage = null }
+        }
+        val useCase = CloudSyncUseCase(
+            googleDriveService = FakeDriveService(),
+            restorePipeline = pipeline,
+            onRestoreFinished = { callbackSawPersistedMessage = savedMessage != null },
+            restoreOutcomeStore = store
+        )
+
+        val result = useCase.restoreCloudBackup(info)
+
+        assertTrue(result.isSuccess)
+        assertTrue("Outcome must be saved before process restart callback", callbackSawPersistedMessage)
+        assertTrue(useCase.consumeLastRestoreOutcome().orEmpty().contains("Restored backup-outcome.vvfbak"))
+        assertEquals(null, useCase.consumeLastRestoreOutcome())
+    }
 }
