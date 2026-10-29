@@ -285,7 +285,7 @@ class CloudSyncUseCase(
             // both success guidance (new local vault PIN) and actionable failure information.
             val message = outcome.fold(
                 onSuccess = {
-                    "Restored ${backupInfo.backupName} successfully. If it included vault contents, use your existing local vault PIN or configure one if none is set."
+                    "Restored ${backupInfo.backupName} successfully. If it included vault contents, unlock them with the local vault PIN configured on this device."
                 },
                 onFailure = { error ->
                     "Restore failed: ${error.message ?: "unexpected restore failure"}"
