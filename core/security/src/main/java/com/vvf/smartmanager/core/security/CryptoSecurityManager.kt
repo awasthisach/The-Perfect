@@ -580,27 +580,30 @@ class CryptoSecurityManager(
     @Synchronized
     fun setupVaultPin(pin: String): Boolean {
         if (!isValidPinFormat(pin)) return false
+        var salt: ByteArray? = null
+        var hash: ByteArray? = null
+        var pepper: ByteArray? = null
+        var dataKey: ByteArray? = null
+        var keyCopy: ByteArray? = null
         return try {
-            val salt = ByteArray(16).also(SecureRandom()::nextBytes)
-            val hash = hashPin(pin, salt)
+            salt = ByteArray(16).also(SecureRandom()::nextBytes)
+            hash = hashPin(pin, salt)
             val (encHash, hashIv) = encryptBytes(hash, alias = VAULT_META_KEY_ALIAS)
             val (encSalt, saltIv) = encryptBytes(salt, alias = VAULT_META_KEY_ALIAS)
-            val pepper = getOrCreateVaultDevicePepper()
-            val activeKeyBytes = activeVaultDataKey?.encoded
+            pepper = getOrCreateVaultDevicePepper()
             val existingEnvelope = prefs.getString(VAULT_DATA_KEY_ENVELOPE_PREF, null)
-            val dataKey = when {
-                activeKeyBytes != null -> activeKeyBytes
-                existingEnvelope != null -> throw SecurityException("Unlock the vault with its current PIN before changing the PIN")
-                else -> ByteArray(DB_KEY_LENGTH_BYTES).also(SecureRandom()::nextBytes)
-            }
-            val keyCopy = dataKey.copyOf()
-            val envelope = try {
-                pinWrappedVaultKey.wrap(keyCopy, pin.toCharArray(), pepper)
-            } finally {
-                keyCopy.fill(0)
-            }
+            dataKey = activeVaultDataKey?.encoded
+                ?: if (existingEnvelope != null) {
+                    throw SecurityException("Unlock the vault with its current PIN before changing the PIN")
+                } else {
+                    ByteArray(DB_KEY_LENGTH_BYTES).also(SecureRandom()::nextBytes)
+                }
+            keyCopy = dataKey.copyOf()
+            val envelope = pinWrappedVaultKey.wrap(keyCopy, pin.toCharArray(), pepper)
+            keyCopy.fill(0)
+            keyCopy = null
             val saved = prefs.edit()
-                .putString("vault_pin_hash", Base64.encodeToString(encHash, Base64.NO_WRAP))
+                .putString("vault_pin_hash", Base64.encodeToString(hash, Base64.NO_WRAP))
                 .putString("vault_pin_hash_iv", Base64.encodeToString(hashIv, Base64.NO_WRAP))
                 .putString("vault_pin_salt", Base64.encodeToString(encSalt, Base64.NO_WRAP))
                 .putString("vault_pin_salt_iv", Base64.encodeToString(saltIv, Base64.NO_WRAP))
@@ -608,20 +611,17 @@ class CryptoSecurityManager(
                 .commit()
             if (!saved) throw SecurityException("Unable to persist PIN-protected vault key")
             activeVaultDataKey = SecretKeySpec(dataKey, "AES")
-            try {
-                migrateLegacyVaultFiles(dataKey)
-            } catch (error: Throwable) {
-                activeVaultDataKey = null
-                throw error
-            } finally {
-                dataKey.fill(0)
-                pepper.fill(0)
-                salt.fill(0)
-                hash.fill(0)
-            }
+            migrateLegacyVaultFiles(dataKey)
             true
         } catch (_: Exception) {
+            activeVaultDataKey = null
             false
+        } finally {
+            salt?.fill(0)
+            hash?.fill(0)
+            pepper?.fill(0)
+            dataKey?.fill(0)
+            keyCopy?.fill(0)
         }
     }
 
