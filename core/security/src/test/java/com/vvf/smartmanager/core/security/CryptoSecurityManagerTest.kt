@@ -108,6 +108,37 @@ class CryptoSecurityManagerTest {
     }
 
     @Test
+    fun realPinMigratesLegacyVaultFilesAndLocksVersionedDataKey() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val vaultDir = java.io.File(context.filesDir, "vvf_vault_encrypted")
+        vaultDir.deleteRecursively()
+        assertTrue(vaultDir.mkdirs())
+        val legacyFile = java.io.File(vaultDir, "enc_legacy.vvf")
+        val plaintext = "legacy vault payload that must survive migration".toByteArray()
+        val (ciphertext, iv) = cryptoSecurityManager.encryptBytes(
+            plaintext,
+            alias = "vvf_vault_master_key_v1"
+        )
+        legacyFile.writeBytes(iv + ciphertext)
+        val restored = java.io.File(context.cacheDir, "vault-migration-restored.bin")
+        try {
+            assertTrue(cryptoSecurityManager.setupVaultPin("482951"))
+            assertTrue(legacyFile.readBytes().copyOfRange(0, 4).contentEquals(byteArrayOf(86, 86, 70, 50)))
+            cryptoSecurityManager.decryptFile(legacyFile, restored)
+            assertArrayEquals(plaintext, restored.readBytes())
+
+            cryptoSecurityManager.lockVaultDataKey()
+            assertThrowsSecurityFailure {
+                cryptoSecurityManager.decryptFile(legacyFile, java.io.File(context.cacheDir, "locked-vault-output.bin"))
+            }
+        } finally {
+            restored.delete()
+            java.io.File(context.cacheDir, "locked-vault-output.bin").delete()
+            vaultDir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun testStreamingEncryptionDecryptionRoundtrip() {
         assertTrue(cryptoSecurityManager.setupVaultPin("482951"))
         val payload = "Testing AES-256-GCM Streaming File Encryption for Secure Vault.\n".repeat(500)
