@@ -9,6 +9,7 @@ import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import com.vvf.smartmanager.core.security.PortableBackupCrypto
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.io.FileOutputStream
 import java.util.zip.ZipInputStream
 
 /** Decrypts a verified .vvfbak archive into isolated staging (zip-slip safe). */
@@ -49,7 +50,9 @@ class CryptoBackupDecryptor(
                 return Result.failure(RestoreException("Decryption produced no payload"))
             }
             unzip(decryptedZip, stagingDir)
-            decryptedZip.delete()
+            if (!securelyDeleteTree(decryptedZip)) {
+                throw SecurityException("Unable to securely remove decrypted ZIP staging")
+            }
             val metadataFile = File(stagingDir, "metadata.json")
             val metadata = metadataFile.takeIf { it.isFile }?.let {
                 json.decodeFromString(ArchiveMetadata.serializer(), it.readText())
@@ -166,9 +169,44 @@ class CryptoBackupDecryptor(
             passphrase?.fill(0.toChar())
             // This directory is isolated and owned by the restore attempt; it may contain
             // plaintext vault payload or the imported SQLCipher passphrase after partial unzip.
-            stagingDir.deleteRecursively()
+            securelyDeleteTree(stagingDir)
             Result.failure(RestoreException("Backup decryption failed", error))
         }
+    }
+
+    /**
+     * Best-effort overwrite before unlinking plaintext restore artifacts. Flash storage wear-leveling
+     * means this is not a forensic-erasure guarantee; app-private staging must still be short-lived.
+     */
+    private fun securelyDeleteTree(root: File): Boolean {
+        if (!root.exists()) return true
+        var success = true
+        root.walkBottomUp().toList().forEach { entry ->
+            if (!entry.exists()) return@forEach
+            val removed = if (entry.isFile) {
+                try {
+                    val length = entry.length()
+                    FileOutputStream(entry).use { output ->
+                        val zeros = ByteArray(64 * 1024)
+                        var written = 0L
+                        while (written < length) {
+                            val count = minOf(zeros.size.toLong(), length - written).toInt()
+                            output.write(zeros, 0, count)
+                            written += count
+                        }
+                        output.flush()
+                        output.fd.sync()
+                    }
+                    entry.delete()
+                } catch (_: Exception) {
+                    entry.delete()
+                }
+            } else {
+                entry.delete()
+            }
+            if (!removed && entry.exists()) success = false
+        }
+        return success && !root.exists()
     }
 
     private fun unzip(zipFile: File, targetDir: File) {
