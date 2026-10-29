@@ -138,13 +138,14 @@ class ArchiveService(
             File(stagingDir, "metadata.json").writeText(json.encodeToString(metadata))
             zipDirectory(stagingDir, zipFile)
             portableCrypto.encryptFile(zipFile, encryptedFile, passphrase)
-            if (zipFile.exists() && !zipFile.delete()) {
-                throw ArchiveException("Unable to remove plaintext ZIP after encryption")
+            // The ZIP and staging tree contain the raw SQLCipher passphrase and temporarily
+            // decrypted vault payloads. Best-effort unlinking is insufficient: overwrite file
+            // contents before removal and refuse to publish if cleanup cannot be confirmed.
+            if (!cryptoSecurityManager.secureShredFile(zipFile)) {
+                throw ArchiveException("Unable to securely remove plaintext ZIP after encryption")
             }
-            // The staging tree contains the raw SQLCipher passphrase and temporarily decrypted
-            // vault payloads. Do not publish/upload a backup unless this plaintext is removed.
-            if (stagingDir.exists() && !stagingDir.deleteRecursively()) {
-                throw ArchiveException("Unable to remove plaintext backup staging")
+            if (!securelyDeleteTree(stagingDir)) {
+                throw ArchiveException("Unable to securely remove plaintext backup staging")
             }
 
             if (!encryptedFile.isFile || encryptedFile.length() == 0L) {
@@ -174,9 +175,25 @@ class ArchiveService(
             Result.failure(ArchiveException("Archive creation failed", error))
         } finally {
             passphrase.fill(0.toChar())
-            stagingDir.deleteRecursively()
-            zipFile.delete()
+            // Repeat cleanup for early-return/exception paths. Never touch encryptedFile here.
+            runCatching { securelyDeleteTree(stagingDir) }
+            runCatching { cryptoSecurityManager.secureShredFile(zipFile) }
         }
+    }
+
+    private fun securelyDeleteTree(root: File): Boolean {
+        if (!root.exists()) return true
+        var success = true
+        root.walkBottomUp().toList().forEach { entry ->
+            if (!entry.exists()) return@forEach
+            val removed = if (entry.isFile) {
+                cryptoSecurityManager.secureShredFile(entry)
+            } else {
+                entry.delete()
+            }
+            if (!removed && entry.exists()) success = false
+        }
+        return success && !root.exists()
     }
 
     private fun zipDirectory(sourceDir: File, zipFile: File) {
