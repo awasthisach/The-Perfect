@@ -288,7 +288,6 @@ class CryptoSecurityManager(
     }
 
     private fun readPinWrappedVaultKeyEnvelope(file: File): ByteArray {
-        recoverVaultKeyEnvelopeFile(file)
         val payload = file.readBytes()
         try {
             require(payload.size >= 1 + GCM_IV_LENGTH_BYTES + 16) { "PIN-wrapped vault key file is truncated" }
@@ -358,6 +357,7 @@ class CryptoSecurityManager(
     @Synchronized
     private fun rewrapOrCreateVaultDataKey(pin: String) {
         val envelopeFile = File(context.filesDir, VAULT_DATA_KEY_FILE)
+        recoverVaultKeyEnvelopeFile(envelopeFile)
         val current = activeVaultDataKey?.copyOf() ?: if (envelopeFile.isFile) {
             val innerEnvelope = readPinWrappedVaultKeyEnvelope(envelopeFile)
             try { pinWrappedVaultKey.unwrap(innerEnvelope, pin.toCharArray()) }
@@ -387,6 +387,7 @@ class CryptoSecurityManager(
     @Synchronized
     private fun activateVaultDataKey(pin: String) {
         val envelopeFile = File(context.filesDir, VAULT_DATA_KEY_FILE)
+        recoverVaultKeyEnvelopeFile(envelopeFile)
         val key = if (envelopeFile.isFile) {
             val innerEnvelope = readPinWrappedVaultKeyEnvelope(envelopeFile)
             try { pinWrappedVaultKey.unwrap(innerEnvelope, pin.toCharArray()) }
