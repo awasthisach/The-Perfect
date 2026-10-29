@@ -236,6 +236,7 @@ class LocalRestoreApplierTest {
             File(it, "partial.bin").writeText("PARTIAL-VAULT")
         }
         val token = UUID.randomUUID().toString()
+        val unrelatedRecoveryNote = File(snapshotRoot, "unrelated-recovery-note.txt").apply { writeText("keep this file") }
         File(snapshotRoot, "$token-db").writeText("ORIGINAL-DB")
         File(snapshotRoot, "$token-db-wal").writeText("ORIGINAL-WAL")
         File(snapshotRoot, "$token-vault").also {
@@ -266,6 +267,9 @@ class LocalRestoreApplierTest {
         assertEquals("ORIGINAL-VAULT", File(liveVault, "original.bin").readText())
         assertFalse("Partial vault must be removed", File(liveVault, "partial.bin").exists())
         assertFalse("Recovery journal must be cleared", File(snapshotRoot, "active-restore.properties").exists())
+        assertTrue("Unrelated snapshot-root file must be preserved", unrelatedRecoveryNote.isFile)
+        assertEquals("keep this file", unrelatedRecoveryNote.readText())
+        assertFalse("Validated transaction snapshot must be retired", File(snapshotRoot, "$token-db").exists())
     }
 
     @Test
@@ -405,4 +409,33 @@ class LocalRestoreApplierTest {
         assertFalse("Previously absent vault must remain absent", liveVault.exists())
     }
 
+
+    @Test
+    fun startupRecoveryRestoresLegacyBackupsWithoutJournalOrSnapshotRoot() {
+        val root = temp.newFolder("legacy-unjournaled-recovery")
+        val liveDb = File(root, "live.db").apply { writeText("INTERRUPTED-DB") }
+        val dbBackup = File(root, "live.db.restore-bak").apply { writeText("ORIGINAL-DB") }
+        val liveVault = File(root, "vault").also {
+            it.mkdirs()
+            File(it, "partial.bin").writeText("INTERRUPTED-VAULT")
+        }
+        val vaultBackup = File(root, "vault.restore-bak-legacy").also {
+            it.mkdirs()
+            File(it, "original.bin").writeText("ORIGINAL-VAULT")
+        }
+        val snapshotRoot = File(root, "missing-snapshot-root")
+
+        LocalRestoreApplier.recoverInterruptedRestore(
+            liveDatabaseFile = liveDb,
+            liveVaultDir = liveVault,
+            snapshotRoot = snapshotRoot,
+            cryptoSecurityManager = mock()
+        )
+
+        assertEquals("Legacy DB backup should win over interrupted live payload", "ORIGINAL-DB", liveDb.readText())
+        assertEquals("Legacy vault backup should win over interrupted live payload", "ORIGINAL-VAULT", File(liveVault, "original.bin").readText())
+        assertFalse(File(liveVault, "partial.bin").exists())
+        assertFalse("Legacy DB backup should be retired after recovery", dbBackup.exists())
+        assertFalse("Legacy vault backup should be retired after recovery", vaultBackup.exists())
+    }
 }
