@@ -45,6 +45,7 @@ class VaultAuthUseCase(private val repository: SecureVaultRepository) {
     fun isVaultConfigured(): Boolean = repository.isVaultConfigured()
     fun isDecoyConfigured(): Boolean = repository.isDecoyVaultConfigured()
     fun lockVaultSession() = repository.lockVaultSession()
+    fun isVaultDataKeyUnlocked(): Boolean = repository.isVaultDataKeyUnlocked()
     fun setupPin(pin: String): Boolean = repository.setupPin(pin)
     fun setupDecoyPin(pin: String): Boolean = repository.setupDecoyPin(pin)
     fun removeDecoyPin(): Boolean = repository.removeDecoyPin()
