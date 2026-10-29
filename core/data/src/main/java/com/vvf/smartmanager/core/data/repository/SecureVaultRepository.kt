@@ -218,7 +218,10 @@ class SecureVaultRepository(
 
         // Plaintext is now successfully restored. If secure shredding fails, retain the encrypted
         // source and DB record rather than creating a false state in which the item disappears.
-        if (cryptoManager.secureShredFile(encryptedFile)) {
+        val secureShredConfirmed = cryptoManager.secureShredFile(encryptedFile)
+        // If unlink succeeded after an overwrite failure, the encrypted file is gone even though
+        // secure shredding could not be confirmed. Reconcile the row to avoid a dangling vault item.
+        if (secureShredConfirmed || !encryptedFile.exists()) {
             vaultDao.deleteById(vaultItemId)
         }
 
@@ -279,11 +282,18 @@ class SecureVaultRepository(
                 "Encrypted vault path escaped the isolated secure vault directory"
             }
             if (encryptedFile.exists()) {
-                require(cryptoManager.secureShredFile(encryptedFile)) {
+                val secureShredConfirmed = cryptoManager.secureShredFile(encryptedFile)
+                // Keep metadata only while the encrypted file still exists. If unlink succeeded
+                // but overwrite verification failed, report failure without leaving a dangling row.
+                if (secureShredConfirmed || !encryptedFile.exists()) {
+                    vaultDao.deleteById(vaultItemId)
+                }
+                require(secureShredConfirmed) {
                     "Unable to securely remove encrypted vault file"
                 }
+            } else {
+                vaultDao.deleteById(vaultItemId)
             }
-            vaultDao.deleteById(vaultItemId)
         }
         true
     }
