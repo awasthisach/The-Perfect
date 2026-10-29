@@ -9,6 +9,7 @@ import com.vvf.smartmanager.core.database.dao.CloudSyncDao
 import com.vvf.smartmanager.core.database.dao.FileDao
 import com.vvf.smartmanager.core.database.dao.SearchFtsDao
 import com.vvf.smartmanager.core.domain.CloudSyncUseCase
+import com.vvf.smartmanager.core.domain.RestoreOutcomeStore
 import com.vvf.smartmanager.core.domain.backup.ArchiveService
 import com.vvf.smartmanager.core.domain.restore.FailClosedRestorePipeline
 import com.vvf.smartmanager.core.domain.restore.impl.CryptoBackupDecryptor
@@ -22,6 +23,7 @@ import java.io.File
 
 /** Composition root for permission-gated storage and fail-closed cloud restore. */
 object AppCompositionRoot {
+    private const val KEY_PENDING_RESTORE_OUTCOME = "pending_restore_outcome"
     fun storagePermissionGate(context: Context): StoragePermissionGate =
         StoragePermissionGate(context)
 
@@ -72,7 +74,24 @@ object AppCompositionRoot {
             archiveService = archiveService,
             restorePipeline = restorePipeline,
             cloudSyncDao = cloudSyncDao,
-            onRestoreFinished = onRestoreFinished
+            onRestoreFinished = onRestoreFinished,
+            restoreOutcomeStore = object : RestoreOutcomeStore {
+                private val preferences = context.getSharedPreferences("vvf_app_settings", Context.MODE_PRIVATE)
+
+                override fun save(message: String) {
+                    check(preferences.edit().putString(KEY_PENDING_RESTORE_OUTCOME, message).commit()) {
+                        "Unable to persist restore outcome before process restart"
+                    }
+                }
+
+                override fun consume(): String? {
+                    val message = preferences.getString(KEY_PENDING_RESTORE_OUTCOME, null) ?: return null
+                    check(preferences.edit().remove(KEY_PENDING_RESTORE_OUTCOME).commit()) {
+                        "Unable to clear consumed restore outcome"
+                    }
+                    return message
+                }
+            }
         )
     }
 }
