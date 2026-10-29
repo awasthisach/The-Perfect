@@ -70,7 +70,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
-          python3 tools/audit/cpas_verify.py --root .
+          python3 tools/audit/cpas_verify.py --root . --revision "$GITHUB_SHA"
 
       - name: Validate release inputs and secrets
         env:
