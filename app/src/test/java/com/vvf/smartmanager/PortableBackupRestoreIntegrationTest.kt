@@ -114,6 +114,13 @@ class PortableBackupRestoreIntegrationTest {
         assertTrue("Different devices must start with different wrapped database keys",
             !originalPassphrase.contentEquals(destinationPassphrase))
 
+        // A new device must establish its own local PIN/key before restoring vault payloads.
+        // This also isolates the simulated destination's PIN metadata from the source device.
+        check(context.getSharedPreferences("vvf_secure_vault_prefs", Context.MODE_PRIVATE)
+            .edit().clear().commit()) { "Unable to reset simulated destination vault state" }
+        assertTrue("Destination must configure a local PIN before vault restore",
+            destinationCrypto.saveVaultPin("5678"))
+
         val restoreStage = temp.newFolder("restore-stage")
         val decrypted = CryptoBackupDecryptor(destinationCrypto).decrypt(
             VerifiedArtifact(archive.file, archive.backupInfo, archive.checksumSha256),
