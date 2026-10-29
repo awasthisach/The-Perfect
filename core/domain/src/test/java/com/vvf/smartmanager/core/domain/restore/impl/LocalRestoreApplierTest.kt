@@ -165,7 +165,7 @@ class LocalRestoreApplierTest {
     }
 
     @Test
-    fun databaseOnlyRestorePreservesLiveVault() = runBlocking {
+    fun databaseOnlyRestoreFailsClosedWhenLiveVaultHasFiles() = runBlocking {
         val liveDb = temp.newFile("database-only-live.db").apply { writeText("OLD-DB") }
         val liveVault = temp.newFolder("database-only-vault").also {
             File(it, "keep.bin").writeText("KEEP-VAULT")
@@ -177,8 +177,8 @@ class LocalRestoreApplierTest {
         }
         val info = sampleInfo.copy(includesVault = false, includesDatabase = true)
         val applier = LocalRestoreApplier(liveDb, liveVault, temp.newFolder("database-only-snaps"))
+        val snapshot = applier.prepare().getOrThrow()
 
-        applier.prepare().getOrThrow()
         val result = applier.apply(
             DecryptedBackup(
                 stagingDir = staging,
@@ -189,13 +189,14 @@ class LocalRestoreApplierTest {
             )
         )
 
-        assertTrue(result.isSuccess)
-        assertEquals("NEW-DB", liveDb.readText())
+        assertTrue("Database-only restore must be rejected when it would orphan live vault data", result.isFailure)
+        assertEquals("OLD-DB", liveDb.readText())
         assertEquals("KEEP-VAULT", File(liveVault, "keep.bin").readText())
+        assertTrue("Rollback should close the prepared transaction", applier.rollback(snapshot).isSuccess)
     }
 
     @Test
-    fun vaultOnlyRestorePreservesLiveDatabase() = runBlocking {
+    fun vaultOnlyRestoreFailsClosedBecauseMetadataLivesInDatabase() = runBlocking {
         val liveDb = temp.newFile("vault-only-live.db").apply { writeText("KEEP-DB") }
         val liveVault = temp.newFolder("vault-only-live-vault").also {
             File(it, "old.bin").writeText("OLD-VAULT")
@@ -207,8 +208,8 @@ class LocalRestoreApplierTest {
         }
         val info = sampleInfo.copy(includesVault = true, includesDatabase = false)
         val applier = LocalRestoreApplier(liveDb, liveVault, temp.newFolder("vault-only-snaps"))
+        val snapshot = applier.prepare().getOrThrow()
 
-        applier.prepare().getOrThrow()
         val result = applier.apply(
             DecryptedBackup(
                 stagingDir = staging,
@@ -219,10 +220,11 @@ class LocalRestoreApplierTest {
             )
         )
 
-        assertTrue(result.isSuccess)
+        assertTrue("Vault-only restore must be rejected because metadata is stored in the database", result.isFailure)
         assertEquals("KEEP-DB", liveDb.readText())
-        assertEquals("NEW-VAULT", File(liveVault, "new.bin").readText())
-        assertFalse(File(liveVault, "old.bin").exists())
+        assertEquals("OLD-VAULT", File(liveVault, "old.bin").readText())
+        assertFalse(File(liveVault, "new.bin").exists())
+        assertTrue("Rollback should close the prepared transaction", applier.rollback(snapshot).isSuccess)
     }
 
     @Test
