@@ -379,7 +379,8 @@ fun VaultSettingsDialog(
     onSetupDecoyClick: () -> Unit = {},
     onRemoveDecoyClick: () -> Unit = {},
     onPopulateDecoyDataClick: () -> Unit = {},
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    isBiometricSupported: Boolean = false
 ) {
     var timeoutDropdownExpanded by remember { mutableStateOf(false) }
 
@@ -507,12 +508,17 @@ fun VaultSettingsDialog(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text("Biometric Unlock", fontWeight = FontWeight.SemiBold)
-                            Text("Unlock using Fingerprint or Face", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                if (isBiometricSupported) "Unlock using Fingerprint or Face" else "Temporarily unavailable; use PIN",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                     Switch(
-                        checked = isBiometricEnabled,
+                        checked = isBiometricEnabled && isBiometricSupported,
                         onCheckedChange = onToggleBiometric,
+                        enabled = isBiometricSupported,
                         colors = SwitchDefaults.colors(checkedThumbColor = BhagwaOrange),
                         modifier = Modifier.testTag("vault_biometric_switch")
                     )
