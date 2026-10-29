@@ -55,6 +55,7 @@ class VaultAuthUseCase(private val repository: SecureVaultRepository) {
     fun getFailedAttemptsCount(): Int = repository.getFailedAttemptsCount()
     suspend fun changePin(oldPin: String, newPin: String): Boolean = repository.changePin(oldPin, newPin)
     fun lockVaultDataKey() = repository.lockVaultDataKey()
+    fun isVaultDataKeyActive(): Boolean = repository.isVaultDataKeyActive()
     fun isBiometricEnabled(): Boolean = repository.isBiometricEnabled()
     fun setBiometricEnabled(enabled: Boolean) = repository.setBiometricEnabled(enabled)
     fun createVaultBiometricCipher(): javax.crypto.Cipher? = repository.createVaultBiometricCipher()
