@@ -38,6 +38,10 @@ class CryptoSecurityManager(
         private const val DB_KEY_ALIAS = "vvf_db_passphrase_key_v1"
         private const val VAULT_KEY_ALIAS = "vvf_vault_master_key_v1"
         private const val VAULT_META_KEY_ALIAS = "vvf_vault_meta_key_v1"
+        private const val VAULT_DATA_KEY_ENVELOPE_PREF = "vault_data_key_envelope_v1"
+        private const val VAULT_DEVICE_PEPPER_PREF = "vault_device_pepper_v1"
+        private const val VAULT_DEVICE_PEPPER_IV_PREF = "vault_device_pepper_iv_v1"
+        private val VAULT_FILE_MAGIC = byteArrayOf('V'.code.toByte(), 'V'.code.toByte(), 'F'.code.toByte(), '2'.code.toByte())
         private const val AES_GCM_TRANSFORMATION = "AES/GCM/NoPadding"
         private const val GCM_TAG_LENGTH_BITS = 128
         private const val GCM_IV_LENGTH_BYTES = 12
@@ -77,6 +81,10 @@ class CryptoSecurityManager(
 
     private val allowInMemoryFallback: Boolean =
         shouldAllowInMemoryFallback(keyStoreProvider, isJvmUnitTestEnvironment(context))
+
+    private val pinWrappedVaultKey = PinWrappedVaultKey()
+    @Volatile
+    private var activeVaultDataKey: SecretKey? = null
 
     private val isAndroidKeyStoreAvailable: Boolean = try {
         Security.getProvider(ANDROID_KEYSTORE) != null
@@ -284,52 +292,168 @@ class CryptoSecurityManager(
     data class StreamEncryptionResult(val ivBase64: String, val totalBytesEncrypted: Long)
 
     fun encryptStream(sourceStream: InputStream, destinationStream: OutputStream): StreamEncryptionResult {
+        val key = activeVaultDataKey
+            ?: throw SecurityException("Vault is locked; unlock with the real PIN before encrypting vault data")
+        return encryptStreamWithKey(sourceStream, destinationStream, key, versioned = true)
+    }
+
+    private fun encryptStreamWithKey(
+        sourceStream: InputStream,
+        destinationStream: OutputStream,
+        key: SecretKey,
+        versioned: Boolean
+    ): StreamEncryptionResult {
         val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
-        try {
-            cipher.init(Cipher.ENCRYPT_MODE, getSecretKey(VAULT_KEY_ALIAS))
-        } catch (e: android.security.keystore.UserNotAuthenticatedException) {
-            throw SecurityException("Vault key requires device authentication that is incompatible with PIN unlock.", e)
-        }
+        cipher.init(Cipher.ENCRYPT_MODE, key)
         val iv = cipher.iv
+        if (versioned) destinationStream.write(VAULT_FILE_MAGIC)
         destinationStream.write(iv)
-        var totalBytes: Long = 0
+        var totalBytes = 0L
         CipherOutputStream(destinationStream, cipher).use { cos ->
             val buffer = ByteArray(STREAM_BUFFER_SIZE)
-            var bytesRead: Int
-            while (sourceStream.read(buffer).also { bytesRead = it } != -1) {
-                cos.write(buffer, 0, bytesRead); totalBytes += bytesRead
+            try {
+                var bytesRead: Int
+                while (sourceStream.read(buffer).also { bytesRead = it } != -1) {
+                    cos.write(buffer, 0, bytesRead)
+                    totalBytes += bytesRead
+                }
+                cos.flush()
+            } finally {
+                buffer.fill(0)
             }
-            cos.flush()
         }
         return StreamEncryptionResult(Base64.encodeToString(iv, Base64.NO_WRAP), totalBytes)
     }
 
     fun encryptFile(sourceFile: File, destinationFile: File): StreamEncryptionResult =
-        FileInputStream(sourceFile).use { fis -> FileOutputStream(destinationFile).use { fos -> encryptStream(fis, fos) } }
+        FileInputStream(sourceFile).use { fis ->
+            FileOutputStream(destinationFile).use { fos -> encryptStream(fis, fos) }
+        }
 
     fun decryptStream(sourceStream: InputStream, destinationStream: OutputStream): Long {
+        val prefix = ByteArray(VAULT_FILE_MAGIC.size)
+        readExactly(sourceStream, prefix, "Invalid encrypted stream: Missing or corrupt header")
+        val versioned = prefix.contentEquals(VAULT_FILE_MAGIC)
         val iv = ByteArray(GCM_IV_LENGTH_BYTES)
-        require(sourceStream.read(iv) == GCM_IV_LENGTH_BYTES) { "Invalid encrypted stream: Missing or corrupt IV header" }
-        val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
-        try {
-            cipher.init(Cipher.DECRYPT_MODE, getSecretKey(VAULT_KEY_ALIAS), GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv))
-        } catch (e: android.security.keystore.UserNotAuthenticatedException) {
-            throw SecurityException("Vault key requires device authentication that is incompatible with PIN unlock.", e)
+        if (versioned) {
+            readExactly(sourceStream, iv, "Invalid versioned vault stream: Missing IV")
+        } else {
+            System.arraycopy(prefix, 0, iv, 0, prefix.size)
+            readExactly(sourceStream, iv, prefix.size, iv.size - prefix.size, "Invalid legacy vault stream: Missing IV")
         }
-        var totalBytes: Long = 0
+        val key = if (versioned) {
+            activeVaultDataKey ?: throw SecurityException("Vault is locked; unlock with the real PIN before decrypting vault data")
+        } else {
+            getSecretKey(VAULT_KEY_ALIAS)
+        }
+        val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
+        cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv))
+        var totalBytes = 0L
         CipherInputStream(sourceStream, cipher).use { cis ->
             val buffer = ByteArray(STREAM_BUFFER_SIZE)
-            var bytesRead: Int
-            while (cis.read(buffer).also { bytesRead = it } != -1) {
-                destinationStream.write(buffer, 0, bytesRead); totalBytes += bytesRead
+            try {
+                var bytesRead: Int
+                while (cis.read(buffer).also { bytesRead = it } != -1) {
+                    destinationStream.write(buffer, 0, bytesRead)
+                    totalBytes += bytesRead
+                }
+                destinationStream.flush()
+            } finally {
+                buffer.fill(0)
+                prefix.fill(0)
+                iv.fill(0)
             }
-            destinationStream.flush()
         }
         return totalBytes
     }
 
+    private fun readExactly(input: InputStream, target: ByteArray, message: String) =
+        readExactly(input, target, 0, target.size, message)
+
+    private fun readExactly(input: InputStream, target: ByteArray, offset: Int, length: Int, message: String) {
+        var read = 0
+        while (read < length) {
+            val count = input.read(target, offset + read, length - read)
+            if (count < 0) throw SecurityException(message)
+            read += count
+        }
+    }
+
+    private fun isVersionedVaultFile(file: File): Boolean = try {
+        FileInputStream(file).use { input ->
+            val magic = ByteArray(VAULT_FILE_MAGIC.size)
+            var read = 0
+            while (read < magic.size) {
+                val count = input.read(magic, read, magic.size - read)
+                if (count < 0) return false
+                read += count
+            }
+            magic.contentEquals(VAULT_FILE_MAGIC)
+        }
+    } catch (_: Exception) {
+        false
+    }
+
+    private fun recoverVaultMigrationArtifacts(vaultDir: File) {
+        vaultDir.listFiles().orEmpty().forEach { artifact ->
+            when {
+                artifact.name.startsWith(".") && artifact.name.endsWith(".migration.bak") -> {
+                    val originalName = artifact.name.removePrefix(".").removeSuffix(".migration.bak")
+                    val original = File(vaultDir, originalName)
+                    if (original.exists()) artifact.delete() else artifact.renameTo(original)
+                }
+                artifact.name.startsWith(".") &&
+                    (artifact.name.endsWith(".migration.tmp") || artifact.name.endsWith(".migration.plain")) -> artifact.delete()
+            }
+        }
+    }
+
+    private fun migrateLegacyVaultFiles(dataKey: ByteArray) {
+        val vaultDir = File(context.filesDir, "vvf_vault_encrypted")
+        if (!vaultDir.exists()) return
+        if (!vaultDir.isDirectory) throw SecurityException("Vault path is not a directory")
+        recoverVaultMigrationArtifacts(vaultDir)
+        val legacyFiles = vaultDir.listFiles().orEmpty()
+            .filter { it.isFile && it.name.endsWith(".vvf") && !isVersionedVaultFile(it) }
+        for (source in legacyFiles) {
+            val nonce = java.util.UUID.randomUUID().toString()
+            val plain = File(vaultDir, ".${source.name}.$nonce.migration.plain")
+            val staged = File(vaultDir, ".${source.name}.$nonce.migration.tmp")
+            val backup = File(vaultDir, ".${source.name}.migration.bak")
+            try {
+                decryptFile(source, plain)
+                FileInputStream(plain).use { input ->
+                    FileOutputStream(staged).use { output ->
+                        encryptStreamWithKey(input, output, SecretKeySpec(dataKey, "AES"), versioned = true)
+                    }
+                }
+                if (backup.exists() && !backup.delete()) throw SecurityException("Unable to clear stale vault migration backup")
+                source.copyTo(backup, overwrite = true)
+                if (!source.delete()) throw SecurityException("Unable to stage legacy vault file replacement")
+                if (!staged.renameTo(source)) {
+                    backup.copyTo(source, overwrite = true)
+                    throw SecurityException("Unable to publish migrated vault file")
+                }
+                if (!backup.delete()) throw SecurityException("Unable to retire legacy vault migration backup")
+            } catch (error: Throwable) {
+                if (!source.exists() && backup.exists()) backup.copyTo(source, overwrite = true)
+                throw SecurityException("Vault key migration failed; legacy recovery material was preserved", error)
+            } finally {
+                plain.delete()
+                staged.delete()
+            }
+        }
+    }
+
+    fun encryptFile(sourceFile: File, destinationFile: File): StreamEncryptionResult =
+        FileInputStream(sourceFile).use { fis ->
+            FileOutputStream(destinationFile).use { fos -> encryptStream(fis, fos) }
+        }
+
     fun decryptFile(sourceFile: File, destinationFile: File): Long =
-        FileInputStream(sourceFile).use { fis -> FileOutputStream(destinationFile).use { fos -> decryptStream(fis, fos) } }
+        FileInputStream(sourceFile).use { fis ->
+            FileOutputStream(destinationFile).use { fos -> decryptStream(fis, fos) }
+        }
 
     fun encryptBytes(data: ByteArray, alias: String = VAULT_KEY_ALIAS): Pair<ByteArray, ByteArray> {
         val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
@@ -371,6 +495,7 @@ class CryptoSecurityManager(
         data class INVALID_PIN(val failedAttempts: Int, val lockoutSeconds: Int) : VaultAuthResult
         data class LOCKED_OUT(val remainingSeconds: Int) : VaultAuthResult
         data object INVALID_FORMAT : VaultAuthResult
+        data object SECURITY_ERROR : VaultAuthResult
     }
 
     private val prefs by lazy { context.getSharedPreferences("vvf_secure_vault_prefs", Context.MODE_PRIVATE) }
@@ -457,19 +582,52 @@ class CryptoSecurityManager(
     fun isVaultConfigured(): Boolean = prefs.contains("vault_pin_hash") && prefs.contains("vault_pin_salt")
     fun isDecoyVaultConfigured(): Boolean = prefs.contains("vault_decoy_pin_hash") && prefs.contains("vault_decoy_pin_salt")
 
+    @Synchronized
     fun setupVaultPin(pin: String): Boolean {
         if (!isValidPinFormat(pin)) return false
-        val salt = ByteArray(16); SecureRandom().nextBytes(salt)
-        val hash = hashPin(pin, salt)
-        val (encHash, hashIv) = encryptBytes(hash, alias = VAULT_META_KEY_ALIAS)
-        val (encSalt, saltIv) = encryptBytes(salt, alias = VAULT_META_KEY_ALIAS)
-        prefs.edit()
-            .putString("vault_pin_hash", Base64.encodeToString(encHash, Base64.NO_WRAP))
-            .putString("vault_pin_hash_iv", Base64.encodeToString(hashIv, Base64.NO_WRAP))
-            .putString("vault_pin_salt", Base64.encodeToString(encSalt, Base64.NO_WRAP))
-            .putString("vault_pin_salt_iv", Base64.encodeToString(saltIv, Base64.NO_WRAP))
-            .apply()
-        return true
+        return try {
+            val salt = ByteArray(16).also(SecureRandom()::nextBytes)
+            val hash = hashPin(pin, salt)
+            val (encHash, hashIv) = encryptBytes(hash, alias = VAULT_META_KEY_ALIAS)
+            val (encSalt, saltIv) = encryptBytes(salt, alias = VAULT_META_KEY_ALIAS)
+            val pepper = getOrCreateVaultDevicePepper()
+            val activeKeyBytes = activeVaultDataKey?.encoded
+            val existingEnvelope = prefs.getString(VAULT_DATA_KEY_ENVELOPE_PREF, null)
+            val dataKey = when {
+                activeKeyBytes != null -> activeKeyBytes
+                existingEnvelope != null -> throw SecurityException("Unlock the vault with its current PIN before changing the PIN")
+                else -> ByteArray(DB_KEY_LENGTH_BYTES).also(SecureRandom()::nextBytes)
+            }
+            val keyCopy = dataKey.copyOf()
+            val envelope = try {
+                pinWrappedVaultKey.wrap(keyCopy, pin.toCharArray(), pepper)
+            } finally {
+                keyCopy.fill(0)
+            }
+            val saved = prefs.edit()
+                .putString("vault_pin_hash", Base64.encodeToString(encHash, Base64.NO_WRAP))
+                .putString("vault_pin_hash_iv", Base64.encodeToString(hashIv, Base64.NO_WRAP))
+                .putString("vault_pin_salt", Base64.encodeToString(encSalt, Base64.NO_WRAP))
+                .putString("vault_pin_salt_iv", Base64.encodeToString(saltIv, Base64.NO_WRAP))
+                .putString(VAULT_DATA_KEY_ENVELOPE_PREF, Base64.encodeToString(envelope, Base64.NO_WRAP))
+                .commit()
+            if (!saved) throw SecurityException("Unable to persist PIN-protected vault key")
+            activeVaultDataKey = SecretKeySpec(dataKey, "AES")
+            try {
+                migrateLegacyVaultFiles(dataKey)
+            } catch (error: Throwable) {
+                activeVaultDataKey = null
+                throw error
+            } finally {
+                dataKey.fill(0)
+                pepper.fill(0)
+                salt.fill(0)
+                hash.fill(0)
+            }
+            true
+        } catch (_: Exception) {
+            false
+        }
     }
 
     fun setupDecoyPin(decoyPin: String): Boolean {
@@ -498,13 +656,98 @@ class CryptoSecurityManager(
     fun verifyDecoyPin(pin: String): Boolean = verifyVaultPinWithResult(pin) == VaultAuthResult.SUCCESS_DECOY
     fun isSameAsVaultPin(pin: String): Boolean = isValidPinFormat(pin) && matchesRealPin(pin)
 
+    @Synchronized
     fun verifyVaultPinWithResult(pin: String): VaultAuthResult {
         if (!isValidPinFormat(pin)) return VaultAuthResult.INVALID_FORMAT
         val remainingLockout = getRemainingLockoutSeconds()
-        if (remainingLockout > 0) return VaultAuthResult.LOCKED_OUT(remainingLockout)
-        if (matchesRealPin(pin)) { resetFailedAttempts(); return VaultAuthResult.SUCCESS_REAL }
+        if (remainingLockout > 0) {
+            activeVaultDataKey = null
+            return VaultAuthResult.LOCKED_OUT(remainingLockout)
+        }
+        if (matchesRealPin(pin)) {
+            return try {
+                unlockOrMigrateVaultDataKey(pin)
+                resetFailedAttempts()
+                VaultAuthResult.SUCCESS_REAL
+            } catch (_: Exception) {
+                activeVaultDataKey = null
+                VaultAuthResult.SECURITY_ERROR
+            }
+        }
+        activeVaultDataKey = null
         if (matchesDecoyPin(pin)) { resetFailedAttempts(); return VaultAuthResult.SUCCESS_DECOY }
         return recordFailedAttempt()
+    }
+
+    fun lockVaultDataKey() {
+        activeVaultDataKey = null
+    }
+
+    private fun getOrCreateVaultDevicePepper(): ByteArray {
+        val encoded = prefs.getString(VAULT_DEVICE_PEPPER_PREF, null)
+        val encodedIv = prefs.getString(VAULT_DEVICE_PEPPER_IV_PREF, null)
+        if (encoded != null || encodedIv != null) {
+            if (encoded.isNullOrBlank() || encodedIv.isNullOrBlank()) {
+                throw SecurityException("Vault device pepper state is incomplete")
+            }
+            return decryptBytes(
+                Base64.decode(encoded, Base64.NO_WRAP),
+                Base64.decode(encodedIv, Base64.NO_WRAP),
+                VAULT_META_KEY_ALIAS
+            ).also {
+                if (it.size != DB_KEY_LENGTH_BYTES) {
+                    it.fill(0)
+                    throw SecurityException("Vault device pepper has invalid length")
+                }
+            }
+        }
+        val pepper = ByteArray(DB_KEY_LENGTH_BYTES).also(SecureRandom()::nextBytes)
+        val (encrypted, iv) = encryptBytes(pepper, alias = VAULT_META_KEY_ALIAS)
+        val saved = prefs.edit()
+            .putString(VAULT_DEVICE_PEPPER_PREF, Base64.encodeToString(encrypted, Base64.NO_WRAP))
+            .putString(VAULT_DEVICE_PEPPER_IV_PREF, Base64.encodeToString(iv, Base64.NO_WRAP))
+            .commit()
+        if (!saved) {
+            pepper.fill(0)
+            throw SecurityException("Unable to persist vault device pepper")
+        }
+        return pepper
+    }
+
+    private fun unlockOrMigrateVaultDataKey(pin: String) {
+        val pepper = getOrCreateVaultDevicePepper()
+        val envelope = prefs.getString(VAULT_DATA_KEY_ENVELOPE_PREF, null)
+        val dataKey = try {
+            if (envelope != null) {
+                pinWrappedVaultKey.unwrap(Base64.decode(envelope, Base64.NO_WRAP), pin.toCharArray(), pepper)
+            } else {
+                ByteArray(DB_KEY_LENGTH_BYTES).also(SecureRandom()::nextBytes)
+            }
+        } finally {
+            pepper.fill(0)
+        }
+        try {
+            if (envelope == null) {
+                val pepperForWrap = getOrCreateVaultDevicePepper()
+                try {
+                    val keyCopy = dataKey.copyOf()
+                    val wrapped = try {
+                        pinWrappedVaultKey.wrap(keyCopy, pin.toCharArray(), pepperForWrap)
+                    } finally {
+                        keyCopy.fill(0)
+                    }
+                    if (!prefs.edit().putString(VAULT_DATA_KEY_ENVELOPE_PREF, Base64.encodeToString(wrapped, Base64.NO_WRAP)).commit()) {
+                        throw SecurityException("Unable to persist PIN-protected vault key")
+                    }
+                } finally {
+                    pepperForWrap.fill(0)
+                }
+            }
+            activeVaultDataKey = SecretKeySpec(dataKey, "AES")
+            migrateLegacyVaultFiles(dataKey)
+        } finally {
+            dataKey.fill(0)
+        }
     }
 
     private fun matchesRealPin(pin: String): Boolean = matchesStoredPin(pin, "vault_pin_hash", "vault_pin_hash_iv", "vault_pin_salt", "vault_pin_salt_iv")
