@@ -93,9 +93,25 @@ def parse_risks(path: Path) -> list[dict[str, str]]:
     return findings
 
 
+def validate_ort_status(status_data: object, expected_revision: str | None = None) -> tuple[bool, str]:
+    """Accept ORT evidence only when PASS status is bound to the exact candidate SHA."""
+    if not isinstance(status_data, dict):
+        return False, "invalid ORT status document"
+    status = status_data.get("status")
+    if status != "PASS":
+        return False, f"ORT status is {status}, not PASS"
+    if expected_revision is not None and status_data.get("scan_revision") != expected_revision:
+        return False, (
+            f"ORT scan revision {status_data.get('scan_revision')!r} "
+            f"does not match candidate revision {expected_revision!r}"
+        )
+    return True, "ORT CycloneDX/SPDX SBOMs present and validated for exact revision"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Verify CPAS assurance contracts")
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument("--revision", help="Require ORT evidence for this exact 40-character commit SHA")
     return parser.parse_args()
 
 
@@ -307,10 +323,8 @@ def main() -> int:
     else:
         try:
             status_data = json.loads(ort_status.read_text(encoding="utf-8"))
-            if status_data.get("status") != "PASS":
-                checks.append(check("ort_sboms_present", False, f"ORT status is {status_data.get('status')}, not PASS"))
-            else:
-                checks.append(check("ort_sboms_present", True, "ORT CycloneDX/SPDX SBOMs present and validated"))
+            ort_ok, ort_detail = validate_ort_status(status_data, parse_args().revision)
+            checks.append(check("ort_sboms_present", ort_ok, ort_detail))
         except (json.JSONDecodeError, OSError) as exc:
             checks.append(check("ort_sboms_present", False, f"invalid ort-status.json: {exc}"))
 
