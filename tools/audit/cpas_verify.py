@@ -135,7 +135,8 @@ def parse_waivers(path: Path) -> list[dict[str, str]]:
 
 
 def main() -> int:
-    root = parse_args().root.resolve()
+    args = parse_args()
+    root = args.root.resolve()
     assurance = root / "docs" / "assurance"
     sheet = assurance / "FINAL_CPAS_SHEET.md"
     risk_path = assurance / "08-risk-register.yaml"
@@ -323,7 +324,7 @@ def main() -> int:
     else:
         try:
             status_data = json.loads(ort_status.read_text(encoding="utf-8"))
-            ort_ok, ort_detail = validate_ort_status(status_data, parse_args().revision)
+            ort_ok, ort_detail = validate_ort_status(status_data, args.revision)
             checks.append(check("ort_sboms_present", ort_ok, ort_detail))
         except (json.JSONDecodeError, OSError) as exc:
             checks.append(check("ort_sboms_present", False, f"invalid ort-status.json: {exc}"))
