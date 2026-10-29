@@ -125,7 +125,7 @@ class CryptoBackupDecryptor(
             if (isPortable && actualBackupInfo.includesVault) {
                 vaultDir.walkTopDown().filter { it.isFile }.toList().forEach { plainFile ->
                     val encryptedTemp = File(plainFile.parentFile, plainFile.name + ".local-encrypted")
-                    crypto.encryptFile(plainFile, encryptedTemp)
+                    crypto.encryptLegacyFile(plainFile, encryptedTemp)
                     if (!plainFile.delete()) {
                         encryptedTemp.delete()
                         throw SecurityException("Unable to remove plaintext vault staging file")
