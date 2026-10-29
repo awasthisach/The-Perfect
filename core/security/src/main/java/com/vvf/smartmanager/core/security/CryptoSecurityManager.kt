@@ -458,7 +458,14 @@ class CryptoSecurityManager(
                 failedAttempts = attempts,
                 untilElapsedMs = nowElapsed + lockoutSeconds * 1000L,
                 lastElapsedMs = nowElapsed
-            ).also(::writeLockoutState)
+            ).also { migrated ->
+                // Persist authenticated state first; only then discard legacy mutable fields.
+                writeLockoutState(migrated)
+                prefs.edit()
+                    .remove("vault_failed_attempts")
+                    .remove("vault_lockout_until_ms")
+                    .apply()
+            }
         }
 
         // Either half missing is tampering/corruption, not an unlocked state.
