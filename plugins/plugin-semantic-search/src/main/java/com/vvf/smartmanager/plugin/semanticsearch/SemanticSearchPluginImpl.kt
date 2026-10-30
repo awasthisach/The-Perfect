@@ -271,6 +271,6 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
     }
 
     private fun extractMatchedConcept(query: String, text: String): String {
-        return "Semantic Match (${query.take(20)})"
+        return "Token overlap (${query.take(20)})"
     }
 }
