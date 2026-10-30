@@ -24,7 +24,7 @@ interface SearchFtsDao {
      */
     @Query("""
         SELECT * FROM file_metadata 
-        WHERE (name LIKE '%' || :query || '%' OR tags LIKE '%' || :query || '%') 
+        WHERE (name LIKE '%' || :query || '%' ESCAPE '!' OR tags LIKE '%' || :query || '%' ESCAPE '!') 
         AND isTrash = 0 
         ORDER BY isDirectory DESC, name ASC
     """)
@@ -35,7 +35,7 @@ interface SearchFtsDao {
      */
     @Query("""
         SELECT * FROM file_metadata 
-        WHERE tags LIKE '%' || :tag || '%' AND isTrash = 0 
+        WHERE tags LIKE '%' || :tag || '%' ESCAPE '!' AND isTrash = 0 
         ORDER BY modifiedDate DESC
     """)
     fun searchByTag(tag: String): Flow<List<FileMetadataEntity>>
