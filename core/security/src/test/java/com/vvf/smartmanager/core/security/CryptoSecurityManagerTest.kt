@@ -243,6 +243,36 @@ class CryptoSecurityManagerTest {
         )
     }
 
+    @Test
+    fun decoyPinDoesNotResetRealVaultFailedAttemptCounter() {
+        assertTrue(cryptoSecurityManager.setupVaultPin("482951"))
+        assertTrue(cryptoSecurityManager.setupDecoyPin("593162"))
+
+        repeat(4) {
+            assertTrue(
+                cryptoSecurityManager.verifyVaultPinWithResult("000000") is
+                    CryptoSecurityManager.VaultAuthResult.INVALID_PIN
+            )
+        }
+        assertEquals(4, cryptoSecurityManager.getFailedAttemptsCount())
+
+        assertTrue(
+            cryptoSecurityManager.verifyVaultPinWithResult("593162") is
+                CryptoSecurityManager.VaultAuthResult.SUCCESS_DECOY
+        )
+        assertEquals(4, cryptoSecurityManager.getFailedAttemptsCount())
+
+        assertTrue(
+            cryptoSecurityManager.verifyVaultPinWithResult("000000") is
+                CryptoSecurityManager.VaultAuthResult.INVALID_PIN
+        )
+        assertTrue(cryptoSecurityManager.getRemainingLockoutSeconds() > 0)
+        assertTrue(
+            cryptoSecurityManager.verifyVaultPinWithResult("482951") is
+                CryptoSecurityManager.VaultAuthResult.LOCKED_OUT
+        )
+    }
+
     private fun assertThrowsSecurityFailure(block: () -> Unit) {
         try {
             block()
