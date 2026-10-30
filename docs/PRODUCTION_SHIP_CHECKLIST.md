@@ -9,7 +9,8 @@ This follows industry release practice: signed binary + automated gates + SBOM +
 
 - [x] Single DI style: manual `AppCompositionRoot` / `VVFApplication` (unused Hilt removed from app module on stabilize branch).
 - [x] SQLCipher native load before encrypted Room open.
-- [x] App Check Play Integrity installed fail-closed outside JVM unit tests.
+- [x] Play Integrity App Check provider factory is installed outside JVM unit tests.
+- [ ] Server-side App Check enforcement and rejection behavior verified for every protected Firebase/custom backend; client provider installation alone is insufficient.
 - [x] PIN lockout uses authenticated state + monotonic elapsed realtime.
 - [x] Portable backup passphrase envelope; no vault_auth.json export as authority.
 - [x] FileProvider paths limited to share/exports.
@@ -37,7 +38,7 @@ This follows industry release practice: signed binary + automated gates + SBOM +
 ## D. Store / legal honesty
 
 - [ ] Privacy policy URL live (not placeholder)
-- [ ] Play Data safety form matches actual data collection (Drive OAuth, crash/analytics if any)
+- [ ] Play Data safety form matches actual data collection (Drive OAuth, crash/analytics if any); merged release manifest and All files access declaration reviewed/approved
 - [ ] README does not claim production-ready until B+C complete
 - [ ] Internal testing track upload of **signed** release APK/AAB
 
