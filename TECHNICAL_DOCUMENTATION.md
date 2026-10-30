@@ -1,8 +1,8 @@
 # VVF Smart Manager — Master Architecture Blueprint & Technical Documentation
 
 **Package Name:** `com.vvf.smartmanager`  
-**Target Platform:** Android (API 26+)  
-**Technology Stack:** Kotlin, Jetpack Compose, Material 3, Android KeyStore, Room + SQLCipher, WorkManager, ML Kit OCR, TFLite Vector Embeddings, Google Drive REST API.
+**Target Platform:** Android (minSdk 24; targetSdk 36)  
+**Technology Stack:** Kotlin, Jetpack Compose, Material 3, Android KeyStore, Room + SQLCipher, WorkManager, ML Kit OCR, deterministic token-hash semantic-search heuristic (128 dimensions; no TFLite model), Google Drive REST API.
 
 ---
 
@@ -29,7 +29,7 @@ VVF Smart Manager is designed as an **Offline-First, Plugin-Extensible, Enterpri
 |                         On-Demand Plugins                             |
 |  +-------------------+   +--------------------+   +----------------+  |
 |  | ML Kit OCR        |   | AI Semantic Search |   | Cloud Plugins  |  |
-|  | Plugin (12MB)     |   | TFLite Model (18MB)|   | (OneDrive, S3) |  |
+|  | Plugin (12MB)     |   | 128-d hash heuristic |   | (OneDrive, S3) |  |
 |  +-------------------+   +--------------------+   +----------------+  |
 +-----------------------------------------------------------------------+
 ```
@@ -47,13 +47,13 @@ VVF Smart Manager is designed as an **Offline-First, Plugin-Extensible, Enterpri
    - PBKDF2 with HMAC-SHA256 key derivation for PIN/Password validation.
    - Dual-PIN architecture (Real Vault PIN & Decoy/Fake Vault PIN).
 3. **`:core:background`**:
-   - WorkManager orchestration for periodic junk scanning, storage indexing, and battery-safe background cloud backups.
+   - WorkManager orchestration for periodic junk scanning and storage indexing. Scheduled cloud backup is intentionally disabled until portable key wrapping and end-to-end restore are implemented and verified.
 4. **`:core:plugin-spi`**:
    - Central SPI interfaces (`IOcrEngine`, `ISemanticSearchEngine`, `CloudDriverSPI`) isolating core features from downloadable modules.
 
 ### On-Demand Downloadable Plugins (`:plugins`)
 - **`plugin-ocr`**: ML Kit Text Recognition plugin for extracting text from PDFs and images on-demand.
-- **`plugin-semantic-search`**: Local TFLite 384-dimensional vector embedding model for natural language conceptual file search.
+- **`plugin-semantic-search`**: Lightweight deterministic 128-dimensional token-hash heuristic. It is not a learned model or TFLite embedding model; semantic quality is limited and should not be represented as neural semantic search.
 - **`plugin-cloud-drivers`**: Modular cloud sync drivers for OneDrive, Dropbox, NextCloud, S3, and local NAS storage.
 
 ---
@@ -71,8 +71,8 @@ VVF Smart Manager is designed as an **Offline-First, Plugin-Extensible, Enterpri
 1. **ADR-001: Strict Core vs Plugin Separation**
    - *Decision*: Core APK contains zero heavy ML models or third-party cloud SDKs.
    - *Rationale*: Guarantees initial cold start < 10 seconds and keeps base APK download size minimal (< 15 MB).
-2. **ADR-002: Offline-First AI Processing**
-   - *Decision*: All OCR scanning and TFLite semantic embeddings execute 100% locally on-device without sending user document data to external cloud AI servers.
+2. **ADR-002: Offline-First Local Processing**
+   - *Decision*: OCR and the current token-hash search heuristic execute locally. The current semantic-search implementation does not use TFLite or a learned embedding model.
    - *Rationale*: Absolute privacy compliance and zero server maintenance costs.
 3. **ADR-003: Core Search Primacy**
    - *Decision*: FTS4 SQL search remains the primary search engine; AI Semantic Search works as an additive, non-blocking enhancement.
