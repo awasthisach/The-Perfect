@@ -1,6 +1,8 @@
 name: Nightly ORT Compliance Scan
 
-# ORT is expensive (up to 6h). Do not attach to every PR synchronize — that
+# ORT is expensive. Maximum runtime limits: 90 minutes for the job and
+# 75 minutes for the ORT step; these are upper bounds, not expected completion
+# times. Do not attach to every PR synchronize — that
 # cancels or queues scans and burns Actions minutes without producing SBOMs.
 # Run on schedule or explicit workflow_dispatch against a freeze candidate SHA.
 on:
@@ -20,7 +22,7 @@ jobs:
   ort-scan:
     name: ORT Analyzer, Scanner, Evaluator, Advisor & SBOM
     runs-on: ubuntu-24.04
-    timeout-minutes: 360
+    timeout-minutes: 90
     steps:
       - name: Resolve scan revision
         id: rev
@@ -34,6 +36,7 @@ jobs:
 
       - name: Run ORT compliance pipeline
         id: ort
+        timeout-minutes: 75
         uses: oss-review-toolkit/ort-ci-github-action@70149d4579e446b0312f8b80fdd8d465a91e4391
         with:
           sw-name: The-Perfect
