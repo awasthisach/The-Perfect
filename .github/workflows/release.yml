@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
 
       - name: Require successful ORT evidence for this exact commit
         env:
@@ -64,13 +66,41 @@ jobs:
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
 
       - name: Install Android SDK components
-        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+        run: |
+          set -euo pipefail
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+          test -d "$ANDROID_HOME/system-images/android-35/google_apis/x86_64"
+
+      - name: Start release SQLCipher emulator (HARD)
+        timeout-minutes: 15
+        env:
+          ANDROID_AVD_HOME: ${{ runner.temp }}/release-avd
+        run: |
+          set -euo pipefail
+          mkdir -p "$ANDROID_AVD_HOME"
+          export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          avdmanager create avd --force --name vvf-release-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2" </dev/null
+          if [ ! -e /dev/kvm ]; then
+            echo "::error::KVM is required; release SQLCipher instrumentation cannot be skipped."
+            exit 1
+          fi
+          sudo chown "$USER" /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+          adb start-server
+          emulator -avd vvf-release-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel on -no-metrics -wipe-data > "$RUNNER_TEMP/release-emulator.log" 2>&1 &
+          timeout 180 adb wait-for-device
+          for _ in $(seq 1 60); do
+            boot_completed="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+            if [ "$boot_completed" = "1" ]; then break; fi
+            sleep 5
+          done
+          test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
 
       - name: CPAS structural + semantic verification (hard fail)
         run: |
           set -euo pipefail
           python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
-          python3 tools/audit/cpas_verify.py --root .
+          python3 tools/audit/cpas_verify.py --root . --revision "$GITHUB_SHA"
 
       - name: Validate release inputs and secrets
         env:
@@ -114,10 +144,8 @@ jobs:
               raise SystemExit("google-services.json contains no Firebase client configuration")
           PY
 
-      - name: Record instrumented DB evidence policy
-        run: |
-          echo "::notice::Unit tests and lint are hard on this release job."
-          echo "::warning::SQLCipher connectedAndroidTest remains a weekly/self-hosted KVM hard gate — not soft-passed here."
+      - name: SQLCipher instrumentation (release hard gate, exact GITHUB_SHA)
+        run: ./gradlew --no-daemon :core:database:connectedDebugAndroidTest :core:database-compat:connectedDebugAndroidTest --stacktrace
 
       - name: Unit tests (release hard gate)
         run: ./gradlew --no-daemon testDebugUnitTest --stacktrace
@@ -159,7 +187,7 @@ jobs:
           cat release-meta/apk-manifest.txt
 
       - name: Generate SBOM with Syft
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@da167eac915b4e86f08b264dbdbc867b61be6f0c # v0.20.5
         with:
           file: ${{ steps.apk.outputs.path }}
           format: spdx-json

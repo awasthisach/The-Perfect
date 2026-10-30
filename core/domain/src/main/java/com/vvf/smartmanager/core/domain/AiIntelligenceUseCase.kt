@@ -18,9 +18,9 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 
 /**
- * Phase 10: Domain use case for On-Device AI Intelligence.
+ * Domain use case for local file similarity ranking and rule-based tag suggestions.
  * Provides smart near-duplicate clustering with dynamic similarity threshold (70% - 95%)
- * and intelligent semantic tag suggestion.
+ * and keyword/rule-based tag suggestions.
  */
 class AiIntelligenceUseCase(
     private val semanticPlugin: ISemanticSearchEngine,
@@ -34,7 +34,7 @@ class AiIntelligenceUseCase(
     }
 
     /**
-     * Scans indexed and storage files for Level 3 AI near-duplicates using vector cosine similarity.
+     * Scans indexed and storage files for approximate near-duplicates using deterministic hashed-token cosine similarity.
      * @param similarityThreshold Range 0.70f to 0.95f (70% to 95%)
      */
     fun scanNearDuplicates(similarityThreshold: Float = 0.80f): Flow<List<DuplicateFileGroup>> = flow {
@@ -79,7 +79,7 @@ class AiIntelligenceUseCase(
 
             DuplicateFileGroup(
                 id = cluster.id,
-                matchKey = "AI Similarity: $matchPct% Match",
+                matchKey = "Heuristic similarity: $matchPct% match",
                 level = DuplicateLevel.LEVEL_3_SIMILARITY,
                 sizePerFile = cluster.baseFile.sizeBytes,
                 files = allFilesSorted,
@@ -106,14 +106,14 @@ class AiIntelligenceUseCase(
     }
 
     /**
-     * Applies an AI suggested tag to a file.
+     * Applies a locally generated rule-based tag suggestion to a file.
      */
     suspend fun applySuggestedTag(fileItem: FileItem, tagName: String): Result<Boolean> {
         return searchRepository.addTagToFile(fileItem.path, tagName)
     }
 
     /**
-     * Generates a high-level summary of AI intelligence scan metrics.
+     * Generates a high-level summary of local similarity and tag-suggestion metrics.
      */
     fun getIntelligenceSummary(similarityThreshold: Float = 0.80f): Flow<AiIntelligenceSummary> = flow {
         val clampedThreshold = similarityThreshold.coerceIn(0.70f, 0.95f)

@@ -163,7 +163,7 @@ fun PluginsScreen(
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
-                    text = "On-demand downloadable AI, OCR, and Cloud storage drivers",
+                    text = "On-device OCR and local similarity tools; cloud storage drivers are optional",
                     style = MaterialTheme.typography.bodySmall,
                     color = SoftGold
                 )
@@ -293,7 +293,7 @@ private fun PluginArchitectureNoticeCard() {
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "Heavy AI models and cloud drivers remain isolated modules. Core APK stays lightweight, fast, and battery friendly.",
+                    text = "OCR and cloud integrations are isolated modules. Similarity ranking in this build uses deterministic hashed token features, not a downloadable neural AI model.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -479,13 +479,13 @@ private fun SemanticSearchPluginCard() {
 
                     Column {
                         Text(
-                            text = "AI Semantic Search (TFLite)",
+                            text = "Local Similarity Ranking (Preview)",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = CosmicBlue
                         )
                         Text(
-                            text = "v1.0.0 • Phase 9 Plugin",
+                            text = "Preview • Hashed token features",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -498,7 +498,7 @@ private fun SemanticSearchPluginCard() {
             Spacer(modifier = Modifier.height(10.dp))
 
             Text(
-                text = "On-device lightweight embedding vectors for concept & meaning-based document discovery.",
+                text = "On-device 128-dimensional token hashing and keyword heuristics for approximate file similarity; this is not TFLite or a learned semantic embedding model.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

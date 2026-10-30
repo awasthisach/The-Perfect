@@ -49,8 +49,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential libssl-dev tcl-dev zlib1g-dev
           mkdir -p core/database-compat/src/androidTest/assets
-          curl -fsSL https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz -o /tmp/sqlcipher-4.5.4.tar.gz
-          tar -xzf /tmp/sqlcipher-4.5.4.tar.gz -C /tmp
+          SQLCIPHER_SOURCE_SHA="c7f9a1c348fde215ac18ce2b78a62ce8111a3743"
+          git init /tmp/sqlcipher-4.5.4
+          git -C /tmp/sqlcipher-4.5.4 remote add origin https://github.com/sqlcipher/sqlcipher.git
+          git -C /tmp/sqlcipher-4.5.4 fetch --depth=1 origin "$SQLCIPHER_SOURCE_SHA"
+          git -C /tmp/sqlcipher-4.5.4 checkout --detach FETCH_HEAD
+          test "$(git -C /tmp/sqlcipher-4.5.4 rev-parse HEAD)" = "$SQLCIPHER_SOURCE_SHA"
           cd /tmp/sqlcipher-4.5.4
           ./configure --enable-tempstore=yes --enable-fts5 CFLAGS="-DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL" LDFLAGS="-lcrypto"
           make -j2
@@ -61,12 +65,25 @@ jobs:
         run: python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
       - name: Verify Gradle wrapper
         run: ./gradlew --no-daemon --version
+      - name: Verify SQLCipher runtime dependency policy
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon :app:dependencies --configuration debugRuntimeClasspath > "$RUNNER_TEMP/debug-runtime-dependencies.txt"
+          if grep -E 'net\.sqlcipher:|net\.zetetic:android-database-sqlcipher|android-database-sqlcipher' "$RUNNER_TEMP/debug-runtime-dependencies.txt"; then
+            echo "::error::Legacy SQLCipher artifacts are present in debugRuntimeClasspath."
+            exit 1
+          fi
+          grep -F 'net.zetetic:sqlcipher-android' "$RUNNER_TEMP/debug-runtime-dependencies.txt" >/dev/null || {
+            echo "::error::Expected net.zetetic:sqlcipher-android is missing from debugRuntimeClasspath."
+            exit 1
+          }
+          echo "Only the supported SQLCipher Android artifact is permitted."
       - name: Run unit tests
         run: ./gradlew --no-daemon testDebugUnitTest --stacktrace
       - name: Generate Room schema export
         run: |
           set -euo pipefail
-          ./gradlew --no-daemon :core:database:kspDebugKotlin --stacktrace
+          ./gradlew --no-daemon :core:database:clean :core:database:kspDebugKotlin --rerun-tasks --stacktrace
           find core/database/schemas -type f -name '*.json' -print
           test -s core/database/schemas/com.vvf.smartmanager.core.database.VVFDatabase/2.json
       - name: Upload generated Room schema
@@ -84,7 +101,7 @@ jobs:
         if: success()
         run: |
           set -euo pipefail
-          python3 tools/audit/generate_evidence.py --commit-sha "${{ github.sha }}" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --environment "github-actions-${{ runner.os }}-unit" --output docs/assurance/cpas-evidence-run.json
+          python3 tools/audit/generate_evidence.py --commit-sha "${{ github.event.pull_request.head.sha || github.sha }}" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --environment "github-actions-${{ runner.os }}-unit" --output docs/assurance/cpas-evidence-run.json
       - name: Upload CPAS unit evidence
         if: success()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -105,10 +122,23 @@ jobs:
         run: |
           set -uo pipefail
           mkdir -p "$ANDROID_AVD_HOME"
-          export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH"
+          export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
           echo "no" | avdmanager create avd --force --name vvf-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2" || { echo "booted=false" >> "$GITHUB_OUTPUT"; echo "::warning::AVD creation failed; emulator infrastructure unavailable."; exit 0; }
+          # Prefer hardware acceleration: software-only emulation did not reach
+          # sys.boot_completed on the 2026-10-29 run. The separate hard gate
+          # remains authoritative if this runner genuinely has no KVM.
+          if [ ! -e /dev/kvm ]; then
+            echo "::warning::KVM unavailable on this hosted runner; primary-job emulator is an infrastructure skip. Weekly Instrumented Hard Gate remains mandatory."
+            echo "booted=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! sudo chown "$USER" /dev/kvm || ! test -r /dev/kvm || ! test -w /dev/kvm; then
+            echo "::warning::KVM is not accessible; primary-job emulator is an infrastructure skip. Weekly Instrumented Hard Gate remains mandatory."
+            echo "booted=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           adb start-server || true
-          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel off -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel on -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/emulator.pid"
           if ! timeout 180 adb wait-for-device; then
             echo "::warning::adb wait-for-device timed out; treating emulator as an infrastructure skip."
@@ -143,7 +173,7 @@ jobs:
         if: ${{ steps.emulator.outputs.booted == 'true' && steps.sqlcipher_instrumented.outcome == 'success' }}
         run: |
           set -euo pipefail
-          python3 tools/audit/generate_evidence.py --commit-sha "${{ github.sha }}" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --include-db --environment "github-actions-API35-emulator" --output docs/assurance/cpas-evidence-full.json
+          python3 tools/audit/generate_evidence.py --commit-sha "${{ github.event.pull_request.head.sha || github.sha }}" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --include-db --environment "github-actions-API35-emulator" --output docs/assurance/cpas-evidence-full.json
       - name: Publish gate summary
         if: always()
         run: |
@@ -202,12 +232,12 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
       - name: Upload full CPAS evidence
-        if: always()
+        if: ${{ steps.emulator.outputs.booted == 'true' && steps.sqlcipher_instrumented.outcome == 'success' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: cpas-evidence-full
           path: docs/assurance/cpas-evidence-full.json
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 30
       - name: Upload debug APK
         if: success()

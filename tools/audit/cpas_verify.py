@@ -26,6 +26,16 @@ def check(name: str, passed: bool, detail: str) -> dict[str, str]:
     return {"name": name, "status": "PASS" if passed else "BLOCKED", "detail": detail}
 
 
+def validate_technology_registry(text: str) -> tuple[bool, str]:
+    """Require the Room FTS module actually declared by the source schema."""
+    match = re.search(r"(?m)^\s*fts_module\s*:\s*([A-Za-z0-9_-]+)\s*(?:#.*)?$", text)
+    has_fts4 = bool(match and match.group(1).upper() == "FTS4")
+    has_sdk = bool(re.search(r"(?m)^\s*(?:min_sdk|min)\s*:", text))
+    if has_fts4 and has_sdk:
+        return True, "Room FTS4 and SDK pins present"
+    return False, "missing authoritative Room FTS4 pin and/or SDK pins in technology registry"
+
+
 def ids_from_yaml(path: Path) -> list[str]:
     ids: list[str] = []
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -93,9 +103,25 @@ def parse_risks(path: Path) -> list[dict[str, str]]:
     return findings
 
 
+def validate_ort_status(status_data: object, expected_revision: str | None = None) -> tuple[bool, str]:
+    """Accept ORT evidence only when PASS status is bound to the exact candidate SHA."""
+    if not isinstance(status_data, dict):
+        return False, "invalid ORT status document"
+    status = status_data.get("status")
+    if status != "PASS":
+        return False, f"ORT status is {status}, not PASS"
+    if expected_revision is not None and status_data.get("scan_revision") != expected_revision:
+        return False, (
+            f"ORT scan revision {status_data.get('scan_revision')!r} "
+            f"does not match candidate revision {expected_revision!r}"
+        )
+    return True, "ORT CycloneDX/SPDX SBOMs present and validated for exact revision"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Verify CPAS assurance contracts")
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument("--revision", help="Require ORT evidence for this exact 40-character commit SHA")
     return parser.parse_args()
 
 
@@ -119,7 +145,8 @@ def parse_waivers(path: Path) -> list[dict[str, str]]:
 
 
 def main() -> int:
-    root = parse_args().root.resolve()
+    args = parse_args()
+    root = args.root.resolve()
     assurance = root / "docs" / "assurance"
     sheet = assurance / "FINAL_CPAS_SHEET.md"
     risk_path = assurance / "08-risk-register.yaml"
@@ -206,10 +233,7 @@ def main() -> int:
     tech_detail = "technology registry missing"
     if tech_path.is_file():
         tech_text = tech_path.read_text(encoding="utf-8")
-        has_fts5 = "FTS5" in tech_text or "fts_module: FTS5" in tech_text
-        has_sdk = "min_sdk" in tech_text or "min:" in tech_text
-        tech_ok = has_fts5 and has_sdk
-        tech_detail = "FTS5 and SDK pins present" if tech_ok else "missing FTS5 and/or SDK pins in technology registry"
+        tech_ok, tech_detail = validate_technology_registry(tech_text)
     checks.append(check("technology_registry_pins", tech_ok, tech_detail))
 
     ledger_ok = False
@@ -307,10 +331,8 @@ def main() -> int:
     else:
         try:
             status_data = json.loads(ort_status.read_text(encoding="utf-8"))
-            if status_data.get("status") != "PASS":
-                checks.append(check("ort_sboms_present", False, f"ORT status is {status_data.get('status')}, not PASS"))
-            else:
-                checks.append(check("ort_sboms_present", True, "ORT CycloneDX/SPDX SBOMs present and validated"))
+            ort_ok, ort_detail = validate_ort_status(status_data, args.revision)
+            checks.append(check("ort_sboms_present", ort_ok, ort_detail))
         except (json.JSONDecodeError, OSError) as exc:
             checks.append(check("ort_sboms_present", False, f"invalid ort-status.json: {exc}"))
 

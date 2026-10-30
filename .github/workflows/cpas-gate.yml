@@ -6,26 +6,115 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  workflow_run:
+    workflows: ["Nightly ORT Compliance Scan"]
+    types: [completed]
+    branches: [main, rebuild/stabilize-v1]
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
   group: cpas-gate-${{ github.ref }}
-  # Main: serialize (preserve full-green evidence). PR: cancel stale runs.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   cpas-verify:
     name: CPAS Verify (fail-closed)
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: ${{ github.event_name == 'workflow_run' && 60 || 30 }}
     steps:
       - name: Checkout
-        # v6 runs on Node 24
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
+
+      - name: Import exact-SHA ORT evidence when available
+        if: github.event_name == 'workflow_run' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
+          ORT_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          RUN_ID="${ORT_RUN_ID:-}"
+
+          # pull_request / dispatch: single lookup only — never sleep for hours.
+          # Missing ORT => evaluate tree as-is; cpas_verify stays BLOCKED (fail-closed).
+          if [ -z "$RUN_ID" ]; then
+            RUN_ID="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/nightly-ort.yml/runs?head_sha=$TARGET_SHA&per_page=20" \
+              --jq '.workflow_runs[] | select(.head_sha == env.TARGET_SHA and .status == "completed" and .conclusion == "success") | .id' \
+              | head -n 1 || true)"
+          fi
+
+          if [ -z "$RUN_ID" ]; then
+            echo "::warning::No successful completed ORT run for exact SHA $TARGET_SHA."
+            echo "CPAS will evaluate the tree as-is (production_status BLOCKED without ORT SBOMs)."
+            exit 0
+          fi
+
+          DOWNLOAD_DIR="$RUNNER_TEMP/ort-download"
+          mkdir -p "$DOWNLOAD_DIR"
+          if ! gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name ort-results-evidence --dir "$DOWNLOAD_DIR"; then
+            echo "::warning::ORT evidence artifact missing for run $RUN_ID; continuing without import."
+            exit 0
+          fi
+
+          RESULTS_DIR="$DOWNLOAD_DIR/ort-evidence/results"
+          if [ ! -d "$RESULTS_DIR" ]; then
+            if [ -d "$DOWNLOAD_DIR/results" ]; then
+              RESULTS_DIR="$DOWNLOAD_DIR/results"
+            else
+              RESULTS_DIR="$DOWNLOAD_DIR"
+            fi
+          fi
+
+          STATUS_FILE="$DOWNLOAD_DIR/ort-evidence/ort-status.json"
+          if [ ! -f "$STATUS_FILE" ]; then
+            STATUS_FILE="$DOWNLOAD_DIR/ort-status.json"
+          fi
+
+          if [ ! -f "$STATUS_FILE" ]; then
+            echo "::warning::ort-status.json missing in ORT artifact; continuing without import."
+            exit 0
+          fi
+
+          python3 - "$STATUS_FILE" "$TARGET_SHA" <<'PY'
+          import json, sys
+          from pathlib import Path
+          status_file = Path(sys.argv[1])
+          sha = sys.argv[2]
+          data = json.loads(status_file.read_text(encoding="utf-8"))
+          revision = str(data.get("scan_revision") or data.get("revision") or "")
+          if revision and revision != sha:
+              raise SystemExit(f"ORT status SHA mismatch: {revision!r} != {sha!r}")
+          status = str(data.get("status") or "")
+          print(f"ORT status={status} scan_revision={revision or sha}")
+          if status != "PASS":
+              raise SystemExit(f"ORT status is {status!r}, not PASS")
+          PY
+
+          mkdir -p docs/assurance
+          cp "$STATUS_FILE" docs/assurance/ort-status.json
+
+          if [ -f "$RESULTS_DIR/bom.cyclonedx.json" ] && [ -f "$RESULTS_DIR/bom.spdx.json" ]; then
+            set +e
+            python3 tools/audit/verify_ort_outputs.py --results-dir "$RESULTS_DIR" --revision "$TARGET_SHA"
+            VERIFY_CODE=$?
+            set -e
+            if [ "$VERIFY_CODE" -eq 0 ]; then
+              cp "$RESULTS_DIR/bom.cyclonedx.json" docs/assurance/ort-bom.cyclonedx.json
+              cp "$RESULTS_DIR/bom.spdx.json" docs/assurance/ort-bom.spdx.json
+              echo "Imported validated ORT SBOMs for exact SHA $TARGET_SHA"
+            else
+              echo "::warning::ORT reports failed validation; SBOMs were not imported."
+              rm -f docs/assurance/ort-status.json
+            fi
+          else
+            echo "::warning::ORT BOM files missing from evidence artifact."
+            rm -f docs/assurance/ort-status.json
+          fi
 
       - name: Verify Python
         run: python3 --version
@@ -35,13 +124,11 @@ jobs:
 
       - name: Run semantic CPAS verification
         id: cpas
-        # Fail-closed: BLOCKED is an expected production state while critical
-        # findings remain open. Emit a warning annotation, not an error, so the
-        # job stays green without hiding the BLOCKED status.
-        # Unexpected verifier crashes (no status file) still fail the job.
+        env:
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
         run: |
           set +e
-          python3 tools/audit/cpas_verify.py --root .
+          python3 tools/audit/cpas_verify.py --root . --revision "$TARGET_SHA"
           code=$?
           set -e
 
@@ -51,7 +138,19 @@ jobs:
           fi
 
           status=$(python3 -c 'import json; print(json.load(open("cpas-status.json"))["production_status"]["value"])')
-          blockers=$(python3 -c 'import json; print(",".join(json.load(open("cpas-status.json")).get("blocking_findings") or []) or "none")')
+          blockers=$(python3 - <<'PY'
+          import json
+          from pathlib import Path
+          status = json.loads(Path("cpas-status.json").read_text(encoding="utf-8"))
+          findings = status.get("blocking_findings") or []
+          blocked_checks = [
+              item.get("name", "unnamed-check")
+              for item in status.get("checks", [])
+              if item.get("status") in {"BLOCKED", "FAIL", "ERROR"}
+          ]
+          print(",".join([*findings, *blocked_checks]) or "none")
+          PY
+          )
           echo "production_status=$status" >> "$GITHUB_OUTPUT"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           echo "blockers=$blockers" >> "$GITHUB_OUTPUT"
@@ -61,19 +160,14 @@ jobs:
             exit 0
           fi
 
-          if [ "$status" = "BLOCKED" ]; then
-            echo "::warning::CPAS production_status=BLOCKED (fail-closed). blockers=${blockers}. See cpas-status artifact. Release promotion still requires PASS."
-            exit 0
-          fi
-
-          echo "::error::Unexpected CPAS status=${status} exit_code=${code}"
+          echo "::error::CPAS production_status=${status} (exit_code=${code}); blockers=${blockers}"
           exit 1
 
       - name: Upload computed CPAS status
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: cpas-status-${{ github.sha }}
+          name: cpas-status-${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
           path: cpas-status.json
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14

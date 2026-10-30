@@ -15,8 +15,8 @@
 - **Security:** Android Keystore, AES-GCM vault encryption, protected database passphrase
 - **Background work:** AndroidX WorkManager
 - **OCR:** ML Kit plugin
-- **Semantic search:** on-device plugin architecture
-- **Cloud:** Google Drive core integration plus cloud-driver SPI
+- **Search:** local Room FTS + tags/metadata; optional similarity ranking uses deterministic hashed token vectors (not a neural embedding model or generative AI).
+- **Cloud:** Google Drive integration; Drive requests currently require re-authentication after the access token ages out (automatic request-time refresh is not wired). Real-account acceptance remains pending.
 - **Build:** Gradle Kotlin DSL + version catalog
 - **Compile/Target SDK:** 36
 - **Minimum SDK:** 24
@@ -65,7 +65,7 @@ The supported CI release path is `.github/workflows/release.yml`, which requires
 
 ## Current production status
 
-This repository is under active production hardening and is **not yet independently verified for public release**. The current evidence-based readiness assessment is maintained in:
+This repository is under active production hardening and is **not yet independently verified for public release**. The privacy policy at `docs/PRIVACY_POLICY_DRAFT.md` is draft-only and must not be published as-is. Google Play permission/Data safety declarations and server-side App Check enforcement remain unverified. The current evidence-based readiness assessment is maintained in:
 
 - [Production Readiness Audit](docs/PRODUCTION_READINESS_2026-08-31.md)
 - [Architecture Guide](docs/ARCHITECTURE.md)

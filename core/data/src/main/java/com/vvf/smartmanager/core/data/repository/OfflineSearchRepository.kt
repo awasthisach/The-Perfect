@@ -28,6 +28,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.File
 
+/** Escape SQL LIKE wildcards so user input is matched literally. */
+internal fun escapeSqlLikeWildcards(query: String): String =
+    query.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+
 class OfflineSearchRepository(
     private val context: Context,
     private val searchFtsDao: SearchFtsDao,
@@ -168,20 +172,21 @@ class OfflineSearchRepository(
 
     override fun searchFiles(query: String, filter: SearchFilter): Flow<List<SearchResultItem>> = flow {
         val trimmedQuery = query.trim().take(500)
+        val escapedLikeQuery = escapeSqlLikeWildcards(trimmedQuery)
         val entitiesFlow = when {
             trimmedQuery.isNotEmpty() -> {
                 val sanitizedFtsQuery = sanitizeFtsQuery(trimmedQuery)
                 val ftsFlow = if (sanitizedFtsQuery.isNotEmpty()) {
                     searchFtsDao.searchFilesFts(sanitizedFtsQuery)
                 } else {
-                    searchFtsDao.searchFilesFallback(trimmedQuery)
+                    searchFtsDao.searchFilesFallback(escapedLikeQuery)
                 }
-                val fallbackFlow = searchFtsDao.searchFilesFallback(trimmedQuery)
+                val fallbackFlow = searchFtsDao.searchFilesFallback(escapedLikeQuery)
                 ftsFlow.combine(fallbackFlow) { ftsList, fallbackList ->
                     (ftsList + fallbackList).distinctBy { it.path }
                 }
             }
-            filter.selectedTags.isNotEmpty() -> searchFtsDao.searchByTag(filter.selectedTags.first())
+            filter.selectedTags.isNotEmpty() -> searchFtsDao.searchByTag(escapeSqlLikeWildcards(filter.selectedTags.first()))
             filter.category != FileCategory.ALL -> {
                 val mimePrefix = when (filter.category) {
                     FileCategory.IMAGES -> "image/"

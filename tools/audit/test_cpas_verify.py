@@ -39,7 +39,7 @@ class CpasVerifySelfTests(unittest.TestCase):
                     f"# {i}. Section {i}" for i in range(1, 50)
                 ) + "\n"
                 write(assurance / name, body)
-            write(assurance / "04-technology-registry.yaml", "fts_module: FTS5\nmin_sdk: 24\n")
+            write(assurance / "04-technology-registry.yaml", "fts_module: FTS4\nmin_sdk: 24\n")
             write(
                 assurance / "05-security-reliability-invariants.yaml",
                 "invariants:\n  - id: STORAGE-INV-001\n",
@@ -75,6 +75,50 @@ class CpasVerifySelfTests(unittest.TestCase):
             self.assertEqual(status["production_status"]["value"], "BLOCKED")
             checks = {item["name"]: item for item in status["checks"]}
             self.assertEqual(checks["ort_sboms_present"]["status"], "BLOCKED")
+
+
+    def test_technology_registry_requires_room_fts4_not_build_flag_fts5(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("cpas_verify", VERIFY)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+
+        correct, detail = mod.validate_technology_registry(
+            "database:\n  fts_module: FTS4\n  ci_fixture_configure_flags: --enable-fts5\nmin_sdk: 24\n"
+        )
+        self.assertTrue(correct, detail)
+        self.assertIn("FTS4", detail)
+
+        incorrect, detail = mod.validate_technology_registry(
+            "database:\n  fts_module: FTS5\nmin_sdk: 24\n"
+        )
+        self.assertFalse(incorrect)
+        self.assertIn("FTS4", detail)
+
+    def test_ort_status_requires_exact_candidate_revision(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("cpas_verify", VERIFY)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+        candidate = "a" * 40
+        status = {"status": "PASS", "scan_revision": candidate}
+        self.assertEqual(mod.validate_ort_status(status, candidate)[0], True)
+        ok, detail = mod.validate_ort_status(status, "b" * 40)
+        self.assertFalse(ok)
+        self.assertIn("does not match candidate revision", detail)
+        blocked, detail = mod.validate_ort_status({"status": "BLOCKED", "scan_revision": candidate}, candidate)
+        self.assertFalse(blocked)
+        self.assertIn("not PASS", detail)
+        missing, detail = mod.validate_ort_status(None, candidate)
+        self.assertFalse(missing)
+        self.assertIn("invalid ORT status", detail)
+        missing_revision, detail = mod.validate_ort_status({"status": "PASS"}, candidate)
+        self.assertFalse(missing_revision)
+        self.assertIn("does not match candidate revision", detail)
 
     def test_invalid_risk_id_fails_grammar_check(self) -> None:
         self.assertTrue(VERIFY.is_file())

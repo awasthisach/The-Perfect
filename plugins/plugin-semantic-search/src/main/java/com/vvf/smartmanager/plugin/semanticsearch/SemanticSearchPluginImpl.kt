@@ -14,8 +14,9 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.sqrt
 
 /**
- * On-device hashed 128-d embeddings for lightweight semantic-style ranking.
- * (Deterministic hashing — not a TFLite neural net.)
+ * On-device deterministic hashed 128-dimensional token features for heuristic similarity ranking.
+ * This is not a learned embedding model, TFLite model, or generative AI. The model-download SPI
+ * is retained for compatibility; this implementation computes vectors locally from tokens.
  */
 class SemanticSearchPluginImpl : SemanticSearchSPI {
 
@@ -270,6 +271,6 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
     }
 
     private fun extractMatchedConcept(query: String, text: String): String {
-        return "Semantic Match (${query.take(20)})"
+        return "Token overlap (${query.take(20)})"
     }
 }

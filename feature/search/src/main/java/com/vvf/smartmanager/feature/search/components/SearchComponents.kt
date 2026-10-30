@@ -393,7 +393,7 @@ fun TagManagementDialog(
                 )
                 if (aiSuggestedTags.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("AI suggestions", fontWeight = FontWeight.SemiBold)
+                    Text("Rule-based suggestions", fontWeight = FontWeight.SemiBold)
                     aiSuggestedTags.take(5).forEach { suggestion ->
                         TextButton(onClick = { onAddTag(fileItem.path, suggestion.tagName) }) {
                             Text("+ ${suggestion.tagName}")

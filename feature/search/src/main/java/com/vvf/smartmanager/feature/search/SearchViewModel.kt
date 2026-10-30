@@ -135,13 +135,14 @@ class SearchViewModel(
         val searching = params[14] as Boolean
 
         val ftsPaths = results.mapTo(mutableSetOf()) { it.fileItem.path }
+        // This score comes from deterministic hashed token features, not a learned embedding model.
         val semanticAsResults = semanticHits.map { hit ->
             val pct = (hit.similarityScore * 100f).toInt().coerceIn(0, 100)
             val concept = hit.matchedConcept?.let { " · $it" } ?: ""
             com.vvf.smartmanager.core.model.SearchResultItem(
                 fileItem = hit.fileItem,
                 matchType = com.vvf.smartmanager.core.model.SearchMatchType.SEMANTIC,
-                matchedSnippet = "Semantic match $pct%$concept"
+                matchedSnippet = "Heuristic similarity $pct%$concept"
             )
         }
         val mergedResults = buildList {

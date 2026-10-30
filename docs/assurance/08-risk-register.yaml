@@ -2,7 +2,37 @@ schema_version: 1
 finding_lifecycle: [discovered, triaged, reproduced, root_cause_verified, repair_implemented, tested, ci_verified, closed]
 
 # Production blockers remain open until evidence-backed closure.
-open_findings: []
+open_findings:
+  - id: PROD-011
+    severity: critical
+    title: Vault data-encryption key is not cryptographically bound to PIN or biometric authorization
+    status: root_cause_verified
+    notes: >
+      Verified on source revision f49bbe9cd6298314d02f08640fedc794b6e3eed2.
+      CryptoSecurityManager.kt lines 101-115 create VAULT_KEY_ALIAS without
+      setUserAuthenticationRequired; lines 286-315 encrypt/decrypt vault streams
+      directly with that alias. Lines 539-565 verify PIN hashes stored in prefs
+      but do not unwrap or authorize the data key. VaultBiometricCryptoHelper.kt
+      uses a separate biometric proof key, not the vault data key. A migration-safe
+      versioned DEK wrapping design and old-vault migration are required.
+    residual_risk: critical
+    last_updated: "2026-10-30"
+
+  - id: PROD-012
+    severity: critical
+    title: Vault configuration and lockout can be reset by clearing SharedPreferences while encrypted files remain
+    status: root_cause_verified
+    notes: >
+      Verified on source revision f49bbe9cd6298314d02f08640fedc794b6e3eed2.
+      CryptoSecurityManager.kt lines 433-444 returns no lockout state when both
+      lockout preference keys are absent; lines 495-496 define vault configuration
+      solely by PIN hash/salt preferences. VaultViewModel.kt lines 49-69 then
+      sets isSettingUpPin when that preference marker is absent, without checking
+      whether files remain in filesDir/vvf_vault_encrypted. Add an authenticated
+      durable vault-state marker and fail closed when encrypted content exists
+      without matching metadata.
+    residual_risk: critical
+    last_updated: "2026-10-30"
 
 # PROD-008: Keep closed only with real nightly ORT SBOMs merged via auto-PR.
 # Reference: docs/assurance/ort-bom.cyclonedx.json, ort-bom.spdx.json, ort-status.json

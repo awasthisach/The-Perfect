@@ -6,7 +6,7 @@
 |-------|------|
 | `DriveApi` / `DriveNetwork` | Drive v3 REST (list, about, upload, download) |
 | `GoogleDriveServiceImpl` | Service; requires access token via `setAccessToken` |
-| `GoogleDriveAuth` | Credential Manager (ID token) + Google Sign-In (Drive access token) skeleton |
+| `GoogleDriveAuth` | Credential Manager / Google Sign-In token acquisition; includes a session-checked silent refresh helper |
 
 ## OAuth setup (Google Cloud Console)
 
@@ -61,3 +61,8 @@ auth.signOut()
 ## CI
 
 Unit tests do not call live Drive. Optional future: secret-backed integration job.
+
+
+## Token refresh limitation (current implementation)
+
+`GoogleDriveAuth.silentRefreshDriveAccessToken()` can obtain a fresh Play Services-managed access token for a matching existing Google + Firebase session. However, this helper is **not wired into `GoogleDriveServiceImpl` request execution**. `GoogleDriveServiceImpl.bearer()` is synchronous and fails closed once the installed token is older than 55 minutes, asking the user to sign in again. Therefore automatic refresh during Drive API calls is **not implemented**; the supported current behavior is explicit re-authentication after token expiry. Do not advertise seamless/background token refresh until the auth lifecycle is integrated and tested with a real Google account.

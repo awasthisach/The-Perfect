@@ -177,6 +177,41 @@ class CryptoSecurityManagerTest {
     }
 
     @Test
+    fun incompleteAuthenticatedLockoutStateFailsClosed() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val prefs = context.getSharedPreferences("vvf_secure_vault_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit()
+            .remove("vault_lockout_state_v2")
+            .putString("vault_lockout_state_v2_iv", "AA==")
+            .remove("vault_failed_attempts")
+            .remove("vault_lockout_until_ms")
+            .commit()
+
+        assertThrowsSecurityFailure {
+            cryptoSecurityManager.getRemainingLockoutSeconds()
+        }
+    }
+
+    @Test
+    fun legacyLockoutDeadlineMigratesToConservativeMonotonicLockout() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val prefs = context.getSharedPreferences("vvf_secure_vault_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit()
+            .remove("vault_lockout_state_v2")
+            .remove("vault_lockout_state_v2_iv")
+            .putInt("vault_failed_attempts", 2)
+            .putLong("vault_lockout_until_ms", 1L)
+            .commit()
+
+        assertTrue(cryptoSecurityManager.getRemainingLockoutSeconds() > 0)
+        assertTrue(cryptoSecurityManager.getFailedAttemptsCount() >= 15)
+        assertTrue(prefs.contains("vault_lockout_state_v2"))
+        assertTrue(prefs.contains("vault_lockout_state_v2_iv"))
+        assertFalse(prefs.contains("vault_failed_attempts"))
+        assertFalse(prefs.contains("vault_lockout_until_ms"))
+    }
+
+    @Test
     fun portableBackupEncryptionWorksWithoutDeviceKeystoreKey() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val source = java.io.File(context.cacheDir, "portable-backup-source.bin").apply {
@@ -205,6 +240,36 @@ class CryptoSecurityManagerTest {
                 keyStoreProvider = "InjectedProvider",
                 isJvmUnitTestEnvironment = false
             )
+        )
+    }
+
+    @Test
+    fun decoyPinDoesNotResetRealVaultFailedAttemptCounter() {
+        assertTrue(cryptoSecurityManager.setupVaultPin("482951"))
+        assertTrue(cryptoSecurityManager.setupDecoyPin("593162"))
+
+        repeat(4) {
+            assertTrue(
+                cryptoSecurityManager.verifyVaultPinWithResult("000000") is
+                    CryptoSecurityManager.VaultAuthResult.INVALID_PIN
+            )
+        }
+        assertEquals(4, cryptoSecurityManager.getFailedAttemptsCount())
+
+        assertTrue(
+            cryptoSecurityManager.verifyVaultPinWithResult("593162") is
+                CryptoSecurityManager.VaultAuthResult.SUCCESS_DECOY
+        )
+        assertEquals(4, cryptoSecurityManager.getFailedAttemptsCount())
+
+        assertTrue(
+            cryptoSecurityManager.verifyVaultPinWithResult("000000") is
+                CryptoSecurityManager.VaultAuthResult.INVALID_PIN
+        )
+        assertTrue(cryptoSecurityManager.getRemainingLockoutSeconds() > 0)
+        assertTrue(
+            cryptoSecurityManager.verifyVaultPinWithResult("482951") is
+                CryptoSecurityManager.VaultAuthResult.LOCKED_OUT
         )
     }
 

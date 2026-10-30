@@ -9,7 +9,7 @@ import com.vvf.smartmanager.core.model.SemanticSearchResult
 import com.vvf.smartmanager.core.plugin.spi.ISemanticSearchEngine
 
 /**
- * UseCase to execute On-Device Semantic AI Search over indexed files and tags.
+ * UseCase to execute local heuristic similarity ranking over indexed file names and tags. This is not neural semantic search or an AI model.
  * Bounded candidate set prevents lag/OOM when library is large.
  */
 class SemanticSearchUseCase(
