@@ -69,7 +69,7 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew --no-daemon :app:dependencies --configuration debugRuntimeClasspath > "$RUNNER_TEMP/debug-runtime-dependencies.txt"
-          if grep -E 'net\\.sqlcipher:|net\\.zetetic:android-database-sqlcipher|android-database-sqlcipher' "$RUNNER_TEMP/debug-runtime-dependencies.txt"; then
+          if grep -E 'net\.sqlcipher:|net\.zetetic:android-database-sqlcipher|android-database-sqlcipher' "$RUNNER_TEMP/debug-runtime-dependencies.txt"; then
             echo "::error::Legacy SQLCipher artifacts are present in debugRuntimeClasspath."
             exit 1
           fi
