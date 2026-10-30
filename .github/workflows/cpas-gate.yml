@@ -55,15 +55,15 @@ jobs:
             done
           fi
           if [ -z "$RUN_ID" ]; then
-            echo "::warning::No completed ORT run for exact SHA $TARGET_SHA before timeout; CPAS remains fail-closed."
-            exit 0
+            echo "::error::No completed ORT run for exact SHA $TARGET_SHA; ORT is BLOCKED."
+            exit 1
           fi
 
           DOWNLOAD_DIR="$RUNNER_TEMP/ort-download"
           mkdir -p "$DOWNLOAD_DIR"
           if ! gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name ort-results-evidence --dir "$DOWNLOAD_DIR"; then
-            echo "::warning::No ORT evidence artifact found for run $RUN_ID; CPAS remains fail-closed."
-            exit 0
+            echo "::error::No ORT evidence artifact found for run $RUN_ID; ORT is BLOCKED."
+            exit 1
           fi
 
           RESULTS_DIR="$DOWNLOAD_DIR/ort-evidence/results"
@@ -109,10 +109,7 @@ jobs:
         id: cpas
         env:
           TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
-        # Fail-closed: BLOCKED is an expected production state while critical
-        # findings remain open. Emit a warning annotation, not an error, so the
-        # job stays green without hiding the BLOCKED status.
-        # Unexpected verifier crashes (no status file) still fail the job.
+        # Required check must be red for every non-PASS production state.
         run: |
           set +e
           python3 tools/audit/cpas_verify.py --root . --revision "$TARGET_SHA"
@@ -135,12 +132,7 @@ jobs:
             exit 0
           fi
 
-          if [ "$status" = "BLOCKED" ]; then
-            echo "::warning::CPAS production_status=BLOCKED (fail-closed). blockers=${blockers}. See cpas-status artifact. Release promotion still requires PASS."
-            exit 0
-          fi
-
-          echo "::error::Unexpected CPAS status=${status} exit_code=${code}"
+          echo "::error::CPAS production_status=${status} (exit_code=${code}); blockers=${blockers}"
           exit 1
 
       - name: Upload computed CPAS status
