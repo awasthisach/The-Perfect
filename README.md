@@ -16,7 +16,7 @@
 - **Background work:** AndroidX WorkManager
 - **OCR:** ML Kit plugin
 - **Search:** local Room FTS + tags/metadata; optional similarity ranking uses deterministic hashed token vectors (not a neural embedding model or generative AI).
-- **Cloud:** Google Drive core integration plus cloud-driver SPI
+- **Cloud:** Google Drive integration; Drive requests currently require re-authentication after the access token ages out (automatic request-time refresh is not wired). Real-account acceptance remains pending.
 - **Build:** Gradle Kotlin DSL + version catalog
 - **Compile/Target SDK:** 36
 - **Minimum SDK:** 24
