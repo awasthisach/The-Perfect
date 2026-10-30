@@ -44,6 +44,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.vvf.smartmanager.core.common.FormatUtils
@@ -74,7 +76,18 @@ fun VaultUnlockedContent(
     Scaffold(
         modifier = modifier
             .fillMaxSize()
-            .testTag("vault_unlocked_root"),
+            .testTag("vault_unlocked_root")
+            // Reset inactivity timeout on touch gestures across the unlocked vault.
+            .pointerInput(viewModel) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        if (event.type == PointerEventType.Press) {
+                            viewModel.userActivityOccurred()
+                        }
+                    }
+                }
+            },
         topBar = {
             TopAppBar(
                 title = {
@@ -176,7 +189,10 @@ fun VaultUnlockedContent(
         ) {
             OutlinedTextField(
                 value = uiState.searchQuery,
-                onValueChange = { viewModel.onSearchQueryChanged(it) },
+                onValueChange = {
+                    viewModel.userActivityOccurred()
+                    viewModel.onSearchQueryChanged(it)
+                },
                 placeholder = { Text("Search encrypted files...") },
                 leadingIcon = {
                     Icon(
