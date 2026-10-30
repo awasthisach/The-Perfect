@@ -279,14 +279,14 @@ fun CleanerScreen(
                     FilterChip(
                         selected = uiState.duplicateLevel == DuplicateLevel.LEVEL_3_SIMILARITY,
                         onClick = { viewModel.setDuplicateLevel(DuplicateLevel.LEVEL_3_SIMILARITY) },
-                        label = { Text("L3: AI Similarity", style = MaterialTheme.typography.labelMedium) },
+                        label = { Text("L3: Heuristic similarity", style = MaterialTheme.typography.labelMedium) },
                         leadingIcon = { Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp)) },
                         colors = FilterChipDefaults.filterChipColors(selectedContainerColor = BhagwaOrange.copy(alpha = 0.2f), selectedLabelColor = BhagwaOrange),
                         modifier = Modifier.weight(1.3f).testTag("filter_level_3")
                     )
                 }
 
-                // AI Level 3 Similarity Slider (70% - 95%)
+                // Heuristic similarity threshold slider (70% - 95%)
                 if (uiState.duplicateLevel == DuplicateLevel.LEVEL_3_SIMILARITY) {
                     Card(
                         modifier = Modifier
@@ -315,7 +315,7 @@ fun CleanerScreen(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "AI Similarity Threshold",
+                                        text = "Similarity Threshold",
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = CosmicBlue
@@ -337,7 +337,7 @@ fun CleanerScreen(
 
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Detects near-duplicate documents, images, and texts using on-device TFLite vector embeddings.",
+                                text = "Flags approximate matches using local hashed token features and keyword heuristics; this is not a learned TFLite embedding model.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
