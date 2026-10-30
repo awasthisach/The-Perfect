@@ -119,7 +119,7 @@ jobs:
               "scan_revision": os.environ["SCAN_SHA"],
               "reason": "ORT status was not generated",
             }, indent=2) + "\n", encoding="utf-8")
-            PY
+          PY
           fi
 
       - name: Extract available ORT outputs for assurance evidence
