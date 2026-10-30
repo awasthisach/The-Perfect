@@ -65,6 +65,19 @@ jobs:
         run: python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
       - name: Verify Gradle wrapper
         run: ./gradlew --no-daemon --version
+      - name: Verify SQLCipher runtime dependency policy
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon :app:dependencies --configuration debugRuntimeClasspath > "$RUNNER_TEMP/debug-runtime-dependencies.txt"
+          if grep -E 'net\\.sqlcipher:|net\\.zetetic:android-database-sqlcipher|android-database-sqlcipher' "$RUNNER_TEMP/debug-runtime-dependencies.txt"; then
+            echo "::error::Legacy SQLCipher artifacts are present in debugRuntimeClasspath."
+            exit 1
+          fi
+          grep -F 'net.zetetic:sqlcipher-android' "$RUNNER_TEMP/debug-runtime-dependencies.txt" >/dev/null || {
+            echo "::error::Expected net.zetetic:sqlcipher-android is missing from debugRuntimeClasspath."
+            exit 1
+          }
+          echo "Only the supported SQLCipher Android artifact is permitted."
       - name: Run unit tests
         run: ./gradlew --no-daemon testDebugUnitTest --stacktrace
       - name: Generate Room schema export
