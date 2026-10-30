@@ -141,7 +141,7 @@ class SearchViewModel(
             com.vvf.smartmanager.core.model.SearchResultItem(
                 fileItem = hit.fileItem,
                 matchType = com.vvf.smartmanager.core.model.SearchMatchType.SEMANTIC,
-                matchedSnippet = "Semantic match $pct%$concept"
+                matchedSnippet = "Heuristic similarity $pct%$concept"
             )
         }
         val mergedResults = buildList {
