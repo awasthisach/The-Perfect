@@ -39,7 +39,7 @@ class CpasVerifySelfTests(unittest.TestCase):
                     f"# {i}. Section {i}" for i in range(1, 50)
                 ) + "\n"
                 write(assurance / name, body)
-            write(assurance / "04-technology-registry.yaml", "fts_module: FTS5\nmin_sdk: 24\n")
+            write(assurance / "04-technology-registry.yaml", "fts_module: FTS4\nmin_sdk: 24\n")
             write(
                 assurance / "05-security-reliability-invariants.yaml",
                 "invariants:\n  - id: STORAGE-INV-001\n",
@@ -75,6 +75,27 @@ class CpasVerifySelfTests(unittest.TestCase):
             self.assertEqual(status["production_status"]["value"], "BLOCKED")
             checks = {item["name"]: item for item in status["checks"]}
             self.assertEqual(checks["ort_sboms_present"]["status"], "BLOCKED")
+
+
+    def test_technology_registry_requires_room_fts4_not_build_flag_fts5(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("cpas_verify", VERIFY)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+
+        correct, detail = mod.validate_technology_registry(
+            "database:\\n  fts_module: FTS4\\n  ci_fixture_configure_flags: --enable-fts5\\nmin_sdk: 24\\n"
+        )
+        self.assertTrue(correct, detail)
+        self.assertIn("FTS4", detail)
+
+        incorrect, detail = mod.validate_technology_registry(
+            "database:\\n  fts_module: FTS5\\nmin_sdk: 24\\n"
+        )
+        self.assertFalse(incorrect)
+        self.assertIn("FTS4", detail)
 
     def test_ort_status_requires_exact_candidate_revision(self) -> None:
         import importlib.util

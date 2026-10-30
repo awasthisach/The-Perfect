@@ -138,7 +138,19 @@ jobs:
           fi
 
           status=$(python3 -c 'import json; print(json.load(open("cpas-status.json"))["production_status"]["value"])')
-          blockers=$(python3 -c 'import json; print(",".join(json.load(open("cpas-status.json")).get("blocking_findings") or []) or "none")')
+          blockers=$(python3 - <<'PY'
+          import json
+          from pathlib import Path
+          status = json.loads(Path("cpas-status.json").read_text(encoding="utf-8"))
+          findings = status.get("blocking_findings") or []
+          blocked_checks = [
+              item.get("name", "unnamed-check")
+              for item in status.get("checks", [])
+              if item.get("status") in {"BLOCKED", "FAIL", "ERROR"}
+          ]
+          print(",".join([*findings, *blocked_checks]) or "none")
+          PY
+          )
           echo "production_status=$status" >> "$GITHUB_OUTPUT"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           echo "blockers=$blockers" >> "$GITHUB_OUTPUT"
@@ -155,7 +167,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: cpas-status-${{ github.event.pull_request.head.sha || github.sha }}
+          name: cpas-status-${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
           path: cpas-status.json
           if-no-files-found: warn
           retention-days: 14

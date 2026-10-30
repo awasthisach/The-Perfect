@@ -26,6 +26,16 @@ def check(name: str, passed: bool, detail: str) -> dict[str, str]:
     return {"name": name, "status": "PASS" if passed else "BLOCKED", "detail": detail}
 
 
+def validate_technology_registry(text: str) -> tuple[bool, str]:
+    """Require the Room FTS module actually declared by the source schema."""
+    match = re.search(r"(?m)^\\s*fts_module\\s*:\\s*([A-Za-z0-9_-]+)\\s*(?:#.*)?$", text)
+    has_fts4 = bool(match and match.group(1).upper() == "FTS4")
+    has_sdk = bool(re.search(r"(?m)^\\s*(?:min_sdk|min)\\s*:", text))
+    if has_fts4 and has_sdk:
+        return True, "Room FTS4 and SDK pins present"
+    return False, "missing authoritative Room FTS4 pin and/or SDK pins in technology registry"
+
+
 def ids_from_yaml(path: Path) -> list[str]:
     ids: list[str] = []
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -223,10 +233,7 @@ def main() -> int:
     tech_detail = "technology registry missing"
     if tech_path.is_file():
         tech_text = tech_path.read_text(encoding="utf-8")
-        has_fts5 = "FTS5" in tech_text or "fts_module: FTS5" in tech_text
-        has_sdk = "min_sdk" in tech_text or "min:" in tech_text
-        tech_ok = has_fts5 and has_sdk
-        tech_detail = "FTS5 and SDK pins present" if tech_ok else "missing FTS5 and/or SDK pins in technology registry"
+        tech_ok, tech_detail = validate_technology_registry(tech_text)
     checks.append(check("technology_registry_pins", tech_ok, tech_detail))
 
     ledger_ok = False
