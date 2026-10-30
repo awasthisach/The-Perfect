@@ -540,8 +540,13 @@ class CryptoSecurityManager(
         if (!isValidPinFormat(pin)) return VaultAuthResult.INVALID_FORMAT
         val remainingLockout = getRemainingLockoutSeconds()
         if (remainingLockout > 0) return VaultAuthResult.LOCKED_OUT(remainingLockout)
-        if (matchesRealPin(pin)) { resetFailedAttempts(); return VaultAuthResult.SUCCESS_REAL }
-        if (matchesDecoyPin(pin)) { resetFailedAttempts(); return VaultAuthResult.SUCCESS_DECOY }
+        if (matchesRealPin(pin)) {
+            resetFailedAttempts()
+            return VaultAuthResult.SUCCESS_REAL
+        }
+        // A decoy session must never clear the real-vault brute-force counter.
+        // Otherwise knowledge of the decoy PIN can be used to repeatedly reset lockout.
+        if (matchesDecoyPin(pin)) return VaultAuthResult.SUCCESS_DECOY
         return recordFailedAttempt()
     }
 
