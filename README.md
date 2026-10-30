@@ -65,7 +65,7 @@ The supported CI release path is `.github/workflows/release.yml`, which requires
 
 ## Current production status
 
-This repository is under active production hardening and is **not yet independently verified for public release**. The current evidence-based readiness assessment is maintained in:
+This repository is under active production hardening and is **not yet independently verified for public release**. The privacy policy at `docs/PRIVACY_POLICY_DRAFT.md` is draft-only and must not be published as-is. Google Play permission/Data safety declarations and server-side App Check enforcement remain unverified. The current evidence-based readiness assessment is maintained in:
 
 - [Production Readiness Audit](docs/PRODUCTION_READINESS_2026-08-31.md)
 - [Architecture Guide](docs/ARCHITECTURE.md)
