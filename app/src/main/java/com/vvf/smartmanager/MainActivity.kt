@@ -1,67 +1,37 @@
 package com.vvf.smartmanager
 
-import android.app.Activity
-import android.content.Intent
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.lifecycle.lifecycleScope
-import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
-import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
-import kotlinx.coroutines.launch
 import android.os.Bundle
-import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import com.vvf.smartmanager.R
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
+import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.NavHostController
+import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
+import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
 import com.vvf.smartmanager.feature.cleaner.presentation.CleanerScreen
 import com.vvf.smartmanager.feature.cleaner.presentation.CleanerViewModel
 import com.vvf.smartmanager.feature.cloud.presentation.CloudRoute
 import com.vvf.smartmanager.feature.cloud.presentation.CloudViewModel
 import com.vvf.smartmanager.feature.explorer.presentation.ExplorerScreen
 import com.vvf.smartmanager.feature.explorer.presentation.ExplorerViewModel
-import com.vvf.smartmanager.feature.home.presentation.HomeScreen
-import com.vvf.smartmanager.feature.home.presentation.HomeViewModel
 import com.vvf.smartmanager.feature.plugins.presentation.PluginsScreen
 import com.vvf.smartmanager.feature.plugins.presentation.PluginsViewModel
 import com.vvf.smartmanager.feature.search.presentation.SearchScreen
@@ -71,6 +41,7 @@ import com.vvf.smartmanager.feature.vault.presentation.VaultScreen
 import com.vvf.smartmanager.feature.vault.presentation.VaultViewModel
 import com.vvf.smartmanager.ui.navigation.TopLevelDestination
 import com.vvf.smartmanager.ui.theme.VVFSmartManagerTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
     private lateinit var googleDriveAuth: GoogleDriveAuth
@@ -153,8 +124,14 @@ private fun VVFRoot(
                                 restoreState = true
                             }
                         },
-                        icon = { Icon(dest.icon, contentDescription = dest.label) },
-                        label = { Text(dest.label) }
+                        icon = {
+                            Icon(
+                                imageVector = if (selected) dest.selectedIcon else dest.unselectedIcon,
+                                contentDescription = dest.title
+                            )
+                        },
+                        label = { Text(dest.title) },
+                        modifier = Modifier.testTag(dest.testTag)
                     )
                 }
             }
@@ -162,18 +139,9 @@ private fun VVFRoot(
     ) { padding ->
         NavHost(
             navController = navController,
-            startDestination = TopLevelDestination.HOME.route,
+            startDestination = TopLevelDestination.EXPLORER.route,
             modifier = Modifier.fillMaxSize().padding(padding)
         ) {
-            composable(TopLevelDestination.HOME.route) {
-                val homeViewModel: HomeViewModel = viewModel(
-                    factory = HomeViewModel.provideFactory(
-                        getStorageOverviewUseCase = app.getStorageOverviewUseCase,
-                        getCategorizedFilesUseCase = app.getCategorizedFilesUseCase
-                    )
-                )
-                HomeScreen(viewModel = homeViewModel)
-            }
             composable(TopLevelDestination.EXPLORER.route) {
                 val explorerViewModel: ExplorerViewModel = viewModel(
                     factory = ExplorerViewModel.provideFactory(
