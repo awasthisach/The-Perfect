@@ -44,8 +44,7 @@ jobs:
           # Missing ORT => evaluate tree as-is; cpas_verify stays BLOCKED (fail-closed).
           if [ -z "$RUN_ID" ]; then
             RUN_ID="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/nightly-ort.yml/runs?head_sha=$TARGET_SHA&per_page=20" \
-              --jq --arg sha "$TARGET_SHA" \
-              '.workflow_runs[] | select(.head_sha == $sha and .status == "completed" and .conclusion == "success") | .id' \
+              --jq '.workflow_runs[] | select(.head_sha == env.TARGET_SHA and .status == "completed" and .conclusion == "success") | .id' \
               | head -n 1 || true)"
           fi
 
