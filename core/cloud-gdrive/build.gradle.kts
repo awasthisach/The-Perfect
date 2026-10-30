@@ -33,6 +33,8 @@ dependencies {
   implementation(libs.androidx.credentials.play.services)
   implementation(libs.googleid)
   implementation(libs.play.services.auth)
+  implementation(platform(libs.firebase.bom))
+  implementation(libs.firebase.auth)
   implementation(libs.retrofit)
   implementation(libs.converter.moshi)
   implementation(libs.moshi.kotlin)
