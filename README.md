@@ -15,7 +15,7 @@
 - **Security:** Android Keystore, AES-GCM vault encryption, protected database passphrase
 - **Background work:** AndroidX WorkManager
 - **OCR:** ML Kit plugin
-- **Semantic search:** on-device plugin architecture
+- **Search:** local Room FTS + tags/metadata; optional similarity ranking uses deterministic hashed token vectors (not a neural embedding model or generative AI).
 - **Cloud:** Google Drive core integration plus cloud-driver SPI
 - **Build:** Gradle Kotlin DSL + version catalog
 - **Compile/Target SDK:** 36
