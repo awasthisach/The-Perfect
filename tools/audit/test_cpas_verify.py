@@ -92,6 +92,12 @@ class CpasVerifySelfTests(unittest.TestCase):
         blocked, detail = mod.validate_ort_status({"status": "BLOCKED", "scan_revision": candidate}, candidate)
         self.assertFalse(blocked)
         self.assertIn("not PASS", detail)
+        missing, detail = mod.validate_ort_status(None, candidate)
+        self.assertFalse(missing)
+        self.assertIn("invalid ORT status", detail)
+        missing_revision, detail = mod.validate_ort_status({"status": "PASS"}, candidate)
+        self.assertFalse(missing_revision)
+        self.assertIn("does not match candidate revision", detail)
 
     def test_invalid_risk_id_fails_grammar_check(self) -> None:
         self.assertTrue(VERIFY.is_file())
