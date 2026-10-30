@@ -187,7 +187,7 @@ jobs:
           cat release-meta/apk-manifest.txt
 
       - name: Generate SBOM with Syft
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@da167eac915b4e86f08b264dbdbc867b61be6f0c # v0.20.5
         with:
           file: ${{ steps.apk.outputs.path }}
           format: spdx-json
