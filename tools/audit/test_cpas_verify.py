@@ -86,13 +86,13 @@ class CpasVerifySelfTests(unittest.TestCase):
         spec.loader.exec_module(mod)
 
         correct, detail = mod.validate_technology_registry(
-            "database:\\n  fts_module: FTS4\\n  ci_fixture_configure_flags: --enable-fts5\\nmin_sdk: 24\\n"
+            "database:\n  fts_module: FTS4\n  ci_fixture_configure_flags: --enable-fts5\nmin_sdk: 24\n"
         )
         self.assertTrue(correct, detail)
         self.assertIn("FTS4", detail)
 
         incorrect, detail = mod.validate_technology_registry(
-            "database:\\n  fts_module: FTS5\\nmin_sdk: 24\\n"
+            "database:\n  fts_module: FTS5\nmin_sdk: 24\n"
         )
         self.assertFalse(incorrect)
         self.assertIn("FTS4", detail)

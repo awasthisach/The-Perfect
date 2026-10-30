@@ -28,9 +28,9 @@ def check(name: str, passed: bool, detail: str) -> dict[str, str]:
 
 def validate_technology_registry(text: str) -> tuple[bool, str]:
     """Require the Room FTS module actually declared by the source schema."""
-    match = re.search(r"(?m)^\\s*fts_module\\s*:\\s*([A-Za-z0-9_-]+)\\s*(?:#.*)?$", text)
+    match = re.search(r"(?m)^\s*fts_module\s*:\s*([A-Za-z0-9_-]+)\s*(?:#.*)?$", text)
     has_fts4 = bool(match and match.group(1).upper() == "FTS4")
-    has_sdk = bool(re.search(r"(?m)^\\s*(?:min_sdk|min)\\s*:", text))
+    has_sdk = bool(re.search(r"(?m)^\s*(?:min_sdk|min)\s*:", text))
     if has_fts4 and has_sdk:
         return True, "Room FTS4 and SDK pins present"
     return False, "missing authoritative Room FTS4 pin and/or SDK pins in technology registry"
