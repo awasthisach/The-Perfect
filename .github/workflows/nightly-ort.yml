@@ -1,21 +1,20 @@
 name: Nightly ORT Compliance Scan
 
-# PR scans run on the exact head SHA so CPAS can consume same-revision evidence.
-# Scheduled/manual scans remain available for main and release candidates.
+# ORT is expensive (up to 6h). Do not attach to every PR synchronize — that
+# cancels or queues scans and burns Actions minutes without producing SBOMs.
+# Run on schedule or explicit workflow_dispatch against a freeze candidate SHA.
 on:
   schedule:
     - cron: "0 2 * * *"
   workflow_dispatch:
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
 
 concurrency:
-  group: nightly-ort-${{ github.ref }}
-  cancel-in-progress: false
+  # One ORT per ref; cancel stale runs when a new dispatch targets the same branch.
+  group: nightly-ort-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   ort-scan:
@@ -25,9 +24,7 @@ jobs:
     steps:
       - name: Resolve scan revision
         id: rev
-        env:
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: echo "sha=${PR_HEAD_SHA:-${GITHUB_SHA}}" >> "$GITHUB_OUTPUT"
+        run: echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout Repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -84,7 +81,11 @@ jobs:
               "scan_revision": os.environ["SCAN_SHA"],
               "ort_action_outcome": outcome,
               "report_validation_outcome": verified,
-              "reason": "ORT stages and all required reports passed" if status == "PASS" else "ORT failed, findings exceeded policy thresholds, or required reports were invalid/missing"
+              "reason": (
+                  "ORT stages and all required reports passed"
+                  if status == "PASS"
+                  else "ORT failed, findings exceeded policy thresholds, or required reports were invalid/missing"
+              ),
           }
           Path("ort-status.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
           print(json.dumps(result))

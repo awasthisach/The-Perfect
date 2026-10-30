@@ -1,30 +1,43 @@
-# Phase 3 exit — vault / PIN / portable backup
+# Phase 3 exit — vault / PIN / portable backup + same-SHA ORT/CPAS (owner criteria)
 
-**Status: PASS (source + unit/instrumented evidence)**  
-**Evidence SHA:** `9e1e561a5fb6fd7c280ed62dc37b2521204b7788` (`rebuild/stabilize-v1`)  
+**Status: PHASE 3 BLOCKED**
+
+**Candidate branch:** `rebuild/stabilize-v1`  
+**Recorded candidate SHA (verify before close):** `c78c4a2b7176c23cd6ed7e13aac7e387e45eaf2f`  
 **Date:** 2026-10-30
 
-Phase 3 is the **security vertical** for vault PIN lockout and portable backup/restore.
-It is **not** the full production ship gate (ORT/CPAS/device remain Phase 5–7).
+Owner Phase-3 exit criteria require implementation tests **and** ORT SBOMs + CPAS PASS on the **exact** candidate SHA. Implementation evidence is green; ORT/CPAS are not.
 
-## Exit criteria checklist
+## Implementation checklist (code + CI)
 
 | Criterion | Result | Evidence |
 |-----------|--------|----------|
-| PIN lockout not wall-clock-only | PASS | `CryptoSecurityManager` uses `SystemClock.elapsedRealtime()` for lockout deadlines |
-| Lockout state authenticated | PASS | AES-GCM blob keys `vault_lockout_state_v2` + `_iv`; legacy prefs removed on write |
-| Legacy lockout migration fail-closed | PASS | Incomplete/invalid legacy state → `SecurityException` or forced max delay; unit tests on branch |
-| Portable backup passphrase envelope | PASS | `PortableBackupCrypto` PBKDF2-HMAC-SHA256 + AES-GCM; `ArchiveService` requires ≥12 char passphrase |
-| No vault_auth.json as backup authority | PASS | #181 merge on main; export/import paths removed |
-| Unit tests green | PASS | CI Build/Test/Lint **success** on `9e1e561a` (run 40924744027) |
-| SQLCipher instrumented hard gate | PASS | **success** on `9e1e561a` (run 40924744044) |
+| PIN lockout monotonic | PASS | `CryptoSecurityManager` + `SystemClock.elapsedRealtime()` |
+| Lockout state authenticated | PASS | Keystore AES-GCM `vault_lockout_state_v2` |
+| Portable backup crypto | PASS | `PortableBackupCrypto` / `ArchiveService` ≥12 passphrase |
+| Restore fail-closed / recovery | PASS | `LocalRestoreApplier` + unit tests |
+| Unit / lint / assembleDebug | PASS | CI run **41037972964** success on `c78c4a2b…` |
+| SQLCipher hard gate | PASS | Hard gate run **41037972737** success on `c78c4a2b…` |
+
+## ORT / CPAS (blocking)
+
+| Criterion | Result | Evidence |
+|-----------|--------|----------|
+| ORT completed on exact SHA | **BLOCKED** | Run **41037972683** pending with **0 jobs** (queued behind long in-progress ORT on older PR SHAs; concurrency `cancel-in-progress: false`) |
+| `ort-bom.cyclonedx.json` / `ort-bom.spdx.json` / `ort-status.json` | **MISSING** | `docs/assurance/` has no `ort-*` BOM files on this SHA |
+| CPAS production_status PASS | **FAIL** | Run **41037972735** failure — fail-closed without ORT SBOMs |
+
+## Process fix applied after this note
+
+- `nightly-ort.yml`: remove `pull_request` trigger; `cancel-in-progress: true` so a freeze-branch dispatch can finish.
+- Operator must **Cancel** stuck ORT runs on old SHAs, then **Actions → Nightly ORT Compliance Scan → Run workflow → branch `rebuild/stabilize-v1`**.
 
 ## Explicit non-claims
 
-- ORT SBOM on this SHA: **not present** → CPAS `production_status` remains BLOCKED.
-- Physical device vault/backup acceptance: **not evidenced here**.
-- Therefore: **Phase 3 PASS**, overall release still **NO-SHIP**.
+- Do not treat Phase 3 as PASS under owner criteria until ORT PASS + three artifacts + CPAS PASS on one SHA.
+- Issues #136 / #140 / #141 remain open (ORT review, App Check console, OAuth/device).
+- PR #187 must stay draft; no merge.
 
-## Why it felt “not improving”
+## Decision
 
-ORT was attached to every PR push, ran ~6 hours, then **cancelled** when the next commit arrived. That is process thrash, not a Phase 3 code regression. ORT is now schedule/`workflow_dispatch` only so a single candidate SHA can finish.
+**PHASE 3 BLOCKED** — blocker: ORT not completed for candidate SHA (stuck queue / missing SBOMs). Phase 4 not started.
