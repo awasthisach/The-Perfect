@@ -25,13 +25,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
-import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
 import com.vvf.smartmanager.feature.cleaner.CleanerScreen
 import com.vvf.smartmanager.feature.cleaner.CleanerViewModel
 import com.vvf.smartmanager.feature.cloud.CloudRoute
 import com.vvf.smartmanager.feature.cloud.CloudViewModel
 import com.vvf.smartmanager.feature.explorer.ExplorerScreen
 import com.vvf.smartmanager.feature.explorer.ExplorerViewModel
+import com.vvf.smartmanager.feature.explorer.PermissionAccess
 import com.vvf.smartmanager.feature.plugins.PluginsScreen
 import com.vvf.smartmanager.feature.plugins.PluginsViewModel
 import com.vvf.smartmanager.feature.search.SearchScreen
@@ -145,10 +145,14 @@ private fun VVFRoot(
             composable(TopLevelDestination.EXPLORER.route) {
                 val explorerViewModel: ExplorerViewModel = viewModel(
                     factory = ExplorerViewModel.provideFactory(
+                        appContext = app,
                         getDirectoryFilesUseCase = app.getDirectoryFilesUseCase,
+                        getCategorizedFilesUseCase = app.getCategorizedFilesUseCase,
+                        getStorageOverviewUseCase = app.getStorageOverviewUseCase,
                         fileOperationsUseCase = app.fileOperationsUseCase,
                         recycleBinUseCase = app.recycleBinUseCase,
-                        storagePermissionGate = StoragePermissionGate(app)
+                        cloudSyncUseCase = app.cloudSyncUseCase,
+                        ocrEngine = app.ocrPlugin
                     )
                 )
                 ExplorerScreen(viewModel = explorerViewModel)
@@ -170,7 +174,9 @@ private fun VVFRoot(
                 val cleanerViewModel: CleanerViewModel = viewModel(
                     factory = CleanerViewModel.provideFactory(
                         duplicateCleanerUseCase = app.duplicateCleanerUseCase,
-                        junkCleanerUseCase = app.junkCleanerUseCase
+                        junkCleanerUseCase = app.junkCleanerUseCase,
+                        aiIntelligenceUseCase = app.aiIntelligenceUseCase,
+                        canScanPrimaryStorage = { PermissionAccess.hasBrowseAccess(app) }
                     )
                 )
                 CleanerScreen(viewModel = cleanerViewModel)
