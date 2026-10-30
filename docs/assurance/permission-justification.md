@@ -27,3 +27,10 @@
 
 - `StorageAccessPolicyTest` (unit)
 - Explorer ViewModel catches gate denial and sets `needsStoragePermission`
+
+
+## Play declaration status and minimization
+
+The manifest currently declares `MANAGE_EXTERNAL_STORAGE`, legacy `READ_EXTERNAL_STORAGE` (API 32 and lower), and `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`, and `READ_MEDIA_AUDIO` (API 33+). The broad all-files permission is justified only by the app's primary file-manager flows; media grants provide a degraded media-only mode when all-files access is absent. Runtime access is expected to remain user-initiated and fail-closed when the required grant is missing.
+
+These source declarations do **not** mean Google Play has approved the All files access declaration. Before submission, the release owner must verify the merged release manifest, remove any permission not required by the shipped feature set, complete the Play Console All files access declaration with the file-manager rationale above, and verify the Data safety / app-content forms. Approval status is currently **not verified**. No location, contacts, camera, or microphone permission is declared directly in `app/src/main/AndroidManifest.xml`; transitive merged-manifest output still requires release-build inspection.
