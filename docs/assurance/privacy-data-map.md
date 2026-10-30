@@ -12,7 +12,8 @@
 | File index metadata | Room/SQLCipher | High | Excluded | Paths, hashes, favorites |
 | OAuth tokens (Drive) | App-private | Critical | Excluded | Never log |
 | PIN / decoy vault state | Keystore-backed | Critical | Excluded | Lockout policy |
-| OCR output / search vectors | On-device only | Medium | Excluded | Search vectors are deterministic hashed token features (128 dimensions), not neural embeddings; no search text is sent to a remote embedding service by this implementation |
+| OCR-extracted text / FTS tags | Room/SQLCipher | High | Included when user creates a database backup; archive is encrypted before upload | OCR text and tags are indexed locally; a user-selected database archive can carry the DB to Google Drive |
+| Similarity token vectors | In-memory process cache | Medium | Not persisted as a vector index | Deterministic hashed token features (128 dimensions), not neural embeddings; no search text is sent to a remote embedding service by this implementation |
 
 ## Platform controls
 
