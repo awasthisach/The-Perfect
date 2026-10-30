@@ -68,6 +68,10 @@ jobs:
 
           RESULTS_DIR="$DOWNLOAD_DIR/ort-evidence/results"
           STATUS_FILE="$(find "$DOWNLOAD_DIR" -type f -name 'ort-status.json' -print -quit || true)"
+          if [ -z "$STATUS_FILE" ]; then
+            echo "::error::ORT status artifact is missing for exact SHA $TARGET_SHA"
+            exit 1
+          fi
           mkdir -p docs/assurance
 
           if [ -n "$STATUS_FILE" ]; then
@@ -83,6 +87,10 @@ jobs:
             cp "$STATUS_FILE" docs/assurance/ort-status.json
           fi
 
+          if [ ! -d "$RESULTS_DIR" ]; then
+            echo "::error::ORT result reports are missing from the evidence artifact."
+            exit 1
+          fi
           if [ -d "$RESULTS_DIR" ]; then
             set +e
             python3 tools/audit/verify_ort_outputs.py --results-dir "$RESULTS_DIR" --revision "$TARGET_SHA"
