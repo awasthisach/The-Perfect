@@ -309,6 +309,7 @@ class VVFApplication : Application(), Configuration.Provider {
                 backgroundSyncManager.schedulePeriodicIndexing(intervalHours = 6L)
                 backgroundSyncManager.triggerImmediateIndexing()
                 backgroundSyncManager.schedulePeriodicJunkScan(intervalHours = 12L)
+                backgroundSyncManager.triggerImmediateOcrBatch()
             } catch (e: Throwable) {
                 Log.e(TAG, "Background sync scheduling failed", e)
             }
