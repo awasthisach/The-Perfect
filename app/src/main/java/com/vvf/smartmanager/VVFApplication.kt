@@ -12,7 +12,6 @@ import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import com.vvf.smartmanager.core.background.workers.FileIndexingOutcome
 import com.vvf.smartmanager.core.background.workers.FileIndexingRuntime
-import com.vvf.smartmanager.core.background.workers.CloudBackupBootstrap
 import com.vvf.smartmanager.core.background.workers.JunkScanBootstrap
 import com.vvf.smartmanager.core.background.BackgroundSyncManager
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
@@ -298,7 +297,6 @@ class VVFApplication : Application(), Configuration.Provider {
         )
         backgroundSyncManager = BackgroundSyncManager(this)
         FileIndexingRuntime.configure { indexPrimaryStorageForSearch() }
-        CloudBackupBootstrap.wire(cloudSyncUseCase)
         JunkScanBootstrap.wire(junkCleanerUseCase)
         OcrBatchBootstrap.wire(database, ocrPlugin, ocrIndexingService)
         val bgExceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
