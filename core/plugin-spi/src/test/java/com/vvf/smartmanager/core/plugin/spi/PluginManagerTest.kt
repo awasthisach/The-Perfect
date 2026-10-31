@@ -47,7 +47,7 @@ class PluginManagerTest {
 
     private class FakeSemanticPlugin : SemanticSearchSPI {
         override val isEnabled: Boolean = true
-        override val displayName: String = "Fake TFLite MobileBERT"
+        override val displayName: String = "Fake Hashed-Embedding Engine"
 
         override fun isModelReady(): Boolean = true
 

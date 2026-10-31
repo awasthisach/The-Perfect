@@ -13,9 +13,9 @@ database:
   encryption: sqlcipher
   # CI fixture builds legacy 4.5.4 DBs for upgrade-path tests; runtime ships current SQLCipher via gradle deps.
   sqlcipher_compat_fixture_version: "4.5.4"
-  fts_module: FTS5
+  fts_module: FTS4
   ci_fixture_configure_flags: "--enable-tempstore=yes --enable-fts5"
-  notes: "FTS5 is authoritative. Older docs mentioning FTS4 are obsolete."
+  notes: "FTS4 is currently used in code. FTS5 migration is a future goal."
 
 technologies:
   - id: kotlin_android
