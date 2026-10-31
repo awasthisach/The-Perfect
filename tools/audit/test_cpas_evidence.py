@@ -143,6 +143,17 @@ class CpasEvidenceTests(unittest.TestCase):
             {"control_id": "UNKNOWN-INV-999"}, "evidence_control_refs"
         )
 
+    def test_malformed_control_id_blocks(self):
+        code, report = self.run_case({"control_id": []})
+        self.assertEqual(code, 1, msg=str(report))
+        self.assertEqual(report["production_status"]["value"], "BLOCKED")
+        blockers = {
+            check["name"]
+            for check in report["checks"]
+            if check["status"] != "PASS"
+        }
+        self.assertIn("evidence_control_refs", blockers, msg=str(report))
+
 
 if __name__ == "__main__":
     unittest.main()

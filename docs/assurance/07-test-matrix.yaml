@@ -30,7 +30,7 @@ control_test_map:
     levels: [unit, integration]
   - control_id: CLOUD-INV-001
     test_ids: [CLOUD-TEST-001]
-    levels: [unit, integration]
+    levels: [unit]
   - control_id: RELEASE-INV-001
     test_ids: [RELEASE-TEST-001]
     levels: [regression]
