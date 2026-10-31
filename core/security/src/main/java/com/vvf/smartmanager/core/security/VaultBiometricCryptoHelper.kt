@@ -73,6 +73,7 @@ object VaultBiometricCryptoHelper {
             .setKeySize(256)
             .setRandomizedEncryptionRequired(true)
             .setUserAuthenticationRequired(true)
+            .setInvalidatedByBiometricEnrollment(true)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             builder.setUserAuthenticationParameters(
