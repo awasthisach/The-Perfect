@@ -44,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.vvf.smartmanager.core.common.FormatUtils
@@ -74,7 +75,20 @@ fun VaultUnlockedContent(
     Scaffold(
         modifier = modifier
             .fillMaxSize()
-            .testTag("vault_unlocked_root"),
+            .testTag("vault_unlocked_root")
+            .pointerInput(viewModel) {
+                awaitPointerEventScope {
+                    var lastReset = 0L
+                    while (true) {
+                        awaitPointerEvent()
+                        val now = System.currentTimeMillis()
+                        if (now - lastReset > 500L) {
+                            lastReset = now
+                            viewModel.userActivityOccurred()
+                        }
+                    }
+                }
+            },
         topBar = {
             TopAppBar(
                 title = {
