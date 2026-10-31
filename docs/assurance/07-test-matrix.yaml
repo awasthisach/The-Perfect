@@ -28,6 +28,12 @@ control_test_map:
   - control_id: WORK-INV-001
     test_ids: [WORK-TEST-001]
     levels: [unit, integration]
+  - control_id: CLOUD-INV-001
+    test_ids: [CLOUD-TEST-001]
+    levels: [unit, integration]
+  - control_id: RELEASE-INV-001
+    test_ids: [RELEASE-TEST-001]
+    levels: [regression]
 
 minimum_traceability:
   requirement: at_least_one_test
