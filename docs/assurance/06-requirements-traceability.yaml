@@ -32,6 +32,18 @@ requirements:
     implementation_refs: [core/background/src/main]
     test_refs: [core/background/src/test]
     ci_job_refs: [unit-tests, cpas-verify]
+  - id: REQ-CLOUD-001
+    statement: Cloud uploads must reject missing remote identifiers and preserve a durable result contract.
+    controls: [CLOUD-INV-001]
+    implementation_refs: [core/cloud-gdrive/src/main]
+    test_refs: [core/cloud-gdrive/src/test]
+    ci_job_refs: [unit-tests, cpas-verify]
+  - id: REQ-RELEASE-001
+    statement: Production release verification must fail closed unless all required assurance checks pass.
+    controls: [RELEASE-INV-001]
+    implementation_refs: [tools/audit]
+    test_refs: [tools/audit]
+    ci_job_refs: [cpas-verify]
 
 rules:
   requirement_requires_control: true

@@ -95,6 +95,25 @@ class CpasEvidenceTests(unittest.TestCase):
             report = json.loads(output.read_text(encoding="utf-8"))
             return proc.returncode, report
 
+    def test_repository_ledger_controls_are_registered(self):
+        ledger = json.loads(
+            (Path(__file__).resolve().parents[2] / "docs/assurance/evidence-ledger.json")
+            .read_text(encoding="utf-8")
+        )
+        invariant_text = (
+            Path(__file__).resolve().parents[2]
+            / "docs/assurance/05-security-reliability-invariants.yaml"
+        ).read_text(encoding="utf-8")
+        registered = {
+            line.split(":", 1)[1].strip()
+            for line in invariant_text.splitlines()
+            if line.strip().startswith("- id:")
+        }
+        ledger_controls = {
+            entry["control_id"] for entry in ledger["entries"]
+        }
+        self.assertTrue(ledger_controls <= registered)
+
     def test_valid_evidence_passes(self):
         code, report = self.run_case()
         self.assertEqual(code, 0, msg=str(report))
