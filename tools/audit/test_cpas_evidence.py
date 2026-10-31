@@ -144,7 +144,7 @@ class CpasEvidenceTests(unittest.TestCase):
         )
 
     def test_malformed_control_id_blocks(self):
-        code, report = self.run_case({"control_id": []})
+        code, report = self.run_case(control_id=[])
         self.assertEqual(code, 1, msg=str(report))
         self.assertEqual(report["production_status"]["value"], "BLOCKED")
         blockers = {
