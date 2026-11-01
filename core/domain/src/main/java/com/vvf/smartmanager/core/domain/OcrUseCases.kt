@@ -44,7 +44,9 @@ class IndexOcrTextUseCase(
         ocrResult: OcrResult,
         maxCustomKeywords: Int = 5
     ): Result<Boolean> {
-        if (ocrResult.fullText.isBlank()) return Result.success(true)
+        if (ocrResult.fullText.isBlank()) {
+            return searchRepository.addTagToFile(fileItem.path, "ocr")
+        }
         return try {
             // Keep the completion marker last. If any keyword/FTS write fails, the
             // worker can retry this file instead of filtering it out as already indexed.
@@ -63,7 +65,8 @@ class IndexOcrTextUseCase(
             for (word in words) {
                 searchRepository.addTagToFile(fileItem.path, word).getOrThrow()
             }
-            searchRepository.rebuildFtsIndex()
+            // Room's FTS content-entity triggers track metadata updates; a full rebuild per
+            // file is unnecessary and makes large batches quadratic in total index size.
             searchRepository.addTagToFile(fileItem.path, "ocr").getOrThrow()
             Result.success(true)
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
