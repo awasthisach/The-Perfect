@@ -100,11 +100,10 @@ object OcrBatchBootstrap {
     private const val OCR_RETRY_BASE_DELAY_MILLIS = 6 * 60 * 60 * 1000L
     private const val OCR_RETRY_MAX_DELAY_MILLIS = 7 * 24 * 60 * 60 * 1000L
     private const val OCR_RETRY_TAG_PREFIX = "ocr_retry_after:"
-}
-
-/** Exponential retry backoff lets a failing recent batch yield to older pending files. */
-internal fun calculateOcrRetryDelayMillis(attempt: Int): Long {
-    require(attempt >= 1) { "attempt must be positive" }
-    val multiplier = 1L shl (attempt - 1).coerceAtMost(10)
-    return (OCR_RETRY_BASE_DELAY_MILLIS * multiplier).coerceAtMost(OCR_RETRY_MAX_DELAY_MILLIS)
+    /** Exponential retry backoff lets a failing recent batch yield to older pending files. */
+    internal fun calculateOcrRetryDelayMillis(attempt: Int): Long {
+        require(attempt >= 1) { "attempt must be positive" }
+        val multiplier = 1L shl (attempt - 1).coerceAtMost(10)
+        return (OCR_RETRY_BASE_DELAY_MILLIS * multiplier).coerceAtMost(OCR_RETRY_MAX_DELAY_MILLIS)
+    }
 }
