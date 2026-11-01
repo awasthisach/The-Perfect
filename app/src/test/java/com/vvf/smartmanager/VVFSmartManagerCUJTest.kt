@@ -22,7 +22,7 @@ import org.robolectric.annotation.Config
 
 /**
  * Comprehensive Critical User Journey (CUJ) & Security Test Suite for VVF Smart Manager.
- * Robolectric SDK pinned to 34 (compileSdk 36 is not yet fully supported by Robolectric).
+ * Robolectric SDK pinned to 34.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], manifest = Config.NONE)

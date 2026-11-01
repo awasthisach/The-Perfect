@@ -17,4 +17,10 @@
 
 ## Supported platform bounds
 
-See `04-technology-registry.yaml` (minSdk 24, target/compile SDK 36, JDK 17).
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:3580982a6e0bd2e27647a2826c37a465a87c5cecbb22b237aabee48427594c18 -->
+
+See `04-technology-registry.yaml` (minSdk 24, target SDK 36, compile SDK 37, JDK 17).
+
+<!-- /coderabbit-ai-generated:v1 -->
