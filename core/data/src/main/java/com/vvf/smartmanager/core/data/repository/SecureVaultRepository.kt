@@ -131,10 +131,9 @@ class SecureVaultRepository(
                 // Remove the searchable metadata before attempting destructive I/O. If the
                 // database write fails, the catch block can safely roll back the encrypted
                 // copy because the plaintext source has not yet been touched.
-                fileDao.deleteByPath(sourceFile.absolutePath)
-                if (canonicalSource.absolutePath != sourceFile.absolutePath) {
-                    fileDao.deleteByPath(canonicalSource.absolutePath)
-                }
+                fileDao.deleteByPaths(
+                    listOf(sourceFile.absolutePath, canonicalSource.absolutePath).distinct()
+                )
                 // FTS queries join file_metadata; after row deletion the old path is no
                 // longer searchable even if rebuilding the virtual table fails.
                 runCatching { searchFtsDao.rebuildFtsIndex() }.onFailure {
