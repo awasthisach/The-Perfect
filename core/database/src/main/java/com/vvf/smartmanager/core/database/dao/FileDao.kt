@@ -102,6 +102,10 @@ interface FileDao {
     @Query("DELETE FROM file_metadata WHERE path = :path")
     suspend fun deleteByPath(path: String)
 
+    /** Deletes multiple aliases in one SQL statement so metadata cleanup cannot partially apply. */
+    @Query("DELETE FROM file_metadata WHERE path IN (:paths)")
+    suspend fun deleteByPaths(paths: List<String>)
+
     /**
      * Removes index rows whose paths are no longer present on primary storage.
      * Trash rows are intentionally preserved so recycle-bin metadata survives re-index.
