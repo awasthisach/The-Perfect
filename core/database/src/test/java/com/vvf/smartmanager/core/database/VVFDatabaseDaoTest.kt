@@ -218,7 +218,7 @@ class VVFDatabaseDaoTest {
         assertEquals(1, searchFtsDao.searchFilesFts("secret").first().size)
 
         // SecureVaultRepository performs this only after secureShredFile() succeeds.
-        fileDao.deleteByPath(originalPath)
+        fileDao.deleteByPaths(listOf(originalPath))
         searchFtsDao.rebuildFtsIndex()
 
         assertTrue(searchFtsDao.searchFilesFallback("secret_report").first().isEmpty())
