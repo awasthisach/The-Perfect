@@ -51,21 +51,16 @@ object OcrBatchBootstrap {
                         continue
                     }
                     val ocr = extraction.getOrThrow()
-                    if (ocr.fullText.isNotBlank()) {
-                        val indexing = ocrIndexingService.indexOcrResult(item, ocr)
-                        val indexingError = indexing.exceptionOrNull()
-                        if (indexingError != null) {
-                            if (indexingError is CancellationException) throw indexingError
-                            deferCandidate(fileDao, item.path)
-                            failures += "${item.name}: indexing failed (${indexingError.message ?: "unknown error"})"
-                            continue
-                        }
-                        clearCandidateDeferral(fileDao, item.path)
-                        processed++
-                    } else {
-                        // A successful but text-empty OCR result is complete, not a retry.
-                        clearCandidateDeferral(fileDao, item.path)
+                    val indexing = ocrIndexingService.indexOcrResult(item, ocr)
+                    val indexingError = indexing.exceptionOrNull()
+                    if (indexingError != null) {
+                        if (indexingError is CancellationException) throw indexingError
+                        deferCandidate(fileDao, item.path)
+                        failures += "${item.name}: indexing failed (${indexingError.message ?: "unknown error"})"
+                        continue
                     }
+                    clearCandidateDeferral(fileDao, item.path)
+                    processed++
                 }
                 if (failures.isNotEmpty()) {
                     OcrBatchOutcome.RetryableFailure(
