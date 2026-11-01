@@ -381,6 +381,12 @@ private fun VVFNavHost(
         }
         composable(TopLevelDestination.SETTINGS.route) {
             SettingsScreen(
+                initialBiometricEnabled = app.vaultAuthUseCase.isBiometricEnabled(),
+                onBiometricEnabledChange = { enabled ->
+                    // General Settings is not an authenticated vault session. It may
+                    // disable biometrics, but must never enroll/enable vault unlock here.
+                    if (!enabled) app.vaultAuthUseCase.setBiometricEnabled(false)
+                },
                 initialAutoIndexOcr = app.isAutoIndexOcrEnabled(),
                 onAutoIndexOcrChange = { enabled -> app.setAutoIndexOcrEnabled(enabled) },
                 initialOfflineOnlyMode = app.isOfflineOnlyModeEnabled(),

@@ -108,11 +108,16 @@ fun SettingsScreen(
                         SettingToggleRow(
                             icon = Icons.Default.Lock,
                             title = "Biometric Vault Authentication",
-                            subtitle = "Fingerprint / Face Unlock for vault",
+                            subtitle = "Disable here; enable only after vault PIN verification",
                             isChecked = biometricEnabled,
+                            enabled = biometricEnabled,
                             onCheckedChange = {
-                                biometricEnabled = it
-                                onBiometricEnabledChange?.invoke(it)
+                                // This screen has no authenticated vault-PIN proof. It
+                                // intentionally permits disabling only.
+                                if (!it) {
+                                    biometricEnabled = false
+                                    onBiometricEnabledChange?.invoke(false)
+                                }
                             }
                         )
                         HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))

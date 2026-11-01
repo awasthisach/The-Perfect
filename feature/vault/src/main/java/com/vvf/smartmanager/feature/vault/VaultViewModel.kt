@@ -666,6 +666,16 @@ class VaultViewModel(
         _uiState.update { it.copy(isBiometricEnabled = enabled) }
     }
 
+    /**
+     * Refresh the persisted biometric preference when returning from app settings.
+     * The settings destination writes through VaultAuthUseCase, so the vault UI must
+     * re-read that source of truth instead of relying on a stale ViewModel snapshot.
+     */
+    fun refreshBiometricSetting() {
+        val enabled = vaultAuthUseCase.isBiometricEnabled()
+        _uiState.update { it.copy(isBiometricEnabled = enabled) }
+    }
+
     fun setAutoLockSeconds(seconds: Int) {
         vaultAuthUseCase.setAutoLockTimeoutSeconds(seconds)
         _uiState.update { it.copy(autoLockSeconds = seconds) }
