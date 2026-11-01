@@ -1,7 +1,6 @@
 package com.vvf.smartmanager.core.data.repository
 
 import com.vvf.smartmanager.core.database.dao.FileDao
-import com.vvf.smartmanager.core.database.dao.SearchFtsDao
 import com.vvf.smartmanager.core.database.dao.VaultDao
 import com.vvf.smartmanager.core.database.dao.VaultJournalDao
 import com.vvf.smartmanager.core.database.model.VaultItemEntity
@@ -23,8 +22,7 @@ class SecureVaultRepository(
     private val cryptoManager: CryptoSecurityManager,
     private val vaultDirectory: File,
     private val vaultJournalDao: VaultJournalDao,
-    private val fileDao: FileDao,
-    private val searchFtsDao: SearchFtsDao
+    private val fileDao: FileDao
 ) {
     fun getAllVaultItems(isDecoy: Boolean = false): Flow<List<VaultItem>> =
         vaultDao.getAllVaultItems(isDecoy).map { list -> list.map { it.toDomainModel() } }
@@ -128,25 +126,15 @@ class SecureVaultRepository(
             vaultDao.insertVaultItem(entity)
 
             if (deleteOriginal) {
-                // Remove the searchable metadata before attempting destructive I/O. If the
-                // database write fails, the catch block can safely roll back the encrypted
-                // copy because the plaintext source has not yet been touched.
+                // From this point onward preserve the encrypted copy, including if the
+                // metadata transaction is cancelled after commit. This avoids a cancellation
+                // window that could leave the plaintext source unindexed after rollback.
+                preserveEncryptedCopy = true
                 fileDao.deleteByPaths(
                     listOf(sourceFile.absolutePath, canonicalSource.absolutePath).distinct()
                 )
-                // FTS queries join file_metadata; after row deletion the old path is no
-                // longer searchable even if rebuilding the virtual table fails.
-                runCatching { searchFtsDao.rebuildFtsIndex() }.onFailure {
-                    android.util.Log.e(
-                        "SecureVaultRepository",
-                        "FTS rebuild failed after metadata deletion; joined search remains filtered",
-                        it
-                    )
-                }
-
-                // secureShredFile may partially overwrite the source before returning false.
-                // From this point onward, never roll back the only encrypted copy.
-                preserveEncryptedCopy = true
+                // Room FTS4 content-entity triggers mirror file_metadata mutations. The FTS
+                // query also joins file_metadata, so no explicit full-index rebuild is needed.
                 require(cryptoManager.secureShredFile(sourceFile)) {
                     "Encrypted vault copy was retained, but original plaintext could not be securely removed"
                 }
@@ -165,6 +153,10 @@ class SecureVaultRepository(
             }
 
             entity.toDomainModel()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            // Keep the encrypted copy and journal for recovery. A cancellation may arrive
+            // after the metadata transaction commits or while the source is being shredded.
+            throw cancelled
         } catch (e: Exception) {
             // Before any destructive source operation, rollback is safe. Once shredding
             // has been attempted, preserve the encrypted copy and vault row: the plaintext may
