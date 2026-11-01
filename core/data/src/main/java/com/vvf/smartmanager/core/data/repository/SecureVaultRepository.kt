@@ -132,10 +132,20 @@ class SecureVaultRepository(
                 }
                 // The original is now irrecoverably removed. Drop its ordinary metadata row
                 // so capped storage scans cannot keep exposing the old name/path in search.
-                fileDao.deleteByPath(canonicalSource.absolutePath)
-                // FTS queries join file_metadata, so the deleted row is already unsearchable;
-                // rebuild removes any now-orphaned FTS entries as well.
-                searchFtsDao.rebuildFtsIndex()
+                // Cleanup is deliberately best-effort after shredding: once plaintext is gone,
+                // a cleanup exception must never enter the encryption rollback path and destroy
+                // the only remaining encrypted copy. FTS search joins file_metadata, so a
+                // successful row deletion already prevents the old path from being returned.
+                runCatching {
+                    fileDao.deleteByPath(canonicalSource.absolutePath)
+                    searchFtsDao.rebuildFtsIndex()
+                }.onFailure {
+                    android.util.Log.e(
+                        "SecureVaultRepository",
+                        "Search metadata cleanup failed after successful vault lock",
+                        it
+                    )
+                }
             }
 
             if (journalId > 0L) {
