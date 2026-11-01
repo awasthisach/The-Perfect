@@ -1,5 +1,8 @@
 package com.vvf.smartmanager.core.background.workers
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
 /**
  * App-process bridge for OCR batch. WorkManager cannot inject OCR engine/queue;
  * VVFApplication configures the real batch runner at process start.
@@ -13,14 +16,15 @@ sealed interface OcrBatchOutcome {
 object OcrBatchRuntime {
     @Volatile
     private var batchRunner: (suspend () -> OcrBatchOutcome)? = null
+    private val batchMutex = Mutex()
 
     fun configure(realBatchRunner: suspend () -> OcrBatchOutcome) {
         batchRunner = realBatchRunner
     }
 
-    suspend fun runBatch(): OcrBatchOutcome {
+    suspend fun runBatch(): OcrBatchOutcome = batchMutex.withLock {
         val configured = batchRunner
-            ?: return OcrBatchOutcome.RetryableFailure("OCR batch dependencies are not ready")
-        return configured()
+            ?: return@withLock OcrBatchOutcome.RetryableFailure("OCR batch dependencies are not ready")
+        configured()
     }
 }
