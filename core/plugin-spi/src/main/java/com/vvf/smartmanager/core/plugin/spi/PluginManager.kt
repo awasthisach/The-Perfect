@@ -100,7 +100,7 @@ class PluginManager(
             PluginDescriptor(
                 id = SEMANTIC_PLUGIN_ID,
                 name = "AI Semantic Search Engine",
-                description = "Local TFLite vector embedding model for concept-based search.",
+                description = "Local hashed-embedding index for concept-based search.",
                 version = semanticSearchPlugin?.version ?: "1.0.0",
                 category = PluginCategory.SEMANTIC_AI,
                 isInstalled = semanticSearchPlugin != null && semanticReady,

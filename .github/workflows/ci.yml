@@ -66,7 +66,7 @@ jobs:
       - name: Generate Room schema export
         run: |
           set -euo pipefail
-          ./gradlew --no-daemon :core:database:kspDebugKotlin --stacktrace
+          ./gradlew --no-daemon --no-build-cache :core:database:kspDebugKotlin --rerun --stacktrace
           find core/database/schemas -type f -name '*.json' -print
           test -s core/database/schemas/com.vvf.smartmanager.core.database.VVFDatabase/2.json
       - name: Upload generated Room schema
