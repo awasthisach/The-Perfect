@@ -187,14 +187,14 @@ class BackgroundSyncManager(private val context: Context) {
             .addTag("immediate_ocr")
             .build()
 
-        // OCR reads file metadata and writes tags. Chain it after the immediate
-        // storage scan so its metadata snapshot cannot be overwritten by a later
-        // insertAll from the startup indexer.
-        wm.beginUniqueWork(
-            "immediate_indexing",
-            ExistingWorkPolicy.APPEND_OR_REPLACE,
+        // OCR has its own unique identity: duplicate startup/settings triggers collapse,
+        // and OCR no longer depends on the success state of the storage-indexing chain.
+        // Storage rescans merge current tags transactionally in FileDao.
+        wm.enqueueUniqueWork(
+            BackgroundConstants.UNIQUE_IMMEDIATE_OCR_BATCH_WORK,
+            ExistingWorkPolicy.KEEP,
             request
-        ).enqueue()
+        )
     }
 
     /**
