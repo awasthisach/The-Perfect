@@ -312,6 +312,9 @@ class VVFApplication : Application(), Configuration.Provider {
                 backgroundSyncManager.schedulePeriodicIndexing(intervalHours = 6L)
                 backgroundSyncManager.triggerImmediateIndexing()
                 backgroundSyncManager.schedulePeriodicJunkScan(intervalHours = 12L)
+                // Always keep the periodic worker registered; the runtime's opt-in
+                // guard makes it a no-op until the user enables automatic OCR.
+                backgroundSyncManager.schedulePeriodicOcrBatch(intervalHours = 6L)
                 if (isAutoIndexOcrEnabled()) {
                     backgroundSyncManager.triggerImmediateOcrBatch()
                 }
