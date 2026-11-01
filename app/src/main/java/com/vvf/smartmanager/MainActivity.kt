@@ -311,7 +311,13 @@ private fun VVFNavHost(
                 viewModel = explorerViewModel,
                 onNavigateToSettings = { navController.navigate(TopLevelDestination.SETTINGS.route) },
                 onNavigateToPlugins = { navController.navigate(TopLevelDestination.PLUGINS.route) },
-                onStorageAccessGranted = { app.backgroundSyncManager.triggerImmediateIndexing() }
+                onStorageAccessGranted = {
+                    if (app.isAutoIndexOcrEnabled()) {
+                        app.backgroundSyncManager.triggerImmediateIndexingThenOcr()
+                    } else {
+                        app.backgroundSyncManager.triggerImmediateIndexing()
+                    }
+                }
             )
         }
         composable(TopLevelDestination.VAULT.route) {
