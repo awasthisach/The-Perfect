@@ -63,12 +63,19 @@ object OcrBatchBootstrap {
                     processed++
                 }
                 if (failures.isNotEmpty()) {
-                    OcrBatchOutcome.RetryableFailure(
-                        "Indexed $processed files; ${failures.size} candidate(s) failed: ${failures.take(5).joinToString("; ")}"
+                    android.util.Log.w(
+                        "OcrBatchBootstrap",
+                        "Deferred ${failures.size} OCR candidate(s): ${failures.take(5).joinToString("; ")}"
                     )
-                } else {
-                    OcrBatchOutcome.Completed(processed)
                 }
+                // Continue immediately in another bounded worker pass when the candidate
+                // window was full. Per-file failures are deferred, not allowed to terminate
+                // the entire library indexing chain.
+                OcrBatchOutcome.Completed(
+                    processedCount = processed,
+                    hasMoreCandidates = candidates.size == OCR_BATCH_SIZE,
+                    failedCount = failures.size
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
