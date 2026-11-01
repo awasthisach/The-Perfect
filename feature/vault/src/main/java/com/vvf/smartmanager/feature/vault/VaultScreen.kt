@@ -1,5 +1,6 @@
 package com.vvf.smartmanager.feature.vault
 
+import android.view.WindowManager
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -23,6 +24,22 @@ fun VaultScreen(
     val activity = remember(context) {
         context as? androidx.fragment.app.FragmentActivity
             ?: (context as? android.content.ContextWrapper)?.baseContext as? androidx.fragment.app.FragmentActivity
+    }
+
+    // Block screenshots / Recents while the vault is unlocked.
+    // Preserve a FLAG_SECURE value owned by the host activity or another feature.
+    DisposableEffect(activity, uiState.isUnlocked) {
+        val window = activity?.window
+        val secureFlag = WindowManager.LayoutParams.FLAG_SECURE
+        val wasAlreadySecure = window?.attributes?.flags?.and(secureFlag) != 0
+        if (window != null && uiState.isUnlocked) {
+            window.addFlags(secureFlag)
+        }
+        onDispose {
+            if (window != null && !wasAlreadySecure) {
+                window.clearFlags(secureFlag)
+            }
+        }
     }
 
     val triggerBiometricPrompt = {
