@@ -20,6 +20,11 @@ import java.io.FileInputStream
 import java.security.MessageDigest
 import java.util.ArrayDeque
 
+data class PrimaryStorageScanResult(
+    val items: List<FileItem>,
+    val isComplete: Boolean
+)
+
 open class StorageManagerImpl(
     protected val context: Context,
     protected val fileDao: FileDao
@@ -157,6 +162,78 @@ open class StorageManagerImpl(
                 lastModified = file.lastModified()
             )
         }
+    }
+
+    /**
+     * A bounded inventory scan that reports whether every eligible directory was enumerated.
+     * A partial or inaccessible traversal must never be used as evidence that missing rows are stale.
+     */
+    fun collectPrimaryStorageScan(maxItems: Int = 10_000): PrimaryStorageScanResult {
+        require(maxItems > 0) { "maxItems must be positive" }
+        val root = File(getPrimaryStoragePath())
+        val files = mutableListOf<File>()
+        var complete = root.exists() && root.isDirectory && root.canRead()
+        val visitedDirectories = HashSet<String>()
+
+        fun visit(directory: File) {
+            if (!complete || files.size >= maxItems) {
+                if (files.size >= maxItems) complete = false
+                return
+            }
+            val canonicalPath = try {
+                directory.canonicalPath
+            } catch (_: Exception) {
+                complete = false
+                return
+            }
+            if (!visitedDirectories.add(canonicalPath)) return
+
+            val children = try {
+                directory.listFiles()
+            } catch (_: SecurityException) {
+                null
+            }
+            if (children == null) {
+                complete = false
+                return
+            }
+
+            for (child in children) {
+                if (files.size >= maxItems) {
+                    complete = false
+                    return
+                }
+                if (!child.exists()) {
+                    complete = false
+                    continue
+                }
+                if (child.isDirectory) {
+                    // These roots are intentionally excluded from the app's primary inventory.
+                    if (child.name == "Android" || child.name.startsWith(".")) continue
+                    if (!child.canRead()) {
+                        complete = false
+                        continue
+                    }
+                    visit(child)
+                } else {
+                    if (!child.canRead()) complete = false
+                    files += child
+                }
+            }
+        }
+
+        if (complete) visit(root)
+        val items = files.map { file ->
+            FileItem(
+                path = file.absolutePath,
+                name = file.name,
+                sizeBytes = file.length(),
+                mimeType = getMimeType(file.name),
+                isDirectory = false,
+                lastModified = file.lastModified()
+            )
+        }
+        return PrimaryStorageScanResult(items = items, isComplete = complete)
     }
 
     fun listCategorizedFiles(category: FileCategory, sortOption: FileSortOption): List<FileItem> {
