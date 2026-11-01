@@ -19,7 +19,7 @@ object OcrBatchBootstrap {
         database: VVFDatabase,
         ocrEngine: IOcrEngine,
         ocrIndexingService: OcrIndexingService,
-        isEnabled: () -> Boolean = { true }
+        isEnabled: () -> Boolean = { false }
     ) {
         OcrBatchRuntime.configure {
             try {
