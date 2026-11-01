@@ -57,11 +57,16 @@ object StorageAccessPolicy {
             sdk >= 30 -> decision(
                 StorageAccessLevel.NONE, false, false, true, false, false, "storage_access_none_request_all_files"
             )
-            sdk >= 29 -> {
+            sdk == 29 -> {
+                // Target SDK 36 runs with scoped storage on Android 10. READ_EXTERNAL_STORAGE
+                // grants media access, not arbitrary filesystem traversal; full-tree access
+                // must use an explicit SAF document-tree grant on this platform.
                 if (snapshot.hasReadExternalStorage) decision(
-                    StorageAccessLevel.LEGACY_FULL, true, true, false, false, false, "storage_access_granted_legacy_read"
+                    StorageAccessLevel.MEDIA_ONLY, false, true, false, false, false,
+                    "storage_access_api29_scoped_media_only"
                 ) else decision(
-                    StorageAccessLevel.NONE, false, false, false, false, true, "storage_access_none_request_legacy_read"
+                    StorageAccessLevel.NONE, false, false, false, false, true,
+                    "storage_access_api29_request_read_media"
                 )
             }
             else -> {
