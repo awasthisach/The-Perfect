@@ -1,5 +1,7 @@
 package com.vvf.smartmanager.core.data.repository
 
+import com.vvf.smartmanager.core.database.dao.FileDao
+import com.vvf.smartmanager.core.database.dao.SearchFtsDao
 import com.vvf.smartmanager.core.database.dao.VaultDao
 import com.vvf.smartmanager.core.database.dao.VaultJournalDao
 import com.vvf.smartmanager.core.database.model.VaultItemEntity
@@ -20,7 +22,9 @@ class SecureVaultRepository(
     private val vaultDao: VaultDao,
     private val cryptoManager: CryptoSecurityManager,
     private val vaultDirectory: File,
-    private val vaultJournalDao: VaultJournalDao
+    private val vaultJournalDao: VaultJournalDao,
+    private val fileDao: FileDao,
+    private val searchFtsDao: SearchFtsDao
 ) {
     fun getAllVaultItems(isDecoy: Boolean = false): Flow<List<VaultItem>> =
         vaultDao.getAllVaultItems(isDecoy).map { list -> list.map { it.toDomainModel() } }
@@ -126,6 +130,12 @@ class SecureVaultRepository(
                 require(cryptoManager.secureShredFile(sourceFile)) {
                     "Encrypted vault copy was created, but original plaintext could not be securely removed"
                 }
+                // The original is now irrecoverably removed. Drop its ordinary metadata row
+                // so capped storage scans cannot keep exposing the old name/path in search.
+                fileDao.deleteByPath(canonicalSource.absolutePath)
+                // FTS queries join file_metadata, so the deleted row is already unsearchable;
+                // rebuild removes any now-orphaned FTS entries as well.
+                searchFtsDao.rebuildFtsIndex()
             }
 
             if (journalId > 0L) {
