@@ -385,8 +385,8 @@ private fun VVFNavHost(
                 onAutoIndexOcrChange = { enabled ->
                     app.setAutoIndexOcrEnabled(enabled)
                     if (enabled) {
-                        // The one-time worker joins the current storage-index chain; if no
-                        // index pass is pending it runs immediately against the current index.
+                        // Schedule a deduplicated OCR pass immediately after the user opts in.
+                        // Storage rescans preserve current OCR tags transactionally.
                         app.backgroundSyncManager.triggerImmediateOcrBatch()
                     }
                 },
