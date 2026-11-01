@@ -1,6 +1,8 @@
 package com.vvf.smartmanager.core.cloud.gdrive
 
+import android.accounts.Account
 import android.content.Context
+import com.google.android.gms.auth.GoogleAuthUtil
 import com.vvf.smartmanager.core.model.CloudAccount
 import com.vvf.smartmanager.core.model.CloudProviderType
 import com.vvf.smartmanager.core.model.FileItem
@@ -23,8 +25,9 @@ import java.util.TimeZone
  * Production path: call [setAccessToken] after OAuth / Credential Manager, then use list/upload/download.
  * Without a token, operations fail with a clear error (no simulated cloud data).
  *
- * Access tokens typically expire in ~1 hour. This client tracks issue time and fails closed with a
- * re-auth message when the token is likely expired. True refresh-token rotation needs an auth code flow.
+ * Access tokens typically expire in ~1 hour. This client tracks issue time and, when the token
+ * is near expiry, attempts a best-effort silent refresh via [GoogleAuthUtil] using the last
+ * signed-in [Account]. If silent refresh is impossible, it fails closed with a re-auth message.
  */
 class GoogleDriveServiceImpl(
     private val context: Context,
@@ -36,6 +39,10 @@ class GoogleDriveServiceImpl(
 
     @Volatile
     private var tokenIssuedAtMs: Long = 0L
+
+    /** Last Google account used for Drive scope; needed for silent refresh. */
+    @Volatile
+    private var lastAccount: Account? = null
 
     private var currentAccount: CloudAccount = CloudAccount(
         providerType = CloudProviderType.GOOGLE_DRIVE,
@@ -51,10 +58,26 @@ class GoogleDriveServiceImpl(
         tokenIssuedAtMs = if (token.isNullOrBlank()) 0L else System.currentTimeMillis()
         DriveNetwork.setDefaultAccessToken(token)
         if (token.isNullOrBlank()) {
+            lastAccount = null
             currentAccount = currentAccount.copy(
                 isConnected = false,
                 accountEmail = "",
                 displayName = "Google Drive"
+            )
+        }
+    }
+
+    /**
+     * Prefer this overload after interactive sign-in so silent refresh can work later.
+     */
+    fun setAccessToken(token: String?, account: Account?) {
+        lastAccount = account
+        setAccessToken(token)
+        if (!token.isNullOrBlank() && account != null) {
+            currentAccount = currentAccount.copy(
+                isConnected = true,
+                accountEmail = account.name.orEmpty(),
+                displayName = account.name.orEmpty()
             )
         }
     }
@@ -67,12 +90,45 @@ class GoogleDriveServiceImpl(
             )
         }
         val ageMs = System.currentTimeMillis() - tokenIssuedAtMs
-        if (tokenIssuedAtMs > 0L && ageMs > 55L * 60L * 1000L) {
-            throw IllegalStateException(
-                "Google Drive access token is likely expired (age=${ageMs / 1000}s). Please sign in again."
-            )
+        // Attempt silent refresh a few minutes before the hard 55-min fail-closed threshold.
+        if (tokenIssuedAtMs > 0L && ageMs > 50L * 60L * 1000L) {
+            val refreshed = trySilentRefresh()
+            if (refreshed != null) {
+                return "Bearer $refreshed"
+            }
+            if (ageMs > 55L * 60L * 1000L) {
+                throw IllegalStateException(
+                    "Google Drive access token is likely expired (age=${ageMs / 1000}s) " +
+                        "and silent refresh failed. Please sign in again."
+                )
+            }
         }
         return "Bearer $t"
+    }
+
+    /**
+     * Best-effort silent refresh using the last signed-in account.
+     * Returns the new token on success, null if refresh is not possible.
+     */
+    private fun trySilentRefresh(): String? {
+        val account = lastAccount ?: return null
+        return try {
+            val newToken = GoogleAuthUtil.getToken(
+                context,
+                account,
+                "oauth2:${GoogleDriveAuth.DRIVE_FILE_SCOPE}"
+            )
+            if (newToken.isNullOrBlank()) {
+                null
+            } else {
+                accessToken = newToken
+                tokenIssuedAtMs = System.currentTimeMillis()
+                DriveNetwork.setDefaultAccessToken(newToken)
+                newToken
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     override suspend fun authenticate(): Result<Boolean> = withContext(Dispatchers.IO) {
