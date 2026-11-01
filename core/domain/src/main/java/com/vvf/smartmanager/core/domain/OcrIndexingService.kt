@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
+import java.util.concurrent.CancellationException
 
 /**
  * Event emitted upon successful completion of an OCR scan operation.
@@ -130,6 +131,7 @@ class OcrIndexingService(
             // Delegate to IndexOcrTextUseCase with custom max keywords
             indexOcrTextUseCase(fileItem, ocrResult, maxKeywords)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "Failed indexing OCR result into FTS for ${fileItem.path}", e)
             Result.failure(e)
         }

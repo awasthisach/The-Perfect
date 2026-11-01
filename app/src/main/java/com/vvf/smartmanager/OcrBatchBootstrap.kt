@@ -7,6 +7,7 @@ import com.vvf.smartmanager.core.domain.OcrIndexingService
 import com.vvf.smartmanager.core.model.FileItem
 import com.vvf.smartmanager.core.model.OcrOptions
 import com.vvf.smartmanager.core.plugin.spi.IOcrEngine
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 
 /**
@@ -48,6 +49,7 @@ object OcrBatchBootstrap {
                     )
                     val extraction = ocrEngine.extractText(item, OcrOptions(), null)
                     val ocr = extraction.getOrElse { error ->
+                        if (error is CancellationException) throw error
                         return@configure OcrBatchOutcome.RetryableFailure(
                             "OCR extraction failed for ${item.name}: ${error.message ?: "unknown error"}"
                         )
@@ -55,6 +57,7 @@ object OcrBatchBootstrap {
                     if (ocr.fullText.isNotBlank()) {
                         val indexing = ocrIndexingService.indexOcrResult(item, ocr)
                         indexing.getOrElse { error ->
+                            if (error is CancellationException) throw error
                             return@configure OcrBatchOutcome.RetryableFailure(
                                 "OCR indexing failed for ${item.name}: ${error.message ?: "unknown error"}"
                             )
@@ -64,6 +67,7 @@ object OcrBatchBootstrap {
                 }
                 OcrBatchOutcome.Completed(processed)
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 OcrBatchOutcome.RetryableFailure(e.message ?: "ocr batch failed")
             }
         }
