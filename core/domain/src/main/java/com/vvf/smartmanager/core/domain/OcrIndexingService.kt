@@ -89,11 +89,15 @@ class OcrIndexingService(
                         try {
                             indexOcrResult(event.fileItem, event.ocrResult)
                             Log.d(TAG, "Successfully indexed OCR text for ${event.fileItem.name} into FTS.")
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
                         } catch (e: Exception) {
                             Log.e(TAG, "Failed to auto-index OCR text for ${event.fileItem.path}", e)
                         }
                     }
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 Log.e(TAG, "Error in OCR completion event stream", e)
             }
@@ -179,6 +183,8 @@ class OcrIndexingService(
         try {
             searchRepository.removeTagFromFile(fileItem.path, "ocr")
             Result.success(true)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Result.failure(e)
         }
