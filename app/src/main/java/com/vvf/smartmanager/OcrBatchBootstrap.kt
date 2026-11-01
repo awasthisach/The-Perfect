@@ -7,6 +7,7 @@ import com.vvf.smartmanager.core.domain.OcrIndexingService
 import com.vvf.smartmanager.core.model.FileItem
 import com.vvf.smartmanager.core.model.OcrOptions
 import com.vvf.smartmanager.core.plugin.spi.IOcrEngine
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 
 /**
@@ -16,11 +17,12 @@ object OcrBatchBootstrap {
     fun wire(
         database: VVFDatabase,
         ocrEngine: IOcrEngine,
-        ocrIndexingService: OcrIndexingService
+        ocrIndexingService: OcrIndexingService,
+        isEnabled: () -> Boolean = { true }
     ) {
         OcrBatchRuntime.configure {
             try {
-                if (!ocrEngine.isEnabled) {
+                if (!isEnabled() || !ocrEngine.isEnabled) {
                     return@configure OcrBatchOutcome.Completed(0)
                 }
                 val recent = database.fileDao().getRecentFiles(limit = 40).first()
@@ -34,8 +36,9 @@ object OcrBatchBootstrap {
                         val tags = entity.tags.orEmpty().lowercase()
                         !tags.split(',', ' ', ';').map { it.trim() }.contains("ocr")
                     }
-                    .take(8)
+                    .take(40)
                 var processed = 0
+                val failures = mutableListOf<String>()
                 for (entity in candidates) {
                     val item = FileItem(
                         path = entity.path,
@@ -45,15 +48,34 @@ object OcrBatchBootstrap {
                         isDirectory = entity.isDirectory,
                         mimeType = entity.mimeType
                     )
-                    val result = ocrEngine.extractText(item, OcrOptions(), null)
-                    result.onSuccess { ocr ->
-                        if (ocr.fullText.isNotBlank()) {
-                            ocrIndexingService.notifyOcrCompleted(item, ocr, autoIndexFts = true)
-                            processed++
+                    val extraction = ocrEngine.extractText(item, OcrOptions(), null)
+                    val extractionError = extraction.exceptionOrNull()
+                    if (extractionError != null) {
+                        if (extractionError is CancellationException) throw extractionError
+                        failures += "${item.name}: extraction failed (${extractionError.message ?: "unknown error"})"
+                        continue
+                    }
+                    val ocr = extraction.getOrThrow()
+                    if (ocr.fullText.isNotBlank()) {
+                        val indexing = ocrIndexingService.indexOcrResult(item, ocr)
+                        val indexingError = indexing.exceptionOrNull()
+                        if (indexingError != null) {
+                            if (indexingError is CancellationException) throw indexingError
+                            failures += "${item.name}: indexing failed (${indexingError.message ?: "unknown error"})"
+                            continue
                         }
+                        processed++
                     }
                 }
-                OcrBatchOutcome.Completed(processed)
+                if (failures.isNotEmpty()) {
+                    OcrBatchOutcome.RetryableFailure(
+                        "Indexed $processed files; ${failures.size} candidate(s) failed: ${failures.take(5).joinToString("; ")}"
+                    )
+                } else {
+                    OcrBatchOutcome.Completed(processed)
+                }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 OcrBatchOutcome.RetryableFailure(e.message ?: "ocr batch failed")
             }

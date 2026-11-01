@@ -16,6 +16,7 @@ import com.vvf.smartmanager.core.model.SearchMatchType
 import com.vvf.smartmanager.core.model.SearchResultItem
 import com.vvf.smartmanager.core.model.SizeFilter
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -117,6 +118,8 @@ class OfflineSearchRepository(
                 searchFtsDao.rebuildFtsIndex()
             }
             Result.success(true)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }

@@ -4,6 +4,7 @@ import android.util.Log
 import com.vvf.smartmanager.core.data.SearchRepository
 import com.vvf.smartmanager.core.model.FileItem
 import com.vvf.smartmanager.core.model.OcrResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -129,6 +130,8 @@ class OcrIndexingService(
 
             // Delegate to IndexOcrTextUseCase with custom max keywords
             indexOcrTextUseCase(fileItem, ocrResult, maxKeywords)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Failed indexing OCR result into FTS for ${fileItem.path}", e)
             Result.failure(e)
@@ -165,6 +168,8 @@ class OcrIndexingService(
             }
 
             Result.success(true)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Failed indexing extracted text for ${fileItem.path}", e)
             Result.failure(e)

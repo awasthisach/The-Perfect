@@ -49,7 +49,7 @@ class IndexOcrTextUseCase(
         }
 
         // 1. Tag with foundational #ocr tag
-        searchRepository.addTagToFile(fileItem.path, "ocr")
+        searchRepository.addTagToFile(fileItem.path, "ocr").getOrElse { throw it }
 
         // 2. Extract salient keywords (min 4 chars, alphanumeric only, lowercased, deduplicated)
         val stopwords = setOf(
@@ -66,11 +66,11 @@ class IndexOcrTextUseCase(
             .take(maxCustomKeywords)
 
         for (word in words) {
-            searchRepository.addTagToFile(fileItem.path, word)
+            searchRepository.addTagToFile(fileItem.path, word).getOrElse { throw it }
         }
 
         // Ensure FTS reflects newly inserted content:// metadata rows from addTagToFile.
-        runCatching { searchRepository.rebuildFtsIndex() }
+        searchRepository.rebuildFtsIndex()
 
         return Result.success(true)
     }

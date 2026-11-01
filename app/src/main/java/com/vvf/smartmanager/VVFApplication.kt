@@ -298,7 +298,12 @@ class VVFApplication : Application(), Configuration.Provider {
         backgroundSyncManager = BackgroundSyncManager(this)
         FileIndexingRuntime.configure { indexPrimaryStorageForSearch() }
         JunkScanBootstrap.wire(junkCleanerUseCase)
-        OcrBatchBootstrap.wire(database, ocrPlugin, ocrIndexingService)
+        OcrBatchBootstrap.wire(
+            database = database,
+            ocrEngine = ocrPlugin,
+            ocrIndexingService = ocrIndexingService,
+            isEnabled = ::isAutoIndexOcrEnabled
+        )
         val bgExceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
             Log.e(TAG, "Background sync scheduling failed safely", throwable)
         }
@@ -307,6 +312,9 @@ class VVFApplication : Application(), Configuration.Provider {
                 backgroundSyncManager.schedulePeriodicIndexing(intervalHours = 6L)
                 backgroundSyncManager.triggerImmediateIndexing()
                 backgroundSyncManager.schedulePeriodicJunkScan(intervalHours = 12L)
+                if (isAutoIndexOcrEnabled()) {
+                    backgroundSyncManager.triggerImmediateOcrBatch()
+                }
             } catch (e: Throwable) {
                 Log.e(TAG, "Background sync scheduling failed", e)
             }
