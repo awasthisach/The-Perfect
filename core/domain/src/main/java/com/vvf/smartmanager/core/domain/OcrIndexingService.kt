@@ -124,11 +124,8 @@ class OcrIndexingService(
         maxKeywords: Int = 10
     ): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            if (ocrResult.fullText.isBlank()) {
-                return@withContext Result.success(true)
-            }
-
-            // Delegate to IndexOcrTextUseCase with custom max keywords
+            // The use case persists the completion marker even when OCR legitimately
+            // extracts no text, preventing empty files from occupying every future batch.
             indexOcrTextUseCase(fileItem, ocrResult, maxKeywords)
         } catch (e: CancellationException) {
             throw e
@@ -151,9 +148,6 @@ class OcrIndexingService(
                 return@withContext Result.success(true)
             }
 
-            // Always add foundational #ocr tag
-            searchRepository.addTagToFile(fileItem.path, "ocr").getOrThrow()
-
             // Add user-provided extra tags
             for (tag in extraTags) {
                 if (tag.isNotBlank()) {
@@ -167,6 +161,8 @@ class OcrIndexingService(
                 searchRepository.addTagToFile(fileItem.path, kw).getOrThrow()
             }
 
+            // Write the completion marker last so any partial failure remains retryable.
+            searchRepository.addTagToFile(fileItem.path, "ocr").getOrThrow()
             Result.success(true)
         } catch (e: CancellationException) {
             throw e
