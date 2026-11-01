@@ -18,7 +18,14 @@
 - **Semantic search:** on-device plugin architecture
 - **Cloud:** Google Drive core integration plus cloud-driver SPI
 - **Build:** Gradle Kotlin DSL + version catalog
-- **Compile/Target SDK:** 36
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:a4cc295082141e300b8c002a74f26654743baaf2316efe7593f4821b132c4981 -->
+
+- **Compile SDK:** 37
+- **Target SDK:** 36
+
+<!-- /coderabbit-ai-generated:v1 -->
 - **Minimum SDK:** 24
 
 ## Project structure
