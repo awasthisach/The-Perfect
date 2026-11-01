@@ -381,6 +381,10 @@ private fun VVFNavHost(
         }
         composable(TopLevelDestination.SETTINGS.route) {
             SettingsScreen(
+                initialBiometricEnabled = app.vaultAuthUseCase.isBiometricEnabled(),
+                onBiometricEnabledChange = { enabled ->
+                    app.vaultAuthUseCase.setBiometricEnabled(enabled)
+                },
                 initialAutoIndexOcr = app.isAutoIndexOcrEnabled(),
                 onAutoIndexOcrChange = { enabled -> app.setAutoIndexOcrEnabled(enabled) },
                 initialOfflineOnlyMode = app.isOfflineOnlyModeEnabled(),
