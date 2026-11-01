@@ -43,7 +43,15 @@ class ExplorerViewModel(
     init {
         val rootPath = getDirectoryFilesUseCase.getDefaultStoragePath()
         _uiState.update { it.copy(currentPath = rootPath) }
-        if (!PermissionAccess.hasBrowseAccess(appContext)) {
+        if (PermissionAccess.hasBrowseAccess(appContext)) {
+            loadStorageOverview()
+            loadDirectory(rootPath)
+        } else if (PermissionAccess.hasMediaAccess(appContext)) {
+            // Android 10 scoped storage grants media access but not primary-tree browsing.
+            // Start in a supported category view instead of issuing a doomed directory load.
+            loadStorageOverview()
+            selectCategory(FileCategory.IMAGES)
+        } else {
             _uiState.update {
                 it.copy(
                     isLoading = false,
@@ -51,9 +59,6 @@ class ExplorerViewModel(
                     permissionMessage = "Storage permission required to browse files"
                 )
             }
-        } else {
-            loadStorageOverview()
-            loadDirectory(rootPath)
         }
     }
 
@@ -67,13 +72,21 @@ class ExplorerViewModel(
 
     fun reloadCurrentLocation() {
         if (!PermissionAccess.hasBrowseAccess(appContext)) {
-            _uiState.update {
-                it.copy(
-                    isLoading = false,
-                    needsStoragePermission = true,
-                    permissionMessage = it.permissionMessage
-                        ?: "Storage permission required to browse files"
+            if (PermissionAccess.hasMediaAccess(appContext)) {
+                // Keep API 29 users in a category view; ALL would invoke the denied tree path.
+                selectCategory(
+                    _uiState.value.selectedCategory.takeUnless { it == FileCategory.ALL }
+                        ?: FileCategory.IMAGES
                 )
+            } else {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        needsStoragePermission = true,
+                        permissionMessage = it.permissionMessage
+                            ?: "Storage permission required to browse files"
+                    )
+                }
             }
             return
         }
