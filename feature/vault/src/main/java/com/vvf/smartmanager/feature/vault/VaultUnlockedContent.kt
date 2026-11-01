@@ -51,9 +51,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
 import com.vvf.smartmanager.core.common.FormatUtils
 import com.vvf.smartmanager.feature.vault.components.EmeraldGreen
 import com.vvf.smartmanager.feature.vault.components.VaultAddFileDialog
@@ -108,17 +107,14 @@ fun VaultUnlockedContent(
             .testTag("vault_unlocked_root")
             // Capture any pointer activity (tap, scroll, drag, long-press) on the unlocked vault UI
             // and reset the auto-lock timer. Uses Initial pass so we observe events without consuming them.
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    awaitFirstDown(pass = PointerEventPass.Initial)
-                    reportActivity()
-                    // Keep observing the rest of the gesture so continuous movement also counts
-                    do {
+            .pointerInput(reportActivity) {
+                awaitPointerEventScope {
+                    while (true) {
                         val event = awaitPointerEvent(pass = PointerEventPass.Initial)
-                        if (event.changes.any { it.pressed }) {
+                        if (event.type == PointerEventType.Scroll || event.changes.any { it.pressed }) {
                             reportActivity()
                         }
-                    } while (event.changes.any { it.pressed })
+                    }
                 }
             },
         topBar = {
@@ -309,9 +305,9 @@ fun VaultUnlockedContent(
 
         if (uiState.showAddFileDialog) {
             VaultAddFileDialog(
+                onActivity = reportActivity,
                 onDismiss = { viewModel.dismissAddFileDialog() },
                 onEncryptFile = { file, category, notes, deleteOriginal ->
-                    reportActivity()
                     viewModel.lockFile(file, category, notes, deleteOriginal)
                 }
             )
