@@ -2,6 +2,7 @@ package com.vvf.smartmanager
 
 import android.app.Activity
 import android.content.Intent
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
@@ -83,22 +84,22 @@ class MainActivity : FragmentActivity() {
     private var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
 
     private val googleDriveSignInLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
+        ActivityResultContracts.StartIntentSenderForResult()
     ) { activityResult ->
+        completeGoogleDriveSignIn(
+            googleDriveAuth.handleSignInActivityResult(activityResult.resultCode, activityResult.data)
+        )
+    }
+
+    private fun completeGoogleDriveSignIn(result: Result<String>) {
         val app = application as VVFApplication
         val callback = pendingGoogleDriveSignInCallback
         pendingGoogleDriveSignInCallback = null
         app.pendingGoogleDriveSignInCallback = null
-        lifecycleScope.launch {
-            val result = googleDriveAuth.handleSignInActivityResult(
-                resultCode = activityResult.resultCode,
-                data = activityResult.data
-            )
-            result.onSuccess { token ->
-                runCatching { app.googleDriveService.setAccessToken(token) }
-            }
-            callback?.invoke(result)
+        result.onSuccess { token ->
+            runCatching { app.googleDriveService.setAccessToken(token) }
         }
+        callback?.invoke(result)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -122,7 +123,26 @@ class MainActivity : FragmentActivity() {
                             )
                         } else {
                             pendingGoogleDriveSignInCallback = callback
-                            googleDriveSignInLauncher.launch(googleDriveAuth.buildDriveSignInIntent())
+                            lifecycleScope.launch {
+                                googleDriveAuth.authorizeDrive().fold(
+                                    onSuccess = { authorization ->
+                                        when (authorization) {
+                                            is GoogleDriveAuth.DriveAuthorization.Authorized ->
+                                                completeGoogleDriveSignIn(Result.success(authorization.accessToken))
+                                            is GoogleDriveAuth.DriveAuthorization.NeedsConsent -> {
+                                                try {
+                                                    googleDriveSignInLauncher.launch(
+                                                        IntentSenderRequest.Builder(authorization.pendingIntent).build()
+                                                    )
+                                                } catch (e: Exception) {
+                                                    completeGoogleDriveSignIn(Result.failure(e))
+                                                }
+                                            }
+                                        }
+                                    },
+                                    onFailure = { completeGoogleDriveSignIn(Result.failure(it)) }
+                                )
+                            }
                         }
                     }
                 )
