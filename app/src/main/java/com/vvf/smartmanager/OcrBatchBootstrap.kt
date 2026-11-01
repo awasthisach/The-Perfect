@@ -16,11 +16,12 @@ object OcrBatchBootstrap {
     fun wire(
         database: VVFDatabase,
         ocrEngine: IOcrEngine,
-        ocrIndexingService: OcrIndexingService
+        ocrIndexingService: OcrIndexingService,
+        isEnabled: () -> Boolean = { true }
     ) {
         OcrBatchRuntime.configure {
             try {
-                if (!ocrEngine.isEnabled) {
+                if (!isEnabled() || !ocrEngine.isEnabled) {
                     return@configure OcrBatchOutcome.Completed(0)
                 }
                 val recent = database.fileDao().getRecentFiles(limit = 40).first()
@@ -45,12 +46,20 @@ object OcrBatchBootstrap {
                         isDirectory = entity.isDirectory,
                         mimeType = entity.mimeType
                     )
-                    val result = ocrEngine.extractText(item, OcrOptions(), null)
-                    result.onSuccess { ocr ->
-                        if (ocr.fullText.isNotBlank()) {
-                            ocrIndexingService.notifyOcrCompleted(item, ocr, autoIndexFts = true)
-                            processed++
+                    val extraction = ocrEngine.extractText(item, OcrOptions(), null)
+                    val ocr = extraction.getOrElse { error ->
+                        return@configure OcrBatchOutcome.RetryableFailure(
+                            "OCR extraction failed for ${item.name}: ${error.message ?: "unknown error"}"
+                        )
+                    }
+                    if (ocr.fullText.isNotBlank()) {
+                        val indexing = ocrIndexingService.indexOcrResult(item, ocr)
+                        indexing.getOrElse { error ->
+                            return@configure OcrBatchOutcome.RetryableFailure(
+                                "OCR indexing failed for ${item.name}: ${error.message ?: "unknown error"}"
+                            )
                         }
+                        processed++
                     }
                 }
                 OcrBatchOutcome.Completed(processed)

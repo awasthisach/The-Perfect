@@ -163,7 +163,11 @@ class BackgroundSyncManager(private val context: Context) {
             .addTag("immediate_ocr")
             .build()
 
-        wm.enqueue(request)
+        wm.enqueueUniqueWork(
+            BackgroundConstants.UNIQUE_OCR_BATCH_WORK,
+            ExistingWorkPolicy.KEEP,
+            request
+        )
     }
 
     /**
