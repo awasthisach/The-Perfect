@@ -8,5 +8,6 @@ object BackgroundConstants {
     const val UNIQUE_CLOUD_SYNC_WORK = "vvf_cloud_sync_work"
     const val UNIQUE_CLEANER_ANALYSIS_WORK = "vvf_cleaner_analysis_work"
     const val UNIQUE_OCR_BATCH_WORK = "vvf_ocr_batch_work"
+    const val UNIQUE_IMMEDIATE_OCR_BATCH_WORK = "vvf_immediate_ocr_batch_work"
     const val PERIODIC_SYNC_INTERVAL_HOURS = 6L
 }
