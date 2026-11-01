@@ -132,6 +132,8 @@ class OcrIndexingService(
             indexOcrTextUseCase(fileItem, ocrResult, maxKeywords)
         } catch (e: CancellationException) {
             throw e
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Failed indexing OCR result into FTS for ${fileItem.path}", e)
             Result.failure(e)
@@ -152,23 +154,25 @@ class OcrIndexingService(
             }
 
             // Always add foundational #ocr tag
-            searchRepository.addTagToFile(fileItem.path, "ocr")
+            searchRepository.addTagToFile(fileItem.path, "ocr").getOrThrow()
 
             // Add user-provided extra tags
             for (tag in extraTags) {
                 if (tag.isNotBlank()) {
-                    searchRepository.addTagToFile(fileItem.path, tag.trim().lowercase(Locale.getDefault()))
+                    searchRepository.addTagToFile(fileItem.path, tag.trim().lowercase(Locale.getDefault())).getOrThrow()
                 }
             }
 
             // Extract and index salient keywords
             val keywords = extractSalientKeywords(rawText, maxKeywords = 10)
             for (kw in keywords) {
-                searchRepository.addTagToFile(fileItem.path, kw)
+                searchRepository.addTagToFile(fileItem.path, kw).getOrThrow()
             }
 
             Result.success(true)
         } catch (e: CancellationException) {
+            throw e
+        } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Failed indexing extracted text for ${fileItem.path}", e)
