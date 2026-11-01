@@ -383,11 +383,11 @@ class VVFApplication : Application(), Configuration.Provider {
         return try {
             val fileDao = database.fileDao()
             val existingByPath = fileDao.getIndexedPathSnapshot().associateBy { it.path }
-            val scannedItems = storageManager.collectPrimaryStorageItems(
+            val scan = storageManager.collectPrimaryStorageScan(
                 maxItems = PRIMARY_STORAGE_INDEX_LIMIT
             )
-            // collectPrimaryStorageItems is bounded. A full result may be truncated, so it is
-            // not a complete inventory and must never be used to delete previously indexed rows.
+            val scannedItems = scan.items
+            // Missing rows are stale only when the entire eligible tree was enumerated below the cap.
             val scannedPaths = scannedItems.map { it.path }.toHashSet()
             val metadata = scannedItems.map { item ->
                 val existing = existingByPath[item.path]
@@ -409,10 +409,10 @@ class VVFApplication : Application(), Configuration.Provider {
                     operationState = existing?.operationState ?: "IDLE"
                 )
             }
-            val stalePaths = if (shouldPruneStalePrimaryIndexRows(scannedItems.size)) {
+            val stalePaths = if (shouldPruneStalePrimaryIndexRows(scannedItems.size, scanCompleted = scan.isComplete)) {
                 existingByPath.keys.filter { path -> path !in scannedPaths }
             } else {
-                Log.w(TAG, "Primary storage scan reached its $PRIMARY_STORAGE_INDEX_LIMIT item cap; preserving stale index rows")
+                Log.w(TAG, "Primary storage scan was incomplete or reached its $PRIMARY_STORAGE_INDEX_LIMIT item cap; preserving stale index rows")
                 emptyList()
             }
             var staleRemoved = 0
