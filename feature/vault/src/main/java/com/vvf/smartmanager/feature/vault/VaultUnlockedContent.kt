@@ -310,6 +310,7 @@ fun VaultUnlockedContent(
         if (uiState.showAddFileDialog) {
             VaultAddFileDialog(
                 onDismiss = { viewModel.dismissAddFileDialog() },
+                onUserActivity = reportActivity,
                 onEncryptFile = { file, category, notes, deleteOriginal ->
                     reportActivity()
                     viewModel.lockFile(file, category, notes, deleteOriginal)
