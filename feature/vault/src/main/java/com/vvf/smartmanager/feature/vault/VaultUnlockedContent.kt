@@ -1,5 +1,7 @@
 package com.vvf.smartmanager.feature.vault
 
+import androidx.biometric.BiometricManager
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -360,7 +362,24 @@ fun VaultUnlockedContent(
                     reportActivity()
                     if (enabled) {
                         biometricEnrollmentError = null
-                        showBiometricEnrollmentDialog = true
+                        coroutineScope.launch {
+                            val availability = BiometricManager.from(context).canAuthenticate(
+                                BiometricManager.Authenticators.BIOMETRIC_STRONG
+                            )
+                            if (availability != BiometricManager.BIOMETRIC_SUCCESS) {
+                                val reason = when (availability) {
+                                    BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> "This device has no strong biometric hardware."
+                                    BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> "Enroll a strong fingerprint or face in Android settings first."
+                                    BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> "Biometric hardware is temporarily unavailable."
+                                    else -> "Strong biometric authentication is unavailable (code=$availability)."
+                                }
+                                snackbarHostState.showSnackbar(reason)
+                            } else if (!viewModel.canEnableBiometric()) {
+                                snackbarHostState.showSnackbar("The hardware-backed biometric key could not be initialized. Biometric unlock remains disabled.")
+                            } else {
+                                showBiometricEnrollmentDialog = true
+                            }
+                        }
                     } else {
                         viewModel.setBiometricEnabled(false)
                     }
