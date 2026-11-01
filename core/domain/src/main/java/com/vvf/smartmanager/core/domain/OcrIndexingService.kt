@@ -132,8 +132,6 @@ class OcrIndexingService(
             indexOcrTextUseCase(fileItem, ocrResult, maxKeywords)
         } catch (e: CancellationException) {
             throw e
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Failed indexing OCR result into FTS for ${fileItem.path}", e)
             Result.failure(e)
@@ -171,8 +169,6 @@ class OcrIndexingService(
 
             Result.success(true)
         } catch (e: CancellationException) {
-            throw e
-        } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Failed indexing extracted text for ${fileItem.path}", e)
