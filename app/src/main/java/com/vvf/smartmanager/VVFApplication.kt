@@ -24,6 +24,7 @@ import com.vvf.smartmanager.core.data.repository.SecureVaultRepository
 import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
 import com.vvf.smartmanager.core.data.storage.StorageManager
 import com.vvf.smartmanager.core.database.VVFDatabase
+import com.vvf.smartmanager.core.database.dao.FileIndexReconciliationLock
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
 import com.vvf.smartmanager.core.domain.AiIntelligenceUseCase
 import com.vvf.smartmanager.core.domain.backup.ArchiveService
@@ -66,6 +67,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 
 class VVFApplication : Application(), Configuration.Provider {
@@ -416,16 +418,23 @@ class VVFApplication : Application(), Configuration.Provider {
                 emptyList()
             }
             var staleRemoved = 0
-            if (stalePaths.isNotEmpty()) {
-                stalePaths.chunked(400).forEach { chunk -> fileDao.deleteStaleByPaths(chunk) }
-                staleRemoved = stalePaths.size
-                Log.i(TAG, "Removed $staleRemoved stale index row(s)")
-            }
-            if (metadata.isNotEmpty()) {
-                metadata.chunked(400).forEach { chunk -> fileDao.insertAllPreservingLatestMetadata(chunk) }
-            }
-            if (metadata.isNotEmpty() || staleRemoved > 0) {
-                database.searchFtsDao().rebuildFtsIndex()
+            FileIndexReconciliationLock.mutex.withLock {
+                if (stalePaths.isNotEmpty()) {
+                    stalePaths.chunked(400).forEach { chunk -> fileDao.deleteStaleByPaths(chunk) }
+                    staleRemoved = stalePaths.size
+                    Log.i(TAG, "Removed $staleRemoved stale index row(s)")
+                }
+                // Vault deletion and this reconciliation share the lock. Re-check the source
+                // while holding it so a snapshot cannot recreate a just-shredded path.
+                val existingFiles = metadata.filter { java.io.File(it.path).exists() }
+                if (existingFiles.isNotEmpty()) {
+                    existingFiles.chunked(400).forEach { chunk ->
+                        fileDao.insertAllPreservingLatestMetadata(chunk)
+                    }
+                }
+                if (existingFiles.isNotEmpty() || staleRemoved > 0) {
+                    database.searchFtsDao().rebuildFtsIndex()
+                }
             }
             FileIndexingOutcome.Completed(metadata.size)
         } catch (securityError: SecurityException) {

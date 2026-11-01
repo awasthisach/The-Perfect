@@ -1,6 +1,7 @@
 package com.vvf.smartmanager.core.data.repository
 
 import com.vvf.smartmanager.core.database.dao.FileDao
+import com.vvf.smartmanager.core.database.dao.FileIndexReconciliationLock
 import com.vvf.smartmanager.core.database.dao.VaultDao
 import com.vvf.smartmanager.core.database.dao.VaultJournalDao
 import com.vvf.smartmanager.core.database.model.VaultItemEntity
@@ -10,6 +11,7 @@ import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.io.IOException
 import java.util.UUID
@@ -133,13 +135,15 @@ class SecureVaultRepository(
                 // metadata transaction is cancelled after commit. This avoids a cancellation
                 // window that could leave the plaintext source unindexed after rollback.
                 preserveEncryptedCopy = true
-                fileDao.deleteByPaths(
-                    listOf(sourceFile.absolutePath, canonicalSource.absolutePath).distinct()
-                )
-                // Room FTS4 content-entity triggers mirror file_metadata mutations. The FTS
-                // query also joins file_metadata, so no explicit full-index rebuild is needed.
-                require(cryptoManager.secureShredFile(sourceFile)) {
-                    "Encrypted vault copy was retained, but original plaintext could not be securely removed"
+                FileIndexReconciliationLock.mutex.withLock {
+                    fileDao.deleteByPaths(
+                        listOf(sourceFile.absolutePath, canonicalSource.absolutePath).distinct()
+                    )
+                    // Room FTS4 content-entity triggers mirror file_metadata mutations. The FTS
+                    // query also joins file_metadata, so no explicit full-index rebuild is needed.
+                    require(cryptoManager.secureShredFile(sourceFile)) {
+                        "Encrypted vault copy was retained, but original plaintext could not be securely removed"
+                    }
                 }
             }
 

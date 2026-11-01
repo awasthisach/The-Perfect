@@ -8,6 +8,11 @@ import androidx.room.Transaction
 import androidx.room.Update
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.sync.Mutex
+
+object FileIndexReconciliationLock {
+    val mutex = Mutex()
+}
 
 data class DuplicateGroup(
     val sizeBytes: Long,
