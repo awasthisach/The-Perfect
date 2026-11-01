@@ -65,6 +65,7 @@ import java.io.File
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VaultAddFileDialog(
+    onActivity: () -> Unit,
     onDismiss: () -> Unit,
     onEncryptFile: (File, String, String, Boolean) -> Unit
 ) {
@@ -93,7 +94,10 @@ fun VaultAddFileDialog(
     }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            onActivity()
+            onDismiss()
+        },
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
@@ -119,7 +123,10 @@ fun VaultAddFileDialog(
             ) {
                 OutlinedTextField(
                     value = filePath,
-                    onValueChange = { filePath = it },
+                    onValueChange = {
+                        onActivity()
+                        filePath = it
+                    },
                     label = { Text("File Path to Encrypt") },
                     placeholder = { Text("/path/to/sensitive_file.pdf") },
                     singleLine = true,
@@ -147,6 +154,7 @@ fun VaultAddFileDialog(
                             modifier = Modifier
                                 .weight(1f)
                                 .clickable {
+                                    onActivity()
                                     filePath = file.absolutePath
                                     selectedCategory = when (file.extension.lowercase()) {
                                         "jpg", "png" -> "Images"
@@ -168,7 +176,10 @@ fun VaultAddFileDialog(
                 // Category Dropdown
                 ExposedDropdownMenuBox(
                     expanded = categoryDropdownExpanded,
-                    onExpandedChange = { categoryDropdownExpanded = it }
+                    onExpandedChange = {
+                        onActivity()
+                        categoryDropdownExpanded = it
+                    }
                 ) {
                     OutlinedTextField(
                         value = selectedCategory,
@@ -182,12 +193,16 @@ fun VaultAddFileDialog(
                     )
                     ExposedDropdownMenu(
                         expanded = categoryDropdownExpanded,
-                        onDismissRequest = { categoryDropdownExpanded = false }
+                        onDismissRequest = {
+                            onActivity()
+                            categoryDropdownExpanded = false
+                        }
                     ) {
                         categories.forEach { cat ->
                             DropdownMenuItem(
                                 text = { Text(cat) },
                                 onClick = {
+                                    onActivity()
                                     selectedCategory = cat
                                     categoryDropdownExpanded = false
                                 }
@@ -199,7 +214,10 @@ fun VaultAddFileDialog(
                 // Notes input
                 OutlinedTextField(
                     value = notes,
-                    onValueChange = { notes = it },
+                    onValueChange = {
+                        onActivity()
+                        notes = it
+                    },
                     label = { Text("Notes (Optional)") },
                     placeholder = { Text("e.g. Tax return or Private ID") },
                     singleLine = true,
@@ -209,11 +227,17 @@ fun VaultAddFileDialog(
                 // Shred original checkbox
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { deleteOriginal = !deleteOriginal }
+                    modifier = Modifier.clickable {
+                        onActivity()
+                        deleteOriginal = !deleteOriginal
+                    }
                 ) {
                     Checkbox(
                         checked = deleteOriginal,
-                        onCheckedChange = { deleteOriginal = it },
+                        onCheckedChange = {
+                            onActivity()
+                            deleteOriginal = it
+                        },
                         colors = CheckboxDefaults.colors(checkedColor = BhagwaOrange)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
@@ -228,6 +252,7 @@ fun VaultAddFileDialog(
         confirmButton = {
             Button(
                 onClick = {
+                    onActivity()
                     val file = File(filePath)
                     if (file.exists()) {
                         onEncryptFile(file, selectedCategory, notes, deleteOriginal)
@@ -244,7 +269,10 @@ fun VaultAddFileDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = {
+                onActivity()
+                onDismiss()
+            }) {
                 Text("Cancel")
             }
         }

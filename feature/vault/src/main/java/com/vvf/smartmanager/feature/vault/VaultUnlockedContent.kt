@@ -40,12 +40,19 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
 import com.vvf.smartmanager.core.common.FormatUtils
 import com.vvf.smartmanager.feature.vault.components.EmeraldGreen
 import com.vvf.smartmanager.feature.vault.components.VaultAddFileDialog
@@ -59,7 +66,29 @@ import com.vvf.smartmanager.feature.vault.components.VaultItemGridCard
 import com.vvf.smartmanager.feature.vault.components.VaultProcessingDialog
 import com.vvf.smartmanager.feature.vault.components.VaultSettingsDialog
 import com.vvf.smartmanager.feature.vault.components.VaultSetupDecoyDialog
+import android.os.SystemClock
 import java.io.File
+
+/**
+ * Throttled activity reporter so continuous scroll / rapid typing does not spam the ViewModel.
+ * Resets the vault auto-lock timer at most once every [throttleMs] milliseconds.
+ */
+@Composable
+private fun rememberThrottledActivityReporter(
+    viewModel: VaultViewModel,
+    throttleMs: Long = 1500L
+): () -> Unit {
+    var lastReportMs by remember { mutableLongStateOf(0L) }
+    return remember(viewModel) {
+        {
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastReportMs >= throttleMs) {
+                lastReportMs = now
+                viewModel.userActivityOccurred()
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,11 +99,24 @@ fun VaultUnlockedContent(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val reportActivity = rememberThrottledActivityReporter(viewModel)
 
     Scaffold(
         modifier = modifier
             .fillMaxSize()
-            .testTag("vault_unlocked_root"),
+            .testTag("vault_unlocked_root")
+            // Capture any pointer activity (tap, scroll, drag, long-press) on the unlocked vault UI
+            // and reset the auto-lock timer. Uses Initial pass so we observe events without consuming them.
+            .pointerInput(reportActivity) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                        if (event.type == PointerEventType.Scroll || event.changes.any { it.pressed }) {
+                            reportActivity()
+                        }
+                    }
+                }
+            },
         topBar = {
             TopAppBar(
                 title = {
@@ -121,7 +163,10 @@ fun VaultUnlockedContent(
                 },
                 actions = {
                     IconButton(
-                        onClick = { viewModel.toggleViewMode() },
+                        onClick = {
+                            reportActivity()
+                            viewModel.toggleViewMode()
+                        },
                         modifier = Modifier.testTag("vault_toggle_view_mode_btn")
                     ) {
                         Icon(
@@ -131,7 +176,10 @@ fun VaultUnlockedContent(
                         )
                     }
                     IconButton(
-                        onClick = { viewModel.showSettingsDialog() },
+                        onClick = {
+                            reportActivity()
+                            viewModel.showSettingsDialog()
+                        },
                         modifier = Modifier.testTag("vault_settings_btn")
                     ) {
                         Icon(
@@ -158,7 +206,10 @@ fun VaultUnlockedContent(
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { viewModel.showAddFileDialog() },
+                onClick = {
+                    reportActivity()
+                    viewModel.showAddFileDialog()
+                },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
                 shape = CircleShape,
@@ -176,7 +227,10 @@ fun VaultUnlockedContent(
         ) {
             OutlinedTextField(
                 value = uiState.searchQuery,
-                onValueChange = { viewModel.onSearchQueryChanged(it) },
+                onValueChange = {
+                    reportActivity()
+                    viewModel.onSearchQueryChanged(it)
+                },
                 placeholder = { Text("Search encrypted files...") },
                 leadingIcon = {
                     Icon(
@@ -187,7 +241,10 @@ fun VaultUnlockedContent(
                 },
                 trailingIcon = {
                     if (uiState.searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { viewModel.onSearchQueryChanged("") }) {
+                        IconButton(onClick = {
+                            reportActivity()
+                            viewModel.onSearchQueryChanged("")
+                        }) {
                             Icon(imageVector = Icons.Default.Clear, contentDescription = "Clear search")
                         }
                     }
@@ -205,10 +262,16 @@ fun VaultUnlockedContent(
             )
             VaultCategoryFilterChips(
                 selectedCategory = uiState.selectedCategory,
-                onCategorySelected = { viewModel.onCategorySelected(it) }
+                onCategorySelected = {
+                    reportActivity()
+                    viewModel.onCategorySelected(it)
+                }
             )
             if (uiState.filteredItems.isEmpty()) {
-                VaultEmptyState(onAddFileClick = { viewModel.showAddFileDialog() })
+                VaultEmptyState(onAddFileClick = {
+                    reportActivity()
+                    viewModel.showAddFileDialog()
+                })
             } else if (uiState.viewMode == VaultViewMode.LIST) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().testTag("vault_items_list"),
@@ -216,7 +279,10 @@ fun VaultUnlockedContent(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(uiState.filteredItems, key = { it.id }) { item ->
-                        VaultItemCard(item = item, onClick = { viewModel.onItemSelected(item) })
+                        VaultItemCard(item = item, onClick = {
+                            reportActivity()
+                            viewModel.onItemSelected(item)
+                        })
                     }
                 }
             } else {
@@ -228,7 +294,10 @@ fun VaultUnlockedContent(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(uiState.filteredItems, key = { it.id }) { item ->
-                        VaultItemGridCard(item = item, onClick = { viewModel.onItemSelected(item) })
+                        VaultItemGridCard(item = item, onClick = {
+                            reportActivity()
+                            viewModel.onItemSelected(item)
+                        })
                     }
                 }
             }
@@ -236,6 +305,7 @@ fun VaultUnlockedContent(
 
         if (uiState.showAddFileDialog) {
             VaultAddFileDialog(
+                onActivity = reportActivity,
                 onDismiss = { viewModel.dismissAddFileDialog() },
                 onEncryptFile = { file, category, notes, deleteOriginal ->
                     viewModel.lockFile(file, category, notes, deleteOriginal)
@@ -247,20 +317,30 @@ fun VaultUnlockedContent(
             VaultItemDetailDialog(
                 item = uiState.selectedItem!!,
                 onDismiss = { viewModel.dismissItemDetailDialog() },
-                onRestore = { viewModel.restoreItem(it) },
+                onRestore = {
+                    reportActivity()
+                    viewModel.restoreItem(it)
+                },
                 onExportCopy = { item ->
+                    reportActivity()
                     val exportDir = File(context.filesDir, "exported")
                     val destFile = File(exportDir, item.originalName)
                     viewModel.exportItem(item, destFile)
                 },
-                onDeletePermanently = { viewModel.showConfirmDeleteDialog() }
+                onDeletePermanently = {
+                    reportActivity()
+                    viewModel.showConfirmDeleteDialog()
+                }
             )
         }
 
         if (uiState.showConfirmDeleteDialog && uiState.selectedItem != null) {
             VaultConfirmDeleteDialog(
                 item = uiState.selectedItem!!,
-                onConfirm = { viewModel.deleteItemPermanently(uiState.selectedItem!!) },
+                onConfirm = {
+                    reportActivity()
+                    viewModel.deleteItemPermanently(uiState.selectedItem!!)
+                },
                 onDismiss = { viewModel.dismissConfirmDeleteDialog() }
             )
         }
@@ -268,20 +348,34 @@ fun VaultUnlockedContent(
         if (uiState.showSettingsDialog) {
             VaultSettingsDialog(
                 isBiometricEnabled = uiState.isBiometricEnabled,
-                onToggleBiometric = { viewModel.setBiometricEnabled(it) },
+                onToggleBiometric = {
+                    reportActivity()
+                    viewModel.setBiometricEnabled(it)
+                },
                 autoLockSeconds = uiState.autoLockSeconds,
-                onAutoLockChange = { viewModel.setAutoLockSeconds(it) },
+                onAutoLockChange = {
+                    reportActivity()
+                    viewModel.setAutoLockSeconds(it)
+                },
                 onChangePinClick = {
+                    reportActivity()
                     viewModel.dismissSettingsDialog()
                     viewModel.startChangePinFlow()
                 },
                 isDecoyConfigured = uiState.isDecoyConfigured,
                 onSetupDecoyClick = {
+                    reportActivity()
                     viewModel.dismissSettingsDialog()
                     viewModel.showSetupDecoyDialog()
                 },
-                onRemoveDecoyClick = { viewModel.removeDecoyPin() },
-                onPopulateDecoyDataClick = { viewModel.populateSampleDecoyData(context.filesDir) },
+                onRemoveDecoyClick = {
+                    reportActivity()
+                    viewModel.removeDecoyPin()
+                },
+                onPopulateDecoyDataClick = {
+                    reportActivity()
+                    viewModel.populateSampleDecoyData(context.filesDir)
+                },
                 onDismiss = { viewModel.dismissSettingsDialog() }
             )
         }
@@ -292,9 +386,18 @@ fun VaultUnlockedContent(
                 enteredPin = uiState.enteredPin,
                 errorMessage = uiState.errorMessage,
                 isPinVerifying = uiState.isPinVerifying,
-                onDigitClick = { viewModel.onPinDigit(it) },
-                onBackspaceClick = { viewModel.onPinBackspace() },
-                onSubmitClick = { viewModel.submitPin() },
+                onDigitClick = {
+                    reportActivity()
+                    viewModel.onPinDigit(it)
+                },
+                onBackspaceClick = {
+                    reportActivity()
+                    viewModel.onPinBackspace()
+                },
+                onSubmitClick = {
+                    reportActivity()
+                    viewModel.submitPin()
+                },
                 onDismiss = { viewModel.dismissChangePinDialog() }
             )
         }
@@ -305,9 +408,18 @@ fun VaultUnlockedContent(
                 enteredPin = uiState.enteredDecoyPin,
                 errorMessage = uiState.errorMessage,
                 userMessage = uiState.userMessage,
-                onDigitClick = { viewModel.onDecoyPinDigit(it) },
-                onBackspaceClick = { viewModel.onDecoyPinBackspace() },
-                onSubmitClick = { viewModel.submitDecoyPin() },
+                onDigitClick = {
+                    reportActivity()
+                    viewModel.onDecoyPinDigit(it)
+                },
+                onBackspaceClick = {
+                    reportActivity()
+                    viewModel.onDecoyPinBackspace()
+                },
+                onSubmitClick = {
+                    reportActivity()
+                    viewModel.submitDecoyPin()
+                },
                 isPinVerifying = uiState.isPinVerifying,
                 onDismiss = { viewModel.dismissSetupDecoyDialog() }
             )
