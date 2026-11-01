@@ -669,6 +669,10 @@ class VaultViewModel(
         _uiState.update { it.copy(isBiometricEnabled = false) }
     }
 
+    suspend fun canEnableBiometric(): Boolean = withContext(Dispatchers.Default) {
+        vaultAuthUseCase.createVaultBiometricCipher() != null
+    }
+
     suspend fun enableBiometricAfterPinVerification(pin: String): Boolean {
         val before = _uiState.value
         if (!before.isUnlocked || before.sessionMode != VaultSessionMode.REAL ||
