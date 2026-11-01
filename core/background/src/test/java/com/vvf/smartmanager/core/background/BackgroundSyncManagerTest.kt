@@ -13,6 +13,7 @@ import com.vvf.smartmanager.core.background.workers.OcrBatchRuntime
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -81,7 +82,7 @@ class BackgroundSyncManagerTest {
         val worker = TestListenableWorkerBuilder<OcrBatchWorker>(context).build()
         val result = worker.doWork()
 
-        assertEquals(ListenableWorker.Result.success(), result)
+        assertTrue("Expected success result, got: $result", result is ListenableWorker.Result.Success)
         assertEquals(7, result.outputData.getInt("processed_count", -1))
         assertEquals(1, result.outputData.getInt("deferred_count", -1))
     }
