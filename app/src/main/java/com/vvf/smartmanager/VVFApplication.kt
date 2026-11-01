@@ -422,7 +422,7 @@ class VVFApplication : Application(), Configuration.Provider {
                 Log.i(TAG, "Removed $staleRemoved stale index row(s)")
             }
             if (metadata.isNotEmpty()) {
-                metadata.chunked(400).forEach { chunk -> fileDao.insertAll(chunk) }
+                metadata.chunked(400).forEach { chunk -> fileDao.insertAllPreservingLatestMetadata(chunk) }
             }
             if (metadata.isNotEmpty() || staleRemoved > 0) {
                 database.searchFtsDao().rebuildFtsIndex()
