@@ -14,6 +14,7 @@ import com.vvf.smartmanager.core.background.workers.FileIndexingOutcome
 import com.vvf.smartmanager.core.background.workers.FileIndexingRuntime
 import com.vvf.smartmanager.core.background.workers.JunkScanBootstrap
 import com.vvf.smartmanager.core.background.BackgroundSyncManager
+import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveCredential
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveServiceImpl
 import com.vvf.smartmanager.core.data.backup.InjectedVaultSnapshotSource
@@ -121,7 +122,7 @@ class VVFApplication : Application(), Configuration.Provider {
     private var restoreClosedDatabase = false
 
     @Volatile
-    var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
+    var pendingGoogleDriveSignInCallback: ((Result<GoogleDriveCredential>) -> Unit)? = null
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 

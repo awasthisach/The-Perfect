@@ -5,6 +5,7 @@ import android.content.Intent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
+import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveCredential
 import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
 import kotlinx.coroutines.launch
 import android.os.Bundle
@@ -80,7 +81,7 @@ class MainActivity : FragmentActivity() {
      * do not leave a stale Application lambda. On success we always apply the token to
      * [VVFApplication.googleDriveService] even if the UI callback was cleared.
      */
-    private var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
+    private var pendingGoogleDriveSignInCallback: ((Result<GoogleDriveCredential>) -> Unit)? = null
 
     private val googleDriveSignInLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -94,8 +95,8 @@ class MainActivity : FragmentActivity() {
                 resultCode = activityResult.resultCode,
                 data = activityResult.data
             )
-            result.onSuccess { token ->
-                runCatching { app.googleDriveService.setAccessToken(token) }
+            result.onSuccess { credential ->
+                runCatching { app.googleDriveService.setAccessToken(credential.token, credential.account) }
             }
             callback?.invoke(result)
         }
@@ -133,7 +134,7 @@ class MainActivity : FragmentActivity() {
 
 @Composable
 fun VVFAppContent(
-    onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit
+    onGoogleDriveSignInRequested: ((Result<GoogleDriveCredential>) -> Unit) -> Unit
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -282,7 +283,7 @@ fun VVFAppContent(
 private fun VVFNavHost(
     navController: androidx.navigation.NavHostController,
     app: VVFApplication,
-    onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit,
+    onGoogleDriveSignInRequested: ((Result<GoogleDriveCredential>) -> Unit) -> Unit,
     modifier: Modifier = Modifier
 ) {
     NavHost(
@@ -386,6 +387,11 @@ private fun VVFNavHost(
                 initialOfflineOnlyMode = app.isOfflineOnlyModeEnabled(),
                 onOfflineOnlyModeChange = { enabled -> app.setOfflineOnlyModeEnabled(enabled) },
                 onNavigateBack = { navController.popBackStack() }
+            )
+        }
+    }
+}
+k() }
             )
         }
     }

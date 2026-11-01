@@ -1,5 +1,6 @@
 package com.vvf.smartmanager.core.cloud.gdrive
 
+import android.accounts.Account
 import com.vvf.smartmanager.core.model.FileItem
 
 /**
@@ -8,6 +9,9 @@ import com.vvf.smartmanager.core.model.FileItem
 interface GoogleDriveService {
     /** Stores a token produced by the activity-owned Google sign-in flow. */
     fun setAccessToken(token: String?) = Unit
+
+    /** Stores a token and the account it came from for silent refresh. */
+    fun setAccessToken(token: String?, account: Account?) = setAccessToken(token)
 
     suspend fun authenticate(): Result<Boolean>
     suspend fun listDriveFiles(folderId: String = "root"): Result<List<FileItem>>

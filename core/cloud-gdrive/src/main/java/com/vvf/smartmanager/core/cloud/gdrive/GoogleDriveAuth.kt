@@ -1,5 +1,6 @@
 package com.vvf.smartmanager.core.cloud.gdrive
 
+import android.accounts.Account
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -15,6 +16,11 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+
+data class GoogleDriveCredential(
+    val token: String,
+    val account: Account
+)
 
 /**
  * OAuth / Credential Manager for Google Drive access.
@@ -77,7 +83,7 @@ class GoogleDriveAuth(
      * Always inspects [data] for [ApiException] status codes so DEVELOPER_ERROR (10)
      * is not misreported as a user cancel.
      */
-    suspend fun handleSignInActivityResult(resultCode: Int, data: Intent?): Result<String> =
+    suspend fun handleSignInActivityResult(resultCode: Int, data: Intent?): Result<GoogleDriveCredential> =
         withContext(Dispatchers.IO) {
             // Prefer parsing the intent payload — Google often returns status here even when
             // resultCode is RESULT_CANCELED (e.g. DEVELOPER_ERROR / code 10).
@@ -109,7 +115,7 @@ class GoogleDriveAuth(
             extractAccessTokenFromSignInResult(data)
         }
 
-    suspend fun extractAccessTokenFromSignInResult(data: Intent?): Result<String> =
+    suspend fun extractAccessTokenFromSignInResult(data: Intent?): Result<GoogleDriveCredential> =
         withContext(Dispatchers.IO) {
             try {
                 val account = GoogleSignIn.getSignedInAccountFromIntent(data).await()
@@ -121,7 +127,7 @@ class GoogleDriveAuth(
             }
         }
 
-    private fun accessTokenForAccount(acct: android.accounts.Account?): Result<String> {
+    private fun accessTokenForAccount(acct: android.accounts.Account?): Result<GoogleDriveCredential> {
         if (acct == null) {
             return Result.failure(IllegalStateException("No Google account on sign-in result"))
         }
@@ -138,7 +144,7 @@ class GoogleDriveAuth(
                     )
                 )
             } else {
-                Result.success(token)
+                Result.success(GoogleDriveCredential(token, acct))
             }
         } catch (e: Exception) {
             Result.failure(e)

@@ -70,7 +70,7 @@ class GoogleDriveServiceImpl(
     /**
      * Prefer this overload after interactive sign-in so silent refresh can work later.
      */
-    fun setAccessToken(token: String?, account: Account?) {
+    override fun setAccessToken(token: String?, account: Account?) {
         lastAccount = account
         setAccessToken(token)
         if (!token.isNullOrBlank() && account != null) {

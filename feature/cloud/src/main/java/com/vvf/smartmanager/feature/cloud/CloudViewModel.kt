@@ -3,6 +3,7 @@ package com.vvf.smartmanager.feature.cloud
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveCredential
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
 import com.vvf.smartmanager.core.domain.CloudSyncUseCase
 import com.vvf.smartmanager.core.model.CloudAccount
@@ -83,7 +84,7 @@ class CloudViewModel(
     }
 
     /** Completes the activity-owned Google sign-in flow and validates the resulting Drive token. */
-    fun completeGoogleDriveSignIn(accessTokenResult: Result<String>) {
+    fun completeGoogleDriveSignIn(accessTokenResult: Result<GoogleDriveCredential>) {
         viewModelScope.launch {
             val token = accessTokenResult.getOrElse { error ->
                 _uiState.update {
@@ -91,7 +92,7 @@ class CloudViewModel(
                 }
                 return@launch
             }
-            googleDriveService.setAccessToken(token)
+            googleDriveService.setAccessToken(token.token, token.account)
             val authentication = cloudSyncUseCase.authenticateProvider(CloudProviderType.GOOGLE_DRIVE)
             if (authentication.getOrDefault(false)) {
                 val updated = cloudSyncUseCase.getAccount(CloudProviderType.GOOGLE_DRIVE)
