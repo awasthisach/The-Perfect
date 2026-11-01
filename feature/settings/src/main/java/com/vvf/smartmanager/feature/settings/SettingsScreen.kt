@@ -32,6 +32,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -44,6 +45,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -55,7 +57,7 @@ private val CosmicBlue = Color(0xFF102B52)
 fun SettingsScreen(
     onNavigateBack: (() -> Unit)? = null,
     initialBiometricEnabled: Boolean = false,
-    onBiometricEnabledChange: ((Boolean) -> Unit)? = null,
+    onBiometricEnabledChange: ((Boolean, String?) -> Boolean)? = null,
     initialAutoIndexOcr: Boolean = true,
     onAutoIndexOcrChange: ((Boolean) -> Unit)? = null,
     initialOfflineOnlyMode: Boolean = true,
@@ -67,6 +69,9 @@ fun SettingsScreen(
     var offlineOnlyMode by remember(initialOfflineOnlyMode) { mutableStateOf(initialOfflineOnlyMode) }
     var showLicensesDialog by remember { mutableStateOf(false) }
     var showArchitectureDialog by remember { mutableStateOf(false) }
+    var showBiometricAuthDialog by remember { mutableStateOf(false) }
+    var biometricPin by remember { mutableStateOf("") }
+    var biometricAuthError by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -110,9 +115,14 @@ fun SettingsScreen(
                             title = "Biometric Vault Authentication",
                             subtitle = "Fingerprint / Face Unlock for vault",
                             isChecked = biometricEnabled,
-                            onCheckedChange = {
-                                biometricEnabled = it
-                                onBiometricEnabledChange?.invoke(it)
+                            onCheckedChange = { enabled ->
+                                if (enabled) {
+                                    biometricPin = ""
+                                    biometricAuthError = false
+                                    showBiometricAuthDialog = true
+                                } else if (onBiometricEnabledChange?.invoke(false, null) != false) {
+                                    biometricEnabled = false
+                                }
                             }
                         )
                         HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
@@ -165,6 +175,52 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+
+    if (showBiometricAuthDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showBiometricAuthDialog = false
+                biometricPin = ""
+                biometricAuthError = false
+            },
+            title = { Text("Confirm vault PIN") },
+            text = {
+                Column {
+                    Text("Enter your vault PIN to enable biometric unlock.")
+                    OutlinedTextField(
+                        value = biometricPin,
+                        onValueChange = { biometricPin = it.filter(Char::isDigit).take(6) },
+                        label = { Text("Vault PIN") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        isError = biometricAuthError
+                    )
+                    if (biometricAuthError) {
+                        Text("Incorrect vault PIN", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showBiometricAuthDialog = false
+                    biometricPin = ""
+                    biometricAuthError = false
+                }) { Text("Cancel") }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (onBiometricEnabledChange?.invoke(true, biometricPin) != false) {
+                        biometricEnabled = true
+                        showBiometricAuthDialog = false
+                        biometricPin = ""
+                        biometricAuthError = false
+                    } else {
+                        biometricAuthError = true
+                    }
+                }) { Text("Confirm") }
+            }
+        )
     }
 
     if (showLicensesDialog) {
