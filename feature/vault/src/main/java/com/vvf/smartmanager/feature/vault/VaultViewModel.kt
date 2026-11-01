@@ -271,12 +271,20 @@ class VaultViewModel(
     }
 
     fun onBiometricAuthSuccess(proof: VaultBiometricProof) {
+        // Always consume the proof, including when settings changed while the prompt ran.
         if (!proof.consume()) {
             _uiState.update { it.copy(errorMessage = "Biometric proof is invalid or has already been used") }
             return
         }
+        // The preference may have changed while the biometric prompt was displayed.
+        // Read it from the source of truth, rather than trusting retained UI state.
+        val biometricEnabled = vaultAuthUseCase.isBiometricEnabled()
+        if (!biometricEnabled) {
+            _uiState.update { it.copy(isBiometricEnabled = false, errorMessage = "Biometric authentication is disabled in settings") }
+            return
+        }
         val state = _uiState.value
-        if (state.isConfigured && !state.isLockedOut && state.isBiometricEnabled) {
+        if (state.isConfigured && !state.isLockedOut && biometricEnabled) {
             _uiState.update {
                 it.copy(
                     isUnlocked = true,
@@ -295,6 +303,11 @@ class VaultViewModel(
 
     fun onBiometricAuthError(message: String) {
         _uiState.update { it.copy(errorMessage = message) }
+    }
+
+    /** Refreshes settings changed outside this retained view model. */
+    fun refreshBiometricPreference() {
+        _uiState.update { it.copy(isBiometricEnabled = vaultAuthUseCase.isBiometricEnabled()) }
     }
 
     private fun startLockoutTimer(seconds: Int) {
