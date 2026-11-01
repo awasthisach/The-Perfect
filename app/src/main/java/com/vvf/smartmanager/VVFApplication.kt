@@ -194,7 +194,8 @@ class VVFApplication : Application(), Configuration.Provider {
         fileManagerRepository = AppCompositionRoot.offlineFileManagerRepository(
             context = this,
             storageManager = storageManager,
-            fileDao = database.fileDao()
+            fileDao = database.fileDao(),
+            searchFtsDao = database.searchFtsDao()
         )
         val vaultDir = File(filesDir, "vvf_vault_encrypted")
         vaultRepository = SecureVaultRepository(
