@@ -95,6 +95,17 @@ interface FileDao {
     @Query("UPDATE file_metadata SET tags = :tags WHERE path = :path")
     suspend fun updateTagsByPath(path: String, tags: String)
 
+    /** Atomically replace only the internal OCR retry marker while preserving current tags. */
+    @Transaction
+    suspend fun setOcrRetryMarker(path: String, marker: String?) {
+        val current = getByPath(path) ?: return
+        val tags = current.tags.split(',').map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("ocr_retry_after:") }
+            .toMutableList()
+        if (marker != null) tags += marker
+        updateTagsByPath(path, tags.joinToString(","))
+    }
+
     /**
      * Reconcile indexed filesystem fields without replacing concurrently-updated user metadata.
      * The transaction makes each read/merge/write atomic against OCR tagging and user actions.
