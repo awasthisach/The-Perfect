@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
 import kotlinx.coroutines.flow.Flow
@@ -47,6 +48,30 @@ interface FileDao {
 
     @Update
     suspend fun update(file: FileMetadataEntity)
+
+    /**
+     * Reconcile filesystem metadata without overwriting user/worker metadata that changed
+     * after the storage scan snapshot was captured.
+     */
+    @Transaction
+    suspend fun insertAllPreservingLatestMetadata(files: List<FileMetadataEntity>) {
+        files.forEach { incoming ->
+            val current = getByPath(incoming.path)
+            val merged = current?.let {
+                incoming.copy(
+                    id = it.id,
+                    isFavorite = it.isFavorite,
+                    isTrash = it.isTrash,
+                    originalPath = it.originalPath,
+                    deletedTimestamp = it.deletedTimestamp,
+                    tags = it.tags,
+                    md5Hash = it.md5Hash,
+                    operationState = it.operationState
+                )
+            } ?: incoming
+            insertOrUpdate(merged)
+        }
+    }
 
     @Query("SELECT * FROM file_metadata WHERE path = :path LIMIT 1")
     suspend fun getByPath(path: String): FileMetadataEntity?
