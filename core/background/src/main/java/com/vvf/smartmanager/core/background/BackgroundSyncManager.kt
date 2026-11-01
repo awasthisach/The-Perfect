@@ -163,11 +163,14 @@ class BackgroundSyncManager(private val context: Context) {
             .addTag("immediate_ocr")
             .build()
 
-        wm.enqueueUniqueWork(
-            BackgroundConstants.UNIQUE_OCR_BATCH_WORK,
-            ExistingWorkPolicy.KEEP,
+        // OCR reads file metadata and writes tags. Chain it after the immediate
+        // storage scan so its metadata snapshot cannot be overwritten by a later
+        // insertAll from the startup indexer.
+        wm.beginUniqueWork(
+            "immediate_indexing",
+            ExistingWorkPolicy.APPEND,
             request
-        )
+        ).enqueue()
     }
 
     /**
