@@ -8,6 +8,8 @@ import com.vvf.smartmanager.core.background.workers.CloudBackupWorker
 import com.vvf.smartmanager.core.background.workers.FileIndexingWorker
 import com.vvf.smartmanager.core.background.workers.JunkScanWorker
 import com.vvf.smartmanager.core.background.workers.OcrBatchWorker
+import com.vvf.smartmanager.core.background.workers.OcrBatchOutcome
+import com.vvf.smartmanager.core.background.workers.OcrBatchRuntime
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -41,6 +43,7 @@ class BackgroundSyncManagerTest {
         syncManager.schedulePeriodicIndexing(intervalHours = 6)
         syncManager.schedulePeriodicCloudBackup(intervalHours = 24, wifiOnly = true, chargingOnly = true)
         syncManager.schedulePeriodicJunkScan(intervalHours = 12)
+        syncManager.schedulePeriodicOcrBatch(intervalHours = 6)
 
         syncManager.triggerImmediateIndexing()
         syncManager.triggerImmediateBackup(includeVault = false)
@@ -48,4 +51,38 @@ class BackgroundSyncManagerTest {
 
         syncManager.cancelAllScheduledWork()
     }
+    @Test
+    fun ocrWorkerRetriesWhenAnotherBoundedBatchMayRemain() = runBlocking {
+        OcrBatchRuntime.configure {
+            OcrBatchOutcome.Completed(
+                processedCount = 40,
+                hasMoreCandidates = true,
+                failedCount = 2
+            )
+        }
+
+        val worker = TestListenableWorkerBuilder<OcrBatchWorker>(context).build()
+        val result = worker.doWork()
+
+        assertEquals(ListenableWorker.Result.retry(), result)
+    }
+
+    @Test
+    fun ocrWorkerCompletesWhenNoFurtherCandidatesRemain() = runBlocking {
+        OcrBatchRuntime.configure {
+            OcrBatchOutcome.Completed(
+                processedCount = 7,
+                hasMoreCandidates = false,
+                failedCount = 1
+            )
+        }
+
+        val worker = TestListenableWorkerBuilder<OcrBatchWorker>(context).build()
+        val result = worker.doWork()
+
+        assertEquals(ListenableWorker.Result.success(), result)
+        assertEquals(7, result.outputData.getInt("processed_count", -1))
+        assertEquals(1, result.outputData.getInt("deferred_count", -1))
+    }
+
 }
