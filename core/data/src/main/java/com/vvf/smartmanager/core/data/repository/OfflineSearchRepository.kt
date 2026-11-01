@@ -83,7 +83,8 @@ class OfflineSearchRepository(
     override fun getAvailableTags(): Flow<List<String>> {
         return searchFtsDao.getAllTags().map { rawTagList ->
             rawTagList.flatMap { raw ->
-                raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                raw.split(",").map { it.trim() }
+                    .filter { it.isNotEmpty() && !it.startsWith("ocr_retry_after:") }
             }.distinct().sorted()
         }.flowOn(Dispatchers.IO)
     }
