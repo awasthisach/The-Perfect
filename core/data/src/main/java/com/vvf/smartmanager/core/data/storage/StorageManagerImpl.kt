@@ -182,8 +182,8 @@ open class StorageManagerImpl(
         val visitedDirectories = HashSet<String>()
 
         fun visit(directory: File) {
-            if (!complete || files.size >= maxItems) {
-                if (files.size >= maxItems) complete = false
+            if (files.size >= maxItems) {
+                complete = false
                 return
             }
             val canonicalPath = try {
@@ -246,7 +246,11 @@ open class StorageManagerImpl(
             }
         }
 
-        if (complete) visit(root)
+        // A listable root may still contain inaccessible entries. Keep traversing those
+        // siblings so accessible files are indexed while retaining the incomplete flag.
+        if (root.exists() && root.isDirectory && root.canRead() && rootCanonicalPath.isNotEmpty()) {
+            visit(root)
+        }
         val items = files.map { file ->
             FileItem(
                 path = file.absolutePath,
