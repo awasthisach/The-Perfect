@@ -129,7 +129,7 @@ class VVFApplication : Application(), Configuration.Provider {
         getSharedPreferences(SETTINGS_PREFS, MODE_PRIVATE)
     }
 
-    fun isAutoIndexOcrEnabled(): Boolean = settingsPrefs.getBoolean(KEY_AUTO_INDEX_OCR, true)
+    fun isAutoIndexOcrEnabled(): Boolean = settingsPrefs.getBoolean(KEY_AUTO_INDEX_OCR, false)
 
     fun setAutoIndexOcrEnabled(enabled: Boolean) {
         settingsPrefs.edit().putBoolean(KEY_AUTO_INDEX_OCR, enabled).apply()
