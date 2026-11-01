@@ -35,10 +35,9 @@ jobs:
 
       - name: Run semantic CPAS verification
         id: cpas
-        # Fail-closed: BLOCKED is an expected production state while critical
-        # findings remain open. Emit a warning annotation, not an error, so the
-        # job stays green without hiding the BLOCKED status.
-        # Unexpected verifier crashes (no status file) still fail the job.
+        # Fail-closed: BLOCKED must fail this required check. Merge/release
+        # promotion requires production_status=PASS. Artifact still uploads on failure.
+        # Unexpected verifier crashes (no status file) also fail the job.
         run: |
           set +e
           python3 tools/audit/cpas_verify.py --root .
@@ -62,8 +61,8 @@ jobs:
           fi
 
           if [ "$status" = "BLOCKED" ]; then
-            echo "::warning::CPAS production_status=BLOCKED (fail-closed). blockers=${blockers}. See cpas-status artifact. Release promotion still requires PASS."
-            exit 0
+            echo "::error::CPAS production_status=BLOCKED (fail-closed). blockers=${blockers}. See cpas-status artifact. Required check fails until production_status=PASS."
+            exit 1
           fi
 
           echo "::error::Unexpected CPAS status=${status} exit_code=${code}"
