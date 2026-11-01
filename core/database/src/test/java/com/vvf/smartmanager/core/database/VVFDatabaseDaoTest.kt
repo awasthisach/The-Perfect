@@ -197,4 +197,32 @@ class VVFDatabaseDaoTest {
         val updated = searchFtsDao.searchByTag("vvf_confidential").first()
         assertEquals(1, updated.size)
     }
+    @Test
+    fun deletingSecurelyShreddedOriginalPathRemovesFallbackAndFtsSearchResults() = runBlocking {
+        val originalPath = "/storage/emulated/0/Documents/secret_report.pdf"
+        fileDao.insertOrUpdate(
+            FileMetadataEntity(
+                path = originalPath,
+                name = "secret_report.pdf",
+                parentPath = "/storage/emulated/0/Documents",
+                sizeBytes = 4096L,
+                mimeType = "application/pdf",
+                isDirectory = false,
+                modifiedDate = 3000L,
+                tags = "confidential,ocr"
+            )
+        )
+        searchFtsDao.rebuildFtsIndex()
+
+        assertEquals(1, searchFtsDao.searchFilesFallback("secret_report").first().size)
+        assertEquals(1, searchFtsDao.searchFilesFts("secret_report").first().size)
+
+        // SecureVaultRepository performs this only after secureShredFile() succeeds.
+        fileDao.deleteByPath(originalPath)
+        searchFtsDao.rebuildFtsIndex()
+
+        assertTrue(searchFtsDao.searchFilesFallback("secret_report").first().isEmpty())
+        assertTrue(searchFtsDao.searchFilesFts("secret_report").first().isEmpty())
+    }
+
 }
