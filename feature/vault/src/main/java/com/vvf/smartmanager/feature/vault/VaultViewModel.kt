@@ -276,7 +276,10 @@ class VaultViewModel(
             return
         }
         val state = _uiState.value
-        if (state.isConfigured && !state.isLockedOut && state.isBiometricEnabled) {
+        // Read the persisted preference at the point of authorization. The UI state
+        // may have been initialized before the setting was changed elsewhere.
+        val biometricEnabled = vaultAuthUseCase.isBiometricEnabled()
+        if (state.isConfigured && !state.isLockedOut && biometricEnabled) {
             _uiState.update {
                 it.copy(
                     isUnlocked = true,
@@ -288,9 +291,19 @@ class VaultViewModel(
             }
             observeVaultMetrics(isDecoy = false)
             scheduleAutoLock()
-        } else if (!state.isBiometricEnabled) {
-            _uiState.update { it.copy(errorMessage = "Biometric authentication is disabled in settings") }
+        } else if (!biometricEnabled) {
+            _uiState.update {
+                it.copy(
+                    isBiometricEnabled = false,
+                    errorMessage = "Biometric authentication is disabled in settings"
+                )
+            }
         }
+    }
+
+    fun refreshBiometricSetting() {
+        val enabled = vaultAuthUseCase.isBiometricEnabled()
+        _uiState.update { it.copy(isBiometricEnabled = enabled) }
     }
 
     fun onBiometricAuthError(message: String) {
