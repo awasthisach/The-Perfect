@@ -382,7 +382,14 @@ private fun VVFNavHost(
         composable(TopLevelDestination.SETTINGS.route) {
             SettingsScreen(
                 initialAutoIndexOcr = app.isAutoIndexOcrEnabled(),
-                onAutoIndexOcrChange = { enabled -> app.setAutoIndexOcrEnabled(enabled) },
+                onAutoIndexOcrChange = { enabled ->
+                    app.setAutoIndexOcrEnabled(enabled)
+                    if (enabled) {
+                        // The one-time worker joins the current storage-index chain; if no
+                        // index pass is pending it runs immediately against the current index.
+                        app.backgroundSyncManager.triggerImmediateOcrBatch()
+                    }
+                },
                 initialOfflineOnlyMode = app.isOfflineOnlyModeEnabled(),
                 onOfflineOnlyModeChange = { enabled -> app.setOfflineOnlyModeEnabled(enabled) },
                 onNavigateBack = { navController.popBackStack() }
