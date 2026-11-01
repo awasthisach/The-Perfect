@@ -225,4 +225,43 @@ class VVFDatabaseDaoTest {
         assertTrue(searchFtsDao.searchFilesFts("secret").first().isEmpty())
     }
 
+    @Test
+    fun rescansPreserveLatestUserMetadataWhenFilesystemSnapshotIsStale() = runBlocking {
+        val path = "/storage/emulated/0/Pictures/scan_race.jpg"
+        fileDao.insertOrUpdate(
+            FileMetadataEntity(
+                path = path,
+                name = "scan_race.jpg",
+                parentPath = "/storage/emulated/0/Pictures",
+                sizeBytes = 100L,
+                mimeType = "image/jpeg",
+                isDirectory = false,
+                modifiedDate = 1000L,
+                isFavorite = true,
+                tags = "ocr,invoice",
+                operationState = "IN_PROGRESS"
+            )
+        )
+        val staleScanSnapshot = FileMetadataEntity(
+            path = path,
+            name = "scan_race.jpg",
+            parentPath = "/storage/emulated/0/Pictures",
+            sizeBytes = 120L,
+            mimeType = "image/jpeg",
+            isDirectory = false,
+            modifiedDate = 2000L,
+            isFavorite = false,
+            tags = "",
+            operationState = "IDLE"
+        )
+
+        fileDao.insertAllPreservingLatestMetadata(listOf(staleScanSnapshot))
+
+        val updated = fileDao.getByPath(path)
+        assertEquals("ocr,invoice", updated?.tags)
+        assertEquals(true, updated?.isFavorite)
+        assertEquals("IN_PROGRESS", updated?.operationState)
+        assertEquals(120L, updated?.sizeBytes)
+    }
+
 }
