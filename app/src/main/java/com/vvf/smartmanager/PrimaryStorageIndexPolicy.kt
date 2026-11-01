@@ -12,7 +12,10 @@ internal const val PRIMARY_STORAGE_INDEX_LIMIT = 10_000
  * Stale-row pruning is safe only when the scan finished below its configured bound.
  * Reaching the bound is treated conservatively as a potentially incomplete scan.
  */
-internal fun shouldPruneStalePrimaryIndexRows(scannedItemCount: Int): Boolean {
+internal fun shouldPruneStalePrimaryIndexRows(
+    scannedItemCount: Int,
+    scanCompleted: Boolean
+): Boolean {
     require(scannedItemCount >= 0) { "scannedItemCount must not be negative" }
-    return scannedItemCount < PRIMARY_STORAGE_INDEX_LIMIT
+    return scanCompleted && scannedItemCount < PRIMARY_STORAGE_INDEX_LIMIT
 }
