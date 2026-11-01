@@ -126,25 +126,30 @@ class SecureVaultRepository(
 
             vaultDao.insertVaultItem(entity)
 
+            var preserveEncryptedCopy = false
             if (deleteOriginal) {
-                require(cryptoManager.secureShredFile(sourceFile)) {
-                    "Encrypted vault copy was created, but original plaintext could not be securely removed"
-                }
-                // The original is now irrecoverably removed. Drop its ordinary metadata row
-                // so capped storage scans cannot keep exposing the old name/path in search.
-                // Cleanup is deliberately best-effort after shredding: once plaintext is gone,
-                // a cleanup exception must never enter the encryption rollback path and destroy
-                // the only remaining encrypted copy. FTS search joins file_metadata, so a
-                // successful row deletion already prevents the old path from being returned.
-                runCatching {
+                // Remove the searchable metadata before attempting destructive I/O. If the
+                // database write fails, the catch block can safely roll back the encrypted
+                // copy because the plaintext source has not yet been touched.
+                fileDao.deleteByPath(sourceFile.absolutePath)
+                if (canonicalSource.absolutePath != sourceFile.absolutePath) {
                     fileDao.deleteByPath(canonicalSource.absolutePath)
-                    searchFtsDao.rebuildFtsIndex()
-                }.onFailure {
+                }
+                // FTS queries join file_metadata; after row deletion the old path is no
+                // longer searchable even if rebuilding the virtual table fails.
+                runCatching { searchFtsDao.rebuildFtsIndex() }.onFailure {
                     android.util.Log.e(
                         "SecureVaultRepository",
-                        "Search metadata cleanup failed after successful vault lock",
+                        "FTS rebuild failed after metadata deletion; joined search remains filtered",
                         it
                     )
+                }
+
+                // secureShredFile may partially overwrite the source before returning false.
+                // From this point onward, never roll back the only encrypted copy.
+                preserveEncryptedCopy = true
+                require(cryptoManager.secureShredFile(sourceFile)) {
+                    "Encrypted vault copy was retained, but original plaintext could not be securely removed"
                 }
             }
 
@@ -162,9 +167,15 @@ class SecureVaultRepository(
 
             entity.toDomainModel()
         } catch (e: Exception) {
-            // Roll back metadata as well as the encrypted artifact. Otherwise a failed
-            // operation can leave a DB row pointing at a file that no longer exists.
-            vaultDao.deleteById(fileId)
+            // Before any destructive source operation, rollback is safe. Once shredding
+            // has been attempted, preserve the encrypted copy and vault row: the plaintext may
+            // already have been partially or fully overwritten.
+            if (!preserveEncryptedCopy) {
+                vaultDao.deleteById(fileId)
+                if (destinationFile.exists()) {
+                    cryptoManager.secureShredFile(destinationFile)
+                }
+            }
             if (journalId > 0L) {
                 vaultJournalDao.updateJournal(
                     VaultJournalEntity(
@@ -172,12 +183,9 @@ class SecureVaultRepository(
                         operationType = "ENCRYPT",
                         originalPath = sourceFile.absolutePath,
                         vaultPath = destinationFile.absolutePath,
-                        status = "FAILED"
+                        status = if (preserveEncryptedCopy) "FAILED_SHRED" else "FAILED"
                     )
                 )
-            }
-            if (destinationFile.exists()) {
-                cryptoManager.secureShredFile(destinationFile)
             }
             throw e
         }
