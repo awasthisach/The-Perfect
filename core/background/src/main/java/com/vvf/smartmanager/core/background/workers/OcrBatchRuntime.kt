@@ -8,7 +8,11 @@ import kotlinx.coroutines.sync.withLock
  * VVFApplication configures the real batch runner at process start.
  */
 sealed interface OcrBatchOutcome {
-    data class Completed(val processedCount: Int) : OcrBatchOutcome
+    data class Completed(
+        val processedCount: Int,
+        val hasMoreCandidates: Boolean = false,
+        val failedCount: Int = 0
+    ) : OcrBatchOutcome
     data class RetryableFailure(val reason: String) : OcrBatchOutcome
     data class PermanentFailure(val reason: String) : OcrBatchOutcome
 }
