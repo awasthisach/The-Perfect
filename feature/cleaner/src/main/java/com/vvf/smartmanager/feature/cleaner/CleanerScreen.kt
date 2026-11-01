@@ -337,7 +337,7 @@ fun CleanerScreen(
 
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Detects near-duplicate documents, images, and texts using on-device TFLite vector embeddings.",
+                                text = "Detects near-duplicate documents, images, and texts using on-device hashed-embedding similarity.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

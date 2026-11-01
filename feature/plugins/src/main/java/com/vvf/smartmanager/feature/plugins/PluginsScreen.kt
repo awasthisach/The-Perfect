@@ -479,7 +479,7 @@ private fun SemanticSearchPluginCard() {
 
                     Column {
                         Text(
-                            text = "AI Semantic Search (TFLite)",
+                            text = "AI Semantic Search (Hashed Embeddings)",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = CosmicBlue

@@ -13,12 +13,12 @@ import com.vvf.smartmanager.core.model.SemanticSearchResult
  */
 interface ISemanticSearchEngine {
     val pluginId: String get() = "plugin.semantic.tflite"
-    val displayName: String get() = "TFLite On-Device Semantic AI Search"
+    val displayName: String get() = "On-Device Hashed-Embedding Semantic Search"
     val version: String get() = "1.0.0"
     val isEnabled: Boolean get() = true
 
     /**
-     * Checks if the lightweight on-device TFLite model is downloaded and initialized.
+     * Checks if the hashed-embedding index is downloaded and initialized.
      */
     fun isModelReady(): Boolean
 
