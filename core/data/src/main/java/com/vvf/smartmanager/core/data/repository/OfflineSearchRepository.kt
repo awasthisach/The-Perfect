@@ -152,7 +152,7 @@ class OfflineSearchRepository(
     override suspend fun getRecentIndexedFiles(limit: Int): List<FileItem> = withContext(Dispatchers.IO) {
         val entities = fileDao.getRecentFiles(limit.coerceIn(1, 2_000)).first()
         entities.map { entity ->
-            val tagList = entity.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            val tagList = parseVisibleTags(entity.tags)
             FileItem(
                 path = entity.path,
                 name = entity.name,
@@ -255,6 +255,11 @@ class OfflineSearchRepository(
             emit(sortSearchResults(results, filter.sortOption))
         }
     }.flowOn(Dispatchers.IO)
+
+    /** Hide internal worker retry bookkeeping from file/tag UI and search matching. */
+    private fun parseVisibleTags(rawTags: String): List<String> =
+        rawTags.split(",").map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("ocr_retry_after:") }
 
     private fun sanitizeFtsQuery(query: String): String {
         val clean = query.replace(Regex("[^\\p{L}\\p{Nd}_\\s]"), " ").trim()
