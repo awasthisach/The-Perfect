@@ -173,6 +173,12 @@ open class StorageManagerImpl(
         val root = File(getPrimaryStoragePath())
         val files = mutableListOf<File>()
         var complete = root.exists() && root.isDirectory && root.canRead()
+        val rootCanonicalPath = try {
+            root.canonicalPath
+        } catch (_: Exception) {
+            complete = false
+            ""
+        }
         val visitedDirectories = HashSet<String>()
 
         fun visit(directory: File) {
@@ -183,6 +189,12 @@ open class StorageManagerImpl(
             val canonicalPath = try {
                 directory.canonicalPath
             } catch (_: Exception) {
+                complete = false
+                return
+            }
+            if (canonicalPath != rootCanonicalPath &&
+                !canonicalPath.startsWith(rootCanonicalPath + File.separator)
+            ) {
                 complete = false
                 return
             }
@@ -216,6 +228,18 @@ open class StorageManagerImpl(
                     }
                     visit(child)
                 } else {
+                    val childCanonicalPath = try {
+                        child.canonicalPath
+                    } catch (_: Exception) {
+                        complete = false
+                        continue
+                    }
+                    if (childCanonicalPath != rootCanonicalPath &&
+                        !childCanonicalPath.startsWith(rootCanonicalPath + File.separator)
+                    ) {
+                        complete = false
+                        continue
+                    }
                     if (!child.canRead()) complete = false
                     files += child
                 }
