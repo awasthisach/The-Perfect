@@ -134,6 +134,25 @@ class BackgroundSyncManager(private val context: Context) {
     }
 
     /**
+     * Run a fresh storage scan before OCR so the batch sees the complete current metadata set.
+     * A dedicated unique chain avoids coupling OCR to unrelated indexing work.
+     */
+    fun triggerImmediateIndexingThenOcr() {
+        val wm = workManager ?: return
+        val indexing = OneTimeWorkRequestBuilder<FileIndexingWorker>()
+            .addTag("immediate_indexing")
+            .build()
+        val ocr = OneTimeWorkRequestBuilder<OcrBatchWorker>()
+            .addTag("immediate_ocr")
+            .build()
+        wm.beginUniqueWork(
+            "immediate_indexing_then_ocr",
+            ExistingWorkPolicy.KEEP,
+            indexing
+        ).then(ocr).enqueue()
+    }
+
+    /**
      * Trigger immediate one-time cloud backup snapshot.
      */
     fun triggerImmediateBackup(includeVault: Boolean = true) {
