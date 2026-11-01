@@ -1,3 +1,1 @@
-package com.vvf.smartmanager
-
-// FILE_TOO_LARGE_USE_RAW
+LOAD_FROM_ARTIFACT_FAILED_USE_MAIN_RESTORE
