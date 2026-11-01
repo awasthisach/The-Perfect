@@ -1,20 +1,19 @@
 # ORT configuration for The-Perfect (VVF Smart Manager)
 # Goal: improve scan reliability / reduce timeout risk without suppressing findings.
 
-ort:
-  analyzer:
-    skip_excluded: true
-    # Prefer declared package managers used by this Android/Gradle project
-    enabled_package_managers: [GradleInspector, Gradle]
+analyzer:
+  skip_excluded: true
+  # Prefer declared package managers used by this Android/Gradle project
+  enabled_package_managers: [GradleInspector, Gradle]
 
-  scanner:
-    skip_concluded: true
-    # Reuse previously stored scan results when package provenance matches
-    # (helps subsequent nightly runs finish within the 6h GitHub limit).
-    
-  excludes:
-    paths:
-      - pattern: "docs/**"
+scanner:
+  skip_concluded: true
+  # Reuse previously stored scan results when package provenance matches
+  # (helps subsequent nightly runs finish within the 6h GitHub limit).
+  
+excludes:
+  paths:
+    - pattern: "docs/**"
         reason: "DOCUMENTATION_OF"
         comment: "Documentation and assurance drafts are not redistributed as product code."
       - pattern: "tools/**"
