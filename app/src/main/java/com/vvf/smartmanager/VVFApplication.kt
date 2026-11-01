@@ -202,8 +202,7 @@ class VVFApplication : Application(), Configuration.Provider {
             cryptoManager = cryptoSecurityManager,
             vaultDirectory = vaultDir,
             vaultJournalDao = database.vaultJournalDao(),
-            fileDao = database.fileDao(),
-            searchFtsDao = database.searchFtsDao()
+            fileDao = database.fileDao()
         )
         searchRepository = OfflineSearchRepository(
             context = this,
