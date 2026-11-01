@@ -145,13 +145,10 @@ class VVFApplication : Application(), Configuration.Provider {
         super.onCreate()
         cryptoSecurityManager = CryptoSecurityManager(this)
         val jvmUnitTest = CryptoSecurityManager.isJvmUnitTestEnvironment(this)
-        // Remove orphaned plaintext staging even if recovery subsequently fails closed.
         cleanupStalePlaintextBackupStaging()
         if (!jvmUnitTest) {
             val liveDatabaseFile = getDatabasePath(VVFDatabase.DATABASE_NAME)
             val liveVaultDir = File(filesDir, "vvf_vault_encrypted")
-            // Recover the current journal first so its swap artifacts cannot be mistaken for
-            // an unjournaled legacy transaction. Then recover/retire the prior cacheDir journal.
             LocalRestoreApplier.recoverInterruptedRestore(
                 liveDatabaseFile = liveDatabaseFile,
                 liveVaultDir = liveVaultDir,
@@ -165,7 +162,6 @@ class VVFApplication : Application(), Configuration.Provider {
                 cryptoSecurityManager = cryptoSecurityManager
             )
         }
-        // Play Integrity App Check is device/Play-only; skip on JVM unit tests (Robolectric).
         if (!jvmUnitTest) {
             FirebaseAppCheck.getInstance().apply {
                 installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
@@ -175,7 +171,6 @@ class VVFApplication : Application(), Configuration.Provider {
             database = VVFDatabase.buildInMemoryDatabase(this)
             Log.i(TAG, "JVM unit-test environment: using in-memory Room database")
         } else {
-            // SQLCipher's native core must be loaded before encrypted Room initialization.
             System.loadLibrary("sqlcipher")
             val passphrase = cryptoSecurityManager.getOrCreateDatabasePassphrase()
             try {
@@ -313,11 +308,6 @@ class VVFApplication : Application(), Configuration.Provider {
         }
     }
 
-
-    /**
-     * Remove abandoned app-private plaintext ZIP/staging artifacts left by a prior process death.
-     * Do not delete restore-work snapshots here: those may be the only rollback material after a crash.
-     */
     private fun cleanupStalePlaintextBackupStaging() {
         cacheDir.listFiles().orEmpty()
             .filter { file ->
@@ -326,11 +316,6 @@ class VVFApplication : Application(), Configuration.Provider {
             }
             .forEach(::deleteStalePlaintextArtifact)
 
-        // Restore staging can contain decrypted payloads or temporary GCM plaintext files.
-        // Preserve the separate snapshots directory: it may contain the only rollback copy.
-        // The previous app version staged restore plaintext under cacheDir/restore-work.
-        // Clean only transient attempt directories there; preserve legacy snapshots because they
-        // may be the only recovery material for a process interrupted before this upgrade.
         listOf(File(filesDir, "restore-work"), File(cacheDir, "restore-work"))
             .forEach { restoreRoot ->
                 restoreRoot.listFiles().orEmpty()
@@ -346,12 +331,6 @@ class VVFApplication : Application(), Configuration.Provider {
         }
     }
 
-
-    /**
-     * Room and repositories are bound to the old database instance. Once restore closes Room,
-     * relaunch the app after the transaction (success or rollback) so every DAO is rebound to
-     * the database/key state on disk instead of leaving the current process half-alive.
-     */
     private fun restartIfRestoreClosedDatabase() {
         if (!restoreClosedDatabase) return
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
@@ -382,7 +361,12 @@ class VVFApplication : Application(), Configuration.Provider {
         return try {
             val fileDao = database.fileDao()
             val existingByPath = fileDao.getIndexedPathSnapshot().associateBy { it.path }
-            val scannedItems = storageManager.collectPrimaryStorageItems()
+            val indexCap = 10_000
+            val scannedItems = storageManager.collectPrimaryStorageItems(maxItems = indexCap)
+            val scanWasCapped = scannedItems.size >= indexCap
+            if (scanWasCapped) {
+                Log.w(TAG, "Index scan hit cap=$indexCap; skipping stale-row purge to protect favorites/tags")
+            }
             val scannedPaths = scannedItems.map { it.path }.toHashSet()
             val metadata = scannedItems.map { item ->
                 val existing = existingByPath[item.path]
@@ -404,7 +388,7 @@ class VVFApplication : Application(), Configuration.Provider {
                     operationState = existing?.operationState ?: "IDLE"
                 )
             }
-            val stalePaths = existingByPath.keys.filter { path -> path !in scannedPaths }
+            val stalePaths = if (scanWasCapped) emptyList() else existingByPath.keys.filter { path -> path !in scannedPaths }
             var staleRemoved = 0
             if (stalePaths.isNotEmpty()) {
                 stalePaths.chunked(400).forEach { chunk -> fileDao.deleteStaleByPaths(chunk) }
