@@ -75,11 +75,6 @@ import com.vvf.smartmanager.ui.theme.VVFSmartManagerTheme
 class MainActivity : FragmentActivity() {
     private lateinit var googleDriveAuth: GoogleDriveAuth
 
-    /**
-     * Activity-scoped OAuth completion handler (not Application-held), so config changes
-     * do not leave a stale Application lambda. On success we always apply the token to
-     * [VVFApplication.googleDriveService] even if the UI callback was cleared.
-     */
     private var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
 
     private val googleDriveSignInLauncher = registerForActivityResult(
@@ -381,6 +376,8 @@ private fun VVFNavHost(
         }
         composable(TopLevelDestination.SETTINGS.route) {
             SettingsScreen(
+                initialBiometricEnabled = app.vaultAuthUseCase.isBiometricEnabled(),
+                onBiometricEnabledChange = { enabled -> app.vaultAuthUseCase.setBiometricEnabled(enabled) },
                 initialAutoIndexOcr = app.isAutoIndexOcrEnabled(),
                 onAutoIndexOcrChange = { enabled -> app.setAutoIndexOcrEnabled(enabled) },
                 initialOfflineOnlyMode = app.isOfflineOnlyModeEnabled(),
