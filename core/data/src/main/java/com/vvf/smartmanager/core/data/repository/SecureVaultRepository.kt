@@ -107,6 +107,7 @@ class SecureVaultRepository(
             )
         ) ?: 0L
 
+        var preserveEncryptedCopy = false
         try {
             val result = cryptoManager.encryptFile(sourceFile, destinationFile)
 
@@ -126,7 +127,6 @@ class SecureVaultRepository(
 
             vaultDao.insertVaultItem(entity)
 
-            var preserveEncryptedCopy = false
             if (deleteOriginal) {
                 // Remove the searchable metadata before attempting destructive I/O. If the
                 // database write fails, the catch block can safely roll back the encrypted
