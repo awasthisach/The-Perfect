@@ -181,7 +181,7 @@ class OcrIndexingService(
      */
     suspend fun removeOcrIndex(fileItem: FileItem): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            searchRepository.removeTagFromFile(fileItem.path, "ocr")
+            searchRepository.removeTagFromFile(fileItem.path, "ocr").getOrThrow()
             Result.success(true)
         } catch (cancelled: CancellationException) {
             throw cancelled
