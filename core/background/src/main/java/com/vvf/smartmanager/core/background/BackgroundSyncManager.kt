@@ -155,6 +155,30 @@ class BackgroundSyncManager(private val context: Context) {
     }
 
     /**
+     * Schedule OCR retries and remaining candidate batches. The runtime checks the user's
+     * opt-in setting before touching any file, so this schedule is safe while OCR is disabled.
+     */
+    fun schedulePeriodicOcrBatch(intervalHours: Long = 6L) {
+        val wm = workManager ?: return
+        val constraints = Constraints.Builder()
+            .setRequiresBatteryNotLow(true)
+            .setRequiresStorageNotLow(true)
+            .build()
+        val request = PeriodicWorkRequestBuilder<OcrBatchWorker>(
+            intervalHours, TimeUnit.HOURS,
+            1, TimeUnit.HOURS
+        )
+            .setConstraints(constraints)
+            .addTag(BackgroundConstants.UNIQUE_OCR_BATCH_WORK)
+            .build()
+        wm.enqueueUniquePeriodicWork(
+            BackgroundConstants.UNIQUE_OCR_BATCH_WORK,
+            ExistingPeriodicWorkPolicy.KEEP,
+            request
+        )
+    }
+
+    /**
      * Trigger immediate OCR batch processing pass.
      */
     fun triggerImmediateOcrBatch() {
@@ -168,7 +192,7 @@ class BackgroundSyncManager(private val context: Context) {
         // insertAll from the startup indexer.
         wm.beginUniqueWork(
             "immediate_indexing",
-            ExistingWorkPolicy.APPEND,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
             request
         ).enqueue()
     }
