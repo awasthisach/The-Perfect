@@ -7,6 +7,7 @@ import com.vvf.smartmanager.core.database.model.VaultItemEntity
 import com.vvf.smartmanager.core.database.model.VaultJournalEntity
 import com.vvf.smartmanager.core.model.VaultItem
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.io.File
@@ -60,6 +61,8 @@ class SecureVaultRepository(
                         recoveredCount++
                     }
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: Exception) {
                 vaultJournalDao.updateJournal(journal.copy(status = "FAILED"))
             }
@@ -74,7 +77,7 @@ class SecureVaultRepository(
         notes: String = "",
         deleteOriginal: Boolean = false,
         isDecoy: Boolean = false
-    ): Result<VaultItem> = runCatching {
+    ): Result<VaultItem> = runCatchingCancellable {
         require(sourceFile.exists() && sourceFile.isFile) {
             "Source file does not exist or is a directory: ${sourceFile.absolutePath}"
         }
@@ -185,7 +188,7 @@ class SecureVaultRepository(
     suspend fun restoreFileFromVault(
         vaultItemId: String,
         destinationDir: File? = null
-    ): Result<File> = runCatching {
+    ): Result<File> = runCatchingCancellable {
         val entity = vaultDao.getVaultItemById(vaultItemId)
             ?: throw IllegalStateException("Vault item not found in database: $vaultItemId")
 
@@ -247,7 +250,7 @@ class SecureVaultRepository(
     suspend fun exportFileFromVault(
         vaultItemId: String,
         destinationFile: File
-    ): Result<File> = runCatching {
+    ): Result<File> = runCatchingCancellable {
         val canonicalDest = destinationFile.canonicalFile
         val canonicalVault = vaultDirectory.canonicalFile
         require(!isInsideDirectory(canonicalDest, canonicalVault)) {
@@ -289,7 +292,7 @@ class SecureVaultRepository(
         canonicalDest
     }
 
-    suspend fun deleteVaultItemPermanently(vaultItemId: String): Result<Boolean> = runCatching {
+    suspend fun deleteVaultItemPermanently(vaultItemId: String): Result<Boolean> = runCatchingCancellable {
         val entity = vaultDao.getVaultItemById(vaultItemId)
         if (entity != null) {
             val encryptedFile = File(vaultDirectory, entity.encryptedFileName).canonicalFile
@@ -323,6 +326,18 @@ class SecureVaultRepository(
     fun setBiometricEnabled(enabled: Boolean) = cryptoManager.setBiometricEnabled(enabled)
     fun getAutoLockTimeoutSeconds(): Int = cryptoManager.getAutoLockTimeoutSeconds()
     fun setAutoLockTimeoutSeconds(seconds: Int) = cryptoManager.setAutoLockTimeoutSeconds(seconds)
+
+
+    /**
+     * Convert ordinary operation failures to Result without swallowing structured cancellation.
+     */
+    private suspend fun <T> runCatchingCancellable(block: suspend () -> T): Result<T> = try {
+        Result.success(block())
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
 
     private fun isInsideDirectory(file: File, directory: File): Boolean {
         val filePath = file.canonicalPath
