@@ -57,9 +57,12 @@ object StorageAccessPolicy {
             sdk >= 30 -> decision(
                 StorageAccessLevel.NONE, false, false, true, false, false, "storage_access_none_request_all_files"
             )
+            // Android 10 (API 29) + modern targetSdk: READ_EXTERNAL_STORAGE alone does not
+            // restore pre-scoped full primary-tree access without requestLegacyExternalStorage.
             sdk >= 29 -> {
                 if (snapshot.hasReadExternalStorage) decision(
-                    StorageAccessLevel.LEGACY_FULL, true, true, false, false, false, "storage_access_granted_legacy_read"
+                    StorageAccessLevel.MEDIA_ONLY, false, true, false, false, false,
+                    "storage_access_android10_scoped_use_saf_for_full_tree"
                 ) else decision(
                     StorageAccessLevel.NONE, false, false, false, false, true, "storage_access_none_request_legacy_read"
                 )
