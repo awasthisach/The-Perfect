@@ -48,6 +48,7 @@ class BackgroundSyncManagerTest {
         syncManager.triggerImmediateIndexing()
         syncManager.triggerImmediateBackup(includeVault = false)
         syncManager.triggerImmediateOcrBatch()
+        syncManager.triggerImmediateIndexingThenOcr()
 
         syncManager.cancelAllScheduledWork()
     }
