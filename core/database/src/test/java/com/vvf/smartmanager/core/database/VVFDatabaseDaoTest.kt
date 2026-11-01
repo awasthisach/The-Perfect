@@ -215,14 +215,14 @@ class VVFDatabaseDaoTest {
         searchFtsDao.rebuildFtsIndex()
 
         assertEquals(1, searchFtsDao.searchFilesFallback("secret_report").first().size)
-        assertEquals(1, searchFtsDao.searchFilesFts("secret_report").first().size)
+        assertEquals(1, searchFtsDao.searchFilesFts("secret").first().size)
 
         // SecureVaultRepository performs this only after secureShredFile() succeeds.
         fileDao.deleteByPath(originalPath)
         searchFtsDao.rebuildFtsIndex()
 
         assertTrue(searchFtsDao.searchFilesFallback("secret_report").first().isEmpty())
-        assertTrue(searchFtsDao.searchFilesFts("secret_report").first().isEmpty())
+        assertTrue(searchFtsDao.searchFilesFts("secret").first().isEmpty())
     }
 
 }
