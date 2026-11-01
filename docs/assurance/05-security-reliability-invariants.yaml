@@ -28,3 +28,13 @@ invariants:
     domain: reliability
     statement: Retried background work must preserve durable state and avoid duplicate terminal effects.
     required_tests: [retry, process_restart, duplicate_request]
+
+  - id: CLOUD-INV-001
+    domain: reliability
+    statement: Cloud uploads must reject missing remote identifiers and preserve a durable result contract.
+    required_tests: [DurableUploadContractTest, CloudSyncUseCaseTest]
+
+  - id: RELEASE-INV-001
+    domain: release_assurance
+    statement: Production release verification must fail closed unless all required assurance checks pass.
+    required_tests: [RELEASE-TEST-001]

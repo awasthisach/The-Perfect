@@ -243,6 +243,43 @@ def main() -> int:
             ledger_detail = f"invalid JSON: {exc}"
     checks.append(check("evidence_ledger_integrity", ledger_ok, ledger_detail))
 
+    # Failed records cannot support production PASS (evidence policy).
+    failed_evidence = [
+        str(entry.get("id", "<missing-id>"))
+        for entry in entries
+        if isinstance(entry, dict) and entry.get("result") == "FAIL"
+    ] if isinstance(entries, list) else []
+    checks.append(check(
+        "evidence_results_pass",
+        not failed_evidence,
+        "no failed evidence records"
+        if not failed_evidence
+        else "failed evidence: " + ", ".join(failed_evidence),
+    ))
+
+    # Ledger references must resolve to registered invariants.
+    # Non-string control IDs are invalid and must fail closed without hashing them.
+    unknown_evidence_controls: list[str] = []
+    if isinstance(entries, list):
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            control_id = entry.get("control_id")
+            if not isinstance(control_id, str) or control_id not in invariant_ids:
+                unknown_evidence_controls.append(
+                    control_id
+                    if isinstance(control_id, str)
+                    else f"<invalid-control:{type(control_id).__name__}>"
+                )
+    unknown_evidence_controls = sorted(set(unknown_evidence_controls))
+    checks.append(check(
+        "evidence_control_refs",
+        not unknown_evidence_controls,
+        "all evidence control IDs reference registered invariants"
+        if not unknown_evidence_controls
+        else "unknown evidence controls: " + ", ".join(unknown_evidence_controls),
+    ))
+
     # Local-only ledger evidence is never enough for production PASS, even when the risk register is empty.
     production_evidence_ok = local_only_count == 0
     checks.append(check(
