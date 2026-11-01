@@ -310,13 +310,14 @@ class VVFApplication : Application(), Configuration.Provider {
         applicationScope.launch(bgExceptionHandler) {
             try {
                 backgroundSyncManager.schedulePeriodicIndexing(intervalHours = 6L)
-                backgroundSyncManager.triggerImmediateIndexing()
                 backgroundSyncManager.schedulePeriodicJunkScan(intervalHours = 12L)
                 // Always keep the periodic worker registered; the runtime's opt-in
                 // guard makes it a no-op until the user enables automatic OCR.
                 backgroundSyncManager.schedulePeriodicOcrBatch(intervalHours = 6L)
                 if (isAutoIndexOcrEnabled()) {
-                    backgroundSyncManager.triggerImmediateOcrBatch()
+                    backgroundSyncManager.triggerImmediateIndexingThenOcr()
+                } else {
+                    backgroundSyncManager.triggerImmediateIndexing()
                 }
             } catch (e: Throwable) {
                 Log.e(TAG, "Background sync scheduling failed", e)
