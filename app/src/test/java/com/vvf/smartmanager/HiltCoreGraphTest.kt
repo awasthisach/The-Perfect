@@ -1,5 +1,9 @@
 package com.vvf.smartmanager
 
+import android.Manifest
+import android.app.AppOpsManager
+import android.os.Environment
+import android.os.Process
 import androidx.test.core.app.ApplicationProvider
 import dagger.hilt.EntryPoints
 import java.io.File
@@ -13,6 +17,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.shadows.ShadowEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -50,6 +56,23 @@ class HiltCoreGraphTest {
 
     @Test
     fun mainActivityStartsWithInjectedCoreAndManualUseCases() {
+        val application = ApplicationProvider.getApplicationContext<VVFApplication>()
+        // Android 11+ reads the first user external directory. Robolectric starts with none.
+        // Model mounted storage while keeping all-files access explicitly denied.
+        ShadowEnvironment.addExternalDir(Environment.getExternalStorageDirectory().absolutePath)
+        ShadowEnvironment.setExternalStorageState(Environment.MEDIA_MOUNTED)
+        val appOps = checkNotNull(application.getSystemService(AppOpsManager::class.java))
+        val manageStorageOp = checkNotNull(
+            AppOpsManager.permissionToOp(Manifest.permission.MANAGE_EXTERNAL_STORAGE)
+        )
+        shadowOf(appOps).setMode(
+            manageStorageOp,
+            Process.myUid(),
+            application.packageName,
+            AppOpsManager.MODE_ERRORED
+        )
+        assertFalse(Environment.isExternalStorageManager())
+
         val controller = Robolectric.buildActivity(MainActivity::class.java)
         try {
             val activity = controller.setup().get()
