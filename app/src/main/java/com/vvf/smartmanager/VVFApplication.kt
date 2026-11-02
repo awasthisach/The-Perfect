@@ -50,7 +50,6 @@ import com.vvf.smartmanager.core.domain.SearchIndexManagementUseCase
 import com.vvf.smartmanager.core.domain.SemanticSearchUseCase
 import com.vvf.smartmanager.core.domain.TagManagementUseCase
 import com.vvf.smartmanager.core.domain.VaultAuthUseCase
-import com.vvf.smartmanager.core.domain.restore.impl.LocalRestoreApplier
 import com.vvf.smartmanager.core.model.CloudProviderType
 import com.vvf.smartmanager.core.plugin.spi.ISemanticSearchEngine
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
@@ -61,6 +60,9 @@ import com.vvf.smartmanager.plugin.clouddrivers.OneDriveDriverImpl
 import com.vvf.smartmanager.plugin.clouddrivers.S3StorageDriverImpl
 import com.vvf.smartmanager.plugin.ocr.OcrPluginImpl
 import com.vvf.smartmanager.plugin.semanticsearch.SemanticSearchPluginImpl
+import com.vvf.smartmanager.di.VaultDirectory
+import dagger.hilt.android.HiltAndroidApp
+import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -68,6 +70,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.io.File
 
+@HiltAndroidApp
 class VVFApplication : Application(), Configuration.Provider {
 
     companion object {
@@ -82,12 +85,22 @@ class VVFApplication : Application(), Configuration.Provider {
             .setMinimumLoggingLevel(Log.INFO)
             .build()
 
+    @Inject
     lateinit var cryptoSecurityManager: CryptoSecurityManager
+    @Inject
     lateinit var database: VVFDatabase
+    @Inject
     lateinit var storageManager: StorageManager
+    @Inject
     lateinit var fileManagerRepository: OfflineFileManagerRepository
+    @Inject
     lateinit var vaultRepository: SecureVaultRepository
+    @Inject
     lateinit var searchRepository: OfflineSearchRepository
+
+    @Inject
+    @field:VaultDirectory
+    lateinit var vaultDirectory: File
     lateinit var getStorageOverviewUseCase: GetStorageOverviewUseCase
     lateinit var getDirectoryFilesUseCase: GetDirectoryFilesUseCase
     lateinit var getCategorizedFilesUseCase: GetCategorizedFilesUseCase
@@ -143,74 +156,16 @@ class VVFApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
-        cryptoSecurityManager = CryptoSecurityManager(this)
+        // Hilt injects the core graph during super.onCreate(). The database provider
+        // completes plaintext cleanup and interrupted-restore recovery before constructing Room.
         val jvmUnitTest = CryptoSecurityManager.isJvmUnitTestEnvironment(this)
-        // Remove orphaned plaintext staging even if recovery subsequently fails closed.
-        cleanupStalePlaintextBackupStaging()
-        if (!jvmUnitTest) {
-            val liveDatabaseFile = getDatabasePath(VVFDatabase.DATABASE_NAME)
-            val liveVaultDir = File(filesDir, "vvf_vault_encrypted")
-            // Recover the current journal first so its swap artifacts cannot be mistaken for
-            // an unjournaled legacy transaction. Then recover/retire the prior cacheDir journal.
-            LocalRestoreApplier.recoverInterruptedRestore(
-                liveDatabaseFile = liveDatabaseFile,
-                liveVaultDir = liveVaultDir,
-                snapshotRoot = File(filesDir, "restore-work/snapshots"),
-                cryptoSecurityManager = cryptoSecurityManager
-            )
-            LocalRestoreApplier.recoverInterruptedRestore(
-                liveDatabaseFile = liveDatabaseFile,
-                liveVaultDir = liveVaultDir,
-                snapshotRoot = File(cacheDir, "restore-work/snapshots"),
-                cryptoSecurityManager = cryptoSecurityManager
-            )
-        }
         // Play Integrity App Check is device/Play-only; skip on JVM unit tests (Robolectric).
         if (!jvmUnitTest) {
             FirebaseAppCheck.getInstance().apply {
                 installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
             }
         }
-        if (jvmUnitTest) {
-            database = VVFDatabase.buildInMemoryDatabase(this)
-            Log.i(TAG, "JVM unit-test environment: using in-memory Room database")
-        } else {
-            // SQLCipher's native core must be loaded before encrypted Room initialization.
-            System.loadLibrary("sqlcipher")
-            val passphrase = cryptoSecurityManager.getOrCreateDatabasePassphrase()
-            try {
-                database = VVFDatabase.buildEncryptedDatabase(this, passphrase)
-            } catch (e: Exception) {
-                throw IllegalStateException(
-                    "Secure database initialization failed: Failed to construct encrypted SQLCipher database",
-                    e
-                )
-            } finally {
-                cryptoSecurityManager.wipeBuffer(passphrase)
-            }
-        }
-
-        storageManager = StorageManager(this, database.fileDao())
-        fileManagerRepository = AppCompositionRoot.offlineFileManagerRepository(
-            context = this,
-            storageManager = storageManager,
-            fileDao = database.fileDao(),
-            searchFtsDao = database.searchFtsDao()
-        )
-        val vaultDir = File(filesDir, "vvf_vault_encrypted")
-        vaultRepository = SecureVaultRepository(
-            vaultDao = database.vaultDao(),
-            cryptoManager = cryptoSecurityManager,
-            vaultDirectory = vaultDir,
-            vaultJournalDao = database.vaultJournalDao()
-        )
-        searchRepository = OfflineSearchRepository(
-            context = this,
-            searchFtsDao = database.searchFtsDao(),
-            fileDao = database.fileDao(),
-            storageManager = storageManager,
-            cryptoSecurityManager = cryptoSecurityManager
-        )
+        val vaultDir = vaultDirectory
         ocrPlugin = OcrPluginImpl(this)
         getStorageOverviewUseCase = GetStorageOverviewUseCase(fileManagerRepository)
         getDirectoryFilesUseCase = GetDirectoryFilesUseCase(fileManagerRepository)
@@ -310,39 +265,6 @@ class VVFApplication : Application(), Configuration.Provider {
             } catch (e: Throwable) {
                 Log.e(TAG, "Background sync scheduling failed", e)
             }
-        }
-    }
-
-
-    /**
-     * Remove abandoned app-private plaintext ZIP/staging artifacts left by a prior process death.
-     * Do not delete restore-work snapshots here: those may be the only rollback material after a crash.
-     */
-    private fun cleanupStalePlaintextBackupStaging() {
-        cacheDir.listFiles().orEmpty()
-            .filter { file ->
-                file.name.startsWith("archive-staging-") ||
-                    (file.name.startsWith("backup-") && file.name.endsWith(".zip"))
-            }
-            .forEach(::deleteStalePlaintextArtifact)
-
-        // Restore staging can contain decrypted payloads or temporary GCM plaintext files.
-        // Preserve the separate snapshots directory: it may contain the only rollback copy.
-        // The previous app version staged restore plaintext under cacheDir/restore-work.
-        // Clean only transient attempt directories there; preserve legacy snapshots because they
-        // may be the only recovery material for a process interrupted before this upgrade.
-        listOf(File(filesDir, "restore-work"), File(cacheDir, "restore-work"))
-            .forEach { restoreRoot ->
-                restoreRoot.listFiles().orEmpty()
-                    .filter { it.name.startsWith("restore-") || it.name.startsWith("dry-run-") }
-                    .forEach(::deleteStalePlaintextArtifact)
-            }
-    }
-
-    private fun deleteStalePlaintextArtifact(file: File) {
-        val removed = if (file.isDirectory) file.deleteRecursively() else file.delete()
-        if (!removed && file.exists()) {
-            Log.w(TAG, "Unable to remove stale plaintext backup staging: ${file.name}")
         }
     }
 
