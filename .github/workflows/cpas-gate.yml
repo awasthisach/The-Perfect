@@ -35,7 +35,7 @@ jobs:
       - name: Wait for and stage ORT evidence for exact candidate SHA
         id: stage_ort
         continue-on-error: true
-        timeout-minutes: 350
+        timeout-minutes: 320
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -45,8 +45,8 @@ jobs:
           run_status=""
           run_conclusion=""
 
-          for attempt in $(seq 1 360); do
-            runs_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/nightly-ort.yml/runs?per_page=100")"
+          for attempt in $(seq 1 320); do
+            runs_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/nightly-ort.yml/runs?head_sha=${CANDIDATE_SHA}&per_page=100")"
             run_id="$(printf '%s' "$runs_json" | jq -r --arg sha "$CANDIDATE_SHA" '[.workflow_runs[] | select(.head_sha == $sha or any(.pull_requests[]?; .head.sha == $sha))] | sort_by(.created_at) | last | .id // empty')"
 
             if [ -n "$run_id" ]; then
@@ -61,7 +61,7 @@ jobs:
           done
 
           if [ -z "$run_id" ] || [ "$run_status" != "completed" ]; then
-            echo "::error::No completed ORT run found for exact candidate SHA ${CANDIDATE_SHA} within the 6-hour gate window."
+            echo "::error::No completed ORT run found for exact candidate SHA ${CANDIDATE_SHA} within the 320-minute gate window."
             exit 1
           fi
 
