@@ -104,17 +104,26 @@ class GoogleDriveServiceImpl(
         try {
             val parent = folderId.ifBlank { "root" }
             val q = "'$parent' in parents and trashed = false"
-            val response = driveApi.listFiles(bearer = bearer(), query = q)
-            val items = response.files.map { dto ->
-                FileItem(
-                    path = "gdrive://${dto.id.orEmpty()}",
-                    name = dto.name.orEmpty(),
-                    sizeBytes = dto.size?.toLongOrNull() ?: 0L,
-                    lastModified = parseDriveTime(dto.modifiedTime),
-                    isDirectory = dto.mimeType == "application/vnd.google-apps.folder",
-                    mimeType = dto.mimeType
+            val items = mutableListOf<FileItem>()
+            var pageToken: String? = null
+            do {
+                val response = driveApi.listFiles(
+                    bearer = bearer(),
+                    query = q,
+                    pageToken = pageToken
                 )
-            }
+                response.files.mapTo(items) { dto ->
+                    FileItem(
+                        path = "gdrive://${dto.id.orEmpty()}",
+                        name = dto.name.orEmpty(),
+                        sizeBytes = dto.size?.toLongOrNull() ?: 0L,
+                        lastModified = parseDriveTime(dto.modifiedTime),
+                        isDirectory = dto.mimeType == "application/vnd.google-apps.folder",
+                        mimeType = dto.mimeType
+                    )
+                }
+                pageToken = response.nextPageToken
+            } while (!pageToken.isNullOrBlank())
             currentAccount = currentAccount.copy(
                 isConnected = true,
                 lastSyncTimestamp = System.currentTimeMillis()
@@ -262,14 +271,6 @@ class GoogleDriveServiceImpl(
         )
     }
 
-    /**
-     * Resolve a remote folder reference to a Drive folder id.
-     *
-     * Human folder names (e.g. "VVF_Backups") must be looked up / created.
-     * Only strings that look like real Drive resource ids are used as-is.
-     * The previous heuristic (length >= 10) misclassified "VVF_Backups" as a fileId
-     * and produced HTTP 404: File not found: VVF_Backups.
-     */
     private suspend fun resolveFolderId(folderReference: String): String {
         val ref = folderReference.trim().trimEnd('.')
         if (ref.isBlank() || ref.equals("root", ignoreCase = true)) return "root"
@@ -287,10 +288,6 @@ class GoogleDriveServiceImpl(
             ?: throw IllegalStateException("Drive folder creation returned no id for '$ref'")
     }
 
-    /**
-     * Drive resource ids are typically ~25–44 characters (often ~33).
-     * Short readable names like "VVF_Backups" must NOT be treated as ids.
-     */
     private fun looksLikeDriveId(value: String): Boolean {
         if (value.length < 20 || value.length > 128) return false
         if (value.contains(' ') || value.contains('/') || value.contains('.')) return false

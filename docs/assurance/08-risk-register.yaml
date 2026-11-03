@@ -2,7 +2,10 @@ schema_version: 1
 finding_lifecycle: [discovered, triaged, reproduced, root_cause_verified, repair_implemented, tested, ci_verified, closed]
 
 # Production blockers remain open until evidence-backed closure.
-open_findings: []
+open_findings:
+  - PROD-008  # GitHub #136 still Open — ORT complete scan + disposition pending
+  - PROD-009  # GitHub #140 still Open — App Check / Worker acceptance pending
+  - PROD-010  # GitHub #141 still Open — OAuth / privacy / signing / device acceptance pending
 
 # PROD-008: Keep closed only with real nightly ORT SBOMs merged via auto-PR.
 # Reference: docs/assurance/ort-bom.cyclonedx.json, ort-bom.spdx.json, ort-status.json
@@ -79,39 +82,38 @@ closed_findings:
   - id: PROD-008
     severity: high
     title: Open-source license compliance and attribution require resolution
-    status: closed
+    status: open
     notes: >
-      ORT nightly workflow configured with auto-PR. Real CycloneDX/SPDX SBOMs
-      will be merged via automated PR. verify_ort_outputs.py validates all
-      outputs. Reference: .github/workflows/nightly-ort.yml. Related issue #136.
-    residual_risk: low
+      ORT workflow exists, but issue #136 remains Open: complete analyzer/scanner/
+      evaluator/advisor/SBOM on current candidate SHA and package-level dispositions
+      are still required. Closed only with same-SHA PASS evidence.
+    residual_risk: high
     related_issue: 136
-    last_updated: "2026-10-24"
-    closed_at: "2026-10-24"
+    last_updated: "2026-11-01"
+    closed_at: null
 
   - id: PROD-009
     severity: high
     title: Native Worker v4 authentication and App Check acceptance is incomplete
-    status: closed
+    status: open
     notes: >
-      Play Integrity provider initialized in VVFApplication.onCreate().
-      Physical device test confirmed token generation. Firebase Console shows
-      App Check requests. Reference: VVFApplication.kt, Firebase Console logs.
-      Related issue #140.
-    residual_risk: low
+      Code installs Play Integrity App Check provider, but issue #140 remains Open:
+      production Firebase registration, Play App Signing fingerprint, and signed-device
+      403/success evidence are still required.
+    residual_risk: high
     related_issue: 140
-    last_updated: "2026-10-24"
-    closed_at: "2026-10-24"
+    last_updated: "2026-11-01"
+    closed_at: null
 
   - id: PROD-010
     severity: high
     title: Real-account OAuth, privacy, signing, and device acceptance are unverified
-    status: closed
+    status: open
     notes: >
-      Google Sign-In tested on physical device with real account. Drive OAuth
-      flow completed. Privacy policy published. Reference: Internal Testing
-      Track physical device test logs. Related issue #141.
-    residual_risk: low
+      Issue #141 remains Open: OAuth consent, Drive scopes, privacy publication,
+      Play Data Safety, production signing, and clean-device acceptance are owner-side
+      blockers. Privacy policy draft is not a published production policy.
+    residual_risk: high
     related_issue: 141
-    last_updated: "2026-10-24"
-    closed_at: "2026-10-24"
+    last_updated: "2026-11-01"
+    closed_at: null
