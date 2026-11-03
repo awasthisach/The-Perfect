@@ -490,7 +490,7 @@ runs:
         docker run \
         --mount type=bind,source=$HOME,target=/home/ort \
         --mount type=tmpfs,target=/tmp \
-        -v ${SSH_AUTH_SOCK}:/ssh.socket \
+        -v "${SSH_AUTH_SOCK}:/ssh.socket" \
         -e JDK_JAVA_OPTIONS="$ORT_JDK_JAVA_OPTIONS" \
         -e ORT_DATA_DIR="/home/ort/${ORT_HOME_PATH}" \
         -e HTTP_FILE_SERVER_PASSWORD="${HTTP_FILE_SERVER_PASSWORD}" \
@@ -500,7 +500,7 @@ runs:
         -e POSTGRES_URL="${POSTGRES_URL}" \
         -e POSTGRES_USERNAME="${POSTGRES_USERNAME}" \
         -e POSTGRES_PASSWORD="${POSTGRES_PASSWORD}" \
-        -e SSH_AUTH_SOCK="${SSH_AUTH_SOCK}" \
+        -e SSH_AUTH_SOCK="/ssh.socket" \
         -e XDG_CONFIG_HOME="/home/ort/.config/" \
         -u $(id -u):$(id -g) \
         $ORT_DOCKER_CLI_ARGS \
