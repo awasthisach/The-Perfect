@@ -1,0 +1,28 @@
+# Repository configuration for ORT (The-Perfect / VVF Smart Manager).
+# Format: https://oss-review-toolkit.org/ort/docs/configuration/ort-yml
+# Goal: reduce scan surface without suppressing dependency findings.
+
+analyzer:
+  skip_excluded: true
+
+excludes:
+  paths:
+    - pattern: "docs/**"
+      reason: "DOCUMENTATION_OF"
+      comment: "Documentation and assurance drafts are not redistributed as product code."
+    - pattern: "tools/**"
+      reason: "BUILD_TOOL_OF"
+      comment: "Internal audit/verification scripts, not part of the shipped APK."
+    - pattern: "**/src/test/**"
+      reason: "TEST_OF"
+      comment: "Unit test sources."
+    - pattern: "**/src/androidTest/**"
+      reason: "TEST_OF"
+      comment: "Instrumented test sources."
+    - pattern: "**/*.md"
+      reason: "DOCUMENTATION_OF"
+      comment: "Markdown documentation."
+  scopes:
+    - pattern: "test.*"
+      reason: "TEST_DEPENDENCY_OF"
+      comment: "Gradle test configurations are not shipped in the release APK."
