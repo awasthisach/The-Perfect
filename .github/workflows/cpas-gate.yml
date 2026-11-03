@@ -12,14 +12,14 @@ permissions:
   actions: read
 
 concurrency:
-  group: cpas-gate-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: cpas-gate-${{ github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
 
 jobs:
   cpas-verify:
     name: CPAS Verify (fail-closed)
     runs-on: ubuntu-24.04
-    timeout-minutes: 370
+    timeout-minutes: 360
     steps:
       - name: Checkout candidate SHA
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -35,7 +35,7 @@ jobs:
       - name: Wait for and stage ORT evidence for exact candidate SHA
         id: stage_ort
         continue-on-error: true
-        timeout-minutes: 360
+        timeout-minutes: 350
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -46,8 +46,8 @@ jobs:
           run_conclusion=""
 
           for attempt in $(seq 1 360); do
-            runs_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/nightly-ort.yml/runs?head_sha=${CANDIDATE_SHA}&per_page=100")"
-            run_id="$(printf '%s' "$runs_json" | jq -r --arg sha "$CANDIDATE_SHA" '[.workflow_runs[] | select(.head_sha == $sha)] | sort_by(.created_at) | last | .id // empty')"
+            runs_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/nightly-ort.yml/runs?per_page=100")"
+            run_id="$(printf '%s' "$runs_json" | jq -r --arg sha "$CANDIDATE_SHA" '[.workflow_runs[] | select(.head_sha == $sha or any(.pull_requests[]?; .head.sha == $sha))] | sort_by(.created_at) | last | .id // empty')"
 
             if [ -n "$run_id" ]; then
               run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}")"
@@ -126,6 +126,7 @@ jobs:
 
       - name: Run semantic CPAS verification
         id: cpas
+        if: always()
         run: |
           set +e
           python3 tools/audit/cpas_verify.py --root .
