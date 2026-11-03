@@ -93,6 +93,19 @@ def parse_risks(path: Path) -> list[dict[str, str]]:
     return findings
 
 
+def blocking_risks(findings: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Return critical/high findings that have not reached an evidence-backed closed state."""
+    blockers: list[dict[str, str]] = []
+    for item in findings:
+        severity = item.get("severity")
+        status = item.get("status")
+        if severity == "critical" and status != "closed":
+            blockers.append(item)
+        elif severity == "high" and status not in {"closed", "ci_verified"}:
+            blockers.append(item)
+    return blockers
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Verify CPAS assurance contracts")
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
@@ -184,14 +197,7 @@ def main() -> int:
     checks.append(check("risk_id_grammar", not invalid_risk_ids,
                         "all risk IDs match PROD-NNN" if not invalid_risk_ids else f"invalid risk IDs: {invalid_risk_ids}"))
 
-    open_blockers = []
-    for item in findings:
-        sev = item.get("severity")
-        st = item.get("status")
-        if sev == "critical" and st != "closed":
-            open_blockers.append(item)
-        elif sev == "high" and st not in {"closed", "ci_verified"}:
-            open_blockers.append(item)
+    open_blockers = blocking_risks(findings)
     checks.append(check("risk_register_gate", not open_blockers,
                         "no open critical/high findings" if not open_blockers else
                         "open blockers: " + ", ".join(item["id"] for item in open_blockers)))
