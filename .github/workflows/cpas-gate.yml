@@ -35,10 +35,8 @@ jobs:
 
       - name: Run semantic CPAS verification
         id: cpas
-        # Fail-closed: BLOCKED is an expected production state while critical
-        # findings remain open. Emit a warning annotation, not an error, so the
-        # job stays green without hiding the BLOCKED status.
-        # Unexpected verifier crashes (no status file) still fail the job.
+        # Fail-closed: a BLOCKED production status must fail this required check.
+        # Keep the status artifact below via if: always() for diagnosis.
         run: |
           set +e
           python3 tools/audit/cpas_verify.py --root .
@@ -56,17 +54,20 @@ jobs:
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           echo "blockers=$blockers" >> "$GITHUB_OUTPUT"
 
-          if [ "$status" = "PASS" ]; then
+          failed_checks=$(python3 -c 'import json; d=json.load(open("cpas-status.json")); print(",".join(c["name"] for c in d.get("checks", []) if c.get("status") != "PASS") or "none")')
+          echo "failed_checks=$failed_checks" >> "$GITHUB_OUTPUT"
+
+          if [ "$status" = "PASS" ] && [ "$code" -eq 0 ]; then
             echo "CPAS production_status=PASS"
             exit 0
           fi
 
           if [ "$status" = "BLOCKED" ]; then
-            echo "::warning::CPAS production_status=BLOCKED (fail-closed). blockers=${blockers}. See cpas-status artifact. Release promotion still requires PASS."
-            exit 0
+            echo "::error::CPAS production_status=BLOCKED. blockers=${blockers}; failed_checks=${failed_checks}. See cpas-status artifact."
+            exit 1
           fi
 
-          echo "::error::Unexpected CPAS status=${status} exit_code=${code}"
+          echo "::error::CPAS status/code mismatch or unexpected status=${status} exit_code=${code}"
           exit 1
 
       - name: Upload computed CPAS status
