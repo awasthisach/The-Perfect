@@ -134,6 +134,25 @@ class BackgroundSyncManager(private val context: Context) {
     }
 
     /**
+     * Run a fresh storage scan before OCR so the batch sees the complete current metadata set.
+     * A dedicated unique chain avoids coupling OCR to unrelated indexing work.
+     */
+    fun triggerImmediateIndexingThenOcr() {
+        val wm = workManager ?: return
+        val indexing = OneTimeWorkRequestBuilder<FileIndexingWorker>()
+            .addTag("immediate_indexing")
+            .build()
+        val ocr = OneTimeWorkRequestBuilder<OcrBatchWorker>()
+            .addTag("immediate_ocr")
+            .build()
+        wm.beginUniqueWork(
+            "immediate_indexing_then_ocr",
+            ExistingWorkPolicy.KEEP,
+            indexing
+        ).then(ocr).enqueue()
+    }
+
+    /**
      * Trigger immediate one-time cloud backup snapshot.
      */
     fun triggerImmediateBackup(includeVault: Boolean = true) {
@@ -155,6 +174,30 @@ class BackgroundSyncManager(private val context: Context) {
     }
 
     /**
+     * Schedule OCR retries and remaining candidate batches. The runtime checks the user's
+     * opt-in setting before touching any file, so this schedule is safe while OCR is disabled.
+     */
+    fun schedulePeriodicOcrBatch(intervalHours: Long = 6L) {
+        val wm = workManager ?: return
+        val constraints = Constraints.Builder()
+            .setRequiresBatteryNotLow(true)
+            .setRequiresStorageNotLow(true)
+            .build()
+        val request = PeriodicWorkRequestBuilder<OcrBatchWorker>(
+            intervalHours, TimeUnit.HOURS,
+            1, TimeUnit.HOURS
+        )
+            .setConstraints(constraints)
+            .addTag(BackgroundConstants.UNIQUE_OCR_BATCH_WORK)
+            .build()
+        wm.enqueueUniquePeriodicWork(
+            BackgroundConstants.UNIQUE_OCR_BATCH_WORK,
+            ExistingPeriodicWorkPolicy.KEEP,
+            request
+        )
+    }
+
+    /**
      * Trigger immediate OCR batch processing pass.
      */
     fun triggerImmediateOcrBatch() {
@@ -163,7 +206,14 @@ class BackgroundSyncManager(private val context: Context) {
             .addTag("immediate_ocr")
             .build()
 
-        wm.enqueue(request)
+        // OCR has its own unique identity: duplicate startup/settings triggers collapse,
+        // and OCR no longer depends on the success state of the storage-indexing chain.
+        // Storage rescans merge current tags transactionally in FileDao.
+        wm.enqueueUniqueWork(
+            BackgroundConstants.UNIQUE_IMMEDIATE_OCR_BATCH_WORK,
+            ExistingWorkPolicy.KEEP,
+            request
+        )
     }
 
     /**

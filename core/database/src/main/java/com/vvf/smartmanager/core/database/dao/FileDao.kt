@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import androidx.room.Transaction
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -68,6 +69,68 @@ interface FileDao {
 
     @Query("SELECT * FROM file_metadata WHERE isTrash = 0 ORDER BY modifiedDate DESC LIMIT :limit")
     fun getRecentFiles(limit: Int = 50): Flow<List<FileMetadataEntity>>
+
+    /**
+     * Return only eligible OCR files. Retry markers are internal tags containing an epoch
+     * deadline; a failed file is hidden until its deadline so it cannot monopolize every batch.
+     */
+    @Query("""
+        SELECT * FROM file_metadata
+        WHERE isTrash = 0
+          AND isDirectory = 0
+          AND (mimeType LIKE 'image/%' OR mimeType = 'application/pdf')
+          AND instr(',' || replace(lower(tags), ' ', '') || ',', ',ocr,') = 0
+          AND (
+              instr(',' || replace(lower(tags), ' ', '') || ',', ',ocr_retry_after:') = 0
+              OR CAST(
+                  substr(
+                      ',' || replace(lower(tags), ' ', '') || ',',
+                      instr(',' || replace(lower(tags), ' ', '') || ',', ',ocr_retry_after:') + 17
+                  ) AS INTEGER
+              ) <= :nowEpochMillis
+          )
+        ORDER BY modifiedDate DESC
+        LIMIT :limit
+    """)
+    fun getOcrCandidates(limit: Int, nowEpochMillis: Long): Flow<List<FileMetadataEntity>>
+
+    @Query("UPDATE file_metadata SET tags = :tags WHERE path = :path")
+    suspend fun updateTagsByPath(path: String, tags: String)
+
+    /** Atomically replace only the internal OCR retry marker while preserving current tags. */
+    @Transaction
+    suspend fun setOcrRetryMarker(path: String, marker: String?) {
+        val current = getByPath(path) ?: return
+        val tags = current.tags.split(',').map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("ocr_retry_after:") }
+            .toMutableList()
+        if (marker != null) tags += marker
+        updateTagsByPath(path, tags.joinToString(","))
+    }
+
+    /**
+     * Reconcile indexed filesystem fields without replacing concurrently-updated user metadata.
+     * The transaction makes each read/merge/write atomic against OCR tagging and user actions.
+     */
+    @Transaction
+    suspend fun insertAllPreservingLatestMetadata(files: List<FileMetadataEntity>) {
+        files.forEach { incoming ->
+            val current = getByPath(incoming.path)
+            val merged = current?.let {
+                incoming.copy(
+                    id = it.id,
+                    isFavorite = it.isFavorite,
+                    isTrash = it.isTrash,
+                    originalPath = it.originalPath,
+                    deletedTimestamp = it.deletedTimestamp,
+                    tags = it.tags,
+                    md5Hash = it.md5Hash,
+                    operationState = it.operationState
+                )
+            } ?: incoming
+            insertOrUpdate(merged)
+        }
+    }
 
     @Query("SELECT sizeBytes, COUNT(*) as count FROM file_metadata WHERE isDirectory = 0 AND isTrash = 0 AND sizeBytes > 0 GROUP BY sizeBytes HAVING count > 1 ORDER BY sizeBytes DESC")
     fun findPotentialDuplicateSizes(): Flow<List<DuplicateGroup>>

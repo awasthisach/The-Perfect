@@ -4,6 +4,7 @@ import android.util.Log
 import com.vvf.smartmanager.core.data.SearchRepository
 import com.vvf.smartmanager.core.model.FileItem
 import com.vvf.smartmanager.core.model.OcrResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -88,11 +89,15 @@ class OcrIndexingService(
                         try {
                             indexOcrResult(event.fileItem, event.ocrResult)
                             Log.d(TAG, "Successfully indexed OCR text for ${event.fileItem.name} into FTS.")
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
                         } catch (e: Exception) {
                             Log.e(TAG, "Failed to auto-index OCR text for ${event.fileItem.path}", e)
                         }
                     }
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 Log.e(TAG, "Error in OCR completion event stream", e)
             }
@@ -123,12 +128,11 @@ class OcrIndexingService(
         maxKeywords: Int = 10
     ): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            if (ocrResult.fullText.isBlank()) {
-                return@withContext Result.success(true)
-            }
-
-            // Delegate to IndexOcrTextUseCase with custom max keywords
+            // The use case persists the completion marker even when OCR legitimately
+            // extracts no text, preventing empty files from occupying every future batch.
             indexOcrTextUseCase(fileItem, ocrResult, maxKeywords)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Failed indexing OCR result into FTS for ${fileItem.path}", e)
             Result.failure(e)
@@ -148,23 +152,24 @@ class OcrIndexingService(
                 return@withContext Result.success(true)
             }
 
-            // Always add foundational #ocr tag
-            searchRepository.addTagToFile(fileItem.path, "ocr")
-
             // Add user-provided extra tags
             for (tag in extraTags) {
                 if (tag.isNotBlank()) {
-                    searchRepository.addTagToFile(fileItem.path, tag.trim().lowercase(Locale.getDefault()))
+                    searchRepository.addTagToFile(fileItem.path, tag.trim().lowercase(Locale.getDefault())).getOrThrow()
                 }
             }
 
             // Extract and index salient keywords
             val keywords = extractSalientKeywords(rawText, maxKeywords = 10)
             for (kw in keywords) {
-                searchRepository.addTagToFile(fileItem.path, kw)
+                searchRepository.addTagToFile(fileItem.path, kw).getOrThrow()
             }
 
+            // Write the completion marker last so any partial failure remains retryable.
+            searchRepository.addTagToFile(fileItem.path, "ocr").getOrThrow()
             Result.success(true)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Failed indexing extracted text for ${fileItem.path}", e)
             Result.failure(e)
@@ -178,6 +183,8 @@ class OcrIndexingService(
         try {
             searchRepository.removeTagFromFile(fileItem.path, "ocr")
             Result.success(true)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Result.failure(e)
         }

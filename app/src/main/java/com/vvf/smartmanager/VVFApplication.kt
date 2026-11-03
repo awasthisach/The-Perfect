@@ -129,7 +129,7 @@ class VVFApplication : Application(), Configuration.Provider {
         getSharedPreferences(SETTINGS_PREFS, MODE_PRIVATE)
     }
 
-    fun isAutoIndexOcrEnabled(): Boolean = settingsPrefs.getBoolean(KEY_AUTO_INDEX_OCR, true)
+    fun isAutoIndexOcrEnabled(): Boolean = settingsPrefs.getBoolean(KEY_AUTO_INDEX_OCR, false)
 
     fun setAutoIndexOcrEnabled(enabled: Boolean) {
         settingsPrefs.edit().putBoolean(KEY_AUTO_INDEX_OCR, enabled).apply()
@@ -298,15 +298,27 @@ class VVFApplication : Application(), Configuration.Provider {
         backgroundSyncManager = BackgroundSyncManager(this)
         FileIndexingRuntime.configure { indexPrimaryStorageForSearch() }
         JunkScanBootstrap.wire(junkCleanerUseCase)
-        OcrBatchBootstrap.wire(database, ocrPlugin, ocrIndexingService)
+        OcrBatchBootstrap.wire(
+            database = database,
+            ocrEngine = ocrPlugin,
+            ocrIndexingService = ocrIndexingService,
+            isEnabled = ::isAutoIndexOcrEnabled
+        )
         val bgExceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
             Log.e(TAG, "Background sync scheduling failed safely", throwable)
         }
         applicationScope.launch(bgExceptionHandler) {
             try {
                 backgroundSyncManager.schedulePeriodicIndexing(intervalHours = 6L)
-                backgroundSyncManager.triggerImmediateIndexing()
                 backgroundSyncManager.schedulePeriodicJunkScan(intervalHours = 12L)
+                // Always keep the periodic worker registered; the runtime's opt-in
+                // guard makes it a no-op until the user enables automatic OCR.
+                backgroundSyncManager.schedulePeriodicOcrBatch(intervalHours = 6L)
+                if (isAutoIndexOcrEnabled()) {
+                    backgroundSyncManager.triggerImmediateIndexingThenOcr()
+                } else {
+                    backgroundSyncManager.triggerImmediateIndexing()
+                }
             } catch (e: Throwable) {
                 Log.e(TAG, "Background sync scheduling failed", e)
             }
@@ -412,7 +424,7 @@ class VVFApplication : Application(), Configuration.Provider {
                 Log.i(TAG, "Removed $staleRemoved stale index row(s)")
             }
             if (metadata.isNotEmpty()) {
-                metadata.chunked(400).forEach { chunk -> fileDao.insertAll(chunk) }
+                metadata.chunked(400).forEach { chunk -> fileDao.insertAllPreservingLatestMetadata(chunk) }
             }
             if (metadata.isNotEmpty() || staleRemoved > 0) {
                 database.searchFtsDao().rebuildFtsIndex()

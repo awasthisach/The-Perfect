@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -24,8 +25,21 @@ class OcrBatchWorker(
 
             when (val outcome = OcrBatchRuntime.runBatch()) {
                 is OcrBatchOutcome.Completed -> {
-                    Log.i(TAG, "OCR batch complete: processed=${outcome.processedCount}")
-                    Result.success(workDataOf("processed_count" to outcome.processedCount))
+                    Log.i(
+                        TAG,
+                        "OCR batch pass complete: processed=${outcome.processedCount}, " +
+                            "deferred=${outcome.failedCount}, hasMore=${outcome.hasMoreCandidates}"
+                    )
+                    if (outcome.hasMoreCandidates) {
+                        Result.retry()
+                    } else {
+                        Result.success(
+                            workDataOf(
+                                "processed_count" to outcome.processedCount,
+                                "deferred_count" to outcome.failedCount
+                            )
+                        )
+                    }
                 }
                 is OcrBatchOutcome.RetryableFailure -> {
                     Log.w(TAG, "Retryable OCR batch failure: ${outcome.reason}")
@@ -37,6 +51,8 @@ class OcrBatchWorker(
                     Result.failure(workDataOf("reason" to outcome.reason))
                 }
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Log.e(TAG, "OCR batch worker error", e)
             if (runAttemptCount < 3) Result.retry()
