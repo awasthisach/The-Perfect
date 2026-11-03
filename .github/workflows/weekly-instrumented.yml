@@ -17,7 +17,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: weekly-instrumented
+  group: weekly-instrumented-${{ github.event_name }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: false
 
 jobs:
