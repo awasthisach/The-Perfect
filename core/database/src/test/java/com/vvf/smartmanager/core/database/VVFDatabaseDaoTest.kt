@@ -228,10 +228,21 @@ class VVFDatabaseDaoTest {
                 modifiedDate = 1000L, tags = "ocr_retry_after:500"
             )
         )
+        fileDao.insertOrUpdate(
+            FileMetadataEntity(
+                path = base + "user_tag_contains_marker.jpg",
+                name = "user_tag_contains_marker.jpg", parentPath = base,
+                sizeBytes = 100L, mimeType = "image/jpeg", isDirectory = false,
+                modifiedDate = 500L, tags = "myocr_retry_after:9999999999999"
+            )
+        )
 
         val candidates = fileDao.getOcrCandidates(limit = 40, nowEpochMillis = 1000L).first()
 
-        assertEquals(setOf("eligible.jpg", "retry_due.jpg"), candidates.map { it.name }.toSet())
+        assertEquals(
+            setOf("eligible.jpg", "retry_due.jpg", "user_tag_contains_marker.jpg"),
+            candidates.map { it.name }.toSet()
+        )
     }
 
     @Test
