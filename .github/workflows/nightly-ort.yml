@@ -30,7 +30,7 @@ jobs:
 
       - name: Run ORT compliance pipeline
         id: ort
-        uses: oss-review-toolkit/ort-ci-github-action@70149d4579e446b0312f8b80fdd8d465a91e4391
+        uses: ./.github/actions/ort
         with:
           sw-name: The-Perfect
           sw-version: ${{ github.event.pull_request.head.sha || github.sha }}
