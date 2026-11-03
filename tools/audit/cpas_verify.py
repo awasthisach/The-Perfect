@@ -99,9 +99,7 @@ def blocking_risks(findings: list[dict[str, str]]) -> list[dict[str, str]]:
     for item in findings:
         severity = item.get("severity")
         status = item.get("status")
-        if severity == "critical" and status != "closed":
-            blockers.append(item)
-        elif severity == "high" and status not in {"closed", "ci_verified"}:
+        if severity in {"critical", "high"} and status != "closed":
             blockers.append(item)
     return blockers
 
