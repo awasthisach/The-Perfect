@@ -53,7 +53,11 @@ class CpasVerifySelfTests(unittest.TestCase):
             write(assurance / "07-test-matrix.yaml", "matrix: []\n")
             write(
                 assurance / "08-risk-register.yaml",
-                "open_findings:\n"\n                "  - id: PROD-009\n"\n                "    severity: high\n"\n                "    status: ci_verified\n"\n                "closed_findings: []\n",
+                "open_findings:\n"
+                "  - id: PROD-009\n"
+                "    severity: high\n"
+                "    status: ci_verified\n"
+                "closed_findings: []\n",
             )
             write(
                 assurance / "09-gate-catalog.yaml",
