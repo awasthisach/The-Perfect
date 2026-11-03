@@ -136,6 +136,8 @@ class OfflineSearchRepository(
                 searchFtsDao.updateTagsByPath(path, existingTags.joinToString(","))
             }
             Result.success(true)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }

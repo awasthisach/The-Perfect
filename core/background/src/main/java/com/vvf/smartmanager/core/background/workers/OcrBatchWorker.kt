@@ -3,8 +3,12 @@ package com.vvf.smartmanager.core.background.workers
 import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.vvf.smartmanager.core.background.BackgroundConstants
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -31,7 +35,17 @@ class OcrBatchWorker(
                             "deferred=${outcome.failedCount}, hasMore=${outcome.hasMoreCandidates}"
                     )
                     if (outcome.hasMoreCandidates) {
-                        Result.retry()
+                        // A full pass is successful work. Queue the next bounded pass as a
+                        // fresh worker so continuation does not consume retry attempts or
+                        // inherit WorkManager's exponential failure backoff.
+                        WorkManager.getInstance(applicationContext).enqueueUniqueWork(
+                            BackgroundConstants.UNIQUE_IMMEDIATE_OCR_BATCH_WORK,
+                            ExistingWorkPolicy.APPEND_OR_REPLACE,
+                            OneTimeWorkRequestBuilder<OcrBatchWorker>()
+                                .addTag("immediate_ocr")
+                                .build()
+                        )
+                        Result.success()
                     } else {
                         Result.success(
                             workDataOf(
