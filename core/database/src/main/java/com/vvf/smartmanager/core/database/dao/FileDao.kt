@@ -81,10 +81,12 @@ interface FileDao {
           AND (mimeType LIKE 'image/%' OR mimeType = 'application/pdf')
           AND instr(',' || replace(lower(tags), ' ', '') || ',', ',ocr,') = 0
           AND (
-              instr(lower(tags), 'ocr_retry_after:') = 0
+              instr(',' || replace(lower(tags), ' ', '') || ',', ',ocr_retry_after:') = 0
               OR CAST(
-                  substr(lower(tags), instr(lower(tags), 'ocr_retry_after:') + 16)
-                  AS INTEGER
+                  substr(
+                      ',' || replace(lower(tags), ' ', '') || ',',
+                      instr(',' || replace(lower(tags), ' ', '') || ',', ',ocr_retry_after:') + 17
+                  ) AS INTEGER
               ) <= :nowEpochMillis
           )
         ORDER BY modifiedDate DESC
