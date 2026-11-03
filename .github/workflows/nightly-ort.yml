@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: nightly-ort-${{ github.ref }}
+  group: nightly-ort-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
