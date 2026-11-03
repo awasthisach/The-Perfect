@@ -54,19 +54,24 @@ class BackgroundSyncManagerTest {
         syncManager.cancelAllScheduledWork()
     }
     @Test
-    fun ocrWorkerRetriesWhenAnotherBoundedBatchMayRemain() = runBlocking {
+    fun ocrWorkerContinuesBoundedPassesWithoutRetryBackoff() = runBlocking {
+        var passes = 0
         OcrBatchRuntime.configure {
-            OcrBatchOutcome.Completed(
-                processedCount = 40,
-                hasMoreCandidates = true,
-                failedCount = 2
-            )
+            passes++
+            if (passes == 1) {
+                OcrBatchOutcome.Completed(38, hasMoreCandidates = true, failedCount = 2)
+            } else {
+                OcrBatchOutcome.Completed(7, hasMoreCandidates = false, failedCount = 1)
+            }
         }
 
         val worker = TestListenableWorkerBuilder<OcrBatchWorker>(context).build()
         val result = worker.doWork()
 
-        assertEquals(ListenableWorker.Result.retry(), result)
+        assertTrue("Expected success result, got: $result", result is ListenableWorker.Result.Success)
+        assertEquals(2, passes)
+        assertEquals(45, (result as ListenableWorker.Result.Success).outputData.getInt("processed_count", -1))
+        assertEquals(3, (result as ListenableWorker.Result.Success).outputData.getInt("deferred_count", -1))
     }
 
     @Test
@@ -83,8 +88,8 @@ class BackgroundSyncManagerTest {
         val result = worker.doWork()
 
         assertTrue("Expected success result, got: $result", result is ListenableWorker.Result.Success)
-        assertEquals(7, result.outputData.getInt("processed_count", -1))
-        assertEquals(1, result.outputData.getInt("deferred_count", -1))
+        assertEquals(7, (result as ListenableWorker.Result.Success).outputData.getInt("processed_count", -1))
+        assertEquals(1, (result as ListenableWorker.Result.Success).outputData.getInt("deferred_count", -1))
     }
 
 }
