@@ -53,7 +53,7 @@ class CpasVerifySelfTests(unittest.TestCase):
             write(assurance / "07-test-matrix.yaml", "matrix: []\n")
             write(
                 assurance / "08-risk-register.yaml",
-                "open_findings: []\nclosed_findings: []\n",
+                "open_findings:\n"\n                "  - id: PROD-009\n"\n                "    severity: high\n"\n                "    status: ci_verified\n"\n                "closed_findings: []\n",
             )
             write(
                 assurance / "09-gate-catalog.yaml",
@@ -75,6 +75,8 @@ class CpasVerifySelfTests(unittest.TestCase):
             self.assertEqual(status["production_status"]["value"], "BLOCKED")
             checks = {item["name"]: item for item in status["checks"]}
             self.assertEqual(checks["ort_sboms_present"]["status"], "BLOCKED")
+            self.assertEqual(checks["risk_register_gate"]["status"], "BLOCKED")
+            self.assertIn("PROD-009", status["blocking_findings"])
 
     def test_open_critical_and_high_risks_block_production(self) -> None:
         """Critical/high findings remain blockers until explicitly closed with evidence."""
