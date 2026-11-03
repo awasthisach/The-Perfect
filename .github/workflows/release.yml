@@ -51,6 +51,10 @@ jobs:
               raise SystemExit("ORT evidence SHA does not match this release commit")
           PY
           python3 tools/audit/verify_ort_outputs.py --results-dir ort-evidence/results --revision "$GITHUB_SHA"
+          mkdir -p docs/assurance
+          cp ort-evidence/results/bom.cyclonedx.json docs/assurance/ort-bom.cyclonedx.json
+          cp ort-evidence/results/bom.spdx.json docs/assurance/ort-bom.spdx.json
+          cp ort-evidence/ort-status.json docs/assurance/ort-status.json
           cp ort-evidence/ort-status.json ort-status.json
 
       - name: Set up JDK 17
