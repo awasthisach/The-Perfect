@@ -2,12 +2,7 @@ package com.vvf.smartmanager
 
 import android.content.Context
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
-import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
-import com.vvf.smartmanager.core.data.repository.OfflineFileManagerRepository
-import com.vvf.smartmanager.core.data.storage.StorageManager
 import com.vvf.smartmanager.core.database.dao.CloudSyncDao
-import com.vvf.smartmanager.core.database.dao.FileDao
-import com.vvf.smartmanager.core.database.dao.SearchFtsDao
 import com.vvf.smartmanager.core.domain.CloudSyncUseCase
 import com.vvf.smartmanager.core.domain.backup.ArchiveService
 import com.vvf.smartmanager.core.domain.restore.FailClosedRestorePipeline
@@ -20,23 +15,8 @@ import com.vvf.smartmanager.core.plugin.spi.CloudDriverSPI
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import java.io.File
 
-/** Composition root for permission-gated storage and fail-closed cloud restore. */
+/** Remaining manual composition root for fail-closed cloud restore. */
 object AppCompositionRoot {
-    fun storagePermissionGate(context: Context): StoragePermissionGate =
-        StoragePermissionGate(context)
-
-    fun offlineFileManagerRepository(
-        context: Context,
-        storageManager: StorageManager,
-        fileDao: FileDao,
-        searchFtsDao: SearchFtsDao
-    ): OfflineFileManagerRepository = OfflineFileManagerRepository(
-        storageManager = storageManager,
-        fileDao = fileDao,
-        searchFtsDao = searchFtsDao,
-        storagePermissionGate = storagePermissionGate(context)
-    )
-
     fun cloudSyncUseCase(
         context: Context,
         googleDriveService: GoogleDriveService,
