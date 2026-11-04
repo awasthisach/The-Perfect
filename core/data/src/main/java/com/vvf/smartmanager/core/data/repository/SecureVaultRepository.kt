@@ -44,6 +44,29 @@ class SecureVaultRepository(
     suspend fun getVaultItemById(id: String): VaultItem? =
         vaultDao.getVaultItemById(id)?.toDomainModel()
 
+    /**
+     * Remove stale ordinary-search rows for vault items whose plaintext source no longer exists.
+     * Copy-only vault items keep their source metadata while the original file is still present.
+     */
+    suspend fun reconcileVaultedSourceMetadata(): Int {
+        val vaultItems = vaultDao.getAllVaultItems(isDecoy = false).first() +
+            vaultDao.getAllVaultItems(isDecoy = true).first()
+        val missingSourcePaths = vaultItems
+            .filter { item -> !File(item.originalPath).exists() }
+            .flatMap { item ->
+                val source = File(item.originalPath)
+                listOf(item.originalPath, source.canonicalPath)
+            }
+            .distinct()
+
+        if (missingSourcePaths.isNotEmpty()) {
+            PrimaryStorageMutationLock.mutex.withLock {
+                fileDao.deleteByPaths(missingSourcePaths)
+            }
+        }
+        return missingSourcePaths.size
+    }
+
     suspend fun recoverOrphanedJournals(): Int {
         val pendingJournals = vaultJournalDao.getPendingJournals("PENDING")
         val canonicalVault = vaultDirectory.canonicalFile
