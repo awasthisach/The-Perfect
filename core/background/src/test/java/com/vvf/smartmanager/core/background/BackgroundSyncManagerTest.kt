@@ -52,17 +52,22 @@ class BackgroundSyncManagerTest {
         syncManager.cancelAllScheduledWork()
     }
     @Test
-    fun fileIndexingWorkerPropagatesCancellationInsteadOfRetrying() = runBlocking {
-        FileIndexingRuntime.configure {
-            throw CancellationException("test cancellation")
-        }
-        val worker = TestListenableWorkerBuilder<FileIndexingWorker>(context).build()
+    fun fileIndexingWorkerPropagatesCancellationAtFirstAndLastRetryAttempt() = runBlocking {
+        for (attemptCount in listOf(0, 3)) {
+            FileIndexingRuntime.configure {
+                throw CancellationException("test cancellation at attempt $attemptCount")
+            }
+            val worker = TestListenableWorkerBuilder<FileIndexingWorker>(
+                context,
+                runAttemptCount = attemptCount
+            ).build()
 
-        try {
-            worker.doWork()
-            fail("Expected CancellationException to propagate")
-        } catch (cancelled: CancellationException) {
-            assertEquals("test cancellation", cancelled.message)
+            try {
+                worker.doWork()
+                fail("Expected CancellationException to propagate at attempt $attemptCount")
+            } catch (cancelled: CancellationException) {
+                assertEquals("test cancellation at attempt $attemptCount", cancelled.message)
+            }
         }
     }
 
