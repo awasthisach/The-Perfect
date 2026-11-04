@@ -197,7 +197,7 @@ class OfflineSearchRepository(
                 val exists = file.exists()
                 val sizeBytes = if (exists && !entity.isDirectory) file.length() else entity.sizeBytes
                 val lastModified = if (exists) file.lastModified() else entity.modifiedDate
-                val tagList = entity.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                val tagList = parseVisibleTags(entity.tags)
                 val fileItem = FileItem(
                     path = entity.path,
                     name = entity.name,
