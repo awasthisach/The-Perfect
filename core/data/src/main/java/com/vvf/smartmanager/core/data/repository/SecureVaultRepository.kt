@@ -1,15 +1,20 @@
 package com.vvf.smartmanager.core.data.repository
 
+import android.util.Log
 import com.vvf.smartmanager.core.database.dao.FileDao
 import com.vvf.smartmanager.core.database.dao.VaultDao
 import com.vvf.smartmanager.core.database.dao.VaultJournalDao
+import com.vvf.smartmanager.core.data.storage.PrimaryStorageMutationLock
 import com.vvf.smartmanager.core.database.model.VaultItemEntity
 import com.vvf.smartmanager.core.database.model.VaultJournalEntity
 import com.vvf.smartmanager.core.model.VaultItem
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.util.UUID
@@ -19,6 +24,7 @@ import java.util.UUID
  * zero-knowledge PIN management, transaction journaling, and metadata persistence.
  */
 class SecureVaultRepository(
+    private val tag: String = TAG,
     private val vaultDao: VaultDao,
     private val cryptoManager: CryptoSecurityManager,
     private val vaultDirectory: File,
@@ -109,6 +115,7 @@ class SecureVaultRepository(
         ) ?: 0L
 
         var preserveEncryptedCopy = false
+        var encryptedEntity: VaultItemEntity? = null
         try {
             val result = cryptoManager.encryptFile(sourceFile, destinationFile)
 
@@ -125,21 +132,24 @@ class SecureVaultRepository(
                 notes = notes.ifBlank { null },
                 isDecoy = isDecoy
             )
-
+            encryptedEntity = entity
             vaultDao.insertVaultItem(entity)
 
             if (deleteOriginal) {
-                // From this point onward preserve the encrypted copy, including if the
-                // metadata transaction is cancelled after commit. This avoids a cancellation
-                // window that could leave the plaintext source unindexed after rollback.
+                // Keep the original metadata until shredding succeeds. The shared mutation lock
+                // prevents an in-flight scan snapshot from re-inserting the source after deletion.
                 preserveEncryptedCopy = true
-                fileDao.deleteByPaths(
-                    listOf(sourceFile.absolutePath, canonicalSource.absolutePath).distinct()
-                )
-                // Room FTS4 content-entity triggers mirror file_metadata mutations. The FTS
-                // query also joins file_metadata, so no explicit full-index rebuild is needed.
-                require(cryptoManager.secureShredFile(sourceFile)) {
-                    "Encrypted vault copy was retained, but original plaintext could not be securely removed"
+                PrimaryStorageMutationLock.mutex.withLock {
+                    require(cryptoManager.secureShredFile(sourceFile)) {
+                        "Encrypted vault copy was retained, but original plaintext could not be securely removed"
+                    }
+                    // Once the source is gone, metadata removal must finish even if the caller is
+                    // cancelled; otherwise an old name/path could remain searchable.
+                    withContext(NonCancellable) {
+                        fileDao.deleteByPaths(
+                            listOf(sourceFile.absolutePath, canonicalSource.absolutePath).distinct()
+                        )
+                    }
                 }
             }
 
@@ -156,30 +166,101 @@ class SecureVaultRepository(
             }
 
             entity.toDomainModel()
-        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-            // Keep the encrypted copy and journal for recovery. A cancellation may arrive
-            // after the metadata transaction commits or while the source is being shredded.
-            throw cancelled
-        } catch (e: Exception) {
-            // Before any destructive source operation, rollback is safe. Once shredding
-            // has been attempted, preserve the encrypted copy and vault row: the plaintext may
-            // already have been partially or fully overwritten.
-            if (!preserveEncryptedCopy) {
-                vaultDao.deleteById(fileId)
-                if (destinationFile.exists()) {
-                    cryptoManager.secureShredFile(destinationFile)
+        } catch (cancelled: CancellationException) {
+            // Before source shredding begins, roll back the encrypted staging copy. Once source
+            // removal has started, preserve the encrypted copy and reconcile metadata according
+            // to whether the plaintext path still exists.
+            withContext(NonCancellable) {
+                try {
+                    if (!preserveEncryptedCopy) {
+                        val destinationRemoved =
+                            !destinationFile.exists() || cryptoManager.secureShredFile(destinationFile)
+                        if (destinationRemoved) {
+                            vaultDao.deleteById(fileId)
+                        } else {
+                            encryptedEntity?.let { vaultDao.insertVaultItem(it) }
+                        }
+                        if (journalId > 0L) {
+                            vaultJournalDao.updateJournal(
+                                VaultJournalEntity(
+                                    id = journalId,
+                                    operationType = "ENCRYPT",
+                                    originalPath = sourceFile.absolutePath,
+                                    vaultPath = destinationFile.absolutePath,
+                                    status = if (destinationRemoved) "FAILED" else "FAILED_SHRED"
+                                )
+                            )
+                        }
+                    } else {
+                        if (!sourceFile.exists()) {
+                            PrimaryStorageMutationLock.mutex.withLock {
+                                fileDao.deleteByPaths(
+                                    listOf(sourceFile.absolutePath, canonicalSource.absolutePath).distinct()
+                                )
+                            }
+                        }
+                        if (journalId > 0L) {
+                            vaultJournalDao.updateJournal(
+                                VaultJournalEntity(
+                                    id = journalId,
+                                    operationType = "ENCRYPT",
+                                    originalPath = sourceFile.absolutePath,
+                                    vaultPath = destinationFile.absolutePath,
+                                    status = if (sourceFile.exists()) "FAILED_SHRED" else "COMPLETED"
+                                )
+                            )
+                        }
+                    }
+                } catch (cleanupError: Throwable) {
+                    Log.e(TAG, "Vault encryption cancellation cleanup failed; journal retained for recovery", cleanupError)
                 }
             }
-            if (journalId > 0L) {
-                vaultJournalDao.updateJournal(
-                    VaultJournalEntity(
-                        id = journalId,
-                        operationType = "ENCRYPT",
-                        originalPath = sourceFile.absolutePath,
-                        vaultPath = destinationFile.absolutePath,
-                        status = if (preserveEncryptedCopy) "FAILED_SHRED" else "FAILED"
-                    )
-                )
+            throw cancelled
+        } catch (e: Exception) {
+            withContext(NonCancellable) {
+                try {
+                    if (!preserveEncryptedCopy) {
+                        val destinationRemoved =
+                            !destinationFile.exists() || cryptoManager.secureShredFile(destinationFile)
+                        if (destinationRemoved) {
+                            vaultDao.deleteById(fileId)
+                        } else {
+                            encryptedEntity?.let { vaultDao.insertVaultItem(it) }
+                        }
+                        if (journalId > 0L) {
+                            vaultJournalDao.updateJournal(
+                                VaultJournalEntity(
+                                    id = journalId,
+                                    operationType = "ENCRYPT",
+                                    originalPath = sourceFile.absolutePath,
+                                    vaultPath = destinationFile.absolutePath,
+                                    status = if (destinationRemoved) "FAILED" else "FAILED_SHRED"
+                                )
+                            )
+                        }
+                    } else {
+                        if (!sourceFile.exists()) {
+                            PrimaryStorageMutationLock.mutex.withLock {
+                                fileDao.deleteByPaths(
+                                    listOf(sourceFile.absolutePath, canonicalSource.absolutePath).distinct()
+                                )
+                            }
+                        }
+                        if (journalId > 0L) {
+                            vaultJournalDao.updateJournal(
+                                VaultJournalEntity(
+                                    id = journalId,
+                                    operationType = "ENCRYPT",
+                                    originalPath = sourceFile.absolutePath,
+                                    vaultPath = destinationFile.absolutePath,
+                                    status = if (sourceFile.exists()) "FAILED_SHRED" else "COMPLETED"
+                                )
+                            )
+                        }
+                    }
+                } catch (cleanupError: Throwable) {
+                    Log.e(TAG, "Vault encryption failure cleanup failed; journal retained for recovery", cleanupError)
+                }
             }
             throw e
         }
@@ -388,5 +469,9 @@ class SecureVaultRepository(
             "apk" -> "application/vnd.android.package-archive"
             else -> "application/octet-stream"
         }
+    }
+
+    private companion object {
+        const val TAG = "SecureVaultRepository"
     }
 }
