@@ -8,32 +8,32 @@ import com.vvf.smartmanager.core.model.SemanticSearchOptions
 import com.vvf.smartmanager.core.model.SemanticSearchResult
 import com.vvf.smartmanager.core.plugin.spi.SemanticSearchSPI
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.sqrt
 
 /**
- * On-device hashed 128-d embeddings for lightweight semantic-style ranking.
- * (Deterministic hashing — not a TFLite neural net.)
+ * On-device deterministic 128-dimensional token/category hashing for text-similarity ranking.
+ * This is a lightweight heuristic projection, not a learned embedding model or TFLite neural net.
  */
 class SemanticSearchPluginImpl : SemanticSearchSPI {
 
     @Volatile
-    private var isModelDownloaded: Boolean = true
+    private var isEngineReady: Boolean = true
 
     private val embeddingDimension: Int = 128
     private val embeddingCache = ConcurrentHashMap<String, FloatArray>()
 
-    override fun isModelReady(): Boolean = isModelDownloaded
+    override fun isModelReady(): Boolean = isEngineReady
 
-    override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean = withContext(Dispatchers.IO) {
-        for (i in 1..10) {
-            delay(40)
-            progressCallback(i / 10f)
-        }
-        isModelDownloaded = true
-        true
+    /**
+     * Legacy SPI compatibility hook. The built-in hashing projection ships in the app;
+     * no model file is downloaded and no network request is made.
+     */
+    override suspend fun downloadModel(progressCallback: (Float) -> Unit): Boolean {
+        isEngineReady = true
+        progressCallback(1f)
+        return true
     }
 
     override suspend fun generateEmbedding(text: String): FloatArray = withContext(Dispatchers.Default) {
@@ -270,6 +270,6 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
     }
 
     private fun extractMatchedConcept(query: String, text: String): String {
-        return "Semantic Match (${query.take(20)})"
+        return "Deterministic hash projection"
     }
 }
