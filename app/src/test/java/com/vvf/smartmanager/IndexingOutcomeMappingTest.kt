@@ -15,7 +15,7 @@ class IndexingOutcomeMappingTest {
     fun cancellationIsRethrownInsteadOfBecomingRetryOrPermanentFailure() = runBlocking {
         val expected = CancellationException("indexing cancelled")
         try {
-            mapFileIndexingOutcome { throw expected }
+            mapFileIndexingOutcome(onUnexpectedError = {}) { throw expected }
             throw AssertionError("Expected cancellation to propagate")
         } catch (actual: CancellationException) {
             assertSame(expected, actual)
@@ -24,7 +24,7 @@ class IndexingOutcomeMappingTest {
 
     @Test
     fun storagePermissionFailureMapsToPermissionRequired() = runBlocking {
-        val result = mapFileIndexingOutcome {
+        val result = mapFileIndexingOutcome(onUnexpectedError = {}) {
             throw SecurityException("permission revoked")
         }
         assertEquals(FileIndexingOutcome.PermissionRequired("permission revoked"), result)
@@ -32,7 +32,7 @@ class IndexingOutcomeMappingTest {
 
     @Test
     fun storageIoFailureMapsToRetryableFailure() = runBlocking {
-        val result = mapFileIndexingOutcome {
+        val result = mapFileIndexingOutcome(onUnexpectedError = {}) {
             throw IOException("media provider unavailable")
         }
         assertEquals(FileIndexingOutcome.RetryableFailure("media provider unavailable"), result)
@@ -52,7 +52,7 @@ class IndexingOutcomeMappingTest {
     @Test
     fun successfulIndexerOutcomePassesThroughUnchanged() = runBlocking {
         val expected = FileIndexingOutcome.Completed(12)
-        val result = mapFileIndexingOutcome { expected }
+        val result = mapFileIndexingOutcome(onUnexpectedError = {}) { expected }
         assertTrue(result === expected)
     }
 }
