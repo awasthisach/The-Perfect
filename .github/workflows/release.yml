@@ -70,6 +70,36 @@ jobs:
       - name: Install Android SDK components
         run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
+      - name: Require successful SQLCipher evidence for this exact commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          runs_json="$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/actions/workflows/weekly-instrumented.yml/runs?per_page=100")"
+          run_id="$(printf '%s' "$runs_json" | jq -r --arg sha "$GITHUB_SHA" '[.[] | .workflow_runs[]? | select(.head_sha == $sha or any(.pull_requests[]?; .head.sha == $sha)) | select(.status == "completed" and .conclusion == "success")] | sort_by(.created_at) | last | .id // empty')"
+          if [ -z "$run_id" ]; then
+            echo "::error::No successful Weekly Instrumented Hard Gate exists for exact release SHA ${GITHUB_SHA}; run it on this commit before release."
+            exit 1
+          fi
+
+          jobs_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100")"
+          job_id="$(printf '%s' "$jobs_json" | jq -r '[.jobs[] | select(.name == "SQLCipher Instrumented (hard)" and .conclusion == "success")] | last | .id // empty')"
+          if [ -z "$job_id" ]; then
+            echo "::error::Weekly run ${run_id} has no successful SQLCipher Instrumented (hard) job."
+            exit 1
+          fi
+
+          python3 tools/audit/generate_evidence.py \
+            --commit-sha "$GITHUB_SHA" \
+            --run-id "$run_id" \
+            --job-id "$job_id" \
+            --result PASS \
+            --include-db \
+            --db-only \
+            --environment "github-actions-API35-emulator-release" \
+            --output docs/assurance/cpas-evidence-release.json \
+            --merge-ledger
+
       - name: CPAS structural + semantic verification (hard fail)
         run: |
           set -euo pipefail
