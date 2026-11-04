@@ -259,8 +259,9 @@ open class StorageManagerImpl(
                     val childCanonicalPath = try {
                         canonicalPath(child)
                     } catch (_: Exception) {
-                        // A file that cannot be canonicalized is skipped; directory enumeration
-                        // itself remains complete.
+                        // The path was enumerated but cannot be verified as within the root.
+                        // Preserve existing metadata because this scan cannot prove the path stale.
+                        complete = false
                         continue
                     }
                     if (!isWithinRoot(childCanonicalPath)) continue
