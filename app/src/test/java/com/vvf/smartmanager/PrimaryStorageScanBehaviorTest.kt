@@ -51,6 +51,18 @@ class PrimaryStorageScanBehaviorTest {
     }
 
     @Test
+    fun fileCanonicalizationFailureMarksScanIncompleteAndKeepsLaterSiblings() {
+        val unresolvable = File(root, "a-unresolvable.txt").apply { writeText("unknown path") }
+        val visibleFile = File(root, "b-visible.txt").apply { writeText("visible") }
+
+        val scan = manager(canonicalFailureNames = setOf(unresolvable.name)).collectPrimaryStorageScan()
+
+        assertFalse(scan.isComplete)
+        assertFalse(scan.items.any { it.path == unresolvable.absolutePath })
+        assertTrue(scan.items.any { it.path == visibleFile.absolutePath })
+    }
+
+    @Test
     fun danglingSymlinkDoesNotMakeOtherwiseCompleteScanIncomplete() {
         val visibleFile = File(root, "visible.txt").apply { writeText("visible") }
         val dangling = File(root, "dangling-link")
@@ -113,12 +125,21 @@ class PrimaryStorageScanBehaviorTest {
         assertFalse(scan.isComplete)
     }
 
-    private fun manager(unreadableNames: Set<String> = emptySet()) =
-        object : StorageManagerImpl(context, database.fileDao()) {
+    private fun manager(
+        unreadableNames: Set<String> = emptySet(),
+        canonicalFailureNames: Set<String> = emptySet()
+    ) = object : StorageManagerImpl(context, database.fileDao()) {
             override fun getPrimaryStoragePath(): String = root.absolutePath
 
             override fun canReadPath(file: File): Boolean =
                 file.name !in unreadableNames && super.canReadPath(file)
+
+            override fun canonicalPath(file: File): String {
+                if (file.name in canonicalFailureNames) {
+                    throw java.io.IOException("injected canonical path failure")
+                }
+                return super.canonicalPath(file)
+            }
 
             override fun listDirectoryChildren(directory: File): Array<File>? =
                 super.listDirectoryChildren(directory)?.sortedBy { it.name }?.toTypedArray()
