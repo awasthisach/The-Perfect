@@ -7,6 +7,7 @@ import com.vvf.smartmanager.core.database.VVFDatabase
 import com.vvf.smartmanager.core.database.dao.VaultDao
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
 import com.vvf.smartmanager.core.database.model.VaultItemEntity
+import com.vvf.smartmanager.core.database.model.VaultJournalEntity
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import java.io.File
 import java.util.UUID
@@ -17,6 +18,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.fail
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -144,6 +146,98 @@ class SecureVaultIndexIntegrationTest {
         assertTrue(database.searchFtsDao().searchFilesFts("privatetag").first().isEmpty())
         assertEquals(1, database.vaultDao().getVaultItemCount().first())
         assertEquals(1, database.vaultJournalDao().getPendingJournals("COMPLETED").size)
+    }
+
+    @Test
+    fun recoveryRemovesNonemptyEncryptedOrphanWhenPlaintextStillExists() = runBlocking {
+        val orphan = File(vaultDirectory, "orphan.vvf").apply { writeText("encrypted orphan") }
+        database.vaultJournalDao().insertJournal(
+            VaultJournalEntity(
+                operationType = "ENCRYPT",
+                originalPath = source.absolutePath,
+                vaultPath = orphan.absolutePath,
+                status = "PENDING"
+            )
+        )
+
+        val recovered = repository().recoverOrphanedJournals()
+
+        assertEquals(1, recovered)
+        assertFalse(orphan.exists())
+        assertTrue(source.exists())
+        assertTrue(database.vaultJournalDao().getPendingJournals("PENDING").isEmpty())
+        assertEquals(1, database.vaultJournalDao().getPendingJournals("FAILED").size)
+    }
+
+    @Test
+    fun recoveryFailsClosedAndRetainsOnlyEncryptedCopyWhenPlaintextIsMissing() = runBlocking {
+        val missingSource = File(root, "missing-source.txt")
+        val orphan = File(vaultDirectory, "orphan-only-copy.vvf").apply { writeText("encrypted only copy") }
+        database.vaultJournalDao().insertJournal(
+            VaultJournalEntity(
+                operationType = "ENCRYPT",
+                originalPath = missingSource.absolutePath,
+                vaultPath = orphan.absolutePath,
+                status = "PENDING"
+            )
+        )
+
+        try {
+            repository().recoverOrphanedJournals()
+            fail("Expected unresolved recovery to fail closed")
+        } catch (expected: IllegalStateException) {
+            assertTrue(expected.message.orEmpty().contains("unresolved operation"))
+        }
+
+        assertTrue(orphan.exists())
+        assertEquals(1, database.vaultJournalDao().getPendingJournals("PENDING").size)
+    }
+
+    @Test
+    fun recoveryCompletesShreddedSourceAndRemovesItsOrdinaryMetadata() = runBlocking {
+        val missingSource = File(root, "already-shredded.txt")
+        database.fileDao().insertOrUpdate(
+            FileMetadataEntity(
+                path = missingSource.absolutePath,
+                name = missingSource.name,
+                parentPath = missingSource.parent.orEmpty(),
+                sizeBytes = 25L,
+                mimeType = "text/plain",
+                isDirectory = false,
+                modifiedDate = 2L,
+                tags = "privatetag"
+            )
+        )
+        val encryptedName = "enc-recovery.vvf"
+        File(vaultDirectory, encryptedName).writeText("encrypted vault content")
+        database.vaultDao().insertVaultItem(
+            VaultItemEntity(
+                id = "recovery-vault-item",
+                encryptedFileName = encryptedName,
+                originalName = missingSource.name,
+                originalPath = missingSource.absolutePath,
+                sizeBytes = 25L,
+                mimeType = "text/plain",
+                category = "Other",
+                encryptionIv = "test-iv",
+                createdAt = 3L
+            )
+        )
+        database.vaultJournalDao().insertJournal(
+            VaultJournalEntity(
+                operationType = "ENCRYPT",
+                originalPath = missingSource.absolutePath,
+                vaultPath = File(vaultDirectory, encryptedName).absolutePath,
+                status = "PENDING"
+            )
+        )
+
+        repository().recoverOrphanedJournals()
+
+        assertNull(database.fileDao().getByPath(missingSource.absolutePath))
+        assertTrue(database.searchFtsDao().searchFilesFts("privatetag").first().isEmpty())
+        assertEquals(1, database.vaultDao().getVaultItemCount().first())
+        assertTrue(database.vaultJournalDao().getPendingJournals("PENDING").isEmpty())
     }
 
     private fun repository(
