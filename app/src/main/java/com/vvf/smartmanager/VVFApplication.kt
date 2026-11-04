@@ -413,7 +413,9 @@ class VVFApplication : Application(), Configuration.Provider {
                     deletedTimestamp = existing?.deletedTimestamp,
                     tags = existing?.tags.orEmpty(),
                     md5Hash = existing?.md5Hash,
-                    operationState = existing?.operationState ?: "IDLE"
+                    operationState = existing?.operationState ?: "IDLE",
+                    ocrRetryAfterEpochMillis = existing?.ocrRetryAfterEpochMillis,
+                    ocrRetryAttempt = existing?.ocrRetryAttempt ?: 0
                 )
             }
             val stalePaths = existingByPath.keys.filter { path -> path !in scannedPaths }
