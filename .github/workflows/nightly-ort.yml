@@ -53,7 +53,7 @@ jobs:
         run: |
           set -euo pipefail
           RESULTS_DIR="$HOME/.ort/ort-results"
-          python3 tools/audit/verify_ort_outputs.py --results-dir "$RESULTS_DIR" --revision "$ORT_SCAN_SHA"
+          python3 tools/audit/verify_ort_outputs.py --results-dir "$RESULTS_DIR" --revision "$ORT_SCAN_SHA" --curations-file .ort.yml
 
       - name: Record ORT status
         if: always()
