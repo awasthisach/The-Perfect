@@ -211,7 +211,7 @@ class VVFApplication : Application(), Configuration.Provider {
                 vaultRepository.recoverOrphanedJournals()
             }
             if (recoveredJournals > 0) {
-                Log.i(TAG, "Recovered $recoveredJournals interrupted vault journal operation(s)")
+                Log.i(TAG, "Reconciled $recoveredJournals interrupted vault journal operation(s)")
             }
         }
         searchRepository = OfflineSearchRepository(
