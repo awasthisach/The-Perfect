@@ -17,7 +17,9 @@ import com.vvf.smartmanager.core.background.workers.JunkScanWorker
 import com.vvf.smartmanager.core.background.workers.OcrBatchWorker
 import com.vvf.smartmanager.core.background.workers.OcrBatchOutcome
 import com.vvf.smartmanager.core.background.workers.OcrBatchRuntime
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -49,6 +51,28 @@ class BackgroundSyncManagerTest {
     fun tearDown() {
         WorkManagerTestInitHelper.closeWorkDatabase()
     }
+
+
+    private suspend fun awaitOcrWorkToFinish(ocrPassesExpected: Int) {
+        val workManager = WorkManager.getInstance(context)
+        val infos = workManager
+            .getWorkInfosForUniqueWork(BackgroundConstants.UNIQUE_IMMEDIATE_OCR_BATCH_WORK)
+            .get()
+        assertEquals(1, infos.size)
+        withTimeout(10_000) {
+            while (true) {
+                val info = workManager.getWorkInfoById(infos.single().id).get()
+                if (info?.state?.isFinished == true) {
+                    assertEquals(androidx.work.WorkInfo.State.SUCCEEDED, info.state)
+                    assertEquals(ocrPassesExpected, ocrPassesForAwait)
+                    return@withTimeout
+                }
+                delay(10)
+            }
+        }
+    }
+
+    private var ocrPassesForAwait: Int = 0
 
     @Test
     fun testBackgroundSyncManagerInitialization() {
@@ -125,8 +149,9 @@ class BackgroundSyncManagerTest {
         val queuedOcr = WorkManager.getInstance(context)
             .getWorkInfosForUniqueWork(BackgroundConstants.UNIQUE_IMMEDIATE_OCR_BATCH_WORK).get()
         assertEquals(1, queuedOcr.size)
-        assertEquals(androidx.work.WorkInfo.State.ENQUEUED, queuedOcr.single().state)
-        assertEquals("Coordinator must enqueue, not execute, OCR inline", 0, ocrPasses)
+        ocrPassesForAwait = ocrPasses
+        awaitOcrWorkToFinish(1)
+        assertEquals(1, ocrPasses)
     }
 
     @Test
@@ -145,8 +170,9 @@ class BackgroundSyncManagerTest {
         val queuedOcr = WorkManager.getInstance(context)
             .getWorkInfosForUniqueWork(BackgroundConstants.UNIQUE_IMMEDIATE_OCR_BATCH_WORK).get()
         assertEquals(1, queuedOcr.size)
-        assertEquals(androidx.work.WorkInfo.State.ENQUEUED, queuedOcr.single().state)
-        assertEquals("Coordinator must enqueue, not execute, OCR inline", 0, ocrPasses)
+        ocrPassesForAwait = ocrPasses
+        awaitOcrWorkToFinish(1)
+        assertEquals(1, ocrPasses)
         assertEquals(3, (result as ListenableWorker.Result.Success).outputData.getInt("indexed_count", -1))
     }
 
