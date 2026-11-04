@@ -3,6 +3,7 @@ package com.vvf.smartmanager
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.vvf.smartmanager.core.data.repository.SecureVaultRepository
+import com.vvf.smartmanager.core.data.storage.PrimaryStorageMutationLock
 import com.vvf.smartmanager.core.database.VVFDatabase
 import com.vvf.smartmanager.core.database.dao.VaultDao
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
@@ -12,8 +13,13 @@ import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -96,6 +102,35 @@ class SecureVaultIndexIntegrationTest {
         assertEquals(listOf(source.absolutePath), database.searchFtsDao().searchFilesFts("privatetag").first().map { it.path })
         assertEquals(1, database.vaultDao().getVaultItemCount().first())
         assertEquals(1, database.vaultJournalDao().getPendingJournals("FAILED_SHRED").size)
+    }
+
+    @Test
+    fun cancellationWhileWaitingForMutationLockRollsBackEncryptedStagingCopy() = runBlocking {
+        val mutationLock = PrimaryStorageMutationLock.mutex
+        mutationLock.lock()
+        try {
+            val job = async(Dispatchers.IO) {
+                repository().lockFileInVault(source, deleteOriginal = true)
+            }
+            withTimeout(10_000L) {
+                while (database.vaultDao().getVaultItemCount().first() != 1) {
+                    delay(10L)
+                }
+            }
+
+            // The encrypted copy and vault row exist, but source shredding is blocked on the lock.
+            assertTrue(source.exists())
+            assertEquals(1, database.vaultDao().getVaultItemCount().first())
+            job.cancelAndJoin()
+        } finally {
+            mutationLock.unlock()
+        }
+
+        assertTrue(source.exists())
+        assertNotNull(database.fileDao().getByPath(source.absolutePath))
+        assertEquals(0, database.vaultDao().getVaultItemCount().first())
+        assertTrue(vaultDirectory.listFiles().orEmpty().isEmpty())
+        assertTrue(database.vaultJournalDao().getPendingJournals("FAILED").isNotEmpty())
     }
 
     @Test
