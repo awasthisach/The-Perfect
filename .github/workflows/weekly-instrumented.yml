@@ -130,6 +130,7 @@ jobs:
             --job-id "${{ github.job }}" \
             --result PASS \
             --include-db \
+            --db-only \
             --environment "github-actions-API35-emulator-weekly" \
             --output docs/assurance/cpas-evidence-weekly.json \
             --merge-ledger
