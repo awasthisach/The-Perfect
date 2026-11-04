@@ -2,10 +2,17 @@ package com.vvf.smartmanager.core.background
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import androidx.work.ExistingWorkPolicy
 import androidx.work.ListenableWorker
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import androidx.work.testing.TestListenableWorkerBuilder
+import androidx.work.testing.WorkManagerTestInitHelper
 import com.vvf.smartmanager.core.background.workers.CloudBackupWorker
 import com.vvf.smartmanager.core.background.workers.FileIndexingWorker
+import com.vvf.smartmanager.core.background.workers.FileIndexingOutcome
+import com.vvf.smartmanager.core.background.workers.FileIndexingRuntime
+import com.vvf.smartmanager.core.background.workers.IndexingAndOcrCoordinatorWorker
 import com.vvf.smartmanager.core.background.workers.JunkScanWorker
 import com.vvf.smartmanager.core.background.workers.OcrBatchWorker
 import com.vvf.smartmanager.core.background.workers.OcrBatchOutcome
@@ -14,9 +21,11 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.concurrent.TimeUnit
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
@@ -30,7 +39,15 @@ class BackgroundSyncManagerTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
+        WorkManagerTestInitHelper.initializeTestWorkManager(context)
+        FileIndexingRuntime.configure { FileIndexingOutcome.Completed(0) }
+        OcrBatchRuntime.configure { OcrBatchOutcome.Completed(0, hasMoreCandidates = false, failedCount = 0) }
         syncManager = BackgroundSyncManager(context)
+    }
+
+    @After
+    fun tearDown() {
+        WorkManagerTestInitHelper.closeWorkDatabase()
     }
 
     @Test
@@ -90,6 +107,57 @@ class BackgroundSyncManagerTest {
         assertTrue("Expected success result, got: $result", result is ListenableWorker.Result.Success)
         assertEquals(7, (result as ListenableWorker.Result.Success).outputData.getInt("processed_count", -1))
         assertEquals(1, (result as ListenableWorker.Result.Success).outputData.getInt("deferred_count", -1))
+    }
+
+    @Test
+    fun coordinatorSchedulesOcrEvenWhenIndexingFailsPermanently() = runBlocking {
+        FileIndexingRuntime.configure { FileIndexingOutcome.PermanentFailure("scan failed") }
+        var ocrPasses = 0
+        OcrBatchRuntime.configure {
+            ocrPasses++
+            OcrBatchOutcome.Completed(2, hasMoreCandidates = false, failedCount = 0)
+        }
+
+        val worker = TestListenableWorkerBuilder<IndexingAndOcrCoordinatorWorker>(context).build()
+        val result = worker.doWork()
+
+        assertTrue("Expected indexing failure, got: $result", result is ListenableWorker.Result.Failure)
+        assertEquals(1, ocrPasses)
+    }
+
+    @Test
+    fun coordinatorRunsOcrAfterSuccessfulIndexing() = runBlocking {
+        FileIndexingRuntime.configure { FileIndexingOutcome.Completed(3) }
+        var ocrPasses = 0
+        OcrBatchRuntime.configure {
+            ocrPasses++
+            OcrBatchOutcome.Completed(1, hasMoreCandidates = false, failedCount = 0)
+        }
+
+        val worker = TestListenableWorkerBuilder<IndexingAndOcrCoordinatorWorker>(context).build()
+        val result = worker.doWork()
+
+        assertTrue("Expected success result, got: $result", result is ListenableWorker.Result.Success)
+        assertEquals(1, ocrPasses)
+        assertEquals(3, (result as ListenableWorker.Result.Success).outputData.getInt("indexed_count", -1))
+    }
+
+    @Test
+    fun permissionRescanRequestIsAppendedInsteadOfDroppedWhenOldWorkIsPending() = runBlocking {
+        val workManager = WorkManager.getInstance(context)
+        val existing = OneTimeWorkRequestBuilder<IndexingAndOcrCoordinatorWorker>()
+            .setInitialDelay(1, TimeUnit.DAYS)
+            .build()
+        workManager.enqueueUniqueWork(
+            "immediate_indexing_then_ocr",
+            ExistingWorkPolicy.KEEP,
+            existing
+        ).result.get()
+
+        syncManager.triggerImmediateIndexingThenOcr()
+
+        val queued = workManager.getWorkInfosForUniqueWork("immediate_indexing_then_ocr").get()
+        assertEquals(2, queued.size)
     }
 
 }
