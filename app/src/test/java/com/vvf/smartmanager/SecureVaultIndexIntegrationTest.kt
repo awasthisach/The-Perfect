@@ -51,7 +51,8 @@ class SecureVaultIndexIntegrationTest {
                     sizeBytes = source.length(),
                     mimeType = "text/plain",
                     isDirectory = false,
-                    modifiedDate = source.lastModified()
+                    modifiedDate = source.lastModified(),
+                    tags = "private-tag"
                 )
             )
         }
@@ -71,6 +72,7 @@ class SecureVaultIndexIntegrationTest {
         assertTrue(result.isSuccess)
         assertFalse(source.exists())
         assertEquals(null, database.fileDao().getByPath(source.absolutePath))
+        assertTrue(database.searchFtsDao().searchFilesFts("private-tag").first().isEmpty())
         assertEquals(1, database.vaultDao().getVaultItemCount().first())
     }
 
@@ -88,6 +90,7 @@ class SecureVaultIndexIntegrationTest {
         assertTrue(result.isFailure)
         assertTrue(source.exists())
         assertNotNull(database.fileDao().getByPath(source.absolutePath))
+        assertEquals(listOf(source.absolutePath), database.searchFtsDao().searchFilesFts("private-tag").first().map { it.path })
         assertEquals(1, database.vaultDao().getVaultItemCount().first())
         assertEquals(1, database.vaultJournalDao().getPendingJournals("FAILED_SHRED").size)
     }
@@ -111,6 +114,7 @@ class SecureVaultIndexIntegrationTest {
 
         assertTrue(source.exists())
         assertNotNull(database.fileDao().getByPath(source.absolutePath))
+        assertEquals(listOf(source.absolutePath), database.searchFtsDao().searchFilesFts("private-tag").first().map { it.path })
         assertTrue(vaultDirectory.listFiles().orEmpty().isEmpty())
         assertEquals(0, delegate.getVaultItemCount().first())
         assertEquals(1, database.vaultJournalDao().getPendingJournals("FAILED").size)
@@ -137,6 +141,7 @@ class SecureVaultIndexIntegrationTest {
 
         assertFalse(source.exists())
         assertEquals(null, database.fileDao().getByPath(source.absolutePath))
+        assertTrue(database.searchFtsDao().searchFilesFts("private-tag").first().isEmpty())
         assertEquals(1, database.vaultDao().getVaultItemCount().first())
         assertEquals(1, database.vaultJournalDao().getPendingJournals("COMPLETED").size)
     }
