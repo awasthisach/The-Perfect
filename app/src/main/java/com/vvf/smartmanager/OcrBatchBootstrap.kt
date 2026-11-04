@@ -86,27 +86,20 @@ object OcrBatchBootstrap {
 
     private suspend fun deferCandidate(fileDao: FileDao, path: String) {
         val entity = fileDao.getByPath(path) ?: return
-        val previousAttempt = entity.tags.split(',')
-            .firstOrNull { it.trim().startsWith(OCR_RETRY_TAG_PREFIX) }
-            ?.trim()
-            ?.substringAfter(':')
-            ?.split(':')
-            ?.getOrNull(1)
-            ?.toIntOrNull() ?: 0
+        val previousAttempt = entity.ocrRetryAttempt
         val attempt = (previousAttempt + 1).coerceAtMost(MAX_RETRY_ATTEMPT)
         val retryAt = System.currentTimeMillis() + calculateOcrRetryDelayMillis(attempt)
-        fileDao.setOcrRetryMarker(path, "$OCR_RETRY_TAG_PREFIX$retryAt:$attempt")
+        fileDao.setOcrRetryState(path, retryAt, attempt)
     }
 
     private suspend fun clearCandidateDeferral(fileDao: FileDao, path: String) {
-        fileDao.setOcrRetryMarker(path, null)
+        fileDao.setOcrRetryState(path, null, 0)
     }
 
     private const val OCR_BATCH_SIZE = 40
     private const val MAX_RETRY_ATTEMPT = 10
     private const val OCR_RETRY_BASE_DELAY_MILLIS = 6 * 60 * 60 * 1000L
     private const val OCR_RETRY_MAX_DELAY_MILLIS = 7 * 24 * 60 * 60 * 1000L
-    private const val OCR_RETRY_TAG_PREFIX = "ocr_retry_after:"
     /** Exponential retry backoff lets a failing recent batch yield to older pending files. */
     internal fun calculateOcrRetryDelayMillis(attempt: Int): Long {
         require(attempt >= 1) { "attempt must be positive" }
