@@ -3,6 +3,7 @@ package com.vvf.smartmanager
 import android.app.Activity
 import android.content.Intent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.biometric.BiometricManager
 import androidx.lifecycle.lifecycleScope
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
 import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
@@ -285,6 +286,7 @@ private fun VVFNavHost(
     onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     NavHost(
         navController = navController,
         startDestination = TopLevelDestination.EXPLORER.route,
@@ -382,10 +384,24 @@ private fun VVFNavHost(
         composable(TopLevelDestination.SETTINGS.route) {
             SettingsScreen(
                 initialBiometricEnabled = app.vaultAuthUseCase.isBiometricEnabled(),
-                onBiometricEnabledChange = { enabled ->
-                    // General Settings is not an authenticated vault session. It may
-                    // disable biometrics, but must never enroll/enable vault unlock here.
-                    if (!enabled) app.vaultAuthUseCase.setBiometricEnabled(false)
+                onBiometricEnabledChange = { enabled, pin ->
+                    if (!enabled) {
+                        app.vaultAuthUseCase.setBiometricEnabled(false)
+                        true
+                    } else {
+                        val strongBiometricAvailable =
+                            BiometricManager.from(context).canAuthenticate(
+                                BiometricManager.Authenticators.BIOMETRIC_STRONG
+                            ) == BiometricManager.BIOMETRIC_SUCCESS
+                        val pinVerified = strongBiometricAvailable &&
+                            pin != null && app.vaultAuthUseCase.verifyPin(pin)
+                        if (canEnableBiometricVault(strongBiometricAvailable, pinVerified)) {
+                            app.vaultAuthUseCase.setBiometricEnabled(true)
+                            true
+                        } else {
+                            false
+                        }
+                    }
                 },
                 initialAutoIndexOcr = app.isAutoIndexOcrEnabled(),
                 onAutoIndexOcrChange = { enabled -> app.setAutoIndexOcrEnabled(enabled) },
