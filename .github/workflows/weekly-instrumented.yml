@@ -17,7 +17,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: weekly-instrumented
+  group: weekly-instrumented-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
 jobs:
