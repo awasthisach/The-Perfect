@@ -9,7 +9,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -43,42 +42,50 @@ class OcrTagMutationTest {
     }
 
     @Test
-    fun addingUserTagKeepsExistingRetryMarker() = runBlocking {
-        seed("invoice,$RETRY")
+    fun addingUserTagKeepsDedicatedRetryState() = runBlocking {
+        seed(tags = "invoice", retryAt = 2_000L, attempt = 2)
         assertFalse(fileDao.addTagPreservingLatestMetadata(fallback(), " Finance "))
-        assertEquals(setOf("invoice", RETRY, "finance"), currentTags())
+        assertEquals(setOf("invoice", "finance"), currentTags())
+        assertRetryState(2_000L, 2)
     }
 
     @Test
-    fun removingUserTagKeepsRetryMarkerAndOtherTags() = runBlocking {
-        seed("invoice,finance,$RETRY")
+    fun removingUserTagKeepsDedicatedRetryState() = runBlocking {
+        seed(tags = "invoice,finance", retryAt = 2_000L, attempt = 3)
         fileDao.removeTagPreservingLatestMetadata(PATH, " INVOICE ")
-        assertEquals(setOf("finance", RETRY), currentTags())
+        assertEquals(setOf("finance"), currentTags())
+        assertRetryState(2_000L, 3)
     }
 
     @Test
-    fun retryUpdateAfterUserMutationKeepsUserTags() = runBlocking {
-        seed("invoice")
+    fun retryUpdateDoesNotModifyUserTags() = runBlocking {
+        seed(tags = "invoice")
         fileDao.addTagPreservingLatestMetadata(fallback(), "finance")
-        fileDao.setOcrRetryMarker(PATH, RETRY)
-        assertEquals(setOf("invoice", "finance", RETRY), currentTags())
+        fileDao.setOcrRetryState(PATH, 3_000L, 4)
+        assertEquals(setOf("invoice", "finance"), currentTags())
+        assertRetryState(3_000L, 4)
     }
 
     @Test
-    fun clearingRetryMarkerKeepsCompletionAndUserEdits() = runBlocking {
-        seed("invoice,$RETRY")
-        fileDao.addTagPreservingLatestMetadata(fallback(), "ocr")
+    fun clearingRetryStateKeepsCompletionAndUserTags() = runBlocking {
+        seed(tags = "invoice,ocr,finance", retryAt = 4_000L, attempt = 5)
         fileDao.removeTagPreservingLatestMetadata(PATH, "invoice")
-        fileDao.setOcrRetryMarker(PATH, null)
-        assertEquals(setOf("ocr"), currentTags())
+        fileDao.setOcrRetryState(PATH, null, 0)
+        assertEquals(setOf("ocr", "finance"), currentTags())
+        assertRetryState(null, 0)
     }
 
     @Test
     fun existingMetadataWinsOverStaleFallback() = runBlocking {
         fileDao.insertOrUpdate(
-            fallback("invoice,$RETRY").copy(
-                sizeBytes = 4096L, isFavorite = true,
-                modifiedDate = 2000L, md5Hash = "current-hash", operationState = "IN_PROGRESS"
+            fallback("invoice").copy(
+                sizeBytes = 4096L,
+                isFavorite = true,
+                modifiedDate = 2000L,
+                md5Hash = "current-hash",
+                operationState = "IN_PROGRESS",
+                ocrRetryAfterEpochMillis = 8_000L,
+                ocrRetryAttempt = 6
             )
         )
         val before = requireNotNull(fileDao.getByPath(PATH))
@@ -86,7 +93,8 @@ class OcrTagMutationTest {
         assertFalse(fileDao.addTagPreservingLatestMetadata(stale, "finance"))
         val after = requireNotNull(fileDao.getByPath(PATH))
         assertEquals(before.copy(tags = after.tags), after)
-        assertEquals(setOf("invoice", RETRY, "finance"), currentTags())
+        assertEquals(setOf("invoice", "finance"), currentTags())
+        assertRetryState(8_000L, 6)
     }
 
     @Test
@@ -121,8 +129,8 @@ class OcrTagMutationTest {
     }
 
     @Test
-    fun concurrentUserTagsAndRetryUpdatesPreserveAllTags() = runBlocking {
-        seed("seed")
+    fun concurrentUserTagsAndRetryUpdatesPreserveBothKindsOfState() = runBlocking {
+        seed(tags = "seed")
         withTimeout(15000L) {
             coroutineScope {
                 val edits = (0 until 32).map { i ->
@@ -130,24 +138,19 @@ class OcrTagMutationTest {
                         fileDao.addTagPreservingLatestMetadata(fallback(), "user-$i")
                     }
                 }
-                val retries = launch(Dispatchers.IO) {
-                    repeat(20) { i ->
-                        fileDao.setOcrRetryMarker(PATH, "ocr_retry_after:${2000000000000L + i}:$i")
-                    }
-                }
                 edits.awaitAll()
-                retries.join()
             }
         }
-        val expected = (0 until 32).map { "user-$it" }.toSet() +
-            setOf("seed", "ocr_retry_after:2000000000019:19")
+        fileDao.setOcrRetryState(PATH, 9_000L, 7)
+        val expected = (0 until 32).map { "user-$it" }.toSet() + "seed"
         assertEquals(expected, currentTags())
+        assertRetryState(9_000L, 7)
     }
 
     @Test
     fun concurrentAddsAndRemovalsDoNotRestoreRemovedTags() = runBlocking {
         val obsolete = (0 until 24).map { "old-$it" }
-        seed((obsolete + RETRY).joinToString(","))
+        seed(tags = obsolete.joinToString(","))
         withTimeout(15000L) {
             coroutineScope {
                 val removals = obsolete.map { tag ->
@@ -162,33 +165,79 @@ class OcrTagMutationTest {
                 additions.awaitAll()
             }
         }
-        assertEquals((0 until 24).map { "new-$it" }.toSet() + RETRY, currentTags())
+        assertEquals((0 until 24).map { "new-$it" }.toSet(), currentTags())
     }
 
     @Test
     fun atomicTagChangesKeepFtsIndexInSync() = runBlocking {
-        seed("seed")
+        seed(tags = "seed")
         fileDao.addTagPreservingLatestMetadata(fallback(), "finance")
         assertEquals(listOf(PATH), searchFtsDao.searchFilesFts("finance").first().map { it.path })
         fileDao.removeTagPreservingLatestMetadata(PATH, "finance")
         assertTrue(searchFtsDao.searchFilesFts("finance").first().isEmpty())
     }
 
-    private suspend fun seed(tags: String) {
-        fileDao.insertOrUpdate(fallback(tags))
+    @Test
+    fun internalRetryStateIsNotSearchableButSimilarUserTagRemainsSearchable() = runBlocking {
+        seed(tags = "myocr_retry_after:9999999999999,invoice", retryAt = 1_000L, attempt = 2)
+
+        assertTrue(searchFtsDao.searchFilesFts("ocr_retry_after").first().isEmpty())
+        assertTrue(searchFtsDao.searchFilesFallback("1000").first().isEmpty())
+        assertEquals(listOf(PATH), searchFtsDao.searchByTag("myocr_retry_after").first().map { it.path })
+        assertEquals(listOf(PATH), searchFtsDao.searchFilesFallback("9999999999999").first().map { it.path })
+        assertEquals(setOf("myocr_retry_after:9999999999999", "invoice"), currentTags())
+    }
+
+    @Test
+    fun legacyMigrationParserRemovesOnlyExactInternalMarker() {
+        val parsed = parseLegacyOcrRetryMetadata("invoice, ocr_retry_after:1234:3, myocr_retry_after:9999, finance")
+        assertEquals("invoice,myocr_retry_after:9999,finance", parsed.visibleTags)
+        assertEquals(1234L, parsed.retryAfterEpochMillis)
+        assertEquals(3, parsed.retryAttempt)
+        assertTrue(parsed.hadInternalMarker)
+
+        val userOnly = parseLegacyOcrRetryMetadata("myocr_retry_after:9999,finance")
+        assertEquals("myocr_retry_after:9999,finance", userOnly.visibleTags)
+        assertNull(userOnly.retryAfterEpochMillis)
+        assertEquals(0, userOnly.retryAttempt)
+        assertFalse(userOnly.hadInternalMarker)
+    }
+
+    private suspend fun seed(
+        tags: String,
+        retryAt: Long? = null,
+        attempt: Int = 0
+    ) {
+        fileDao.insertOrUpdate(
+            fallback(tags).copy(
+                ocrRetryAfterEpochMillis = retryAt,
+                ocrRetryAttempt = attempt
+            )
+        )
     }
 
     private suspend fun currentTags(): Set<String> =
         requireNotNull(fileDao.getByPath(PATH)).tags.split(',')
             .map { it.trim() }.filter { it.isNotEmpty() }.toSet()
 
+    private suspend fun assertRetryState(expectedAt: Long?, expectedAttempt: Int) {
+        val entity = requireNotNull(fileDao.getByPath(PATH))
+        assertEquals(expectedAt, entity.ocrRetryAfterEpochMillis)
+        assertEquals(expectedAttempt, entity.ocrRetryAttempt)
+    }
+
     private fun fallback(tags: String = "") = FileMetadataEntity(
-        path = PATH, name = "document.png", parentPath = "/test", sizeBytes = 100L,
-        mimeType = "image/png", isDirectory = false, modifiedDate = 1000L, tags = tags
+        path = PATH,
+        name = "document.png",
+        parentPath = "/test",
+        sizeBytes = 100L,
+        mimeType = "image/png",
+        isDirectory = false,
+        modifiedDate = 1000L,
+        tags = tags
     )
 
     companion object {
         private const val PATH = "/test/document.png"
-        private const val RETRY = "ocr_retry_after:2000000000000:1"
     }
 }
