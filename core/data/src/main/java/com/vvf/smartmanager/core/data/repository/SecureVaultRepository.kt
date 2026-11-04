@@ -56,11 +56,69 @@ class SecureVaultRepository(
                         val encFile = File(journal.vaultPath).canonicalFile
                         // Never trust a persisted journal path for filesystem mutation.
                         // A corrupted/tampered journal must not become an arbitrary-file delete primitive.
-                        if (isInsideDirectory(encFile, canonicalVault) && encFile.exists() && encFile.length() == 0L) {
-                            encFile.delete()
+                        if (!isInsideDirectory(encFile, canonicalVault)) {
+                            vaultJournalDao.updateJournal(journal.copy(status = "FAILED"))
+                            recoveredCount++
+                            continue
                         }
-                        vaultJournalDao.updateJournal(journal.copy(status = "FAILED"))
-                        recoveredCount++
+
+                        val vaultItem = vaultDao.getVaultItemByEncryptedName(encFile.name)
+                        val sourceFile = File(journal.originalPath).canonicalFile
+                        when {
+                            !encFile.exists() -> {
+                                // A committed row without its encrypted payload is unusable.
+                                vaultItem?.let { vaultDao.deleteById(it.id) }
+                                if (!sourceFile.exists()) {
+                                    PrimaryStorageMutationLock.mutex.withLock {
+                                        fileDao.deleteByPaths(
+                                            listOf(journal.originalPath, sourceFile.absolutePath).distinct()
+                                        )
+                                    }
+                                }
+                                vaultJournalDao.updateJournal(journal.copy(status = "FAILED"))
+                                recoveredCount++
+                            }
+                            encFile.length() == 0L -> {
+                                // Empty staging output is never a recoverable vault item.
+                                if (secureShredFile(encFile)) {
+                                    vaultItem?.let { vaultDao.deleteById(it.id) }
+                                    vaultJournalDao.updateJournal(journal.copy(status = "FAILED"))
+                                    recoveredCount++
+                                }
+                                // If deletion fails, leave the journal PENDING for a later retry.
+                            }
+                            vaultItem == null -> {
+                                // A non-empty encrypted file without a Room row is an orphan.
+                                if (secureShredFile(encFile)) {
+                                    if (!sourceFile.exists()) {
+                                        PrimaryStorageMutationLock.mutex.withLock {
+                                            fileDao.deleteByPaths(
+                                                listOf(journal.originalPath, sourceFile.absolutePath).distinct()
+                                            )
+                                        }
+                                    }
+                                    vaultJournalDao.updateJournal(journal.copy(status = "FAILED"))
+                                    recoveredCount++
+                                }
+                            }
+                            !sourceFile.exists() -> {
+                                // The plaintext was removed and the encrypted item is present.
+                                // Finish the metadata cleanup that may have been interrupted.
+                                PrimaryStorageMutationLock.mutex.withLock {
+                                    fileDao.deleteByPaths(
+                                        listOf(journal.originalPath, sourceFile.absolutePath).distinct()
+                                    )
+                                }
+                                vaultJournalDao.updateJournal(journal.copy(status = "COMPLETED"))
+                                recoveredCount++
+                            }
+                            else -> {
+                                // Both copies remain: retain the encrypted vault item and the
+                                // searchable source metadata, but record that shredding did not finish.
+                                vaultJournalDao.updateJournal(journal.copy(status = "FAILED_SHRED"))
+                                recoveredCount++
+                            }
+                        }
                     }
                     "DECRYPT" -> {
                         vaultJournalDao.updateJournal(journal.copy(status = "FAILED"))
@@ -69,8 +127,8 @@ class SecureVaultRepository(
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (_: Exception) {
-                vaultJournalDao.updateJournal(journal.copy(status = "FAILED"))
+            } catch (error: Exception) {
+                Log.e(TAG, "Vault journal recovery failed for ${journal.id}; leaving it for review", error)
             }
         }
         vaultJournalDao.purgeCompletedJournals()
