@@ -85,18 +85,18 @@ abstract class VVFDatabase : RoomDatabase() {
                     )
                     while (cursor.moveToNext()) {
                         val parsed = parseLegacyOcrRetryMetadata(cursor.getString(1).orEmpty())
-                        if (!parsed.hadInternalMarker) continue
-
-                        update.clearBindings()
-                        update.bindString(1, parsed.visibleTags)
-                        if (parsed.retryAfterEpochMillis == null) {
-                            update.bindNull(2)
-                        } else {
-                            update.bindLong(2, parsed.retryAfterEpochMillis)
+                        if (parsed.hadInternalMarker) {
+                            update.clearBindings()
+                            update.bindString(1, parsed.visibleTags)
+                            if (parsed.retryAfterEpochMillis == null) {
+                                update.bindNull(2)
+                            } else {
+                                update.bindLong(2, parsed.retryAfterEpochMillis)
+                            }
+                            update.bindLong(3, parsed.retryAttempt.toLong())
+                            update.bindLong(4, cursor.getLong(0))
+                            update.executeUpdateDelete()
                         }
-                        update.bindLong(3, parsed.retryAttempt.toLong())
-                        update.bindLong(4, cursor.getLong(0))
-                        update.executeUpdateDelete()
                     }
                 }
             }
