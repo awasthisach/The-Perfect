@@ -73,8 +73,8 @@ interface FileDao {
     fun getRecentFiles(limit: Int = 50): Flow<List<FileMetadataEntity>>
 
     /**
-     * Return only eligible OCR files. Retry markers are internal tags containing an epoch
-     * deadline; a failed file is hidden until its deadline so it cannot monopolize every batch.
+     * Return only eligible OCR files. Retry deadlines are stored separately from user tags;
+     * a failed file is hidden until its deadline so it cannot monopolize every batch.
      */
     @Query("""
         SELECT * FROM file_metadata
@@ -115,7 +115,7 @@ interface FileDao {
         return current == null
     }
 
-    /** Remove one tag without overwriting a concurrent OCR retry-marker update. */
+    /** Remove one user tag without mutating the dedicated OCR retry state columns. */
     @Transaction
     suspend fun removeTagPreservingLatestMetadata(path: String, tag: String) {
         val current = getByPath(path) ?: return
