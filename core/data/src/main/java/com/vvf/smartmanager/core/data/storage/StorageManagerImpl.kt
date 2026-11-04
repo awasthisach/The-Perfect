@@ -172,7 +172,8 @@ open class StorageManagerImpl(
         require(maxItems > 0) { "maxItems must be positive" }
         val root = File(getPrimaryStoragePath())
         val files = mutableListOf<File>()
-        var complete = root.exists() && root.isDirectory && root.canRead()
+        val rootAccessible = root.exists() && root.isDirectory && root.canRead()
+        var complete = rootAccessible
         val rootCanonicalPath = try {
             root.canonicalPath
         } catch (_: Exception) {
@@ -181,9 +182,15 @@ open class StorageManagerImpl(
         }
         val visitedDirectories = HashSet<String>()
 
+        fun isWithinRoot(canonicalPath: String): Boolean =
+            canonicalPath == rootCanonicalPath ||
+                canonicalPath.startsWith(rootCanonicalPath + File.separator)
+
         fun visit(directory: File) {
-            if (!complete || files.size >= maxItems) {
-                if (files.size >= maxItems) complete = false
+            // Completeness controls stale-row pruning, not whether other accessible folders
+            // should still be indexed after one folder cannot be enumerated.
+            if (files.size >= maxItems) {
+                complete = false
                 return
             }
             val canonicalPath = try {
@@ -192,13 +199,15 @@ open class StorageManagerImpl(
                 complete = false
                 return
             }
-            if (canonicalPath != rootCanonicalPath &&
-                !canonicalPath.startsWith(rootCanonicalPath + File.separator)
-            ) {
+            // Out-of-root symlinks are intentionally excluded, not evidence of an incomplete
+            // inventory of the eligible primary-storage tree.
+            if (!isWithinRoot(canonicalPath)) return
+            if (!visitedDirectories.add(canonicalPath)) {
+                // A second in-root path to the same directory is an alias or cycle. We cannot
+                // claim a complete path-based inventory without enumerating that alias.
                 complete = false
                 return
             }
-            if (!visitedDirectories.add(canonicalPath)) return
 
             val children = try {
                 directory.listFiles()
@@ -215,14 +224,23 @@ open class StorageManagerImpl(
                     complete = false
                     return
                 }
-                if (!child.exists()) {
-                    complete = false
-                    continue
-                }
+                // Entries that disappeared during enumeration and dangling symlinks are skipped.
+                // Their paths were observed; they do not prevent traversal of later siblings.
+                if (!child.exists()) continue
+
                 if (child.isDirectory) {
                     // These roots are intentionally excluded from the app's primary inventory.
                     if (child.name == "Android" || child.name.startsWith(".")) continue
+                    val childCanonicalPath = try {
+                        child.canonicalPath
+                    } catch (_: Exception) {
+                        complete = false
+                        continue
+                    }
+                    if (!isWithinRoot(childCanonicalPath)) continue
                     if (!child.canRead()) {
+                        // This directory's contents could not be enumerated, but keep scanning
+                        // other accessible siblings.
                         complete = false
                         continue
                     }
@@ -231,22 +249,20 @@ open class StorageManagerImpl(
                     val childCanonicalPath = try {
                         child.canonicalPath
                     } catch (_: Exception) {
-                        complete = false
+                        // A file that cannot be canonicalized is skipped; directory enumeration
+                        // itself remains complete.
                         continue
                     }
-                    if (childCanonicalPath != rootCanonicalPath &&
-                        !childCanonicalPath.startsWith(rootCanonicalPath + File.separator)
-                    ) {
-                        complete = false
-                        continue
-                    }
-                    if (!child.canRead()) complete = false
+                    if (!isWithinRoot(childCanonicalPath)) continue
+                    // File readability does not affect whether the path was enumerated. Metadata
+                    // can still be indexed without opening the file contents.
                     files += child
                 }
             }
         }
 
-        if (complete) visit(root)
+        if (rootAccessible && rootCanonicalPath.isNotEmpty()) visit(root)
+        if (files.size >= maxItems) complete = false
         val items = files.map { file ->
             FileItem(
                 path = file.absolutePath,
