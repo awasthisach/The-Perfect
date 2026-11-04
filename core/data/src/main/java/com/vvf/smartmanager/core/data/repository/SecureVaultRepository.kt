@@ -24,7 +24,6 @@ import java.util.UUID
  * zero-knowledge PIN management, transaction journaling, and metadata persistence.
  */
 class SecureVaultRepository(
-    private val tag: String = TAG,
     private val vaultDao: VaultDao,
     private val cryptoManager: CryptoSecurityManager,
     private val vaultDirectory: File,
