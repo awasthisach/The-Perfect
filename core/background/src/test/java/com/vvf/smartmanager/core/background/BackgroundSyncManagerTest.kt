@@ -122,11 +122,15 @@ class BackgroundSyncManagerTest {
         val result = worker.doWork()
 
         assertTrue("Expected indexing failure, got: $result", result is ListenableWorker.Result.Failure)
-        assertEquals(1, ocrPasses)
+        val queuedOcr = WorkManager.getInstance(context)
+            .getWorkInfosForUniqueWork(BackgroundConstants.UNIQUE_IMMEDIATE_OCR_BATCH_WORK).get()
+        assertEquals(1, queuedOcr.size)
+        assertEquals(androidx.work.WorkInfo.State.ENQUEUED, queuedOcr.single().state)
+        assertEquals("Coordinator must enqueue, not execute, OCR inline", 0, ocrPasses)
     }
 
     @Test
-    fun coordinatorRunsOcrAfterSuccessfulIndexing() = runBlocking {
+    fun coordinatorSchedulesOcrAfterSuccessfulIndexing() = runBlocking {
         FileIndexingRuntime.configure { FileIndexingOutcome.Completed(3) }
         var ocrPasses = 0
         OcrBatchRuntime.configure {
@@ -138,7 +142,11 @@ class BackgroundSyncManagerTest {
         val result = worker.doWork()
 
         assertTrue("Expected success result, got: $result", result is ListenableWorker.Result.Success)
-        assertEquals(1, ocrPasses)
+        val queuedOcr = WorkManager.getInstance(context)
+            .getWorkInfosForUniqueWork(BackgroundConstants.UNIQUE_IMMEDIATE_OCR_BATCH_WORK).get()
+        assertEquals(1, queuedOcr.size)
+        assertEquals(androidx.work.WorkInfo.State.ENQUEUED, queuedOcr.single().state)
+        assertEquals("Coordinator must enqueue, not execute, OCR inline", 0, ocrPasses)
         assertEquals(3, (result as ListenableWorker.Result.Success).outputData.getInt("indexed_count", -1))
     }
 
