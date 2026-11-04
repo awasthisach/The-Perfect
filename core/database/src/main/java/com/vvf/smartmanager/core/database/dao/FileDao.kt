@@ -34,7 +34,9 @@ data class FilePathSnapshot(
     val deletedTimestamp: Long?,
     val tags: String,
     val md5Hash: String?,
-    val operationState: String
+    val operationState: String,
+    val ocrRetryAfterEpochMillis: Long?,
+    val ocrRetryAttempt: Int
 )
 
 @Dao
@@ -52,7 +54,7 @@ interface FileDao {
     @Query("SELECT * FROM file_metadata WHERE path = :path LIMIT 1")
     suspend fun getByPath(path: String): FileMetadataEntity?
 
-    @Query("SELECT path, id, isFavorite, isTrash, originalPath, deletedTimestamp, tags, md5Hash, operationState FROM file_metadata")
+    @Query("SELECT path, id, isFavorite, isTrash, originalPath, deletedTimestamp, tags, md5Hash, operationState, ocrRetryAfterEpochMillis, ocrRetryAttempt FROM file_metadata")
     suspend fun getIndexedPathSnapshot(): List<FilePathSnapshot>
 
     @Query("SELECT * FROM file_metadata WHERE parentPath = :parentPath AND isTrash = 0 ORDER BY isDirectory DESC, name ASC")
@@ -81,13 +83,8 @@ interface FileDao {
           AND (mimeType LIKE 'image/%' OR mimeType = 'application/pdf')
           AND instr(',' || replace(lower(tags), ' ', '') || ',', ',ocr,') = 0
           AND (
-              instr(',' || replace(lower(tags), ' ', '') || ',', ',ocr_retry_after:') = 0
-              OR CAST(
-                  substr(
-                      ',' || replace(lower(tags), ' ', '') || ',',
-                      instr(',' || replace(lower(tags), ' ', '') || ',', ',ocr_retry_after:') + 17
-                  ) AS INTEGER
-              ) <= :nowEpochMillis
+              ocrRetryAfterEpochMillis IS NULL
+              OR ocrRetryAfterEpochMillis <= :nowEpochMillis
           )
         ORDER BY modifiedDate DESC
         LIMIT :limit
@@ -128,16 +125,18 @@ interface FileDao {
         updateTagsByPath(path, tags.joinToString(","))
     }
 
-    /** Atomically replace only the internal OCR retry marker while preserving current tags. */
-    @Transaction
-    suspend fun setOcrRetryMarker(path: String, marker: String?) {
-        val current = getByPath(path) ?: return
-        val tags = current.tags.split(',').map { it.trim() }
-            .filter { it.isNotEmpty() && !it.startsWith("ocr_retry_after:") }
-            .toMutableList()
-        if (marker != null) tags += marker
-        updateTagsByPath(path, tags.joinToString(","))
-    }
+    /** Store internal OCR retry bookkeeping outside user-visible/searchable tags. */
+    @Query("""
+        UPDATE file_metadata
+        SET ocrRetryAfterEpochMillis = :retryAfterEpochMillis,
+            ocrRetryAttempt = :retryAttempt
+        WHERE path = :path
+    """)
+    suspend fun setOcrRetryState(
+        path: String,
+        retryAfterEpochMillis: Long?,
+        retryAttempt: Int
+    )
 
     /**
      * Reconcile indexed filesystem fields without replacing concurrently-updated user metadata.
@@ -156,7 +155,9 @@ interface FileDao {
                     deletedTimestamp = it.deletedTimestamp,
                     tags = it.tags,
                     md5Hash = it.md5Hash,
-                    operationState = it.operationState
+                    operationState = it.operationState,
+                    ocrRetryAfterEpochMillis = it.ocrRetryAfterEpochMillis,
+                    ocrRetryAttempt = it.ocrRetryAttempt
                 )
             } ?: incoming
             insertOrUpdate(merged)
