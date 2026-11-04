@@ -97,6 +97,37 @@ interface FileDao {
     @Query("UPDATE file_metadata SET tags = :tags WHERE path = :path")
     suspend fun updateTagsByPath(path: String, tags: String)
 
+    /**
+     * Merge one tag with the latest stored tags inside a Room transaction, preventing
+     * interleaving with OCR retry updates or scan reconciliation. A fallback row is inserted only if the
+     * path is still missing inside that transaction. Returns true only when a row was created.
+     */
+    @Transaction
+    suspend fun addTagPreservingLatestMetadata(fallbackFile: FileMetadataEntity, tag: String): Boolean {
+        val cleanTag = tag.trim().lowercase()
+        if (cleanTag.isEmpty()) return false
+        val current = getByPath(fallbackFile.path)
+        val tags = (current?.tags ?: fallbackFile.tags).split(',')
+            .map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toMutableSet()
+        tags.add(cleanTag)
+        if (current == null) {
+            insertOrUpdate(fallbackFile.copy(tags = tags.joinToString(",")))
+        } else {
+            updateTagsByPath(current.path, tags.joinToString(","))
+        }
+        return current == null
+    }
+
+    /** Remove one tag without overwriting a concurrent OCR retry-marker update. */
+    @Transaction
+    suspend fun removeTagPreservingLatestMetadata(path: String, tag: String) {
+        val current = getByPath(path) ?: return
+        val tags = current.tags.split(',')
+            .map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toMutableSet()
+        tags.remove(tag.trim().lowercase())
+        updateTagsByPath(path, tags.joinToString(","))
+    }
+
     /** Atomically replace only the internal OCR retry marker while preserving current tags. */
     @Transaction
     suspend fun setOcrRetryMarker(path: String, marker: String?) {

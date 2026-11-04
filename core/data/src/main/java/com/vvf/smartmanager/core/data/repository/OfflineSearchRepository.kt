@@ -93,31 +93,24 @@ class OfflineSearchRepository(
         try {
             val cleanTag = tag.trim().lowercase()
             if (cleanTag.isEmpty()) return@withContext Result.success(true)
-            val entity = fileDao.getByPath(path)
-            if (entity != null) {
-                val existingTags = entity.tags.split(",").map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toMutableSet()
-                existingTags.add(cleanTag)
-                searchFtsDao.updateTagsByPath(path, existingTags.joinToString(","))
-            } else {
-                val name = path.substringAfterLast('/').ifEmpty { "document" }
-                val parent = when {
-                    path.startsWith("content://") -> "content://"
-                    path.contains('/') -> path.substringBeforeLast('/')
-                    else -> ""
-                }
-                val newEntity = FileMetadataEntity(
-                    path = path,
-                    name = name,
-                    parentPath = parent,
-                    sizeBytes = 0L,
-                    mimeType = "application/octet-stream",
-                    isDirectory = false,
-                    modifiedDate = System.currentTimeMillis(),
-                    tags = cleanTag
-                )
-                fileDao.insertOrUpdate(newEntity)
-                searchFtsDao.rebuildFtsIndex()
+            val name = path.substringAfterLast('/').ifEmpty { "document" }
+            val parent = when {
+                path.startsWith("content://") -> "content://"
+                path.contains('/') -> path.substringBeforeLast('/')
+                else -> ""
             }
+            val fallbackFile = FileMetadataEntity(
+                path = path,
+                name = name,
+                parentPath = parent,
+                sizeBytes = 0L,
+                mimeType = "application/octet-stream",
+                isDirectory = false,
+                modifiedDate = System.currentTimeMillis(),
+                tags = cleanTag
+            )
+            val created = fileDao.addTagPreservingLatestMetadata(fallbackFile, cleanTag)
+            if (created) searchFtsDao.rebuildFtsIndex()
             Result.success(true)
         } catch (e: CancellationException) {
             throw e
@@ -128,13 +121,7 @@ class OfflineSearchRepository(
 
     override suspend fun removeTagFromFile(path: String, tag: String): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val cleanTag = tag.trim().lowercase()
-            val entity = fileDao.getByPath(path)
-            if (entity != null) {
-                val existingTags = entity.tags.split(",").map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toMutableSet()
-                existingTags.remove(cleanTag)
-                searchFtsDao.updateTagsByPath(path, existingTags.joinToString(","))
-            }
+            fileDao.removeTagPreservingLatestMetadata(path, tag)
             Result.success(true)
         } catch (cancelled: CancellationException) {
             throw cancelled
