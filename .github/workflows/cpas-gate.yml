@@ -46,8 +46,11 @@ jobs:
           run_conclusion=""
 
           for attempt in $(seq 1 320); do
-            runs_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/nightly-ort.yml/runs?head_sha=${CANDIDATE_SHA}&per_page=100")"
-            run_id="$(printf '%s' "$runs_json" | jq -r --arg sha "$CANDIDATE_SHA" '[.workflow_runs[] | select(.head_sha == $sha or any(.pull_requests[]?; .head.sha == $sha))] | sort_by(.created_at) | last | .id // empty')"
+            # Do not filter server-side by head_sha: pull_request runs can be recorded
+            # against GitHub's synthetic merge SHA while the PR association carries
+            # the actual candidate head SHA. Paginate before applying the exact SHA check.
+            runs_json="$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/actions/workflows/nightly-ort.yml/runs?event=pull_request&per_page=100")"
+            run_id="$(printf '%s' "$runs_json" | jq -r --arg sha "$CANDIDATE_SHA" '[.[] | .workflow_runs[]? | select(.head_sha == $sha or any(.pull_requests[]?; .head.sha == $sha))] | sort_by(.created_at) | last | .id // empty')"
 
             if [ -n "$run_id" ]; then
               run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}")"
@@ -109,7 +112,7 @@ jobs:
           PY
 
           set +e
-          python3 tools/audit/verify_ort_outputs.py --results-dir ort-evidence/results --revision "$CANDIDATE_SHA"
+          python3 tools/audit/verify_ort_outputs.py --results-dir ort-evidence/results --revision "$CANDIDATE_SHA" --curations-file .ort.yml
           validation_code=$?
           set -e
           if [ "$validation_code" -ne 0 ]; then
