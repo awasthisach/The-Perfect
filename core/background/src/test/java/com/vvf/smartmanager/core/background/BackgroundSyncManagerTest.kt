@@ -166,8 +166,7 @@ class BackgroundSyncManagerTest {
         val queuedOcr = WorkManager.getInstance(context)
             .getWorkInfosForUniqueWork(BackgroundConstants.UNIQUE_IMMEDIATE_OCR_BATCH_WORK).get()
         assertEquals(1, queuedOcr.size)
-        ocrPassesForAwait = ocrPasses
-        awaitOcrWorkToFinish(1)
+        awaitOcrWorkToFinish()
         assertEquals(1, ocrPasses)
         assertEquals(3, (result as ListenableWorker.Result.Success).outputData.getInt("indexed_count", -1))
     }
