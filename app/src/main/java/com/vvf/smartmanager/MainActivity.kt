@@ -7,7 +7,9 @@ import androidx.biometric.BiometricManager
 import androidx.lifecycle.lifecycleScope
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
 import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import android.os.Bundle
 import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
@@ -395,7 +397,9 @@ private fun VVFNavHost(
                             ) == BiometricManager.BIOMETRIC_SUCCESS
                         val vaultConfigured = app.vaultAuthUseCase.isVaultConfigured()
                         val pinVerified = strongBiometricAvailable && vaultConfigured &&
-                            pin != null && app.vaultAuthUseCase.verifyPin(pin)
+                            pin != null && withContext(Dispatchers.IO) {
+                                app.vaultAuthUseCase.verifyPin(pin)
+                            }
                         if (canEnableBiometricVault(strongBiometricAvailable, pinVerified)) {
                             app.vaultAuthUseCase.setBiometricEnabled(true)
                             true
