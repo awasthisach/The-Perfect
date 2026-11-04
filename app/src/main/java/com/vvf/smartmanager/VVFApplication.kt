@@ -213,6 +213,12 @@ class VVFApplication : Application(), Configuration.Provider {
             if (recoveredJournals > 0) {
                 Log.i(TAG, "Reconciled $recoveredJournals interrupted vault journal operation(s)")
             }
+            val removedVaultSearchRows = runBlocking(Dispatchers.IO) {
+                vaultRepository.reconcileVaultedSourceMetadata()
+            }
+            if (removedVaultSearchRows > 0) {
+                Log.i(TAG, "Removed $removedVaultSearchRows stale search row(s) for vaulted sources")
+            }
         }
         searchRepository = OfflineSearchRepository(
             context = this,
