@@ -217,7 +217,7 @@ fun SettingsScreen(
                 TextButton(
                     modifier = Modifier.testTag("biometric_pin_confirm"),
                     onClick = {
-                        if (onBiometricEnabledChange?.invoke(true, biometricPin) != false) {
+                        if (onBiometricEnabledChange?.invoke(true, biometricPin) == true) {
                             biometricEnabled = true
                             showBiometricAuthDialog = false
                             biometricPin = ""
