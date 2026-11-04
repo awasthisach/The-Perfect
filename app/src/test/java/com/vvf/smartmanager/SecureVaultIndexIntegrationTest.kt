@@ -52,7 +52,7 @@ class SecureVaultIndexIntegrationTest {
                     mimeType = "text/plain",
                     isDirectory = false,
                     modifiedDate = source.lastModified(),
-                    tags = "private-tag"
+                    tags = "privatetag"
                 )
             )
         }
@@ -72,7 +72,7 @@ class SecureVaultIndexIntegrationTest {
         assertTrue(result.isSuccess)
         assertFalse(source.exists())
         assertEquals(null, database.fileDao().getByPath(source.absolutePath))
-        assertTrue(database.searchFtsDao().searchFilesFts("private-tag").first().isEmpty())
+        assertTrue(database.searchFtsDao().searchFilesFts("privatetag").first().isEmpty())
         assertEquals(1, database.vaultDao().getVaultItemCount().first())
     }
 
@@ -90,7 +90,7 @@ class SecureVaultIndexIntegrationTest {
         assertTrue(result.isFailure)
         assertTrue(source.exists())
         assertNotNull(database.fileDao().getByPath(source.absolutePath))
-        assertEquals(listOf(source.absolutePath), database.searchFtsDao().searchFilesFts("private-tag").first().map { it.path })
+        assertEquals(listOf(source.absolutePath), database.searchFtsDao().searchFilesFts("privatetag").first().map { it.path })
         assertEquals(1, database.vaultDao().getVaultItemCount().first())
         assertEquals(1, database.vaultJournalDao().getPendingJournals("FAILED_SHRED").size)
     }
@@ -114,7 +114,7 @@ class SecureVaultIndexIntegrationTest {
 
         assertTrue(source.exists())
         assertNotNull(database.fileDao().getByPath(source.absolutePath))
-        assertEquals(listOf(source.absolutePath), database.searchFtsDao().searchFilesFts("private-tag").first().map { it.path })
+        assertEquals(listOf(source.absolutePath), database.searchFtsDao().searchFilesFts("privatetag").first().map { it.path })
         assertTrue(vaultDirectory.listFiles().orEmpty().isEmpty())
         assertEquals(0, delegate.getVaultItemCount().first())
         assertEquals(1, database.vaultJournalDao().getPendingJournals("FAILED").size)
@@ -141,7 +141,7 @@ class SecureVaultIndexIntegrationTest {
 
         assertFalse(source.exists())
         assertEquals(null, database.fileDao().getByPath(source.absolutePath))
-        assertTrue(database.searchFtsDao().searchFilesFts("private-tag").first().isEmpty())
+        assertTrue(database.searchFtsDao().searchFilesFts("privatetag").first().isEmpty())
         assertEquals(1, database.vaultDao().getVaultItemCount().first())
         assertEquals(1, database.vaultJournalDao().getPendingJournals("COMPLETED").size)
     }
