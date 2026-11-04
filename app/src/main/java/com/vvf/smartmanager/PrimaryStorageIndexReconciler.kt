@@ -19,8 +19,8 @@ internal suspend fun reconcilePrimaryStorageIndex(
     fileDao: FileDao,
     searchFtsDao: SearchFtsDao,
     isCurrentFile: (String) -> Boolean = { path -> File(path).exists() && File(path).isFile },
-    onWarning: (String) -> Unit = {},
-    onInfo: (String) -> Unit = {}
+    onWarning: (String) -> Unit,
+    onInfo: (String) -> Unit
 ): FileIndexingOutcome = PrimaryStorageMutationLock.mutex.withLock {
     val scannedItems = scan.items.filter { item -> isCurrentFile(item.path) }
     val existingByPath = fileDao.getIndexedPathSnapshot().associateBy { it.path }
