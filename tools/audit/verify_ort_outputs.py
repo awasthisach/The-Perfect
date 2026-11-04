@@ -24,11 +24,11 @@ REQUIRED_OUTPUTS = RESULT_JSON_FILES + (
 
 
 CURATION_BLOCK_RE = re.compile(
-    r'(?ms)^\\s{4}-\\s+id:\\s*"(?P<package_id>[^"]+)"\\s*\\n'
-    r"(?P<body>.*?)(?=^\\s{4}-\\s+id:|\\Z)"
+    r'(?ms)^\s{4}-\s+id:\s*"(?P<package_id>[^"]+)"\s*\n'
+    r"(?P<body>.*?)(?=^\s{4}-\s+id:|\Z)"
 )
 SOURCE_PIN_RE = re.compile(
-    r"source_artifact_url=(?P<url>\\S+)\\s+"
+    r"source_artifact_url=(?P<url>\S+)\s+"
     r"source_artifact_sha1=(?P<sha1>[0-9a-fA-F]{40})"
 )
 
@@ -57,7 +57,7 @@ def validate_source_artifact_pins(
     for match in CURATION_BLOCK_RE.finditer(curations_text):
         package_id = match.group("package_id")
         body = match.group("body")
-        comment_match = re.search(r'(?m)^\\s{8}comment:\\s*"([^"]*)"\\s*$', body)
+        comment_match = re.search(r'(?m)^\s{8}comment:\s*"([^"]*)"\s*$', body)
         if not comment_match:
             problems.append(f"{package_id}: curation comment is missing")
             continue
@@ -90,7 +90,10 @@ def validate_source_artifact_pins(
             )
     return problems
 
-def validate_outputs(\n    results_dir: Path, revision: str | None = None, curations_file: Path | None = None\n) -> list[str]:
+
+def validate_outputs(
+    results_dir: Path, revision: str | None = None, curations_file: Path | None = None
+) -> list[str]:
     """Return missing, empty, malformed, or wrong-format ORT outputs."""
     problems: list[str] = []
     for name in REQUIRED_OUTPUTS:
