@@ -129,7 +129,7 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
                     SemanticSearchResult(
                         fileItem = candidate.fileItem,
                         similarityScore = score,
-                        matchedConcept = extractMatchedConcept(query, candidate.textContent)
+                        matchedConcept = "Deterministic hash projection"
                     )
                 )
             }
@@ -269,7 +269,4 @@ class SemanticSearchPluginImpl : SemanticSearchSPI {
         tags.sortedByDescending { it.confidenceScore }.distinctBy { it.tagName }.take(6)
     }
 
-    private fun extractMatchedConcept(query: String, text: String): String {
-        return "Deterministic hash projection"
-    }
 }
