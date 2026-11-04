@@ -149,6 +149,56 @@ class SecureVaultIndexIntegrationTest {
     }
 
     @Test
+    fun startupReconciliationRemovesOnlyVaultSourcesThatAreActuallyMissing() = runBlocking {
+        val missingSource = File(root, "previously-shredded.txt")
+        database.fileDao().insertOrUpdate(
+            FileMetadataEntity(
+                path = missingSource.absolutePath,
+                name = missingSource.name,
+                parentPath = missingSource.parent.orEmpty(),
+                sizeBytes = 12L,
+                mimeType = "text/plain",
+                isDirectory = false,
+                modifiedDate = 4L,
+                tags = "privatetag"
+            )
+        )
+        database.vaultDao().insertVaultItem(
+            VaultItemEntity(
+                id = "copy-only-item",
+                encryptedFileName = "copy-only.vvf",
+                originalName = source.name,
+                originalPath = source.absolutePath,
+                sizeBytes = source.length(),
+                mimeType = "text/plain",
+                category = "Other",
+                encryptionIv = "copy-iv",
+                createdAt = 5L
+            )
+        )
+        database.vaultDao().insertVaultItem(
+            VaultItemEntity(
+                id = "shredded-item",
+                encryptedFileName = "shredded.vvf",
+                originalName = missingSource.name,
+                originalPath = missingSource.absolutePath,
+                sizeBytes = 12L,
+                mimeType = "text/plain",
+                category = "Other",
+                encryptionIv = "shredded-iv",
+                createdAt = 6L,
+                isDecoy = true
+            )
+        )
+
+        val removed = repository().reconcileVaultedSourceMetadata()
+
+        assertEquals(1, removed)
+        assertNotNull(database.fileDao().getByPath(source.absolutePath))
+        assertNull(database.fileDao().getByPath(missingSource.absolutePath))
+    }
+
+    @Test
     fun recoveryRemovesNonemptyEncryptedOrphanWhenPlaintextStillExists() = runBlocking {
         val orphan = File(vaultDirectory, "orphan.vvf").apply { writeText("encrypted orphan") }
         database.vaultJournalDao().insertJournal(
