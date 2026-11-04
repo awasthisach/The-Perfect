@@ -28,7 +28,8 @@ class SecureVaultRepository(
     private val cryptoManager: CryptoSecurityManager,
     private val vaultDirectory: File,
     private val vaultJournalDao: VaultJournalDao,
-    private val fileDao: FileDao
+    private val fileDao: FileDao,
+    private val secureShredFile: (File) -> Boolean = cryptoManager::secureShredFile
 ) {
     fun getAllVaultItems(isDecoy: Boolean = false): Flow<List<VaultItem>> =
         vaultDao.getAllVaultItems(isDecoy).map { list -> list.map { it.toDomainModel() } }
@@ -139,7 +140,7 @@ class SecureVaultRepository(
                 // prevents an in-flight scan snapshot from re-inserting the source after deletion.
                 preserveEncryptedCopy = true
                 PrimaryStorageMutationLock.mutex.withLock {
-                    require(cryptoManager.secureShredFile(sourceFile)) {
+                    require(secureShredFile(sourceFile)) {
                         "Encrypted vault copy was retained, but original plaintext could not be securely removed"
                     }
                     // Once the source is gone, metadata removal must finish even if the caller is
@@ -173,7 +174,7 @@ class SecureVaultRepository(
                 try {
                     if (!preserveEncryptedCopy) {
                         val destinationRemoved =
-                            !destinationFile.exists() || cryptoManager.secureShredFile(destinationFile)
+                            !destinationFile.exists() || secureShredFile(destinationFile)
                         if (destinationRemoved) {
                             vaultDao.deleteById(fileId)
                         } else {
