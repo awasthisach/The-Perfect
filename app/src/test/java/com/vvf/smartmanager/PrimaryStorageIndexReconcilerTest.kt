@@ -58,7 +58,8 @@ class PrimaryStorageIndexReconcilerTest {
             fileDao = database.fileDao(),
             searchFtsDao = database.searchFtsDao(),
             isCurrentFile = { false },
-            onWarning = { warning = it }
+            onWarning = { warning = it },
+            onInfo = {}
         )
 
         assertEquals(FileIndexingOutcome.Completed(0), result)
@@ -76,7 +77,9 @@ class PrimaryStorageIndexReconcilerTest {
             scan = PrimaryStorageScanResult(listOf(item(currentPath)), isComplete = true),
             fileDao = database.fileDao(),
             searchFtsDao = database.searchFtsDao(),
-            isCurrentFile = { true }
+            isCurrentFile = { true },
+            onWarning = {},
+            onInfo = {}
         )
 
         assertEquals(FileIndexingOutcome.Completed(1), result)
@@ -100,7 +103,9 @@ class PrimaryStorageIndexReconcilerTest {
             scan = PrimaryStorageScanResult(listOf(item(source.absolutePath)), isComplete = true),
             fileDao = database.fileDao(),
             searchFtsDao = database.searchFtsDao(),
-            isCurrentFile = { File(it).exists() }
+            isCurrentFile = { File(it).exists() },
+            onWarning = {},
+            onInfo = {}
         )
 
         assertNull(database.fileDao().getByPath(source.absolutePath))
@@ -124,6 +129,9 @@ class PrimaryStorageIndexReconcilerTest {
                     started.countDown()
                     check(continueReconcile.await(10, TimeUnit.SECONDS))
                     File(it).exists()
+                },
+                onWarning = {},
+                onInfo = {}
                 }
             )
         }
