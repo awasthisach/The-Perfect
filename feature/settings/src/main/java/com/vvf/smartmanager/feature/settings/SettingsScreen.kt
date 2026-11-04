@@ -38,6 +38,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +51,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 
 private val BhagwaOrange = Color(0xFFF47B20)
 private val CosmicBlue = Color(0xFF102B52)
@@ -59,7 +61,7 @@ private val CosmicBlue = Color(0xFF102B52)
 fun SettingsScreen(
     onNavigateBack: (() -> Unit)? = null,
     initialBiometricEnabled: Boolean = false,
-    onBiometricEnabledChange: ((Boolean, String?) -> Boolean)? = null,
+    onBiometricEnabledChange: (suspend (Boolean, String?) -> Boolean)? = null,
     initialAutoIndexOcr: Boolean = true,
     onAutoIndexOcrChange: ((Boolean) -> Unit)? = null,
     initialOfflineOnlyMode: Boolean = true,
@@ -74,6 +76,8 @@ fun SettingsScreen(
     var showBiometricAuthDialog by remember { mutableStateOf(false) }
     var biometricPin by remember { mutableStateOf("") }
     var biometricAuthError by remember { mutableStateOf(false) }
+    var biometricEnrollmentInProgress by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
@@ -117,13 +121,19 @@ fun SettingsScreen(
                             title = "Biometric Vault Authentication",
                             subtitle = "Vault PIN and enrolled strong biometrics required to enable",
                             isChecked = biometricEnabled,
+                            enabled = !biometricEnrollmentInProgress,
                             onCheckedChange = { enabled ->
                                 if (enabled) {
                                     biometricPin = ""
                                     biometricAuthError = false
                                     showBiometricAuthDialog = true
-                                } else if (onBiometricEnabledChange?.invoke(false, null) != false) {
-                                    biometricEnabled = false
+                                } else {
+                                    coroutineScope.launch {
+                                        biometricEnrollmentInProgress = true
+                                        val disabled = onBiometricEnabledChange?.invoke(false, null) != false
+                                        if (disabled) biometricEnabled = false
+                                        biometricEnrollmentInProgress = false
+                                    }
                                 }
                             }
                         )
@@ -183,9 +193,11 @@ fun SettingsScreen(
     if (showBiometricAuthDialog) {
         AlertDialog(
             onDismissRequest = {
-                showBiometricAuthDialog = false
-                biometricPin = ""
-                biometricAuthError = false
+                if (!biometricEnrollmentInProgress) {
+                    showBiometricAuthDialog = false
+                    biometricPin = ""
+                    biometricAuthError = false
+                }
             },
             title = { Text("Confirm vault PIN") },
             text = {
@@ -207,26 +219,36 @@ fun SettingsScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = {
-                    showBiometricAuthDialog = false
-                    biometricPin = ""
-                    biometricAuthError = false
-                }) { Text("Cancel") }
+                TextButton(
+                    enabled = !biometricEnrollmentInProgress,
+                    onClick = {
+                        showBiometricAuthDialog = false
+                        biometricPin = ""
+                        biometricAuthError = false
+                    }
+                ) { Text("Cancel") }
             },
             confirmButton = {
                 TextButton(
                     modifier = Modifier.testTag("biometric_pin_confirm"),
+                    enabled = !biometricEnrollmentInProgress,
                     onClick = {
-                        if (onBiometricEnabledChange?.invoke(true, biometricPin) == true) {
-                            biometricEnabled = true
-                            showBiometricAuthDialog = false
-                            biometricPin = ""
-                            biometricAuthError = false
-                        } else {
-                            biometricAuthError = true
+                        val pin = biometricPin
+                        coroutineScope.launch {
+                            biometricEnrollmentInProgress = true
+                            val allowed = onBiometricEnabledChange?.invoke(true, pin) == true
+                            if (allowed) {
+                                biometricEnabled = true
+                                showBiometricAuthDialog = false
+                                biometricPin = ""
+                                biometricAuthError = false
+                            } else {
+                                biometricAuthError = true
+                            }
+                            biometricEnrollmentInProgress = false
                         }
                     }
-                ) { Text("Confirm") }
+                ) { Text(if (biometricEnrollmentInProgress) "Checking…" else "Confirm") }
             }
         )
     }
