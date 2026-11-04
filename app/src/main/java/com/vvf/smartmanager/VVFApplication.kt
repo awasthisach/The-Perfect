@@ -23,6 +23,7 @@ import com.vvf.smartmanager.core.data.repository.OfflineSearchRepository
 import com.vvf.smartmanager.core.data.repository.SecureVaultRepository
 import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
 import com.vvf.smartmanager.core.data.storage.StorageManager
+import com.vvf.smartmanager.core.data.storage.PrimaryStorageMutationLock
 import com.vvf.smartmanager.core.database.VVFDatabase
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
 import com.vvf.smartmanager.core.domain.AiIntelligenceUseCase
@@ -66,6 +67,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 
 class VVFApplication : Application(), Configuration.Provider {
@@ -384,52 +386,61 @@ class VVFApplication : Application(), Configuration.Provider {
             onUnexpectedError = { Log.e(TAG, "Storage indexing failed", it) }
         ) {
             val fileDao = database.fileDao()
-            val existingByPath = fileDao.getIndexedPathSnapshot().associateBy { it.path }
             val scan = storageManager.collectPrimaryStorageScan(
                 maxItems = PRIMARY_STORAGE_INDEX_LIMIT
             )
-            val scannedItems = scan.items
-            // Missing rows are stale only when the entire eligible tree was enumerated below the cap.
-            val scannedPaths = scannedItems.map { it.path }.toHashSet()
-            val metadata = scannedItems.map { item ->
-                val existing = existingByPath[item.path]
-                FileMetadataEntity(
-                    id = existing?.id ?: 0L,
-                    path = item.path,
-                    name = item.name,
-                    parentPath = java.io.File(item.path).parent.orEmpty(),
-                    sizeBytes = item.sizeBytes,
-                    mimeType = item.mimeType ?: "inode/directory",
-                    isDirectory = item.isDirectory,
-                    modifiedDate = item.lastModified,
-                    isFavorite = existing?.isFavorite ?: false,
-                    isTrash = existing?.isTrash ?: false,
-                    originalPath = existing?.originalPath,
-                    deletedTimestamp = existing?.deletedTimestamp,
-                    tags = existing?.tags.orEmpty(),
-                    md5Hash = existing?.md5Hash,
-                    operationState = existing?.operationState ?: "IDLE"
-                )
+
+            // A vault lock may shred a source after enumeration but before this reconciliation.
+            // Serialize the final existence check + DB writes with vault source removal, then
+            // revalidate every path so a pre-lock scan snapshot cannot recreate vaulted metadata.
+            PrimaryStorageMutationLock.mutex.withLock {
+                val scannedItems = scan.items.filter { item ->
+                    val file = File(item.path)
+                    file.exists() && file.isFile
+                }
+                val existingByPath = fileDao.getIndexedPathSnapshot().associateBy { it.path }
+                // Missing rows are stale only when the entire eligible tree was enumerated below the cap.
+                val scannedPaths = scannedItems.map { it.path }.toHashSet()
+                val metadata = scannedItems.map { item ->
+                    val existing = existingByPath[item.path]
+                    FileMetadataEntity(
+                        id = existing?.id ?: 0L,
+                        path = item.path,
+                        name = item.name,
+                        parentPath = File(item.path).parent.orEmpty(),
+                        sizeBytes = item.sizeBytes,
+                        mimeType = item.mimeType ?: "inode/directory",
+                        isDirectory = item.isDirectory,
+                        modifiedDate = item.lastModified,
+                        isFavorite = existing?.isFavorite ?: false,
+                        isTrash = existing?.isTrash ?: false,
+                        originalPath = existing?.originalPath,
+                        deletedTimestamp = existing?.deletedTimestamp,
+                        tags = existing?.tags.orEmpty(),
+                        md5Hash = existing?.md5Hash,
+                        operationState = existing?.operationState ?: "IDLE"
+                    )
+                }
+                val stalePaths = if (shouldPruneStalePrimaryIndexRows(scannedItems.size, scanCompleted = scan.isComplete)) {
+                    existingByPath.keys.filter { path -> path !in scannedPaths }
+                } else {
+                    Log.w(TAG, "Primary storage scan was incomplete or reached its $PRIMARY_STORAGE_INDEX_LIMIT item cap; preserving stale index rows")
+                    emptyList()
+                }
+                var staleRemoved = 0
+                if (stalePaths.isNotEmpty()) {
+                    stalePaths.chunked(400).forEach { chunk -> fileDao.deleteStaleByPaths(chunk) }
+                    staleRemoved = stalePaths.size
+                    Log.i(TAG, "Removed $staleRemoved stale index row(s)")
+                }
+                if (metadata.isNotEmpty()) {
+                    metadata.chunked(400).forEach { chunk -> fileDao.insertAllPreservingLatestMetadata(chunk) }
+                }
+                if (metadata.isNotEmpty() || staleRemoved > 0) {
+                    database.searchFtsDao().rebuildFtsIndex()
+                }
+                FileIndexingOutcome.Completed(metadata.size)
             }
-            val stalePaths = if (shouldPruneStalePrimaryIndexRows(scannedItems.size, scanCompleted = scan.isComplete)) {
-                existingByPath.keys.filter { path -> path !in scannedPaths }
-            } else {
-                Log.w(TAG, "Primary storage scan was incomplete or reached its $PRIMARY_STORAGE_INDEX_LIMIT item cap; preserving stale index rows")
-                emptyList()
-            }
-            var staleRemoved = 0
-            if (stalePaths.isNotEmpty()) {
-                stalePaths.chunked(400).forEach { chunk -> fileDao.deleteStaleByPaths(chunk) }
-                staleRemoved = stalePaths.size
-                Log.i(TAG, "Removed $staleRemoved stale index row(s)")
-            }
-            if (metadata.isNotEmpty()) {
-                metadata.chunked(400).forEach { chunk -> fileDao.insertAllPreservingLatestMetadata(chunk) }
-            }
-            if (metadata.isNotEmpty() || staleRemoved > 0) {
-                database.searchFtsDao().rebuildFtsIndex()
-            }
-            FileIndexingOutcome.Completed(metadata.size)
         }
     }
 
