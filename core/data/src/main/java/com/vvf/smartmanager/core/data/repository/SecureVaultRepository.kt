@@ -131,6 +131,10 @@ class SecureVaultRepository(
                 Log.e(TAG, "Vault journal recovery failed for ${journal.id}; leaving it for review", error)
             }
         }
+        val unresolved = vaultJournalDao.getPendingJournals("PENDING")
+        check(unresolved.isEmpty()) {
+            "Vault journal recovery left ${unresolved.size} unresolved operation(s); refusing to continue"
+        }
         vaultJournalDao.purgeCompletedJournals()
         return recoveredCount
     }
