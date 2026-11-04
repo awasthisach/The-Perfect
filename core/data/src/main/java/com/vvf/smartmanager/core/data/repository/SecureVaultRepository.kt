@@ -57,29 +57,33 @@ class SecureVaultRepository(
                         // Never trust a persisted journal path for filesystem mutation.
                         // A corrupted/tampered journal must not become an arbitrary-file delete primitive.
                         if (!isInsideDirectory(encFile, canonicalVault)) {
-                            vaultJournalDao.updateJournal(journal.copy(status = "FAILED"))
-                            recoveredCount++
+                            // Do not mutate an untrusted path. Leave the journal pending so startup
+                            // fails closed and the path can be reviewed rather than silently ignored.
+                            Log.e(TAG, "Vault journal ${journal.id} points outside the vault directory")
                             continue
                         }
 
                         val vaultItem = vaultDao.getVaultItemByEncryptedName(encFile.name)
                         val sourceFile = File(journal.originalPath).canonicalFile
+                        val sourceExists = sourceFile.exists()
                         when {
                             !encFile.exists() -> {
-                                // A committed row without its encrypted payload is unusable.
-                                vaultItem?.let { vaultDao.deleteById(it.id) }
-                                if (!sourceFile.exists()) {
-                                    PrimaryStorageMutationLock.mutex.withLock {
-                                        fileDao.deleteByPaths(
-                                            listOf(journal.originalPath, sourceFile.absolutePath).distinct()
-                                        )
-                                    }
+                                if (!sourceExists) {
+                                    // Both copies are missing. Preserve the journal and fail closed;
+                                    // silently deleting the only recovery record would hide data loss.
+                                    Log.e(TAG, "Vault journal ${journal.id} has no source or encrypted copy")
+                                    continue
                                 }
+                                vaultItem?.let { vaultDao.deleteById(it.id) }
                                 vaultJournalDao.updateJournal(journal.copy(status = "FAILED"))
                                 recoveredCount++
                             }
                             encFile.length() == 0L -> {
-                                // Empty staging output is never a recoverable vault item.
+                                if (!sourceExists) {
+                                    Log.e(TAG, "Vault journal ${journal.id} has an empty encrypted copy and no source")
+                                    continue
+                                }
+                                // The plaintext is intact, so an empty staging copy can be removed.
                                 if (secureShredFile(encFile)) {
                                     vaultItem?.let { vaultDao.deleteById(it.id) }
                                     vaultJournalDao.updateJournal(journal.copy(status = "FAILED"))
@@ -88,20 +92,18 @@ class SecureVaultRepository(
                                 // If deletion fails, leave the journal PENDING for a later retry.
                             }
                             vaultItem == null -> {
-                                // A non-empty encrypted file without a Room row is an orphan.
+                                if (!sourceExists) {
+                                    // This may be the only encrypted copy. Keep it for manual recovery.
+                                    Log.e(TAG, "Vault journal ${journal.id} has an encrypted file but no vault row or source")
+                                    continue
+                                }
+                                // The original is intact, so a non-empty encrypted orphan can be removed.
                                 if (secureShredFile(encFile)) {
-                                    if (!sourceFile.exists()) {
-                                        PrimaryStorageMutationLock.mutex.withLock {
-                                            fileDao.deleteByPaths(
-                                                listOf(journal.originalPath, sourceFile.absolutePath).distinct()
-                                            )
-                                        }
-                                    }
                                     vaultJournalDao.updateJournal(journal.copy(status = "FAILED"))
                                     recoveredCount++
                                 }
                             }
-                            !sourceFile.exists() -> {
+                            !sourceExists -> {
                                 // The plaintext was removed and the encrypted item is present.
                                 // Finish the metadata cleanup that may have been interrupted.
                                 PrimaryStorageMutationLock.mutex.withLock {
