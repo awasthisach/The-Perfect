@@ -6,11 +6,14 @@ import androidx.work.ListenableWorker
 import androidx.work.testing.TestListenableWorkerBuilder
 import com.vvf.smartmanager.core.background.workers.CloudBackupWorker
 import com.vvf.smartmanager.core.background.workers.FileIndexingWorker
+import com.vvf.smartmanager.core.background.workers.FileIndexingRuntime
 import com.vvf.smartmanager.core.background.workers.JunkScanWorker
 import com.vvf.smartmanager.core.background.workers.OcrBatchWorker
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -48,4 +51,19 @@ class BackgroundSyncManagerTest {
 
         syncManager.cancelAllScheduledWork()
     }
+    @Test
+    fun fileIndexingWorkerPropagatesCancellationInsteadOfRetrying() = runBlocking {
+        FileIndexingRuntime.configure {
+            throw CancellationException("test cancellation")
+        }
+        val worker = TestListenableWorkerBuilder<FileIndexingWorker>(context).build()
+
+        try {
+            worker.doWork()
+            fail("Expected CancellationException to propagate")
+        } catch (cancelled: CancellationException) {
+            assertEquals("test cancellation", cancelled.message)
+        }
+    }
+
 }
