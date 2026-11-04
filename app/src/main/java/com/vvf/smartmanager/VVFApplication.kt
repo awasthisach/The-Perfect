@@ -65,6 +65,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import java.io.File
 
 class VVFApplication : Application(), Configuration.Provider {
@@ -204,6 +205,15 @@ class VVFApplication : Application(), Configuration.Provider {
             vaultJournalDao = database.vaultJournalDao(),
             fileDao = database.fileDao()
         )
+        if (!jvmUnitTest) {
+            // Resolve interrupted vault operations before exposing ordinary search/index state.
+            val recoveredJournals = runBlocking(Dispatchers.IO) {
+                vaultRepository.recoverOrphanedJournals()
+            }
+            if (recoveredJournals > 0) {
+                Log.i(TAG, "Recovered $recoveredJournals interrupted vault journal operation(s)")
+            }
+        }
         searchRepository = OfflineSearchRepository(
             context = this,
             searchFtsDao = database.searchFtsDao(),
