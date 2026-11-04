@@ -61,7 +61,6 @@ import com.vvf.smartmanager.plugin.clouddrivers.OneDriveDriverImpl
 import com.vvf.smartmanager.plugin.clouddrivers.S3StorageDriverImpl
 import com.vvf.smartmanager.plugin.ocr.OcrPluginImpl
 import com.vvf.smartmanager.plugin.semanticsearch.SemanticSearchPluginImpl
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
