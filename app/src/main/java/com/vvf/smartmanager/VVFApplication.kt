@@ -381,7 +381,9 @@ class VVFApplication : Application(), Configuration.Provider {
         if (!access.canBrowsePrimaryTree) {
             return FileIndexingOutcome.PermissionRequired(access.userMessageKey)
         }
-        return try {
+        return mapFileIndexingOutcome(
+            onUnexpectedError = { Log.e(TAG, "Storage indexing failed", it) }
+        ) {
             val fileDao = database.fileDao()
             val existingByPath = fileDao.getIndexedPathSnapshot().associateBy { it.path }
             val scan = storageManager.collectPrimaryStorageScan(
@@ -429,15 +431,6 @@ class VVFApplication : Application(), Configuration.Provider {
                 database.searchFtsDao().rebuildFtsIndex()
             }
             FileIndexingOutcome.Completed(metadata.size)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (securityError: SecurityException) {
-            FileIndexingOutcome.PermissionRequired(securityError.message ?: "storage access was revoked")
-        } catch (ioError: java.io.IOException) {
-            FileIndexingOutcome.RetryableFailure(ioError.message ?: "storage I/O failed")
-        } catch (error: Throwable) {
-            Log.e(TAG, "Storage indexing failed", error)
-            FileIndexingOutcome.PermanentFailure(error.message ?: "unexpected indexing failure")
         }
     }
 
