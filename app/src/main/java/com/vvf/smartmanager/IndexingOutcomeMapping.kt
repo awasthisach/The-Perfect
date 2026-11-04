@@ -9,7 +9,7 @@ import java.io.IOException
  * Keeping this boundary explicit prevents cancellation from becoming a retry or permanent error.
  */
 internal suspend fun mapFileIndexingOutcome(
-    onUnexpectedError: (Throwable) -> Unit = {},
+    onUnexpectedError: (Throwable) -> Unit,
     block: suspend () -> FileIndexingOutcome
 ): FileIndexingOutcome = try {
     block()
