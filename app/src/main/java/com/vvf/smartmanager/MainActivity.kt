@@ -393,7 +393,8 @@ private fun VVFNavHost(
                             BiometricManager.from(context).canAuthenticate(
                                 BiometricManager.Authenticators.BIOMETRIC_STRONG
                             ) == BiometricManager.BIOMETRIC_SUCCESS
-                        val pinVerified = strongBiometricAvailable &&
+                        val vaultConfigured = app.vaultAuthUseCase.isVaultConfigured()
+                        val pinVerified = strongBiometricAvailable && vaultConfigured &&
                             pin != null && app.vaultAuthUseCase.verifyPin(pin)
                         if (canEnableBiometricVault(strongBiometricAvailable, pinVerified)) {
                             app.vaultAuthUseCase.setBiometricEnabled(true)
