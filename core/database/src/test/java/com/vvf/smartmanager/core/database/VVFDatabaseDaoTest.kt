@@ -197,4 +197,86 @@ class VVFDatabaseDaoTest {
         val updated = searchFtsDao.searchByTag("vvf_confidential").first()
         assertEquals(1, updated.size)
     }
+    @Test
+    fun deletingSecurelyShreddedOriginalPathRemovesFallbackAndFtsSearchResults() = runBlocking {
+        val originalPath = "/storage/emulated/0/Documents/secret_report.pdf"
+        val siblingPath = "/storage/emulated/0/Documents/secret_report_backup.pdf"
+        fileDao.insertOrUpdate(
+            FileMetadataEntity(
+                path = originalPath,
+                name = "secret_report.pdf",
+                parentPath = "/storage/emulated/0/Documents",
+                sizeBytes = 4096L,
+                mimeType = "application/pdf",
+                isDirectory = false,
+                modifiedDate = 3000L,
+                tags = "confidential,ocr"
+            )
+        )
+        fileDao.insertOrUpdate(
+            FileMetadataEntity(
+                path = siblingPath,
+                name = "secret_report_backup.pdf",
+                parentPath = "/storage/emulated/0/Documents",
+                sizeBytes = 2048L,
+                mimeType = "application/pdf",
+                isDirectory = false,
+                modifiedDate = 3001L,
+                tags = "backup"
+            )
+        )
+        searchFtsDao.rebuildFtsIndex()
+
+        assertEquals(2, searchFtsDao.searchFilesFallback("secret_report").first().size)
+        assertEquals(2, searchFtsDao.searchFilesFts("secret").first().size)
+
+        // SecureVaultRepository performs this only after secureShredFile() succeeds.
+        fileDao.deleteByPaths(listOf(originalPath))
+        searchFtsDao.rebuildFtsIndex()
+
+        val fallbackResults = searchFtsDao.searchFilesFallback("secret_report").first()
+        val ftsResults = searchFtsDao.searchFilesFts("secret").first()
+        assertEquals(listOf(siblingPath), fallbackResults.map { it.path })
+        assertEquals(listOf(siblingPath), ftsResults.map { it.path })
+    }
+
+    @Test
+    fun rescansPreserveLatestUserMetadataWhenFilesystemSnapshotIsStale() = runBlocking {
+        val path = "/storage/emulated/0/Pictures/scan_race.jpg"
+        fileDao.insertOrUpdate(
+            FileMetadataEntity(
+                path = path,
+                name = "scan_race.jpg",
+                parentPath = "/storage/emulated/0/Pictures",
+                sizeBytes = 100L,
+                mimeType = "image/jpeg",
+                isDirectory = false,
+                modifiedDate = 1000L,
+                isFavorite = true,
+                tags = "ocr,invoice",
+                operationState = "IN_PROGRESS"
+            )
+        )
+        val staleScanSnapshot = FileMetadataEntity(
+            path = path,
+            name = "scan_race.jpg",
+            parentPath = "/storage/emulated/0/Pictures",
+            sizeBytes = 120L,
+            mimeType = "image/jpeg",
+            isDirectory = false,
+            modifiedDate = 2000L,
+            isFavorite = false,
+            tags = "",
+            operationState = "IDLE"
+        )
+
+        fileDao.insertAllPreservingLatestMetadata(listOf(staleScanSnapshot))
+
+        val updated = fileDao.getByPath(path)
+        assertEquals("ocr,invoice", updated?.tags)
+        assertEquals(true, updated?.isFavorite)
+        assertEquals("IN_PROGRESS", updated?.operationState)
+        assertEquals(120L, updated?.sizeBytes)
+    }
+
 }
