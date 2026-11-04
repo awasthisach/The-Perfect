@@ -61,6 +61,7 @@ import com.vvf.smartmanager.plugin.clouddrivers.OneDriveDriverImpl
 import com.vvf.smartmanager.plugin.clouddrivers.S3StorageDriverImpl
 import com.vvf.smartmanager.plugin.ocr.OcrPluginImpl
 import com.vvf.smartmanager.plugin.semanticsearch.SemanticSearchPluginImpl
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -428,6 +429,8 @@ class VVFApplication : Application(), Configuration.Provider {
                 database.searchFtsDao().rebuildFtsIndex()
             }
             FileIndexingOutcome.Completed(metadata.size)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (securityError: SecurityException) {
             FileIndexingOutcome.PermissionRequired(securityError.message ?: "storage access was revoked")
         } catch (ioError: java.io.IOException) {
