@@ -226,8 +226,11 @@ class SecureVaultRepository(
             if (deleteOriginal) {
                 // Keep the original metadata until shredding succeeds. The shared mutation lock
                 // prevents an in-flight scan snapshot from re-inserting the source after deletion.
-                preserveEncryptedCopy = true
                 PrimaryStorageMutationLock.mutex.withLock {
+                    // Preserve the encrypted copy only after acquiring the mutation lock and
+                    // immediately before source removal begins. Cancellation while waiting for
+                    // the lock must still roll back the encrypted staging copy.
+                    preserveEncryptedCopy = true
                     require(secureShredFile(sourceFile)) {
                         "Encrypted vault copy was retained, but original plaintext could not be securely removed"
                     }
