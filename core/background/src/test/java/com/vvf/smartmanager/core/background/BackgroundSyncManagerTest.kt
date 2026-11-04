@@ -53,7 +53,7 @@ class BackgroundSyncManagerTest {
     }
 
 
-    private suspend fun awaitOcrWorkToFinish(ocrPassesExpected: Int) {
+    private suspend fun awaitOcrWorkToFinish() {
         val workManager = WorkManager.getInstance(context)
         val infos = workManager
             .getWorkInfosForUniqueWork(BackgroundConstants.UNIQUE_IMMEDIATE_OCR_BATCH_WORK)
@@ -64,15 +64,12 @@ class BackgroundSyncManagerTest {
                 val info = workManager.getWorkInfoById(infos.single().id).get()
                 if (info?.state?.isFinished == true) {
                     assertEquals(androidx.work.WorkInfo.State.SUCCEEDED, info.state)
-                    assertEquals(ocrPassesExpected, ocrPassesForAwait)
                     return@withTimeout
                 }
                 delay(10)
             }
         }
     }
-
-    private var ocrPassesForAwait: Int = 0
 
     @Test
     fun testBackgroundSyncManagerInitialization() {
@@ -149,8 +146,7 @@ class BackgroundSyncManagerTest {
         val queuedOcr = WorkManager.getInstance(context)
             .getWorkInfosForUniqueWork(BackgroundConstants.UNIQUE_IMMEDIATE_OCR_BATCH_WORK).get()
         assertEquals(1, queuedOcr.size)
-        ocrPassesForAwait = ocrPasses
-        awaitOcrWorkToFinish(1)
+        awaitOcrWorkToFinish()
         assertEquals(1, ocrPasses)
     }
 
