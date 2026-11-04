@@ -128,28 +128,27 @@ class BackgroundSyncManager(private val context: Context) {
 
         wm.enqueueUniqueWork(
             "immediate_indexing",
-            ExistingWorkPolicy.REPLACE,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
             request
         )
     }
 
     /**
-     * Run a fresh storage scan before OCR so the batch sees the complete current metadata set.
-     * A dedicated unique chain avoids coupling OCR to unrelated indexing work.
+     * Run a fresh storage scan and then independently enqueue OCR.
+     * The coordinator schedules OCR even if indexing fails, so existing indexed files remain
+     * eligible for OCR. APPEND_OR_REPLACE preserves a permission-rescan request if older work
+     * is running or in backoff instead of silently dropping it with KEEP.
      */
     fun triggerImmediateIndexingThenOcr() {
         val wm = workManager ?: return
-        val indexing = OneTimeWorkRequestBuilder<FileIndexingWorker>()
-            .addTag("immediate_indexing")
+        val request = OneTimeWorkRequestBuilder<IndexingAndOcrCoordinatorWorker>()
+            .addTag("immediate_indexing_then_ocr")
             .build()
-        val ocr = OneTimeWorkRequestBuilder<OcrBatchWorker>()
-            .addTag("immediate_ocr")
-            .build()
-        wm.beginUniqueWork(
+        wm.enqueueUniqueWork(
             "immediate_indexing_then_ocr",
-            ExistingWorkPolicy.KEEP,
-            indexing
-        ).then(ocr).enqueue()
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
+            request
+        )
     }
 
     /**
