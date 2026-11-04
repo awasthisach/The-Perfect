@@ -8,6 +8,7 @@ import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import androidx.work.Configuration
+import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import com.vvf.smartmanager.core.background.workers.FileIndexingOutcome
@@ -167,8 +168,16 @@ class VVFApplication : Application(), Configuration.Provider {
         }
         // Play Integrity App Check is device/Play-only; skip on JVM unit tests (Robolectric).
         if (!jvmUnitTest) {
-            FirebaseAppCheck.getInstance().apply {
-                installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
+            val firebaseApp = FirebaseApp.initializeApp(this)
+            if (firebaseApp == null) {
+                // Offline/local builds may intentionally omit production Firebase config.
+                // Keep local vault/file functionality available; protected cloud calls must
+                // still fail closed because no App Check provider/token can be obtained.
+                Log.w(TAG, "Firebase is not configured; App Check is unavailable and protected cloud operations must remain disabled")
+            } else {
+                FirebaseAppCheck.getInstance(firebaseApp).apply {
+                    installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
+                }
             }
         }
         if (jvmUnitTest) {

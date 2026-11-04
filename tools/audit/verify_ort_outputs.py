@@ -22,7 +22,78 @@ REQUIRED_OUTPUTS = RESULT_JSON_FILES + (
 )
 
 
-def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str]:
+
+CURATION_BLOCK_RE = re.compile(
+    r'(?ms)^\s{4}-\s+id:\s*"(?P<package_id>[^"]+)"\s*\n'
+    r"(?P<body>.*?)(?=^\s{4}-\s+id:|\Z)"
+)
+SOURCE_PIN_RE = re.compile(
+    r"source_artifact_url=(?P<url>\S+)\s+"
+    r"source_artifact_sha1=(?P<sha1>[0-9a-fA-F]{40})"
+)
+
+
+def validate_source_artifact_pins(
+    analyzer_data: dict, curations_file: Path
+) -> list[str]:
+    """Verify each ORT source-origin curation against the analyzer-resolved URL and SHA-1."""
+    problems: list[str] = []
+    try:
+        curations_text = curations_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        return [f"curations file is unreadable: {exc}"]
+
+    analyzer = analyzer_data.get("analyzer")
+    result = analyzer.get("result") if isinstance(analyzer, dict) else None
+    packages = result.get("packages") if isinstance(result, dict) else None
+    if not isinstance(packages, list):
+        return ["analyzer-result.json: packages list is unavailable for source-artifact pin validation"]
+    packages_by_id = {
+        item.get("id"): item
+        for item in packages
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+
+    for match in CURATION_BLOCK_RE.finditer(curations_text):
+        package_id = match.group("package_id")
+        body = match.group("body")
+        comment_match = re.search(r'(?m)^\s{8}comment:\s*"([^"]*)"\s*$', body)
+        if not comment_match:
+            problems.append(f"{package_id}: curation comment is missing")
+            continue
+        pin_match = SOURCE_PIN_RE.search(comment_match.group(1))
+        if not pin_match:
+            problems.append(f"{package_id}: source artifact URL/SHA-1 pin is missing")
+            continue
+
+        package = packages_by_id.get(package_id)
+        if package is None:
+            problems.append(f"{package_id}: package is missing from ORT analyzer output")
+            continue
+        source = package.get("source_artifact")
+        if not isinstance(source, dict):
+            problems.append(f"{package_id}: ORT analyzer did not resolve a source artifact")
+            continue
+        actual_url = source.get("url")
+        actual_hash = source.get("hash")
+        expected_url = pin_match.group("url")
+        expected_sha1 = pin_match.group("sha1").lower()
+        if actual_url != expected_url:
+            problems.append(
+                f"{package_id}: source artifact URL {actual_url!r} does not match pinned {expected_url!r}"
+            )
+        if not isinstance(actual_hash, dict) or actual_hash.get("algorithm") != "SHA-1":
+            problems.append(f"{package_id}: ORT source artifact SHA-1 is missing")
+        elif str(actual_hash.get("value", "")).lower() != expected_sha1:
+            problems.append(
+                f"{package_id}: source artifact SHA-1 {actual_hash.get('value')!r} does not match pinned {expected_sha1!r}"
+            )
+    return problems
+
+
+def validate_outputs(
+    results_dir: Path, revision: str | None = None, curations_file: Path | None = None
+) -> list[str]:
     """Return missing, empty, malformed, or wrong-format ORT outputs."""
     problems: list[str] = []
     for name in REQUIRED_OUTPUTS:
@@ -84,6 +155,8 @@ def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str
                 analyzer_result = section[result_name]
                 if not isinstance(analyzer_result.get("projects"), list) or not isinstance(analyzer_result.get("packages"), list):
                     problems.append(f"{name}: analyzer result must include projects and packages lists")
+                elif curations_file is not None:
+                    problems.extend(validate_source_artifact_pins(data, curations_file))
         elif name == "bom.cyclonedx.json":
             if data.get("bomFormat") != "CycloneDX":
                 problems.append(f"{name}: bomFormat is not CycloneDX")
@@ -141,9 +214,10 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--results-dir", type=Path, required=True)
     parser.add_argument("--revision", required=True)
+    parser.add_argument("--curations-file", type=Path, default=Path(".ort.yml"))
     args = parser.parse_args()
 
-    problems = validate_outputs(args.results_dir, args.revision)
+    problems = validate_outputs(args.results_dir, args.revision, args.curations_file)
     report = {
         "gate_id": "GATE-LICENSE-001",
         "revision": args.revision,
