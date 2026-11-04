@@ -7,6 +7,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import com.vvf.smartmanager.core.background.BackgroundConstants
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -83,7 +84,7 @@ class IndexingAndOcrCoordinatorWorker(
 
     companion object {
         private const val TAG = "IndexingOcrCoordinator"
-        private const val IMMEDIATE_OCR_WORK = "immediate_ocr"
+        private const val IMMEDIATE_OCR_WORK = BackgroundConstants.UNIQUE_IMMEDIATE_OCR_BATCH_WORK
         private const val MAX_ATTEMPTS = 3
     }
 }
