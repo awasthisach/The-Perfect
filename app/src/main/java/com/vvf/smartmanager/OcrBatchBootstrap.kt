@@ -42,7 +42,17 @@ object OcrBatchBootstrap {
                         isDirectory = entity.isDirectory,
                         mimeType = entity.mimeType
                     )
-                    val extraction = ocrEngine.extractText(item, OcrOptions(), null)
+                    val extraction = try {
+                        ocrEngine.extractText(item, OcrOptions(), null)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        // Engines may throw instead of returning Result.failure(). Defer this
+                        // file before continuing so it cannot monopolize every future batch.
+                        deferCandidate(fileDao, item.path)
+                        failures += "${item.name}: extraction threw (${error.message ?: "unknown error"})"
+                        continue
+                    }
                     val extractionError = extraction.exceptionOrNull()
                     if (extractionError != null) {
                         if (extractionError is CancellationException) throw extractionError
@@ -51,7 +61,15 @@ object OcrBatchBootstrap {
                         continue
                     }
                     val ocr = extraction.getOrThrow()
-                    val indexing = ocrIndexingService.indexOcrResult(item, ocr)
+                    val indexing = try {
+                        ocrIndexingService.indexOcrResult(item, ocr)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        deferCandidate(fileDao, item.path)
+                        failures += "${item.name}: indexing threw (${error.message ?: "unknown error"})"
+                        continue
+                    }
                     val indexingError = indexing.exceptionOrNull()
                     if (indexingError != null) {
                         if (indexingError is CancellationException) throw indexingError
