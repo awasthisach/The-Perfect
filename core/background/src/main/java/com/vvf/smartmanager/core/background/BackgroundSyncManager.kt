@@ -13,6 +13,7 @@ import androidx.work.WorkManager
 import com.vvf.smartmanager.core.background.workers.CloudBackupWorker
 import com.vvf.smartmanager.core.background.workers.FileIndexingWorker
 import com.vvf.smartmanager.core.background.workers.JunkScanWorker
+import com.vvf.smartmanager.core.background.workers.IndexingAndOcrCoordinatorWorker
 import com.vvf.smartmanager.core.background.workers.OcrBatchWorker
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -210,7 +211,7 @@ class BackgroundSyncManager(private val context: Context) {
         // Storage rescans merge current tags transactionally in FileDao.
         wm.enqueueUniqueWork(
             BackgroundConstants.UNIQUE_IMMEDIATE_OCR_BATCH_WORK,
-            ExistingWorkPolicy.KEEP,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
             request
         )
     }
