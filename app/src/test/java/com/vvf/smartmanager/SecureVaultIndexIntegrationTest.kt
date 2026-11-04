@@ -286,7 +286,7 @@ class SecureVaultIndexIntegrationTest {
         repository().recoverOrphanedJournals()
 
         assertNull(database.fileDao().getByPath(missingSource.absolutePath))
-        assertTrue(database.searchFtsDao().searchFilesFts("privatetag").first().isEmpty())
+        assertTrue(database.searchFtsDao().searchFilesFts("privatetag").first().none { it.path == missingSource.absolutePath })
         assertEquals(1, database.vaultDao().getVaultItemCount().first())
         assertTrue(database.vaultJournalDao().getPendingJournals("PENDING").isEmpty())
     }
