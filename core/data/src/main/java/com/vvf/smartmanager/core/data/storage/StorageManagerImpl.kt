@@ -257,7 +257,7 @@ open class StorageManagerImpl(
                     visit(child)
                 } else {
                     val childCanonicalPath = try {
-                        child.canonicalPath
+                        canonicalPath(child)
                     } catch (_: Exception) {
                         // A file that cannot be canonicalized is skipped; directory enumeration
                         // itself remains complete.
