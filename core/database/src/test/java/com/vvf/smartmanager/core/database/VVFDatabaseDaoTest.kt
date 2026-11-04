@@ -218,14 +218,14 @@ class VVFDatabaseDaoTest {
             FileMetadataEntity(
                 path = base + "deferred.jpg", name = "deferred.jpg", parentPath = base,
                 sizeBytes = 100L, mimeType = "image/jpeg", isDirectory = false,
-                modifiedDate = 2000L, tags = "ocr_retry_after:2000"
+                modifiedDate = 2000L, tags = "", ocrRetryAfterEpochMillis = 2000L, ocrRetryAttempt = 1
             )
         )
         fileDao.insertOrUpdate(
             FileMetadataEntity(
                 path = base + "retry_due.jpg", name = "retry_due.jpg", parentPath = base,
                 sizeBytes = 100L, mimeType = "image/jpeg", isDirectory = false,
-                modifiedDate = 1000L, tags = "ocr_retry_after:500"
+                modifiedDate = 1000L, tags = "", ocrRetryAfterEpochMillis = 500L, ocrRetryAttempt = 2
             )
         )
         fileDao.insertOrUpdate(
