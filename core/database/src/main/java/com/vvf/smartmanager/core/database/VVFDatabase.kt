@@ -30,7 +30,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         VaultJournalEntity::class,
         CloudSyncEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 abstract class VVFDatabase : RoomDatabase() {
@@ -62,6 +62,46 @@ abstract class VVFDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Move worker retry bookkeeping out of user tags. Existing exact internal marker tokens
+         * are migrated; similarly named user tags are left untouched.
+         */
+        val MIGRATION_2_3: Migration = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE file_metadata ADD COLUMN ocrRetryAfterEpochMillis INTEGER"
+                )
+                db.execSQL(
+                    "ALTER TABLE file_metadata ADD COLUMN ocrRetryAttempt INTEGER NOT NULL DEFAULT 0"
+                )
+
+                db.query(
+                    "SELECT id, tags FROM file_metadata " +
+                        "WHERE instr(',' || replace(lower(tags), ' ', '') || ',', ',ocr_retry_after:') > 0"
+                ).use { cursor ->
+                    val update = db.compileStatement(
+                        "UPDATE file_metadata SET tags = ?, ocrRetryAfterEpochMillis = ?, " +
+                            "ocrRetryAttempt = ? WHERE id = ?"
+                    )
+                    while (cursor.moveToNext()) {
+                        val parsed = parseLegacyOcrRetryMetadata(cursor.getString(1).orEmpty())
+                        if (!parsed.hadInternalMarker) continue
+
+                        update.clearBindings()
+                        update.bindString(1, parsed.visibleTags)
+                        if (parsed.retryAfterEpochMillis == null) {
+                            update.bindNull(2)
+                        } else {
+                            update.bindLong(2, parsed.retryAfterEpochMillis)
+                        }
+                        update.bindLong(3, parsed.retryAttempt.toLong())
+                        update.bindLong(4, cursor.getLong(0))
+                        update.executeUpdateDelete()
+                    }
+                }
+            }
+        }
+
         /** Builds an encrypted SQLCipher Room database using the decrypted Keystore passphrase. */
         fun buildEncryptedDatabase(context: Context, passphrase: ByteArray): VVFDatabase {
             require(passphrase.size == 32) { "SQLCipher database passphrase must be exactly 32 bytes" }
@@ -76,7 +116,7 @@ abstract class VVFDatabase : RoomDatabase() {
                 DATABASE_NAME
             )
                 .openHelperFactory(openHelperFactory)
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
         }
 
