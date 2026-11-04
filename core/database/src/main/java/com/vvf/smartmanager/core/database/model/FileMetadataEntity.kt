@@ -1,5 +1,6 @@
 package com.vvf.smartmanager.core.database.model
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -39,5 +40,5 @@ data class FileMetadataEntity(
     val md5Hash: String? = null, // For Level 2 duplicate detection
     val operationState: String = "IDLE", // To support DurableOperationState tests
     val ocrRetryAfterEpochMillis: Long? = null,
-    val ocrRetryAttempt: Int = 0
+    @ColumnInfo(defaultValue = "0") val ocrRetryAttempt: Int = 0
 )
