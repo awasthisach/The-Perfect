@@ -132,7 +132,6 @@ class PrimaryStorageIndexReconcilerTest {
                 },
                 onWarning = {},
                 onInfo = {}
-                }
             )
         }
 
