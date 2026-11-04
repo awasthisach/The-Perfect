@@ -109,7 +109,7 @@ open class StorageManagerImpl(
         false
     }
 
-    fun getPrimaryStoragePath(): String = try {
+    open fun getPrimaryStoragePath(): String = try {
         Environment.getExternalStorageDirectory().absolutePath
     } catch (_: Exception) {
         context.getExternalFilesDir(null)?.absolutePath ?: context.filesDir.absolutePath
@@ -168,14 +168,24 @@ open class StorageManagerImpl(
      * A bounded inventory scan that reports whether every eligible directory was enumerated.
      * A partial or inaccessible traversal must never be used as evidence that missing rows are stale.
      */
+    protected open fun pathExists(file: File): Boolean = file.exists()
+
+    protected open fun isDirectory(file: File): Boolean = file.isDirectory
+
+    protected open fun canReadPath(file: File): Boolean = file.canRead()
+
+    protected open fun canonicalPath(file: File): String = file.canonicalPath
+
+    protected open fun listDirectoryChildren(directory: File): Array<File>? = directory.listFiles()
+
     fun collectPrimaryStorageScan(maxItems: Int = 10_000): PrimaryStorageScanResult {
         require(maxItems > 0) { "maxItems must be positive" }
         val root = File(getPrimaryStoragePath())
         val files = mutableListOf<File>()
-        val rootAccessible = root.exists() && root.isDirectory && root.canRead()
+        val rootAccessible = pathExists(root) && isDirectory(root) && canReadPath(root)
         var complete = rootAccessible
         val rootCanonicalPath = try {
-            root.canonicalPath
+            canonicalPath(root)
         } catch (_: Exception) {
             complete = false
             ""
@@ -194,7 +204,7 @@ open class StorageManagerImpl(
                 return
             }
             val canonicalPath = try {
-                directory.canonicalPath
+                canonicalPath(directory)
             } catch (_: Exception) {
                 complete = false
                 return
@@ -210,7 +220,7 @@ open class StorageManagerImpl(
             }
 
             val children = try {
-                directory.listFiles()
+                listDirectoryChildren(directory)
             } catch (_: SecurityException) {
                 null
             }
@@ -226,19 +236,19 @@ open class StorageManagerImpl(
                 }
                 // Entries that disappeared during enumeration and dangling symlinks are skipped.
                 // Their paths were observed; they do not prevent traversal of later siblings.
-                if (!child.exists()) continue
+                if (!pathExists(child)) continue
 
-                if (child.isDirectory) {
+                if (isDirectory(child)) {
                     // These roots are intentionally excluded from the app's primary inventory.
                     if (child.name == "Android" || child.name.startsWith(".")) continue
                     val childCanonicalPath = try {
-                        child.canonicalPath
+                        canonicalPath(child)
                     } catch (_: Exception) {
                         complete = false
                         continue
                     }
                     if (!isWithinRoot(childCanonicalPath)) continue
-                    if (!child.canRead()) {
+                    if (!canReadPath(child)) {
                         // This directory's contents could not be enumerated, but keep scanning
                         // other accessible siblings.
                         complete = false
