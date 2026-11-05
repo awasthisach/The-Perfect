@@ -24,7 +24,6 @@ import com.vvf.smartmanager.core.data.repository.SecureVaultRepository
 import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
 import com.vvf.smartmanager.core.data.storage.StorageManager
 import com.vvf.smartmanager.core.database.VVFDatabase
-import com.vvf.smartmanager.core.database.model.FileMetadataEntity
 import com.vvf.smartmanager.core.domain.AiIntelligenceUseCase
 import com.vvf.smartmanager.core.domain.backup.ArchiveService
 import com.vvf.smartmanager.core.domain.CloudSyncUseCase
@@ -66,6 +65,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import java.io.File
 
 class VVFApplication : Application(), Configuration.Provider {
@@ -202,8 +202,24 @@ class VVFApplication : Application(), Configuration.Provider {
             vaultDao = database.vaultDao(),
             cryptoManager = cryptoSecurityManager,
             vaultDirectory = vaultDir,
-            vaultJournalDao = database.vaultJournalDao()
+            vaultJournalDao = database.vaultJournalDao(),
+            fileDao = database.fileDao()
         )
+        if (!jvmUnitTest) {
+            // Resolve interrupted vault operations before exposing ordinary search/index state.
+            val recoveredJournals = runBlocking(Dispatchers.IO) {
+                vaultRepository.recoverOrphanedJournals()
+            }
+            if (recoveredJournals > 0) {
+                Log.i(TAG, "Reconciled $recoveredJournals interrupted vault journal operation(s)")
+            }
+            val removedVaultSearchRows = runBlocking(Dispatchers.IO) {
+                vaultRepository.reconcileVaultedSourceMetadata()
+            }
+            if (removedVaultSearchRows > 0) {
+                Log.i(TAG, "Removed $removedVaultSearchRows stale search row(s) for vaulted sources")
+            }
+        }
         searchRepository = OfflineSearchRepository(
             context = this,
             searchFtsDao = database.searchFtsDao(),
@@ -379,52 +395,19 @@ class VVFApplication : Application(), Configuration.Provider {
         if (!access.canBrowsePrimaryTree) {
             return FileIndexingOutcome.PermissionRequired(access.userMessageKey)
         }
-        return try {
-            val fileDao = database.fileDao()
-            val existingByPath = fileDao.getIndexedPathSnapshot().associateBy { it.path }
-            val scannedItems = storageManager.collectPrimaryStorageItems()
-            val scannedPaths = scannedItems.map { it.path }.toHashSet()
-            val metadata = scannedItems.map { item ->
-                val existing = existingByPath[item.path]
-                FileMetadataEntity(
-                    id = existing?.id ?: 0L,
-                    path = item.path,
-                    name = item.name,
-                    parentPath = java.io.File(item.path).parent.orEmpty(),
-                    sizeBytes = item.sizeBytes,
-                    mimeType = item.mimeType ?: "inode/directory",
-                    isDirectory = item.isDirectory,
-                    modifiedDate = item.lastModified,
-                    isFavorite = existing?.isFavorite ?: false,
-                    isTrash = existing?.isTrash ?: false,
-                    originalPath = existing?.originalPath,
-                    deletedTimestamp = existing?.deletedTimestamp,
-                    tags = existing?.tags.orEmpty(),
-                    md5Hash = existing?.md5Hash,
-                    operationState = existing?.operationState ?: "IDLE"
-                )
-            }
-            val stalePaths = existingByPath.keys.filter { path -> path !in scannedPaths }
-            var staleRemoved = 0
-            if (stalePaths.isNotEmpty()) {
-                stalePaths.chunked(400).forEach { chunk -> fileDao.deleteStaleByPaths(chunk) }
-                staleRemoved = stalePaths.size
-                Log.i(TAG, "Removed $staleRemoved stale index row(s)")
-            }
-            if (metadata.isNotEmpty()) {
-                metadata.chunked(400).forEach { chunk -> fileDao.insertAll(chunk) }
-            }
-            if (metadata.isNotEmpty() || staleRemoved > 0) {
-                database.searchFtsDao().rebuildFtsIndex()
-            }
-            FileIndexingOutcome.Completed(metadata.size)
-        } catch (securityError: SecurityException) {
-            FileIndexingOutcome.PermissionRequired(securityError.message ?: "storage access was revoked")
-        } catch (ioError: java.io.IOException) {
-            FileIndexingOutcome.RetryableFailure(ioError.message ?: "storage I/O failed")
-        } catch (error: Throwable) {
-            Log.e(TAG, "Storage indexing failed", error)
-            FileIndexingOutcome.PermanentFailure(error.message ?: "unexpected indexing failure")
+        return mapFileIndexingOutcome(
+            onUnexpectedError = { Log.e(TAG, "Storage indexing failed", it) }
+        ) {
+            val scan = storageManager.collectPrimaryStorageScan(
+                maxItems = PRIMARY_STORAGE_INDEX_LIMIT
+            )
+            reconcilePrimaryStorageIndex(
+                scan = scan,
+                fileDao = database.fileDao(),
+                searchFtsDao = database.searchFtsDao(),
+                onWarning = { Log.w(TAG, it) },
+                onInfo = { Log.i(TAG, it) }
+            )
         }
     }
 
