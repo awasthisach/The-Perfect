@@ -9,8 +9,8 @@ import com.vvf.smartmanager.core.model.SemanticSearchResult
 import com.vvf.smartmanager.core.plugin.spi.ISemanticSearchEngine
 
 /**
- * UseCase to execute On-Device Semantic AI Search over indexed files and tags.
- * Bounded candidate set prevents lag/OOM when library is large.
+ * Runs deterministic on-device hashed text-similarity ranking over indexed file names and tags.
+ * This is a heuristic projection, not a learned embedding model. Bounded candidates prevent lag/OOM.
  */
 class SemanticSearchUseCase(
     private val semanticPlugin: ISemanticSearchEngine,
@@ -19,6 +19,7 @@ class SemanticSearchUseCase(
 ) {
     fun isPluginReady(): Boolean = semanticPlugin.isModelReady()
 
+    /** Legacy compatibility hook; initializes the built-in engine and does not download a model. */
     suspend fun downloadPluginModel(onProgress: (Float) -> Unit = {}): Boolean {
         return semanticPlugin.downloadModel(onProgress)
     }
