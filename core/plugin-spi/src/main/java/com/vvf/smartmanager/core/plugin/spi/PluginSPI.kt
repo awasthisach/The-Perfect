@@ -11,7 +11,7 @@ interface OcrPluginSPI : IOcrEngine {
 
 /** Service Provider Interface for local on-device semantic search. */
 interface SemanticSearchSPI : ISemanticSearchEngine {
-    override val pluginId: String get() = "plugin.semantic.tflite"
+    override val pluginId: String get() = "plugin.semantic.hashed-text-similarity"
     override val version: String get() = "1.0.0"
 }
 

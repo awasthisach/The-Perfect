@@ -197,4 +197,79 @@ class VVFDatabaseDaoTest {
         val updated = searchFtsDao.searchByTag("vvf_confidential").first()
         assertEquals(1, updated.size)
     }
+    @Test
+    fun ocrCandidateQuerySkipsCompletedAndDeferredFilesButRetriesDueFiles() = runBlocking {
+        val base = "/storage/emulated/0/Pictures/"
+        fileDao.insertOrUpdate(
+            FileMetadataEntity(
+                path = base + "eligible.jpg", name = "eligible.jpg", parentPath = base,
+                sizeBytes = 100L, mimeType = "image/jpeg", isDirectory = false,
+                modifiedDate = 4000L, tags = ""
+            )
+        )
+        fileDao.insertOrUpdate(
+            FileMetadataEntity(
+                path = base + "completed.jpg", name = "completed.jpg", parentPath = base,
+                sizeBytes = 100L, mimeType = "image/jpeg", isDirectory = false,
+                modifiedDate = 3000L, tags = "ocr"
+            )
+        )
+        fileDao.insertOrUpdate(
+            FileMetadataEntity(
+                path = base + "deferred.jpg", name = "deferred.jpg", parentPath = base,
+                sizeBytes = 100L, mimeType = "image/jpeg", isDirectory = false,
+                modifiedDate = 2000L, tags = "", ocrRetryAfterEpochMillis = 2000L, ocrRetryAttempt = 1
+            )
+        )
+        fileDao.insertOrUpdate(
+            FileMetadataEntity(
+                path = base + "retry_due.jpg", name = "retry_due.jpg", parentPath = base,
+                sizeBytes = 100L, mimeType = "image/jpeg", isDirectory = false,
+                modifiedDate = 1000L, tags = "", ocrRetryAfterEpochMillis = 500L, ocrRetryAttempt = 2
+            )
+        )
+        fileDao.insertOrUpdate(
+            FileMetadataEntity(
+                path = base + "user_tag_contains_marker.jpg",
+                name = "user_tag_contains_marker.jpg", parentPath = base,
+                sizeBytes = 100L, mimeType = "image/jpeg", isDirectory = false,
+                modifiedDate = 500L, tags = "myocr_retry_after:9999999999999"
+            )
+        )
+
+        val candidates = fileDao.getOcrCandidates(limit = 40, nowEpochMillis = 1000L).first()
+
+        assertEquals(
+            setOf("eligible.jpg", "retry_due.jpg", "user_tag_contains_marker.jpg"),
+            candidates.map { it.name }.toSet()
+        )
+    }
+
+    @Test
+    fun indexRescanPreservesLatestUserAndOcrMetadata() = runBlocking {
+        val path = "/storage/emulated/0/Pictures/scan_race.jpg"
+        fileDao.insertOrUpdate(
+            FileMetadataEntity(
+                path = path, name = "scan_race.jpg", parentPath = "/storage/emulated/0/Pictures",
+                sizeBytes = 100L, mimeType = "image/jpeg", isDirectory = false,
+                modifiedDate = 1000L, isFavorite = true, tags = "ocr,invoice",
+                operationState = "IN_PROGRESS"
+            )
+        )
+        val staleScanSnapshot = FileMetadataEntity(
+            path = path, name = "scan_race.jpg", parentPath = "/storage/emulated/0/Pictures",
+            sizeBytes = 120L, mimeType = "image/jpeg", isDirectory = false,
+            modifiedDate = 2000L, isFavorite = false, tags = "", operationState = "IDLE"
+        )
+
+        fileDao.insertAllPreservingLatestMetadata(listOf(staleScanSnapshot))
+
+        val updated = fileDao.getByPath(path)
+        assertEquals("ocr,invoice", updated?.tags)
+        assertEquals(true, updated?.isFavorite)
+        assertEquals("IN_PROGRESS", updated?.operationState)
+        assertEquals(120L, updated?.sizeBytes)
+    }
+
+
 }

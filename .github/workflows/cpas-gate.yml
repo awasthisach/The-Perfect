@@ -52,21 +52,23 @@ jobs:
 
           status=$(python3 -c 'import json; print(json.load(open("cpas-status.json"))["production_status"]["value"])')
           blockers=$(python3 -c 'import json; print(",".join(json.load(open("cpas-status.json")).get("blocking_findings") or []) or "none")')
+          failed_checks=$(python3 -c 'import json; d=json.load(open("cpas-status.json")); print(",".join(c["name"] for c in d.get("checks", []) if c.get("status") != "PASS") or "none")')
           echo "production_status=$status" >> "$GITHUB_OUTPUT"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           echo "blockers=$blockers" >> "$GITHUB_OUTPUT"
+          echo "failed_checks=$failed_checks" >> "$GITHUB_OUTPUT"
 
-          if [ "$status" = "PASS" ]; then
+          if [ "$status" = "PASS" ] && [ "$code" -eq 0 ]; then
             echo "CPAS production_status=PASS"
             exit 0
           fi
 
           if [ "$status" = "BLOCKED" ]; then
-            echo "::warning::CPAS production_status=BLOCKED (fail-closed). blockers=${blockers}. See cpas-status artifact. Release promotion still requires PASS."
-            exit 0
+            echo "::error::CPAS production_status=BLOCKED. blockers=${blockers}; failed_checks=${failed_checks}. See cpas-status artifact. Release promotion still requires PASS."
+            exit 1
           fi
 
-          echo "::error::Unexpected CPAS status=${status} exit_code=${code}"
+          echo "::error::CPAS status/code mismatch or unexpected status=${status} exit_code=${code}; failed_checks=${failed_checks}"
           exit 1
 
       - name: Upload computed CPAS status
