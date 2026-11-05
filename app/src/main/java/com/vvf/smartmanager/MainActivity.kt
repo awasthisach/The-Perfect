@@ -3,10 +3,13 @@ package com.vvf.smartmanager
 import android.app.Activity
 import android.content.Intent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.biometric.BiometricManager
 import androidx.lifecycle.lifecycleScope
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
 import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import android.os.Bundle
 import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
@@ -285,6 +288,7 @@ private fun VVFNavHost(
     onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     NavHost(
         navController = navController,
         startDestination = TopLevelDestination.EXPLORER.route,
@@ -381,6 +385,30 @@ private fun VVFNavHost(
         }
         composable(TopLevelDestination.SETTINGS.route) {
             SettingsScreen(
+                initialBiometricEnabled = app.vaultAuthUseCase.isBiometricEnabled(),
+                onBiometricEnabledChange = { enabled, pin ->
+                    if (!enabled) {
+                        app.vaultAuthUseCase.setBiometricEnabled(false)
+                        true
+                    } else {
+                        val strongBiometricAvailable =
+                            BiometricManager.from(context).canAuthenticate(
+                                BiometricManager.Authenticators.BIOMETRIC_STRONG
+                            ) == BiometricManager.BIOMETRIC_SUCCESS
+                        val vaultConfigured = app.vaultAuthUseCase.isVaultConfigured()
+                        val enrollmentAuthorized = strongBiometricAvailable && vaultConfigured &&
+                            pin != null && withContext(Dispatchers.IO) {
+                                app.vaultAuthUseCase.verifyPin(pin) &&
+                                    app.vaultAuthUseCase.createVaultBiometricCipher() != null
+                            }
+                        if (canEnableBiometricVault(strongBiometricAvailable, enrollmentAuthorized)) {
+                            app.vaultAuthUseCase.setBiometricEnabled(true)
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                },
                 initialAutoIndexOcr = app.isAutoIndexOcrEnabled(),
                 onAutoIndexOcrChange = { enabled -> app.setAutoIndexOcrEnabled(enabled) },
                 initialOfflineOnlyMode = app.isOfflineOnlyModeEnabled(),
