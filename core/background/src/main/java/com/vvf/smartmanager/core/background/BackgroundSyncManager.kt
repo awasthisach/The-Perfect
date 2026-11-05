@@ -13,6 +13,7 @@ import androidx.work.WorkManager
 import com.vvf.smartmanager.core.background.workers.CloudBackupWorker
 import com.vvf.smartmanager.core.background.workers.FileIndexingWorker
 import com.vvf.smartmanager.core.background.workers.JunkScanWorker
+import com.vvf.smartmanager.core.background.workers.IndexingAndOcrCoordinatorWorker
 import com.vvf.smartmanager.core.background.workers.OcrBatchWorker
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -128,7 +129,25 @@ class BackgroundSyncManager(private val context: Context) {
 
         wm.enqueueUniqueWork(
             "immediate_indexing",
-            ExistingWorkPolicy.REPLACE,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
+            request
+        )
+    }
+
+    /**
+     * Run a fresh storage scan and then independently enqueue OCR.
+     * The coordinator schedules OCR even if indexing fails, so existing indexed files remain
+     * eligible for OCR. APPEND_OR_REPLACE preserves a permission-rescan request if older work
+     * is running or in backoff instead of silently dropping it with KEEP.
+     */
+    fun triggerImmediateIndexingThenOcr() {
+        val wm = workManager ?: return
+        val request = OneTimeWorkRequestBuilder<IndexingAndOcrCoordinatorWorker>()
+            .addTag("immediate_indexing_then_ocr")
+            .build()
+        wm.enqueueUniqueWork(
+            "immediate_indexing_then_ocr",
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
             request
         )
     }
@@ -155,6 +174,30 @@ class BackgroundSyncManager(private val context: Context) {
     }
 
     /**
+     * Schedule OCR retries and remaining candidate batches. The runtime checks the user's
+     * opt-in setting before touching any file, so this schedule is safe while OCR is disabled.
+     */
+    fun schedulePeriodicOcrBatch(intervalHours: Long = 6L) {
+        val wm = workManager ?: return
+        val constraints = Constraints.Builder()
+            .setRequiresBatteryNotLow(true)
+            .setRequiresStorageNotLow(true)
+            .build()
+        val request = PeriodicWorkRequestBuilder<OcrBatchWorker>(
+            intervalHours, TimeUnit.HOURS,
+            1, TimeUnit.HOURS
+        )
+            .setConstraints(constraints)
+            .addTag(BackgroundConstants.UNIQUE_OCR_BATCH_WORK)
+            .build()
+        wm.enqueueUniquePeriodicWork(
+            BackgroundConstants.UNIQUE_OCR_BATCH_WORK,
+            ExistingPeriodicWorkPolicy.KEEP,
+            request
+        )
+    }
+
+    /**
      * Trigger immediate OCR batch processing pass.
      */
     fun triggerImmediateOcrBatch() {
@@ -163,7 +206,14 @@ class BackgroundSyncManager(private val context: Context) {
             .addTag("immediate_ocr")
             .build()
 
-        wm.enqueue(request)
+        // OCR has its own unique identity: duplicate startup/settings triggers collapse,
+        // and OCR no longer depends on the success state of the storage-indexing chain.
+        // Storage rescans merge current tags transactionally in FileDao.
+        wm.enqueueUniqueWork(
+            BackgroundConstants.UNIQUE_IMMEDIATE_OCR_BATCH_WORK,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
+            request
+        )
     }
 
     /**
