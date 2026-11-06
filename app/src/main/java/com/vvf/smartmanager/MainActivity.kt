@@ -18,6 +18,8 @@ import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,6 +31,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -40,8 +43,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -155,6 +160,37 @@ fun VVFAppContent(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val app = context.applicationContext as VVFApplication
+    val startupState by app.startupReadiness.state.collectAsState()
+
+    if (startupState != StartupState.Ready) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                when (val state = startupState) {
+                    StartupState.Initializing -> {
+                        CircularProgressIndicator()
+                        Text("Preparing secure storage…", modifier = Modifier.padding(top = 16.dp))
+                    }
+                    StartupState.Recovering -> {
+                        CircularProgressIndicator()
+                        Text("Recovering vault and search metadata…", modifier = Modifier.padding(top = 16.dp))
+                    }
+                    is StartupState.Failed -> {
+                        Text(
+                            "Secure startup failed. Vault, search, and indexing remain disabled.",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        Text(state.reason, modifier = Modifier.padding(top = 8.dp))
+                    }
+                    StartupState.Ready -> Unit
+                }
+            }
+        }
+        return
+    }
 
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
