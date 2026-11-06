@@ -151,8 +151,8 @@ class VVFApplication : Application(), Configuration.Provider {
 
     private suspend fun initializeApplication(markRecovering: () -> Unit) {
         kotlinx.coroutines.withContext(Dispatchers.IO) {
-        cryptoSecurityManager = CryptoSecurityManager(this)
-        val jvmUnitTest = CryptoSecurityManager.isJvmUnitTestEnvironment(this)
+        cryptoSecurityManager = CryptoSecurityManager(this@VVFApplication)
+        val jvmUnitTest = CryptoSecurityManager.isJvmUnitTestEnvironment(this@VVFApplication)
         // Remove orphaned plaintext staging even if recovery subsequently fails closed.
         cleanupStalePlaintextBackupStaging()
         if (!jvmUnitTest) {
@@ -175,7 +175,7 @@ class VVFApplication : Application(), Configuration.Provider {
         }
         // Play Integrity App Check is device/Play-only; skip on JVM unit tests (Robolectric).
         if (!jvmUnitTest) {
-            val firebaseApp = FirebaseApp.initializeApp(this)
+            val firebaseApp = FirebaseApp.initializeApp(this@VVFApplication)
             if (firebaseApp == null) {
                 // Offline/local builds may intentionally omit production Firebase config.
                 // Keep local vault/file functionality available; protected cloud calls must
@@ -188,14 +188,14 @@ class VVFApplication : Application(), Configuration.Provider {
             }
         }
         if (jvmUnitTest) {
-            database = VVFDatabase.buildInMemoryDatabase(this)
+            database = VVFDatabase.buildInMemoryDatabase(this@VVFApplication)
             Log.i(TAG, "JVM unit-test environment: using in-memory Room database")
         } else {
             // SQLCipher's native core must be loaded before encrypted Room initialization.
             System.loadLibrary("sqlcipher")
             val passphrase = cryptoSecurityManager.getOrCreateDatabasePassphrase()
             try {
-                database = VVFDatabase.buildEncryptedDatabase(this, passphrase)
+                database = VVFDatabase.buildEncryptedDatabase(this@VVFApplication, passphrase)
             } catch (e: Exception) {
                 throw IllegalStateException(
                     "Secure database initialization failed: Failed to construct encrypted SQLCipher database",
@@ -208,9 +208,9 @@ class VVFApplication : Application(), Configuration.Provider {
         // Open Room on the IO initializer thread so migrations complete before repositories exist.
         database.openHelper.writableDatabase
 
-        storageManager = StorageManager(this, database.fileDao())
+        storageManager = StorageManager(this@VVFApplication, database.fileDao())
         fileManagerRepository = AppCompositionRoot.offlineFileManagerRepository(
-            context = this,
+            context = this@VVFApplication,
             storageManager = storageManager,
             fileDao = database.fileDao(),
             searchFtsDao = database.searchFtsDao()
@@ -238,14 +238,14 @@ class VVFApplication : Application(), Configuration.Provider {
             }
         }
         searchRepository = OfflineSearchRepository(
-            context = this,
+            context = this@VVFApplication,
             searchFtsDao = database.searchFtsDao(),
             fileDao = database.fileDao(),
             storageManager = storageManager,
             cryptoSecurityManager = cryptoSecurityManager,
             awaitStartupReady = startupReadiness::awaitReady
         )
-        ocrPlugin = OcrPluginImpl(this)
+        ocrPlugin = OcrPluginImpl(this@VVFApplication)
         getStorageOverviewUseCase = GetStorageOverviewUseCase(fileManagerRepository)
         getDirectoryFilesUseCase = GetDirectoryFilesUseCase(fileManagerRepository)
         getCategorizedFilesUseCase = GetCategorizedFilesUseCase(fileManagerRepository)
@@ -281,7 +281,7 @@ class VVFApplication : Application(), Configuration.Provider {
             fileManagerRepository = fileManagerRepository,
             searchRepository = searchRepository
         )
-        googleDriveService = GoogleDriveServiceImpl(this)
+        googleDriveService = GoogleDriveServiceImpl(this@VVFApplication)
         val cloudDrivers = mapOf(
             CloudProviderType.ONE_DRIVE to OneDriveDriverImpl(),
             CloudProviderType.DROPBOX to DropboxDriverImpl(),
@@ -311,7 +311,7 @@ class VVFApplication : Application(), Configuration.Provider {
             cryptoSecurityManager = cryptoSecurityManager
         )
         cloudSyncUseCase = AppCompositionRoot.cloudSyncUseCase(
-            context = this,
+            context = this@VVFApplication,
             googleDriveService = googleDriveService,
             pluginDrivers = cloudDrivers,
             archiveService = archiveService,
@@ -329,7 +329,7 @@ class VVFApplication : Application(), Configuration.Provider {
             cloudSyncDao = database.cloudSyncDao(),
             onRestoreFinished = { restartIfRestoreClosedDatabase() }
         )
-        backgroundSyncManager = BackgroundSyncManager(this)
+        backgroundSyncManager = BackgroundSyncManager(this@VVFApplication)
         FileIndexingRuntime.configure { startupReadiness.awaitReady(); indexPrimaryStorageForSearch() }
         JunkScanBootstrap.wire(junkCleanerUseCase, awaitReady = startupReadiness::awaitReady)
         OcrBatchBootstrap.wire(
