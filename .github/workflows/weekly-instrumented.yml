@@ -46,10 +46,22 @@ jobs:
 
       - name: Install SDK components
         run: |
-          # Accept all licenses first to prevent interactive prompts
-          yes | sdkmanager --licenses || true
-          # Install required components without the 'yes' pipe
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+          set -euo pipefail
+          # License acceptance is the only sdkmanager command piped through yes.
+          yes | sdkmanager --licenses
+
+          installed=false
+          for attempt in 1 2 3; do
+            if sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"; then
+              installed=true
+              break
+            fi
+            echo "::warning::Android SDK installation attempt ${attempt}/3 failed."
+          done
+          if [ "$installed" != "true" ]; then
+            echo "::error::Android SDK installation failed after 3 attempts."
+            exit 1
+          fi
           test -d "$ANDROID_HOME/system-images/android-35/google_apis/x86_64"
 
 
