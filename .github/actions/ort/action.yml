@@ -327,11 +327,11 @@ runs:
         # Persist only the ORT inputs and derived paths this composite action needs.
         # Never dump the runner environment: it also contains GitHub runtime credentials.
         for name in \
-          HTTP_FILE_SERVER_PASSWORD HTTP_FILE_SERVER_TOKEN HTTP_FILE_SERVER_URL HTTP_FILE_SERVER_USERNAME \
+          HTTP_FILE_SERVER_URL \
           ORT_CLI_ARGS ORT_CLI_ANALYZE_ARGS ORT_CLI_SCAN_ARGS ORT_CLI_EVALUATE_ARGS \
           ORT_CLI_ADVISE_ARGS ORT_CLI_REPORT_ARGS ORT_CONFIG_PATH ORT_DOCKER_CLI_ARGS \
           ORT_DOCKER_IMAGE ORT_HOME_PATH ORT_LOG_LEVEL ORT_RUN_COMMANDS ORT_YML_PATH \
-          PROJECT_PATH SW_NAME SW_VERSION POSTGRES_PASSWORD POSTGRES_URL POSTGRES_USERNAME \
+          PROJECT_PATH SW_NAME SW_VERSION \
           ORT_JDK_JAVA_OPTIONS ORT_RESULTS_PATH ORT_RESULTS_ADVISOR_PATH ORT_RESULTS_ANALYZER_PATH \
           ORT_RESULTS_CURRENT_PATH ORT_RESULTS_EVALUATED_MODEL_PATH ORT_RESULTS_EVALUATOR_PATH \
           ORT_RESULTS_HTML_REPORT_PATH ORT_RESULTS_SCANNER_PATH ORT_RESULTS_SBOM_CYCLONE_XML_PATH \
@@ -371,7 +371,9 @@ runs:
         echo "ORT_CONFIG_VCS_REVISION: ${ORT_CONFIG_VCS_REVISION}"
         # Only the immutable revision is needed by later ORT labels. Do not
         # persist or log a remote URL, which could contain embedded credentials.
+        ORT_CONFIG_VCS_URL="$(git config remote.origin.url | sed -E 's#(https?://)[^/@]+@#\\1#')"
         ORT_CONFIG_VCS_REVISION="$(git rev-parse HEAD)"
+        printf 'ORT_CONFIG_VCS_URL=%s\n' "$ORT_CONFIG_VCS_URL" >> "$GITHUB_ENV"
         printf 'ORT_CONFIG_VCS_REVISION=%s\n' "$ORT_CONFIG_VCS_REVISION" >> "$GITHUB_ENV"
     - name: Compute ORT labels
       id: ort-labels
@@ -599,6 +601,10 @@ runs:
       env:
         ORT_REPORT_FORMATS: ${{ inputs.report-formats }}
         SW_NAME: ${{ inputs.sw-name }}
+        # Database credentials are required only by the reporter.
+        POSTGRES_URL: ${{ inputs.db-url }}
+        POSTGRES_USERNAME: ${{ inputs.db-username }}
+        POSTGRES_PASSWORD: ${{ inputs.db-password }}
       if: contains(inputs.run, 'reporter')
       run: |
         echo -e "\e[1;33m Running ORT Reporter... "
