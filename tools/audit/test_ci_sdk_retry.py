@@ -15,14 +15,14 @@ class AndroidSdkRetryTest(unittest.TestCase):
             return textwrap.dedent(step.split("        run: |\n", 1)[1])
         return step.split("        run: ", 1)[1].strip()
 
-    def _run(self, succeed_at, script=None):
+    def _run(self, succeed_at, script=None, license_exit=0):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)
             command = path / "sdkmanager"
-            command.write_text("#!/usr/bin/env python3\nimport os, sys\nfrom pathlib import Path\nif '--licenses' in sys.argv: raise SystemExit(0)\np=Path(os.environ['SDK_COUNTER'])\nn=int(p.read_text())+1 if p.exists() else 1\np.write_text(str(n))\nthreshold=int(os.environ['SDK_SUCCEED_AT'])\nraise SystemExit(0 if threshold > 0 and n >= threshold else 1)\n")
+            command.write_text("#!/usr/bin/env python3\nimport os, sys\nfrom pathlib import Path\nif '--licenses' in sys.argv: raise SystemExit(int(os.environ['SDK_LICENSE_EXIT_CODE']))\np=Path(os.environ['SDK_COUNTER'])\nn=int(p.read_text())+1 if p.exists() else 1\np.write_text(str(n))\nthreshold=int(os.environ['SDK_SUCCEED_AT'])\nraise SystemExit(0 if threshold > 0 and n >= threshold else 1)\n")
             command.chmod(0o755)
             counter = path / "calls"
-            env = dict(os.environ, PATH=str(path)+os.pathsep+os.environ["PATH"], SDK_COUNTER=str(counter), SDK_SUCCEED_AT=str(succeed_at))
+            env = dict(os.environ, PATH=str(path)+os.pathsep+os.environ["PATH"], SDK_COUNTER=str(counter), SDK_SUCCEED_AT=str(succeed_at), SDK_LICENSE_EXIT_CODE=str(license_exit))
             result = subprocess.run(["bash", "-e", "-c", script or self._script()], env=env, capture_output=True, text=True, timeout=10)
             return result.returncode, int(counter.read_text())
 
@@ -43,6 +43,11 @@ class AndroidSdkRetryTest(unittest.TestCase):
         code, calls = self._run(0, script)
         self.assertNotEqual(0, code)
         self.assertEqual(3, calls)
+
+    def test_weekly_license_acceptance_failure_is_not_suppressed(self):
+        script = self._script("weekly-instrumented.yml", "Install SDK components")
+        code, _ = self._run(1, script, license_exit=7)
+        self.assertEqual(7, code)
 
     def test_required_sdk_packages_are_preserved(self):
         script = self._script()

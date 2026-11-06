@@ -48,7 +48,16 @@ jobs:
         run: |
           set -euo pipefail
           # License acceptance is the only sdkmanager command piped through yes.
+          # sdkmanager may close stdin early; inspect its exit code rather than the
+          # producer's expected SIGPIPE under pipefail.
+          set +e
           yes | sdkmanager --licenses
+          license_status=${PIPESTATUS[1]}
+          set -e
+          if [ "$license_status" -ne 0 ]; then
+            echo "::error::Android SDK license acceptance failed."
+            exit "$license_status"
+          fi
 
           installed=false
           for attempt in 1 2 3; do
