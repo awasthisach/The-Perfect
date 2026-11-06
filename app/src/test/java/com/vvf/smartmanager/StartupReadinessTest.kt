@@ -7,6 +7,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import com.vvf.smartmanager.core.background.workers.FileIndexingOutcome
+import com.vvf.smartmanager.core.background.workers.FileIndexingRuntime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotSame
@@ -111,6 +113,27 @@ class StartupReadinessTest {
         restartedProcess.awaitReady()
         assertEquals(StartupState.Ready, restartedProcess.state.value)
         assertNotSame(oldProcess, restartedProcess)
+    }
+
+    @Test
+    fun indexingRuntimeCannotTouchIndexUntilStartupReadinessIsReady() = runTest {
+        val readiness = StartupReadiness()
+        var indexerInvoked = false
+        FileIndexingRuntime.configure {
+            readiness.awaitReady()
+            indexerInvoked = true
+            FileIndexingOutcome.Completed(0)
+        }
+
+        val indexing = async { FileIndexingRuntime.index() }
+        runCurrent()
+        assertFalse("Indexing must not start while recovery is pending", indexerInvoked)
+        assertFalse(indexing.isCompleted)
+
+        readiness.start(backgroundScope) { markRecovering -> markRecovering() }
+        advanceUntilIdle()
+        assertEquals(FileIndexingOutcome.Completed(0), indexing.await())
+        assertTrue(indexerInvoked)
     }
 
     @Test
