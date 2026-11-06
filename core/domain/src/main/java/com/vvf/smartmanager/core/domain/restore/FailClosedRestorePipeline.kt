@@ -46,14 +46,27 @@ class FailClosedRestorePipeline(
         return try {
             requireWorkingDirectory(stagingDir)
 
-            val downloaded = downloader.download(remoteBackupId).getOrElse { return Result.failure(it) }
-            val verified = verifier.verify(downloaded, expectedChecksum).getOrElse { return Result.failure(it) }
-            val decrypted = decryptor.decrypt(verified, stagingDir, passphrase).getOrElse { return Result.failure(it) }
+            val downloaded = downloader.download(remoteBackupId).getOrElse { error ->
+                if (error is CancellationException) throw error
+                return Result.failure(error)
+            }
+            val verified = verifier.verify(downloaded, expectedChecksum).getOrElse { error ->
+                if (error is CancellationException) throw error
+                return Result.failure(error)
+            }
+            val decrypted = decryptor.decrypt(verified, stagingDir, passphrase).getOrElse { error ->
+                if (error is CancellationException) throw error
+                return Result.failure(error)
+            }
 
-            snapshot = applier.prepare().getOrElse { return Result.failure(it) }
+            snapshot = applier.prepare().getOrElse { error ->
+                if (error is CancellationException) throw error
+                return Result.failure(error)
+            }
             preparedSnapshots[snapshot!!.token] = snapshot!!
 
             val applied = applier.apply(decrypted).getOrElse { error ->
+                if (error is CancellationException) throw error
                 val rollbackResult = applier.rollback(snapshot!!)
                 preparedSnapshots.remove(snapshot!!.token)
                 if (rollbackResult.isFailure) {
@@ -165,9 +178,18 @@ class FailClosedRestorePipeline(
         val stagingDir = File(workingDir, "dry-run-$token")
         return try {
             requireWorkingDirectory(stagingDir)
-            val downloaded = downloader.download(remoteBackupId).getOrElse { return Result.failure(it) }
-            val verified = verifier.verify(downloaded, expectedChecksum).getOrElse { return Result.failure(it) }
-            val decrypted = decryptor.decrypt(verified, stagingDir, passphrase).getOrElse { return Result.failure(it) }
+            val downloaded = downloader.download(remoteBackupId).getOrElse { error ->
+                if (error is CancellationException) throw error
+                return Result.failure(error)
+            }
+            val verified = verifier.verify(downloaded, expectedChecksum).getOrElse { error ->
+                if (error is CancellationException) throw error
+                return Result.failure(error)
+            }
+            val decrypted = decryptor.decrypt(verified, stagingDir, passphrase).getOrElse { error ->
+                if (error is CancellationException) throw error
+                return Result.failure(error)
+            }
             val fileCount = decrypted.stagingDir.walkTopDown().count { it.isFile }
             val vaultCount = decrypted.vaultDir.walkTopDown().count { it.isFile }
             Result.success(
@@ -196,12 +218,13 @@ class FailClosedRestorePipeline(
         }
         val snapshot = preparedSnapshots[snapshotToken]
             ?: return@withContext Result.failure(VerificationFailedException("Snapshot token is not active in this process"))
-        applier.rollback(snapshot).also {
-            if (it.isSuccess) {
-                preparedSnapshots.remove(snapshotToken)
-                cleanupSnapshot(snapshot)
-            }
+        val result = applier.rollback(snapshot)
+        result.exceptionOrNull()?.let { if (it is CancellationException) throw it }
+        if (result.isSuccess) {
+            preparedSnapshots.remove(snapshotToken)
+            cleanupSnapshot(snapshot)
         }
+        result
     }
 
     private fun cleanupSnapshot(snapshot: RestoreSnapshot) {
