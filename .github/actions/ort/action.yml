@@ -368,7 +368,6 @@ runs:
         # Preserve the config provenance label without exposing URL userinfo.
         ORT_CONFIG_VCS_URL="$(git config remote.origin.url | sed -E 's#(https?://)[^/@]+@#\1#')"
         ORT_CONFIG_VCS_REVISION="$(git rev-parse HEAD)"
-        ORT_CONFIG_VCS_REVISION="$(git rev-parse HEAD)"
         printf 'ORT_CONFIG_VCS_URL=%s\n' "$ORT_CONFIG_VCS_URL" >> "$GITHUB_ENV"
         printf 'ORT_CONFIG_VCS_REVISION=%s\n' "$ORT_CONFIG_VCS_REVISION" >> "$GITHUB_ENV"
     - name: Compute ORT labels
