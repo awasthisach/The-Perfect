@@ -144,7 +144,6 @@ class VVFApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
-        cryptoSecurityManager = CryptoSecurityManager(this)
         startupReadiness.start(applicationScope) { markRecovering ->
             initializeApplication(markRecovering)
         }
@@ -152,7 +151,6 @@ class VVFApplication : Application(), Configuration.Provider {
 
     private suspend fun initializeApplication(markRecovering: () -> Unit) {
         kotlinx.coroutines.withContext(Dispatchers.IO) {
-        super.onCreate()
         cryptoSecurityManager = CryptoSecurityManager(this)
         val jvmUnitTest = CryptoSecurityManager.isJvmUnitTestEnvironment(this)
         // Remove orphaned plaintext staging even if recovery subsequently fails closed.
@@ -226,7 +224,7 @@ class VVFApplication : Application(), Configuration.Provider {
             fileDao = database.fileDao()
         )
         markRecovering()
-        // Force Room open and complete migrations before journal reconciliation or service use.
+        // Room was opened and migrations completed before repository construction.
         if (!jvmUnitTest) {
             val recoveredJournals = vaultRepository.recoverOrphanedJournals()
             if (recoveredJournals > 0) {
