@@ -315,7 +315,13 @@ private fun VVFNavHost(
                 viewModel = explorerViewModel,
                 onNavigateToSettings = { navController.navigate(TopLevelDestination.SETTINGS.route) },
                 onNavigateToPlugins = { navController.navigate(TopLevelDestination.PLUGINS.route) },
-                onStorageAccessGranted = { app.backgroundSyncManager.triggerImmediateIndexing() }
+                onStorageAccessGranted = {
+                    if (app.isAutoIndexOcrEnabled()) {
+                        app.backgroundSyncManager.triggerImmediateIndexingThenOcr()
+                    } else {
+                        app.backgroundSyncManager.triggerImmediateIndexing()
+                    }
+                }
             )
         }
         composable(TopLevelDestination.VAULT.route) {
@@ -410,7 +416,14 @@ private fun VVFNavHost(
                     }
                 },
                 initialAutoIndexOcr = app.isAutoIndexOcrEnabled(),
-                onAutoIndexOcrChange = { enabled -> app.setAutoIndexOcrEnabled(enabled) },
+                onAutoIndexOcrChange = { enabled ->
+                    app.setAutoIndexOcrEnabled(enabled)
+                    if (enabled) {
+                        // Schedule a deduplicated OCR pass immediately after the user opts in.
+                        // Storage rescans preserve current OCR tags transactionally.
+                        app.backgroundSyncManager.triggerImmediateOcrBatch()
+                    }
+                },
                 initialOfflineOnlyMode = app.isOfflineOnlyModeEnabled(),
                 onOfflineOnlyModeChange = { enabled -> app.setOfflineOnlyModeEnabled(enabled) },
                 onNavigateBack = { navController.popBackStack() }
@@ -418,3 +431,4 @@ private fun VVFNavHost(
         }
     }
 }
+
