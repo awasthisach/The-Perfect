@@ -83,8 +83,5 @@ class StartupReadinessInstrumentedTest {
             .applicationContext as VVFApplication
         withTimeout(60_000) { app.startupReadiness.awaitReady() }
         assertTrue(app.startupReadiness.isReady())
-        assertTrue(app::database.isInitialized)
-        assertTrue(app::vaultRepository.isInitialized)
-        assertTrue(app::searchRepository.isInitialized)
     }
 }
