@@ -5,6 +5,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -26,6 +29,11 @@ class MainActivityLaunchTest {
             assertTrue("Launcher intent must resolve to MainActivity", activity is MainActivity)
             assertFalse("MainActivity must not finish during startup", activity.isFinishing)
             assertFalse("MainActivity must not be destroyed during startup", activity.isDestroyed)
+            val app = targetContext.applicationContext as VVFApplication
+            runBlocking { withTimeout(60_000) { app.startupReadiness.awaitReady() } }
+            assertTrue("Real instrumented Application startup must reach Ready", app.startupReadiness.isReady())
+            assertTrue("Encrypted Room database must be initialized before Ready", app::database.isInitialized)
+            assertTrue("Vault repository must be initialized before Ready", app::vaultRepository.isInitialized)
         } finally {
             activity.finish()
             instrumentation.waitForIdleSync()
