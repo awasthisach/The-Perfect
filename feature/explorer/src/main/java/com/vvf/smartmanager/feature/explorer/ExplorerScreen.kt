@@ -163,11 +163,20 @@ fun ExplorerScreen(
     }
 
     if (uiState.needsStoragePermission) {
+        // ON_RESUME can fire repeatedly while the permission-required UI is still visible.
+        // Dispatch exactly one rescan per transition to granted access.
+        var grantRescanDispatched by remember { mutableStateOf(false) }
         DisposableEffect(lifecycleOwner) {
             val observer = LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_RESUME) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
-                        onStorageAccessGranted()
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        val accessGranted = Environment.isExternalStorageManager()
+                        if (!accessGranted) {
+                            grantRescanDispatched = false
+                        } else if (!grantRescanDispatched) {
+                            grantRescanDispatched = true
+                            onStorageAccessGranted()
+                        }
                     }
                     viewModel.reloadCurrentLocation()
                 }
