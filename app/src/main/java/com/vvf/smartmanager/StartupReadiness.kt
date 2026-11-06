@@ -37,7 +37,9 @@ class StartupReadiness {
         scope: CoroutineScope,
         initialize: suspend (markRecovering: () -> Unit) -> Unit
     ): Job = synchronized(lock) {
-        initializationJob ?: scope.launch(start = CoroutineStart.LAZY) {
+        initializationJob?.let { return@synchronized it }
+
+        val job = scope.launch(start = CoroutineStart.LAZY) {
             try {
                 initialize { mutableState.value = StartupState.Recovering }
                 mutableState.value = StartupState.Ready
@@ -52,24 +54,16 @@ class StartupReadiness {
                 )
                 completion.completeExceptionally(error)
             }
-        }.also { job ->
-            initializationJob = job
-            job.invokeOnCompletion { cause ->
-                if (cause is CancellationException && !completion.isCompleted) {
-                    mutableState.value = StartupState.Failed("Startup initialization was cancelled")
-                    completion.cancel(cause)
-                }
-            }
-        }.also { job ->
-            initializationJob = job
-            job.invokeOnCompletion { cause ->
-                if (cause is CancellationException && !completion.isCompleted) {
-                    mutableState.value = StartupState.Failed("Startup initialization was cancelled")
-                    completion.cancel(cause)
-                }
-            }
-            job.start()
         }
+        initializationJob = job
+        job.invokeOnCompletion { cause ->
+            if (cause is CancellationException && !completion.isCompleted) {
+                mutableState.value = StartupState.Failed("Startup initialization was cancelled")
+                completion.cancel(cause)
+            }
+        }
+        job.start()
+        job
     }
 
     suspend fun awaitReady() {
