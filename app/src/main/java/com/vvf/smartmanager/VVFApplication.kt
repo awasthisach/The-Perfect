@@ -8,6 +8,7 @@ import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import androidx.work.Configuration
+import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import com.vvf.smartmanager.core.background.workers.FileIndexingOutcome
@@ -24,7 +25,6 @@ import com.vvf.smartmanager.core.data.repository.SecureVaultRepository
 import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
 import com.vvf.smartmanager.core.data.storage.StorageManager
 import com.vvf.smartmanager.core.database.VVFDatabase
-import com.vvf.smartmanager.core.database.model.FileMetadataEntity
 import com.vvf.smartmanager.core.domain.AiIntelligenceUseCase
 import com.vvf.smartmanager.core.domain.backup.ArchiveService
 import com.vvf.smartmanager.core.domain.CloudSyncUseCase
@@ -124,12 +124,13 @@ class VVFApplication : Application(), Configuration.Provider {
     var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val startupReadiness = StartupReadiness()
 
     private val settingsPrefs by lazy {
         getSharedPreferences(SETTINGS_PREFS, MODE_PRIVATE)
     }
 
-    fun isAutoIndexOcrEnabled(): Boolean = settingsPrefs.getBoolean(KEY_AUTO_INDEX_OCR, true)
+    fun isAutoIndexOcrEnabled(): Boolean = settingsPrefs.getBoolean(KEY_AUTO_INDEX_OCR, false)
 
     fun setAutoIndexOcrEnabled(enabled: Boolean) {
         settingsPrefs.edit().putBoolean(KEY_AUTO_INDEX_OCR, enabled).apply()
@@ -143,8 +144,15 @@ class VVFApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
-        cryptoSecurityManager = CryptoSecurityManager(this)
-        val jvmUnitTest = CryptoSecurityManager.isJvmUnitTestEnvironment(this)
+        startupReadiness.start(applicationScope) { markRecovering ->
+            initializeApplication(markRecovering)
+        }
+    }
+
+    private suspend fun initializeApplication(markRecovering: () -> Unit) {
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+        cryptoSecurityManager = CryptoSecurityManager(this@VVFApplication)
+        val jvmUnitTest = CryptoSecurityManager.isJvmUnitTestEnvironment(this@VVFApplication)
         // Remove orphaned plaintext staging even if recovery subsequently fails closed.
         cleanupStalePlaintextBackupStaging()
         if (!jvmUnitTest) {
@@ -167,19 +175,27 @@ class VVFApplication : Application(), Configuration.Provider {
         }
         // Play Integrity App Check is device/Play-only; skip on JVM unit tests (Robolectric).
         if (!jvmUnitTest) {
-            FirebaseAppCheck.getInstance().apply {
-                installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
+            val firebaseApp = FirebaseApp.initializeApp(this@VVFApplication)
+            if (firebaseApp == null) {
+                // Offline/local builds may intentionally omit production Firebase config.
+                // Keep local vault/file functionality available; protected cloud calls must
+                // still fail closed because no App Check provider/token can be obtained.
+                Log.w(TAG, "Firebase is not configured; App Check is unavailable and protected cloud operations must remain disabled")
+            } else {
+                FirebaseAppCheck.getInstance(firebaseApp).apply {
+                    installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
+                }
             }
         }
         if (jvmUnitTest) {
-            database = VVFDatabase.buildInMemoryDatabase(this)
+            database = VVFDatabase.buildInMemoryDatabase(this@VVFApplication)
             Log.i(TAG, "JVM unit-test environment: using in-memory Room database")
         } else {
             // SQLCipher's native core must be loaded before encrypted Room initialization.
             System.loadLibrary("sqlcipher")
             val passphrase = cryptoSecurityManager.getOrCreateDatabasePassphrase()
             try {
-                database = VVFDatabase.buildEncryptedDatabase(this, passphrase)
+                database = VVFDatabase.buildEncryptedDatabase(this@VVFApplication, passphrase)
             } catch (e: Exception) {
                 throw IllegalStateException(
                     "Secure database initialization failed: Failed to construct encrypted SQLCipher database",
@@ -189,10 +205,12 @@ class VVFApplication : Application(), Configuration.Provider {
                 cryptoSecurityManager.wipeBuffer(passphrase)
             }
         }
+        // Open Room on the IO initializer thread so migrations complete before repositories exist.
+        database.openHelper.writableDatabase
 
-        storageManager = StorageManager(this, database.fileDao())
+        storageManager = StorageManager(this@VVFApplication, database.fileDao())
         fileManagerRepository = AppCompositionRoot.offlineFileManagerRepository(
-            context = this,
+            context = this@VVFApplication,
             storageManager = storageManager,
             fileDao = database.fileDao(),
             searchFtsDao = database.searchFtsDao()
@@ -202,16 +220,32 @@ class VVFApplication : Application(), Configuration.Provider {
             vaultDao = database.vaultDao(),
             cryptoManager = cryptoSecurityManager,
             vaultDirectory = vaultDir,
-            vaultJournalDao = database.vaultJournalDao()
+            vaultJournalDao = database.vaultJournalDao(),
+            fileDao = database.fileDao(),
+            awaitStartupReady = startupReadiness::awaitReady,
+            startupIsReady = startupReadiness::isReady
         )
+        markRecovering()
+        // Room was opened and migrations completed before repository construction.
+        if (!jvmUnitTest) {
+            val recoveredJournals = vaultRepository.recoverOrphanedJournals()
+            if (recoveredJournals > 0) {
+                Log.i(TAG, "Reconciled $recoveredJournals interrupted vault journal operation(s)")
+            }
+            val removedVaultSearchRows = vaultRepository.reconcileVaultedSourceMetadata()
+            if (removedVaultSearchRows > 0) {
+                Log.i(TAG, "Removed $removedVaultSearchRows stale search row(s) for vaulted sources")
+            }
+        }
         searchRepository = OfflineSearchRepository(
-            context = this,
+            context = this@VVFApplication,
             searchFtsDao = database.searchFtsDao(),
             fileDao = database.fileDao(),
             storageManager = storageManager,
-            cryptoSecurityManager = cryptoSecurityManager
+            cryptoSecurityManager = cryptoSecurityManager,
+            awaitStartupReady = startupReadiness::awaitReady
         )
-        ocrPlugin = OcrPluginImpl(this)
+        ocrPlugin = OcrPluginImpl(this@VVFApplication)
         getStorageOverviewUseCase = GetStorageOverviewUseCase(fileManagerRepository)
         getDirectoryFilesUseCase = GetDirectoryFilesUseCase(fileManagerRepository)
         getCategorizedFilesUseCase = GetCategorizedFilesUseCase(fileManagerRepository)
@@ -247,7 +281,7 @@ class VVFApplication : Application(), Configuration.Provider {
             fileManagerRepository = fileManagerRepository,
             searchRepository = searchRepository
         )
-        googleDriveService = GoogleDriveServiceImpl(this)
+        googleDriveService = GoogleDriveServiceImpl(this@VVFApplication)
         val cloudDrivers = mapOf(
             CloudProviderType.ONE_DRIVE to OneDriveDriverImpl(),
             CloudProviderType.DROPBOX to DropboxDriverImpl(),
@@ -277,7 +311,7 @@ class VVFApplication : Application(), Configuration.Provider {
             cryptoSecurityManager = cryptoSecurityManager
         )
         cloudSyncUseCase = AppCompositionRoot.cloudSyncUseCase(
-            context = this,
+            context = this@VVFApplication,
             googleDriveService = googleDriveService,
             pluginDrivers = cloudDrivers,
             archiveService = archiveService,
@@ -295,24 +329,39 @@ class VVFApplication : Application(), Configuration.Provider {
             cloudSyncDao = database.cloudSyncDao(),
             onRestoreFinished = { restartIfRestoreClosedDatabase() }
         )
-        backgroundSyncManager = BackgroundSyncManager(this)
-        FileIndexingRuntime.configure { indexPrimaryStorageForSearch() }
-        JunkScanBootstrap.wire(junkCleanerUseCase)
-        OcrBatchBootstrap.wire(database, ocrPlugin, ocrIndexingService)
+        backgroundSyncManager = BackgroundSyncManager(this@VVFApplication)
+        FileIndexingRuntime.configure { startupReadiness.awaitReady(); indexPrimaryStorageForSearch() }
+        JunkScanBootstrap.wire(junkCleanerUseCase, awaitReady = startupReadiness::awaitReady)
+        OcrBatchBootstrap.wire(
+            database = database,
+            ocrEngine = ocrPlugin,
+            ocrIndexingService = ocrIndexingService,
+            isEnabled = ::isAutoIndexOcrEnabled,
+            scheduleContinuation = backgroundSyncManager::triggerImmediateOcrBatch,
+            awaitReady = startupReadiness::awaitReady
+        )
         val bgExceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
             Log.e(TAG, "Background sync scheduling failed safely", throwable)
         }
         applicationScope.launch(bgExceptionHandler) {
             try {
                 backgroundSyncManager.schedulePeriodicIndexing(intervalHours = 6L)
-                backgroundSyncManager.triggerImmediateIndexing()
                 backgroundSyncManager.schedulePeriodicJunkScan(intervalHours = 12L)
+                // Always keep the periodic worker registered; the runtime's opt-in
+                // guard makes it a no-op until the user enables automatic OCR.
+                backgroundSyncManager.schedulePeriodicOcrBatch(intervalHours = 6L)
+                if (isAutoIndexOcrEnabled()) {
+                    backgroundSyncManager.triggerImmediateIndexingThenOcr()
+                } else {
+                    backgroundSyncManager.triggerImmediateIndexing()
+                }
             } catch (e: Throwable) {
                 Log.e(TAG, "Background sync scheduling failed", e)
             }
         }
+    
+        }
     }
-
 
     /**
      * Remove abandoned app-private plaintext ZIP/staging artifacts left by a prior process death.
@@ -379,52 +428,19 @@ class VVFApplication : Application(), Configuration.Provider {
         if (!access.canBrowsePrimaryTree) {
             return FileIndexingOutcome.PermissionRequired(access.userMessageKey)
         }
-        return try {
-            val fileDao = database.fileDao()
-            val existingByPath = fileDao.getIndexedPathSnapshot().associateBy { it.path }
-            val scannedItems = storageManager.collectPrimaryStorageItems()
-            val scannedPaths = scannedItems.map { it.path }.toHashSet()
-            val metadata = scannedItems.map { item ->
-                val existing = existingByPath[item.path]
-                FileMetadataEntity(
-                    id = existing?.id ?: 0L,
-                    path = item.path,
-                    name = item.name,
-                    parentPath = java.io.File(item.path).parent.orEmpty(),
-                    sizeBytes = item.sizeBytes,
-                    mimeType = item.mimeType ?: "inode/directory",
-                    isDirectory = item.isDirectory,
-                    modifiedDate = item.lastModified,
-                    isFavorite = existing?.isFavorite ?: false,
-                    isTrash = existing?.isTrash ?: false,
-                    originalPath = existing?.originalPath,
-                    deletedTimestamp = existing?.deletedTimestamp,
-                    tags = existing?.tags.orEmpty(),
-                    md5Hash = existing?.md5Hash,
-                    operationState = existing?.operationState ?: "IDLE"
-                )
-            }
-            val stalePaths = existingByPath.keys.filter { path -> path !in scannedPaths }
-            var staleRemoved = 0
-            if (stalePaths.isNotEmpty()) {
-                stalePaths.chunked(400).forEach { chunk -> fileDao.deleteStaleByPaths(chunk) }
-                staleRemoved = stalePaths.size
-                Log.i(TAG, "Removed $staleRemoved stale index row(s)")
-            }
-            if (metadata.isNotEmpty()) {
-                metadata.chunked(400).forEach { chunk -> fileDao.insertAll(chunk) }
-            }
-            if (metadata.isNotEmpty() || staleRemoved > 0) {
-                database.searchFtsDao().rebuildFtsIndex()
-            }
-            FileIndexingOutcome.Completed(metadata.size)
-        } catch (securityError: SecurityException) {
-            FileIndexingOutcome.PermissionRequired(securityError.message ?: "storage access was revoked")
-        } catch (ioError: java.io.IOException) {
-            FileIndexingOutcome.RetryableFailure(ioError.message ?: "storage I/O failed")
-        } catch (error: Throwable) {
-            Log.e(TAG, "Storage indexing failed", error)
-            FileIndexingOutcome.PermanentFailure(error.message ?: "unexpected indexing failure")
+        return mapFileIndexingOutcome(
+            onUnexpectedError = { Log.e(TAG, "Storage indexing failed", it) }
+        ) {
+            val scan = storageManager.collectPrimaryStorageScan(
+                maxItems = PRIMARY_STORAGE_INDEX_LIMIT
+            )
+            reconcilePrimaryStorageIndex(
+                scan = scan,
+                fileDao = database.fileDao(),
+                searchFtsDao = database.searchFtsDao(),
+                onWarning = { Log.w(TAG, it) },
+                onInfo = { Log.i(TAG, it) }
+            )
         }
     }
 
@@ -453,3 +469,4 @@ class VVFApplication : Application(), Configuration.Provider {
         }
     }
 }
+

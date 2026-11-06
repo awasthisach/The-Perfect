@@ -163,11 +163,20 @@ fun ExplorerScreen(
     }
 
     if (uiState.needsStoragePermission) {
+        // ON_RESUME can fire repeatedly while the permission-required UI is still visible.
+        // Dispatch exactly one rescan per transition to granted access.
+        var grantRescanDispatched by remember { mutableStateOf(false) }
         DisposableEffect(lifecycleOwner) {
             val observer = LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_RESUME) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
-                        onStorageAccessGranted()
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        val accessGranted = Environment.isExternalStorageManager()
+                        if (!accessGranted) {
+                            grantRescanDispatched = false
+                        } else if (!grantRescanDispatched) {
+                            grantRescanDispatched = true
+                            onStorageAccessGranted()
+                        }
                     }
                     viewModel.reloadCurrentLocation()
                 }
@@ -175,11 +184,28 @@ fun ExplorerScreen(
             lifecycleOwner.lifecycle.addObserver(observer)
             onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
         }
+        val android10ScopedStorage = Build.VERSION.SDK_INT == Build.VERSION_CODES.Q
+        val storagePermissionMessage = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ->
+                "To browse all files and folders, allow All files access in Android Settings. Your files remain on this device."
+            android10ScopedStorage ->
+                "Android 10 enforces scoped storage for this app. READ_EXTERNAL_STORAGE cannot grant unrestricted folder access, and this Explorer does not yet support SAF folder browsing. Full file browsing is unavailable on Android 10 in this version."
+            else ->
+                "To browse files and folders, allow storage read permission. Your files remain on this device."
+        }
         StoragePermissionRequiredScreen(
+            title = if (android10ScopedStorage) "Full file browsing unavailable" else "Storage access required",
+            message = storagePermissionMessage,
+            grantButtonLabel = when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> "Grant All Files Access"
+                else -> "Grant storage permission"
+            },
+            showGrantButton = !android10ScopedStorage,
+            showRetryButton = !android10ScopedStorage,
             onGrantAccess = {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     openAllFilesAccessSettings(context)
-                } else {
+                } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
                     requestLegacyReadPermission.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
                 }
             },
@@ -718,6 +744,11 @@ fun ExplorerScreen(
 
 @Composable
 private fun StoragePermissionRequiredScreen(
+    title: String,
+    message: String,
+    grantButtonLabel: String,
+    showGrantButton: Boolean,
+    showRetryButton: Boolean,
     onGrantAccess: () -> Unit,
     onRetry: () -> Unit
 ) {
@@ -738,26 +769,30 @@ private fun StoragePermissionRequiredScreen(
                 modifier = Modifier.size(52.dp)
             )
             Text(
-                text = "Storage access required",
+                text = title,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
             Text(
-                text = "To browse all files and folders, allow All Files Access in Android Settings. Your files remain on this device.",
+                text = message,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Button(
-                onClick = onGrantAccess,
-                modifier = Modifier.testTag("explorer_grant_storage_access_btn")
-            ) {
-                Text("Grant All Files Access")
+            if (showGrantButton) {
+                Button(
+                    onClick = onGrantAccess,
+                    modifier = Modifier.testTag("explorer_grant_storage_access_btn")
+                ) {
+                    Text(grantButtonLabel)
+                }
             }
-            androidx.compose.material3.TextButton(
-                onClick = onRetry,
-                modifier = Modifier.testTag("explorer_retry_storage_access_btn")
-            ) {
-                Text("Try again")
+            if (showRetryButton) {
+                androidx.compose.material3.TextButton(
+                    onClick = onRetry,
+                    modifier = Modifier.testTag("explorer_retry_storage_access_btn")
+                ) {
+                    Text("Try again")
+                }
             }
         }
     }

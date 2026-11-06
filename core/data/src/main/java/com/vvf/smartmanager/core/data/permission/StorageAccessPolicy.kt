@@ -5,9 +5,10 @@ package com.vvf.smartmanager.core.data.permission
  *
  * Policy justification:
  * - File-manager product requires broad filesystem visibility on primary shared storage.
- * - Android 11+ prefers MANAGE_EXTERNAL_STORAGE for that use case; media-only grants are
- *   insufficient for arbitrary document/archive exploration.
- * - Legacy READ/WRITE external storage applies only on older API levels (maxSdkVersion gated in manifest).
+ * - Android 10+ uses scoped storage for this targetSdk; READ_EXTERNAL_STORAGE grants media
+ *   visibility, not unrestricted browsing of the primary shared-storage tree.
+ * - Android 11+ may grant broad file-manager access through MANAGE_EXTERNAL_STORAGE.
+ * - Legacy full READ/WRITE external storage applies only on API 28 and below.
  * - Access is still constrained by StoragePathPolicy fail-closed roots (STORAGE-INV-001).
  */
 enum class StorageAccessLevel {
@@ -58,10 +59,14 @@ object StorageAccessPolicy {
                 StorageAccessLevel.NONE, false, false, true, false, false, "storage_access_none_request_all_files"
             )
             sdk >= 29 -> {
+                // This app targets API 36, so Android 10's legacy-storage opt-out is not
+                // available. READ_EXTERNAL_STORAGE exposes shared media, not arbitrary files.
                 if (snapshot.hasReadExternalStorage) decision(
-                    StorageAccessLevel.LEGACY_FULL, true, true, false, false, false, "storage_access_granted_legacy_read"
+                    StorageAccessLevel.MEDIA_ONLY, false, true, false, false, false,
+                    "storage_access_granted_api29_scoped_media"
                 ) else decision(
-                    StorageAccessLevel.NONE, false, false, false, false, true, "storage_access_none_request_legacy_read"
+                    StorageAccessLevel.NONE, false, false, false, false, true,
+                    "storage_access_none_request_api29_media"
                 )
             }
             else -> {

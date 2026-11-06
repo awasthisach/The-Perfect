@@ -2,19 +2,44 @@ schema_version: 1
 finding_lifecycle: [discovered, triaged, reproduced, root_cause_verified, repair_implemented, tested, ci_verified, closed]
 
 # Production blockers remain open until evidence-backed closure.
-open_findings: []
+open_findings:
+  - id: PROD-008
+    severity: high
+    title: Open-source license compliance and attribution require resolution
+    status: open
+    notes: >
+      No current-candidate ORT analyzer, ScanCode, evaluator, advisor, reporter,
+      CycloneDX and SPDX evidence is present in docs/assurance/. The latest
+      scheduled ORT run was cancelled on an earlier SHA. Keep open until a
+      complete scan and package-by-package disposition are reviewed.
+    residual_risk: high
+    related_issue: 136
+    last_updated: "2026-11-03"
 
-# PROD-008: Keep closed only with real nightly ORT SBOMs merged via auto-PR.
-# Reference: docs/assurance/ort-bom.cyclonedx.json, ort-bom.spdx.json, ort-status.json
-#
-# PROD-009: Confirm on physical device that Firebase App Check issues tokens via
-# Play Integrity. Reference: Firebase Console → App Check → Requests tab.
-#
-# PROD-010: Confirm on physical device real-account Google Sign-In and Drive OAuth.
-# Reference: Play Console → Internal Testing → device test logs.
-#
-# PROD-008 will be re-validated when ORT workflow completes successfully
-# and generates valid CycloneDX/SPDX SBOMs in docs/assurance/
+  - id: PROD-009
+    severity: high
+    title: Native Worker v4 authentication and App Check acceptance is incomplete
+    status: open
+    notes: >
+      Static Play Integrity provider wiring is not proof of Firebase App Check
+      registration, HTTP 403 rejection, or successful native authenticated
+      requests. Physical-device and Firebase Console evidence required.
+    residual_risk: high
+    related_issue: 140
+    last_updated: "2026-11-03"
+
+  - id: PROD-010
+    severity: high
+    title: Real-account OAuth, privacy, signing, and device acceptance are unverified
+    status: open
+    notes: >
+      Existing CI does not prove real-account OAuth/Drive flows, published
+      privacy policy and Play declarations, production signing, or clean-device
+      acceptance. Owner-console and physical-device evidence remain required.
+    residual_risk: high
+    related_issue: 141
+    last_updated: "2026-11-03"
+
 closed_findings:
   - id: PROD-001
     severity: high
@@ -32,11 +57,10 @@ closed_findings:
     status: closed
     notes: >
       DurableUploadContract + CloudSyncUseCase reject blank remote IDs; unit tests
-      DurableUploadContractTest and CloudSyncUseCaseTest green on CI 33790505509
-      (EVID-006). Live Google Drive E2E is residual (needs OAuth secrets; not
-      runnable in public CI). Formal residual waiver: WAIVER-021-CLOUD-E2E (docs/assurance/11-waivers.yaml). Related issue #21.
+      green on CI 33790505509 (EVID-006). Live Google Drive E2E is residual and
+      tracked by WAIVER-021-CLOUD-E2E. Related issue #21.
     residual_risk: medium
-    residual_risk_notes: "Field validation against real Drive API still recommended before public release."
+    residual_risk_notes: "Live Drive API validation remains a release checklist item."
     related_issue: 21
     last_updated: "2026-09-04"
     closed_at: "2026-09-04"
@@ -46,10 +70,9 @@ closed_findings:
     title: Fail-closed cloud restore pipeline
     status: closed
     notes: >
-      FailClosedRestorePipeline fails closed on blank id, verify/decrypt/apply
-      failure, and rollback paths; unit tests green on CI 33790505509 (EVID-007).
-      Clean-device interrupted-restore is residual (instrumented + credentials).
-      Formal residual waiver: WAIVER-021-CLOUD-E2E (docs/assurance/11-waivers.yaml). Related issue #21.
+      FailClosedRestorePipeline unit paths are covered by EVID-007. Clean-device
+      interrupted restore remains residual and is tracked by WAIVER-021-CLOUD-E2E.
+      Related issue #21.
     residual_risk: medium
     residual_risk_notes: "Interrupted restore on physical device remains a release checklist item."
     related_issue: 21
@@ -75,43 +98,3 @@ closed_findings:
     related_issue: 20
     last_updated: "2026-09-04"
     closed_at: "2026-09-03"
-
-  - id: PROD-008
-    severity: high
-    title: Open-source license compliance and attribution require resolution
-    status: closed
-    notes: >
-      ORT nightly workflow configured with auto-PR. Real CycloneDX/SPDX SBOMs
-      will be merged via automated PR. verify_ort_outputs.py validates all
-      outputs. Reference: .github/workflows/nightly-ort.yml. Related issue #136.
-    residual_risk: low
-    related_issue: 136
-    last_updated: "2026-10-24"
-    closed_at: "2026-10-24"
-
-  - id: PROD-009
-    severity: high
-    title: Native Worker v4 authentication and App Check acceptance is incomplete
-    status: closed
-    notes: >
-      Play Integrity provider initialized in VVFApplication.onCreate().
-      Physical device test confirmed token generation. Firebase Console shows
-      App Check requests. Reference: VVFApplication.kt, Firebase Console logs.
-      Related issue #140.
-    residual_risk: low
-    related_issue: 140
-    last_updated: "2026-10-24"
-    closed_at: "2026-10-24"
-
-  - id: PROD-010
-    severity: high
-    title: Real-account OAuth, privacy, signing, and device acceptance are unverified
-    status: closed
-    notes: >
-      Google Sign-In tested on physical device with real account. Drive OAuth
-      flow completed. Privacy policy published. Reference: Internal Testing
-      Track physical device test logs. Related issue #141.
-    residual_risk: low
-    related_issue: 141
-    last_updated: "2026-10-24"
-    closed_at: "2026-10-24"

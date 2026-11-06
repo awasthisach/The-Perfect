@@ -30,6 +30,25 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Fail closed when Worker source package is absent
+        run: |
+          set -euo pipefail
+          required_files=(
+            cloudflare/drive-semantic-embed/package.json
+            cloudflare/drive-semantic-embed/package-lock.json
+            cloudflare/drive-semantic-embed/wrangler.toml
+          )
+          missing=0
+          for required_file in "${required_files[@]}"; do
+            if [ ! -s "$required_file" ]; then
+              echo "::error title=Worker source missing::$required_file is absent; refusing to validate secrets or mutate the production Worker."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:

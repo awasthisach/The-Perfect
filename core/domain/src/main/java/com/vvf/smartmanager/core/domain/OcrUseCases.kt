@@ -45,34 +45,35 @@ class IndexOcrTextUseCase(
         maxCustomKeywords: Int = 5
     ): Result<Boolean> {
         if (ocrResult.fullText.isBlank()) {
-            return Result.success(true)
+            return searchRepository.addTagToFile(fileItem.path, "ocr")
         }
+        return try {
+            // Keep the completion marker last. If any keyword/FTS write fails, the
+            // worker can retry this file instead of filtering it out as already indexed.
+            val stopwords = setOf(
+                "the", "and", "for", "with", "this", "that", "from", "have", "been",
+                "page", "date", "name", "total", "your", "will", "they", "what", "which"
+            )
+            val words = ocrResult.fullText
+                .lowercase(Locale.getDefault())
+                .replace(Regex("[^a-z0-9\\s]"), " ")
+                .split(Regex("\\s+"))
+                .filter { it.length in 4..20 && !stopwords.contains(it) }
+                .distinct()
+                .take(maxCustomKeywords)
 
-        // 1. Tag with foundational #ocr tag
-        searchRepository.addTagToFile(fileItem.path, "ocr")
-
-        // 2. Extract salient keywords (min 4 chars, alphanumeric only, lowercased, deduplicated)
-        val stopwords = setOf(
-            "the", "and", "for", "with", "this", "that", "from", "have", "been",
-            "page", "date", "name", "total", "your", "will", "they", "what", "which"
-        )
-
-        val words = ocrResult.fullText
-            .lowercase(Locale.getDefault())
-            .replace(Regex("[^a-z0-9\\s]"), " ")
-            .split(Regex("\\s+"))
-            .filter { it.length in 4..20 && !stopwords.contains(it) }
-            .distinct()
-            .take(maxCustomKeywords)
-
-        for (word in words) {
-            searchRepository.addTagToFile(fileItem.path, word)
+            for (word in words) {
+                searchRepository.addTagToFile(fileItem.path, word).getOrThrow()
+            }
+            // Room's FTS content-entity triggers track metadata updates; a full rebuild per
+            // file is unnecessary and makes large batches quadratic in total index size.
+            searchRepository.addTagToFile(fileItem.path, "ocr").getOrThrow()
+            Result.success(true)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(error)
         }
-
-        // Ensure FTS reflects newly inserted content:// metadata rows from addTagToFile.
-        runCatching { searchRepository.rebuildFtsIndex() }
-
-        return Result.success(true)
     }
 }
 

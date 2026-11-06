@@ -2,16 +2,24 @@ package com.vvf.smartmanager
 
 import android.app.Activity
 import android.content.Intent
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.biometric.BiometricManager
 import androidx.lifecycle.lifecycleScope
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
 import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import android.os.Bundle
 import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,6 +31,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -34,8 +43,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -82,23 +94,26 @@ class MainActivity : FragmentActivity() {
      */
     private var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
 
-    private val googleDriveSignInLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
+    private val googleDriveAuthorizationLauncher = registerForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
     ) { activityResult ->
+        val result = if (activityResult.resultCode == Activity.RESULT_OK) {
+            googleDriveAuth.handleAuthorizationActivityResult(activityResult.data)
+        } else {
+            Result.failure(IllegalStateException("Google Drive authorization was cancelled."))
+        }
+        completeGoogleDriveAuthorization(result)
+    }
+
+    private fun completeGoogleDriveAuthorization(result: Result<String>) {
         val app = application as VVFApplication
         val callback = pendingGoogleDriveSignInCallback
         pendingGoogleDriveSignInCallback = null
         app.pendingGoogleDriveSignInCallback = null
-        lifecycleScope.launch {
-            val result = googleDriveAuth.handleSignInActivityResult(
-                resultCode = activityResult.resultCode,
-                data = activityResult.data
-            )
-            result.onSuccess { token ->
-                runCatching { app.googleDriveService.setAccessToken(token) }
-            }
-            callback?.invoke(result)
+        result.onSuccess { token ->
+            runCatching { app.googleDriveService.setAccessToken(token) }
         }
+        callback?.invoke(result)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -109,20 +124,28 @@ class MainActivity : FragmentActivity() {
             VVFSmartManagerTheme {
                 VVFAppContent(
                     onGoogleDriveSignInRequested = { callback ->
-                        if (
-                            BuildConfig.GOOGLE_WEB_CLIENT_ID.isBlank() ||
-                            BuildConfig.GOOGLE_WEB_CLIENT_ID == "__UNCONFIGURED__"
-                        ) {
-                            callback(
-                                Result.failure(
-                                    IllegalStateException(
-                                        "Google Drive is not configured. Add GOOGLE_WEB_CLIENT_ID through the app secret configuration."
+                        val app = application as VVFApplication
+                        pendingGoogleDriveSignInCallback = callback
+                        app.pendingGoogleDriveSignInCallback = callback
+                        lifecycleScope.launch {
+                            try {
+                                val authorization = googleDriveAuth.authorizeDriveAccess().await()
+                                if (authorization.hasResolution()) {
+                                    val pendingIntent = authorization.pendingIntent
+                                        ?: throw IllegalStateException("Google Drive authorization did not provide a consent action.")
+                                    googleDriveAuthorizationLauncher.launch(
+                                        IntentSenderRequest.Builder(pendingIntent.intentSender).build()
                                     )
-                                )
-                            )
-                        } else {
-                            pendingGoogleDriveSignInCallback = callback
-                            googleDriveSignInLauncher.launch(googleDriveAuth.buildDriveSignInIntent())
+                                } else {
+                                    completeGoogleDriveAuthorization(
+                                        googleDriveAuth.accessTokenFromAuthorizationResult(authorization)
+                                    )
+                                }
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                completeGoogleDriveAuthorization(Result.failure(error))
+                            }
                         }
                     }
                 )
@@ -138,6 +161,37 @@ fun VVFAppContent(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val app = context.applicationContext as VVFApplication
+    val startupState by app.startupReadiness.state.collectAsState()
+
+    if (startupState != StartupState.Ready) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                when (val state = startupState) {
+                    StartupState.Initializing -> {
+                        CircularProgressIndicator()
+                        Text("Preparing secure storage…", modifier = Modifier.padding(top = 16.dp))
+                    }
+                    StartupState.Recovering -> {
+                        CircularProgressIndicator()
+                        Text("Recovering vault and search metadata…", modifier = Modifier.padding(top = 16.dp))
+                    }
+                    is StartupState.Failed -> {
+                        Text(
+                            "Secure startup failed. Vault, search, and indexing remain disabled.",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        Text(state.reason, modifier = Modifier.padding(top = 8.dp))
+                    }
+                    StartupState.Ready -> Unit
+                }
+            }
+        }
+        return
+    }
 
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -285,6 +339,8 @@ private fun VVFNavHost(
     onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     NavHost(
         navController = navController,
         startDestination = TopLevelDestination.EXPLORER.route,
@@ -311,7 +367,13 @@ private fun VVFNavHost(
                 viewModel = explorerViewModel,
                 onNavigateToSettings = { navController.navigate(TopLevelDestination.SETTINGS.route) },
                 onNavigateToPlugins = { navController.navigate(TopLevelDestination.PLUGINS.route) },
-                onStorageAccessGranted = { app.backgroundSyncManager.triggerImmediateIndexing() }
+                onStorageAccessGranted = {
+                    if (app.isAutoIndexOcrEnabled()) {
+                        app.backgroundSyncManager.triggerImmediateIndexingThenOcr()
+                    } else {
+                        app.backgroundSyncManager.triggerImmediateIndexing()
+                    }
+                }
             )
         }
         composable(TopLevelDestination.VAULT.route) {
@@ -381,8 +443,41 @@ private fun VVFNavHost(
         }
         composable(TopLevelDestination.SETTINGS.route) {
             SettingsScreen(
+                initialBiometricEnabled = app.vaultAuthUseCase.isBiometricEnabled(),
+                onBiometricEnabledChange = { enabled, pin ->
+                    if (!enabled) {
+                        app.vaultAuthUseCase.setBiometricEnabled(false)
+                        true
+                    } else {
+                        val strongBiometricAvailable =
+                            BiometricManager.from(context).canAuthenticate(
+                                BiometricManager.Authenticators.BIOMETRIC_STRONG
+                            ) == BiometricManager.BIOMETRIC_SUCCESS
+                        val vaultConfigured = app.vaultAuthUseCase.isVaultConfigured()
+                        val enrollmentAuthorized = strongBiometricAvailable && vaultConfigured &&
+                            pin != null && withContext(Dispatchers.IO) {
+                                app.vaultAuthUseCase.verifyPin(pin) &&
+                                    app.vaultAuthUseCase.createVaultBiometricCipher() != null
+                            }
+                        if (canEnableBiometricVault(strongBiometricAvailable, enrollmentAuthorized)) {
+                            app.vaultAuthUseCase.setBiometricEnabled(true)
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                },
                 initialAutoIndexOcr = app.isAutoIndexOcrEnabled(),
-                onAutoIndexOcrChange = { enabled -> app.setAutoIndexOcrEnabled(enabled) },
+                onAutoIndexOcrChange = { enabled ->
+                    app.setAutoIndexOcrEnabled(enabled)
+                    if (enabled) {
+                        // Schedule a deduplicated OCR pass immediately after the user opts in.
+                        // Storage rescans preserve current OCR tags transactionally.
+                        coroutineScope.launch {
+                            app.backgroundSyncManager.triggerImmediateOcrBatch()
+                        }
+                    }
+                },
                 initialOfflineOnlyMode = app.isOfflineOnlyModeEnabled(),
                 onOfflineOnlyModeChange = { enabled -> app.setOfflineOnlyModeEnabled(enabled) },
                 onNavigateBack = { navController.popBackStack() }

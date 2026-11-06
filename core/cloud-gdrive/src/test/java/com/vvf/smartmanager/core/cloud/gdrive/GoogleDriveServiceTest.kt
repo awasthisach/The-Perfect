@@ -55,6 +55,11 @@ class GoogleDriveServiceTest {
             return Result.success(true)
         }
 
+        override suspend fun disconnect(): Result<Unit> {
+            isAuth = false
+            return Result.success(Unit)
+        }
+
         override suspend fun getStorageQuota(): Result<Pair<Long, Long>> {
             return Result.success(Pair(usedStorage, totalStorage))
         }

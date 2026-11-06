@@ -44,6 +44,30 @@ class StorageAccessPolicyTest {
     }
 
     @Test
+    fun api29ReadPermissionGrantsMediaOnlyNotPrimaryTree() {
+        val d = StorageAccessPolicy.evaluate(
+            StoragePermissionSnapshot(sdkInt = 29, hasReadExternalStorage = true)
+        )
+        assertEquals(StorageAccessLevel.MEDIA_ONLY, d.level)
+        assertFalse(d.canBrowsePrimaryTree)
+        assertTrue(d.canListMediaCategories)
+        assertFalse(d.requiresSettingsAllFilesAccess)
+        assertFalse(d.requiresLegacyReadRequest)
+    }
+
+    @Test
+    fun api29WithoutReadRequestsMediaPermissionButNotAllFilesSettings() {
+        val d = StorageAccessPolicy.evaluate(
+            StoragePermissionSnapshot(sdkInt = 29, hasWriteExternalStorage = true)
+        )
+        assertEquals(StorageAccessLevel.NONE, d.level)
+        assertFalse(d.canBrowsePrimaryTree)
+        assertFalse(d.canListMediaCategories)
+        assertFalse(d.requiresSettingsAllFilesAccess)
+        assertTrue(d.requiresLegacyReadRequest)
+    }
+
+    @Test
     fun api28WithReadGetsLegacyFull() {
         val d = StorageAccessPolicy.evaluate(
             StoragePermissionSnapshot(sdkInt = 28, hasReadExternalStorage = true)
