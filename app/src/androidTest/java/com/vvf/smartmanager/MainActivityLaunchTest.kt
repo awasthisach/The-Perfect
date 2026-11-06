@@ -5,6 +5,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNotNull
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertTrue
@@ -32,8 +33,9 @@ class MainActivityLaunchTest {
             val app = targetContext.applicationContext as VVFApplication
             runBlocking { withTimeout(60_000) { app.startupReadiness.awaitReady() } }
             assertTrue("Real instrumented Application startup must reach Ready", app.startupReadiness.isReady())
-            assertTrue("Encrypted Room database must be initialized before Ready", app::database.isInitialized)
-            assertTrue("Vault repository must be initialized before Ready", app::vaultRepository.isInitialized)
+            assertNotNull("Room database must be initialized before Ready", app.database)
+            assertNotNull("Vault repository must be initialized before Ready", app.vaultRepository)
+            assertNotNull("Search repository must be initialized before Ready", app.searchRepository)
         } finally {
             activity.finish()
             instrumentation.waitForIdleSync()
