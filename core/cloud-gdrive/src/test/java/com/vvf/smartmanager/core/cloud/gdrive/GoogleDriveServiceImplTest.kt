@@ -1,6 +1,7 @@
 package com.vvf.smartmanager.core.cloud.gdrive
 
 import android.content.Context
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody.Companion.toResponseBody
@@ -62,6 +63,25 @@ class GoogleDriveServiceImplTest {
         service.setAccessToken("dummy-not-used-without-network")
         service.disconnect()
         assertTrue(!service.getAccountInfo().isConnected)
+    }
+
+    @Test
+    fun authenticatePropagatesCoroutineCancellation() = runBlocking {
+        val api = FakeDriveApi(
+            responses = mutableListOf(),
+            aboutFailure = CancellationException("Drive request cancelled")
+        )
+        val cancellableService = GoogleDriveServiceImpl(
+            context,
+            api,
+            DriveAccessTokenProvider { "test-token" }
+        )
+        try {
+            cancellableService.authenticate()
+            throw AssertionError("Expected CancellationException to propagate")
+        } catch (cancelled: CancellationException) {
+            assertEquals("Drive request cancelled", cancelled.message)
+        }
     }
 
     @Test
@@ -156,7 +176,8 @@ class GoogleDriveServiceImplTest {
 
     private class FakeDriveApi(
         private val responses: MutableList<DriveFileListResponse>,
-        private val pageErrors: Map<String, HttpException> = emptyMap()
+        private val pageErrors: Map<String, HttpException> = emptyMap(),
+        private val aboutFailure: Exception? = null
     ) : DriveApi {
         val requestedPageTokens = mutableListOf<String?>()
 
@@ -189,8 +210,10 @@ class GoogleDriveServiceImplTest {
             fields: String
         ) = throw UnsupportedOperationException()
 
-        override suspend fun about(bearer: String, fields: String) =
+        override suspend fun about(bearer: String, fields: String): DriveAboutResponse {
+            aboutFailure?.let { throw it }
             throw UnsupportedOperationException()
+        }
     }
 
 }

@@ -79,6 +79,8 @@ class GoogleDriveServiceImpl(
                 lastSyncTimestamp = System.currentTimeMillis()
             )
             Result.success(true)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             currentAccount = currentAccount.copy(isConnected = false)
             Result.failure(e)
@@ -264,6 +266,8 @@ class GoogleDriveServiceImpl(
                     }
                 }
                 Result.success(true)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 Result.failure(e)
             }
@@ -280,6 +284,8 @@ class GoogleDriveServiceImpl(
                 totalBytes = limit
             )
             Result.success(Pair(usage, limit))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Result.failure(e)
         }

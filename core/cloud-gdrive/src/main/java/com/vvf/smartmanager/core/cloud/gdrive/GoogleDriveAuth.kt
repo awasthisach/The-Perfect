@@ -14,6 +14,7 @@ import com.google.android.gms.auth.api.identity.RevokeAccessRequest
 import com.google.android.gms.tasks.Task
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -57,6 +58,8 @@ class GoogleDriveAuth(
             } else {
                 Result.success(token)
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: GetCredentialException) {
             Result.failure(e)
         } catch (e: Exception) {
@@ -114,6 +117,8 @@ class GoogleDriveAuth(
                 RevokeAccessRequest.builder().setScopes(listOf(Scope(DRIVE_FILE_SCOPE))).build()
             ).await()
             Result.success(Unit)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Result.failure(e)
         }
