@@ -116,12 +116,17 @@ class GoogleDriveServiceImplTest {
     }
     @Test
     fun listDriveFiles_followsEveryPageAndRestartsFromFirstPageOnRejectedToken() = runBlocking {
+        val rejectedPageToken = httpError(
+            400,
+            """{"error":{"errors":[{"reason":"invalidPageToken"}]}}"""
+        )
         val fake = FakeDriveApi(
             responses = mutableListOf(
                 DriveFileListResponse(files = listOf(file("discarded")), nextPageToken = "expired"),
                 DriveFileListResponse(files = listOf(file("first")), nextPageToken = "fresh"),
                 DriveFileListResponse(files = listOf(file("second")))
-            )
+            ),
+            pageErrors = mapOf("expired" to rejectedPageToken)
         )
         val pagedService = GoogleDriveServiceImpl(context, fake, DriveAccessTokenProvider { "test-token" })
         pagedService.setAccessToken("test-token")
