@@ -219,6 +219,12 @@ class CryptoSecurityManager(
             check(legacyIvFile.delete()) { "Failed to remove legacy database passphrase IV" }
             return migratedPassphrase
         }
+        if (context.databaseList().isNotEmpty()) {
+            throw SecurityException(
+                "An existing database is present but its encrypted passphrase recovery material is missing. " +
+                    "Refusing to create a new passphrase that would make the existing database inaccessible."
+            )
+        }
         val freshPassphrase = ByteArray(DB_KEY_LENGTH_BYTES)
         SecureRandom().nextBytes(freshPassphrase)
         writeV2DatabasePassphraseAtomically(v2File, freshPassphrase)

@@ -271,6 +271,25 @@ class CryptoSecurityManagerTest {
         }
     }
 
+    @Test
+    fun missingDatabasePassphraseDoesNotCreateReplacementWhenDatabaseExists() {
+        val context = isolatedContext()
+        try {
+            val manager = CryptoSecurityManager(context, "Robolectric")
+            File(context.filesDir, "vvf-existing.db").writeText("encrypted-database-placeholder")
+
+            try {
+                manager.getOrCreateDatabasePassphrase()
+                throw AssertionError("Must not create a new database passphrase over an existing database")
+            } catch (expected: SecurityException) {
+                assertTrue(expected.message.orEmpty().contains("recovery material is missing"))
+            }
+            assertFalse(File(context.filesDir, "vvf_db_passphrase_v2.bin").exists())
+        } finally {
+            CryptoSecurityManager.clearInMemoryKeysForTests()
+        }
+    }
+
     private fun isolatedContext(): Context {
         val base = ApplicationProvider.getApplicationContext<Context>()
         val root = File(base.cacheDir, "keystore-recovery-${UUID.randomUUID()}").apply { mkdirs() }
