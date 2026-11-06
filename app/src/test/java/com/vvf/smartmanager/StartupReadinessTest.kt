@@ -76,11 +76,12 @@ class StartupReadinessTest {
     @Test
     fun initializationFailureIsTerminalAndNeverPublishesReady() = runTest {
         val readiness = StartupReadiness()
-        readiness.start(backgroundScope) { mark ->
+        val initialization = readiness.start(backgroundScope) { mark ->
             mark()
             throw IllegalStateException("journal recovery failed")
         }
-        advanceUntilIdle()
+        runCurrent()
+        initialization.join()
 
         assertEquals(StartupState.Failed("journal recovery failed"), readiness.state.value)
         assertFalse(readiness.isReady())
