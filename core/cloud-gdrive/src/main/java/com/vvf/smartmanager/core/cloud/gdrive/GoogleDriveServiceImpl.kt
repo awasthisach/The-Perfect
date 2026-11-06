@@ -111,31 +111,51 @@ class GoogleDriveServiceImpl(
             val items = mutableListOf<FileItem>()
             val seenPageTokens = mutableSetOf<String>()
             var pageToken: String? = null
+            var pageTokenRestarts = 0
 
-            do {
-                currentCoroutineContext().ensureActive()
-                val response = driveApi.listFiles(
-                    bearer = bearer(),
-                    query = q,
-                    pageToken = pageToken
-                )
-                items += response.files.map { dto ->
-                    FileItem(
-                        path = "gdrive://${dto.id.orEmpty()}",
-                        name = dto.name.orEmpty(),
-                        sizeBytes = dto.size?.toLongOrNull() ?: 0L,
-                        lastModified = parseDriveTime(dto.modifiedTime),
-                        isDirectory = dto.mimeType == "application/vnd.google-apps.folder",
-                        mimeType = dto.mimeType
-                    )
-                }
+            // Google documents that a rejected page token must be discarded and pagination
+            // restarted from page one. Bound the restart to avoid an unending retry loop.
+            while (true) {
+                try {
+                    do {
+                        currentCoroutineContext().ensureActive()
+                        val response = driveApi.listFiles(
+                            bearer = bearer(),
+                            query = q,
+                            pageToken = pageToken
+                        )
+                        if (response.incompleteSearch) {
+                            throw IOException("Google Drive reported incompleteSearch; refusing a partial listing")
+                        }
+                        items += response.files.map { dto ->
+                            FileItem(
+                                path = "gdrive://${dto.id.orEmpty()}",
+                                name = dto.name.orEmpty(),
+                                sizeBytes = dto.size?.toLongOrNull() ?: 0L,
+                                lastModified = parseDriveTime(dto.modifiedTime),
+                                isDirectory = dto.mimeType == "application/vnd.google-apps.folder",
+                                mimeType = dto.mimeType
+                            )
+                        }
 
-                val nextPageToken = response.nextPageToken?.takeIf(String::isNotBlank)
-                if (nextPageToken != null && !seenPageTokens.add(nextPageToken)) {
-                    throw IOException("Google Drive returned a repeated page token; refusing an incomplete listing")
+                        val nextPageToken = response.nextPageToken?.takeIf(String::isNotBlank)
+                        if (nextPageToken != null && !seenPageTokens.add(nextPageToken)) {
+                            throw IOException("Google Drive returned a repeated page token; refusing an incomplete listing")
+                        }
+                        pageToken = nextPageToken
+                    } while (pageToken != null)
+                    break
+                } catch (error: retrofit2.HttpException) {
+                    if (pageToken != null && pageTokenRestarts == 0 && error.isRejectedDrivePageToken()) {
+                        pageTokenRestarts++
+                        items.clear()
+                        seenPageTokens.clear()
+                        pageToken = null
+                        continue
+                    }
+                    throw error
                 }
-                pageToken = nextPageToken
-            } while (pageToken != null)
+            }
 
             currentAccount = currentAccount.copy(
                 isConnected = true,
@@ -148,6 +168,15 @@ class GoogleDriveServiceImpl(
             // A failed later page must not be reported as a successful partial directory listing.
             Result.failure(e)
         }
+    }
+
+    private fun retrofit2.HttpException.isRejectedDrivePageToken(): Boolean {
+        if (code() != 400) return false
+        val errorBody = runCatching { response()?.errorBody()?.string().orEmpty() }.getOrDefault("")
+        val detail = "${message()} $errorBody"
+        return detail.contains("invalidPageToken", ignoreCase = true) ||
+            detail.contains("pageToken", ignoreCase = true) ||
+            detail.contains("page token", ignoreCase = true)
     }
 
     override suspend fun uploadFile(localFile: FileItem, remoteFolderId: String): Result<String> =
