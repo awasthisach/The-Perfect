@@ -24,7 +24,8 @@ class AndroidSdkRetryTest(unittest.TestCase):
             counter = path / "calls"
             env = dict(os.environ, PATH=str(path)+os.pathsep+os.environ["PATH"], SDK_COUNTER=str(counter), SDK_SUCCEED_AT=str(succeed_at), SDK_LICENSE_EXIT_CODE=str(license_exit))
             result = subprocess.run(["bash", "-e", "-c", script or self._script()], env=env, capture_output=True, text=True, timeout=10)
-            return result.returncode, int(counter.read_text())
+            calls = int(counter.read_text()) if counter.exists() else 0
+            return result.returncode, calls
 
     def test_immediate_success_runs_once(self):
         self.assertEqual((0, 1), self._run(1))
