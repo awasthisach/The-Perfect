@@ -187,6 +187,7 @@ class CloudSyncIntegrationTest {
             }
         }
         override suspend fun downloadFile(fileId: String, destinationPath: String) = Result.success(true)
+        override suspend fun disconnect(): Result<Unit> = Result.success(Unit)
         override suspend fun getStorageQuota() = Result.success(0L to 1L)
 
         private fun FileItem.asFile(): File = File(path)

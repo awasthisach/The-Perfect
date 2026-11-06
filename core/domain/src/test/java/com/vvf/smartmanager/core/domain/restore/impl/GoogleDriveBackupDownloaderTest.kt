@@ -68,7 +68,7 @@ class GoogleDriveBackupDownloaderTest {
         assertTrue(result.isSuccess)
         val artifact = result.getOrThrow()
         assertEquals("encrypted backup bytes", artifact.file.readText())
-        assertTrue(artifact.checksumSha256.isNotBlank())
+        assertFalse(artifact.checksumSha256.isNullOrBlank())
         assertEquals(listOf(artifact.file), directory.listFiles().orEmpty().toList())
     }
 
