@@ -242,7 +242,8 @@ class VVFApplication : Application(), Configuration.Provider {
             searchFtsDao = database.searchFtsDao(),
             fileDao = database.fileDao(),
             storageManager = storageManager,
-            cryptoSecurityManager = cryptoSecurityManager
+            cryptoSecurityManager = cryptoSecurityManager,
+            awaitStartupReady = startupReadiness::awaitReady
         )
         ocrPlugin = OcrPluginImpl(this)
         getStorageOverviewUseCase = GetStorageOverviewUseCase(fileManagerRepository)
