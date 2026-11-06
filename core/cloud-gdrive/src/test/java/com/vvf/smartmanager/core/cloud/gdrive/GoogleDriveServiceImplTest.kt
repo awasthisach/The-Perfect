@@ -28,7 +28,12 @@ class GoogleDriveServiceImplTest {
     @Before
     fun setUp() {
         context = RuntimeEnvironment.getApplication()
-        service = GoogleDriveServiceImpl(context)
+        service = GoogleDriveServiceImpl(
+            context,
+            accessTokenProvider = DriveAccessTokenProvider {
+                throw DriveAuthorizationRequiredException("No authorized Google Drive account")
+            }
+        )
         service.disconnect()
     }
 
@@ -73,7 +78,7 @@ class GoogleDriveServiceImplTest {
                 DriveFileListResponse(files = listOf(file("second")))
             )
         )
-        val pagedService = GoogleDriveServiceImpl(context, fake)
+        val pagedService = GoogleDriveServiceImpl(context, fake, DriveAccessTokenProvider { "test-token" })
         pagedService.setAccessToken("test-token")
 
         val result = pagedService.listDriveFiles("root")

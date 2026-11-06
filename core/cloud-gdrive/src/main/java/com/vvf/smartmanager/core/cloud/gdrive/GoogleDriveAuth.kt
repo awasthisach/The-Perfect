@@ -6,10 +6,13 @@ import android.content.Intent
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialException
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
+import com.google.android.gms.auth.api.identity.AuthorizationRequest
+import com.google.android.gms.auth.api.identity.AuthorizationResult
+import com.google.android.gms.auth.api.identity.Identity
+import com.google.android.gms.auth.api.identity.RevokeAccessRequest
+import com.google.android.gms.tasks.Task
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import kotlinx.coroutines.Dispatchers
@@ -21,8 +24,7 @@ import kotlinx.coroutines.withContext
  *
  * Paths:
  * 1. [requestGoogleIdToken] — Credential Manager (OpenID id_token only).
- * 2. [buildDriveSignInIntent] + [handleSignInActivityResult] — Drive access token
- *    with scope [DRIVE_FILE_SCOPE] for [GoogleDriveServiceImpl.setAccessToken].
+ * 2. [authorizeDriveAccess] — Drive authorization through AuthorizationClient, separate from sign-in.
  */
 class GoogleDriveAuth(
     private val context: Context,
@@ -63,98 +65,58 @@ class GoogleDriveAuth(
         }
     }
 
-    fun buildDriveSignInIntent(): Intent {
-        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestEmail()
-            .requestIdToken(serverClientId)
-            .requestScopes(Scope(DRIVE_FILE_SCOPE))
+    /**
+     * Drive authorization is deliberately separate from identity authentication.
+     * A PendingIntent is returned when user consent or account selection is required.
+     */
+    fun authorizeDriveAccess(): Task<AuthorizationResult> {
+        val request = AuthorizationRequest.builder()
+            .setRequestedScopes(listOf(Scope(DRIVE_FILE_SCOPE)))
             .build()
-        return GoogleSignIn.getClient(context, gso).signInIntent
+        return Identity.getAuthorizationClient(context).authorize(request)
     }
 
-    /**
-     * Handles the Activity result from [buildDriveSignInIntent].
-     * Always inspects [data] for [ApiException] status codes so DEVELOPER_ERROR (10)
-     * is not misreported as a user cancel.
-     */
-    suspend fun handleSignInActivityResult(resultCode: Int, data: Intent?): Result<String> =
-        withContext(Dispatchers.IO) {
-            // Prefer parsing the intent payload — Google often returns status here even when
-            // resultCode is RESULT_CANCELED (e.g. DEVELOPER_ERROR / code 10).
-            if (data != null) {
-                try {
-                    val account = GoogleSignIn.getSignedInAccountFromIntent(data).await()
-                    return@withContext accessTokenForAccount(account.account)
-                } catch (e: ApiException) {
-                    return@withContext Result.failure(IllegalStateException(mapApiException(e), e))
-                } catch (e: Exception) {
-                    // Fall through to resultCode handling
-                    if (resultCode == Activity.RESULT_OK) {
-                        return@withContext Result.failure(e)
-                    }
-                }
-            }
-
-            if (resultCode != Activity.RESULT_OK) {
-                return@withContext Result.failure(
-                    IllegalStateException(
-                        "Google sign-in did not complete (result=$resultCode). " +
-                            "If you selected an account, this is often OAuth misconfiguration " +
-                            "(package com.vvf.smartmanager + signing SHA-1 must be registered " +
-                            "as an Android OAuth client in the same Google Cloud project as the web client ID)."
-                    )
-                )
-            }
-
-            extractAccessTokenFromSignInResult(data)
-        }
-
-    suspend fun extractAccessTokenFromSignInResult(data: Intent?): Result<String> =
-        withContext(Dispatchers.IO) {
-            try {
-                val account = GoogleSignIn.getSignedInAccountFromIntent(data).await()
-                accessTokenForAccount(account.account)
-            } catch (e: ApiException) {
-                Result.failure(IllegalStateException(mapApiException(e), e))
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
-        }
-
-    private fun accessTokenForAccount(acct: android.accounts.Account?): Result<String> {
-        if (acct == null) {
-            return Result.failure(IllegalStateException("No Google account on sign-in result"))
-        }
-        return try {
-            val token = com.google.android.gms.auth.GoogleAuthUtil.getToken(
-                context,
-                acct,
-                "oauth2:$DRIVE_FILE_SCOPE"
+    fun accessTokenFromAuthorizationResult(result: AuthorizationResult): Result<String> {
+        if (result.hasResolution()) {
+            return Result.failure(
+                DriveAuthorizationRequiredException("Google Drive permission needs user approval. Reconnect Drive in the app.")
             )
-            if (token.isNullOrBlank()) {
-                Result.failure(
-                    IllegalStateException(
-                        "No access token. Ensure Drive scope was granted and Play Services is available."
-                    )
-                )
-            } else {
-                Result.success(token)
-            }
+        }
+        if (DRIVE_FILE_SCOPE !in result.grantedScopes.orEmpty()) {
+            return Result.failure(SecurityException("Google Drive did not grant the required drive.file scope."))
+        }
+        val token = result.accessToken
+        return if (token.isNullOrBlank()) {
+            Result.failure(IllegalStateException("Google Drive authorization returned an empty access token."))
+        } else Result.success(token)
+    }
+
+    fun handleAuthorizationActivityResult(data: Intent?): Result<String> {
+        if (data == null) return Result.failure(IllegalStateException("Google Drive authorization returned no result data."))
+        return try {
+            accessTokenFromAuthorizationResult(
+                Identity.getAuthorizationClient(context).getAuthorizationResultFromIntent(data)
+            )
+        } catch (e: ApiException) {
+            Result.failure(IllegalStateException(mapApiException(e), e))
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    suspend fun signOut() = withContext(Dispatchers.IO) {
+    /** AuthorizationClient owns its short-lived token cache and renews on later requests. */
+    suspend fun requestDriveAccessTokenSilently(): String {
+        return accessTokenFromAuthorizationResult(authorizeDriveAccess().await()).getOrThrow()
+    }
+
+    suspend fun revokeDriveAccess(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                .requestEmail()
-                .requestIdToken(serverClientId)
-                .requestScopes(Scope(DRIVE_FILE_SCOPE))
-                .build()
-            GoogleSignIn.getClient(context, gso).signOut().await()
-        } catch (_: Exception) {
-            // best-effort
+            Identity.getAuthorizationClient(context).revokeAccess(
+                RevokeAccessRequest.builder().setScopes(listOf(Scope(DRIVE_FILE_SCOPE))).build()
+            ).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 

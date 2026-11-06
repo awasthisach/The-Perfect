@@ -6,7 +6,7 @@ import com.vvf.smartmanager.core.model.FileItem
  * Service contract for Google Drive core synchronization using REST API and Credential Manager.
  */
 interface GoogleDriveService {
-    /** Stores a token produced by the activity-owned Google sign-in flow. */
+    /** Retains the most recent interactive token; API calls re-authorize through AuthorizationClient. */
     fun setAccessToken(token: String?) = Unit
 
     suspend fun authenticate(): Result<Boolean>

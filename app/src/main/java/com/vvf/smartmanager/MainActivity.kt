@@ -2,13 +2,16 @@ package com.vvf.smartmanager
 
 import android.app.Activity
 import android.content.Intent
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricManager
 import androidx.lifecycle.lifecycleScope
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
 import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import android.os.Bundle
 import androidx.fragment.app.FragmentActivity
@@ -85,23 +88,26 @@ class MainActivity : FragmentActivity() {
      */
     private var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
 
-    private val googleDriveSignInLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
+    private val googleDriveAuthorizationLauncher = registerForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
     ) { activityResult ->
+        val result = if (activityResult.resultCode == Activity.RESULT_OK) {
+            googleDriveAuth.handleAuthorizationActivityResult(activityResult.data)
+        } else {
+            Result.failure(IllegalStateException("Google Drive authorization was cancelled."))
+        }
+        completeGoogleDriveAuthorization(result)
+    }
+
+    private fun completeGoogleDriveAuthorization(result: Result<String>) {
         val app = application as VVFApplication
         val callback = pendingGoogleDriveSignInCallback
         pendingGoogleDriveSignInCallback = null
         app.pendingGoogleDriveSignInCallback = null
-        lifecycleScope.launch {
-            val result = googleDriveAuth.handleSignInActivityResult(
-                resultCode = activityResult.resultCode,
-                data = activityResult.data
-            )
-            result.onSuccess { token ->
-                runCatching { app.googleDriveService.setAccessToken(token) }
-            }
-            callback?.invoke(result)
+        result.onSuccess { token ->
+            runCatching { app.googleDriveService.setAccessToken(token) }
         }
+        callback?.invoke(result)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -112,20 +118,27 @@ class MainActivity : FragmentActivity() {
             VVFSmartManagerTheme {
                 VVFAppContent(
                     onGoogleDriveSignInRequested = { callback ->
-                        if (
-                            BuildConfig.GOOGLE_WEB_CLIENT_ID.isBlank() ||
-                            BuildConfig.GOOGLE_WEB_CLIENT_ID == "__UNCONFIGURED__"
-                        ) {
-                            callback(
-                                Result.failure(
-                                    IllegalStateException(
-                                        "Google Drive is not configured. Add GOOGLE_WEB_CLIENT_ID through the app secret configuration."
+                        pendingGoogleDriveSignInCallback = callback
+                        app.pendingGoogleDriveSignInCallback = callback
+                        lifecycleScope.launch {
+                            try {
+                                val authorization = googleDriveAuth.authorizeDriveAccess().await()
+                                if (authorization.hasResolution()) {
+                                    val pendingIntent = authorization.pendingIntent
+                                        ?: throw IllegalStateException("Google Drive authorization did not provide a consent action.")
+                                    googleDriveAuthorizationLauncher.launch(
+                                        IntentSenderRequest.Builder(pendingIntent.intentSender).build()
                                     )
-                                )
-                            )
-                        } else {
-                            pendingGoogleDriveSignInCallback = callback
-                            googleDriveSignInLauncher.launch(googleDriveAuth.buildDriveSignInIntent())
+                                } else {
+                                    completeGoogleDriveAuthorization(
+                                        googleDriveAuth.accessTokenFromAuthorizationResult(authorization)
+                                    )
+                                }
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                completeGoogleDriveAuthorization(Result.failure(error))
+                            }
                         }
                     }
                 )

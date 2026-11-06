@@ -32,14 +32,12 @@ import java.util.TimeZone
  */
 class GoogleDriveServiceImpl(
     private val context: Context,
-    private val driveApi: DriveApi = DriveNetwork.createApi()
+    private val driveApi: DriveApi = DriveNetwork.createApi(),
+    private val accessTokenProvider: DriveAccessTokenProvider = GoogleAuthorizationDriveAccessTokenProvider(context)
 ) : GoogleDriveService {
 
     @Volatile
     private var accessToken: String? = null
-
-    @Volatile
-    private var tokenIssuedAtMs: Long = 0L
 
     private var currentAccount: CloudAccount = CloudAccount(
         providerType = CloudProviderType.GOOGLE_DRIVE,
@@ -52,7 +50,6 @@ class GoogleDriveServiceImpl(
 
     override fun setAccessToken(token: String?) {
         accessToken = token
-        tokenIssuedAtMs = if (token.isNullOrBlank()) 0L else System.currentTimeMillis()
         DriveNetwork.setDefaultAccessToken(token)
         if (token.isNullOrBlank()) {
             currentAccount = currentAccount.copy(
@@ -63,31 +60,17 @@ class GoogleDriveServiceImpl(
         }
     }
 
-    private fun bearer(): String {
-        val t = accessToken
-        if (t.isNullOrBlank()) {
-            throw IllegalStateException(
-                "Google Drive not authenticated. Complete OAuth / Credential Manager and call setAccessToken()."
-            )
-        }
-        val ageMs = System.currentTimeMillis() - tokenIssuedAtMs
-        if (tokenIssuedAtMs > 0L && ageMs > 55L * 60L * 1000L) {
-            throw IllegalStateException(
-                "Google Drive access token is likely expired (age=${ageMs / 1000}s). Please sign in again."
-            )
-        }
-        return "Bearer $t"
+    private suspend fun bearer(): String {
+        // AuthorizationClient owns the cached short-lived token and refresh lifecycle.
+        // A pending consent action is surfaced as re-authentication required.
+        val token = accessTokenProvider.getAccessToken()
+        accessToken = token
+        DriveNetwork.setDefaultAccessToken(token)
+        return "Bearer $token"
     }
 
     override suspend fun authenticate(): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            if (accessToken.isNullOrBlank()) {
-                return@withContext Result.failure(
-                    IllegalStateException(
-                        "No access token. Wire Google Sign-In / Credential Manager and call setAccessToken(token)."
-                    )
-                )
-            }
             val about = driveApi.about(bearer())
             val usage = about.storageQuota?.usage?.toLongOrNull() ?: 0L
             val limit = about.storageQuota?.limit?.toLongOrNull() ?: 0L

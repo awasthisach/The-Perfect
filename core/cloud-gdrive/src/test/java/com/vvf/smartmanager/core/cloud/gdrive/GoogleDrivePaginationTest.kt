@@ -64,9 +64,7 @@ class GoogleDrivePaginationTest {
 
     private fun service(api: DriveApi): GoogleDriveServiceImpl {
         val context: Context = RuntimeEnvironment.getApplication()
-        return GoogleDriveServiceImpl(context, api).apply {
-            setAccessToken("test-access-token")
-        }
+        return GoogleDriveServiceImpl(context, api, DriveAccessTokenProvider { "test-access-token" })
     }
 
     @Test
