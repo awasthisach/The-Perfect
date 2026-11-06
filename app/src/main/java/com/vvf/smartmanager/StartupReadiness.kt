@@ -3,6 +3,7 @@ package com.vvf.smartmanager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,7 +37,7 @@ class StartupReadiness {
         scope: CoroutineScope,
         initialize: suspend (markRecovering: () -> Unit) -> Unit
     ): Job = synchronized(lock) {
-        initializationJob ?: scope.launch {
+        initializationJob ?: scope.launch(start = CoroutineStart.LAZY) {
             try {
                 initialize { mutableState.value = StartupState.Recovering }
                 mutableState.value = StartupState.Ready
@@ -59,6 +60,15 @@ class StartupReadiness {
                     completion.cancel(cause)
                 }
             }
+        }.also { job ->
+            initializationJob = job
+            job.invokeOnCompletion { cause ->
+                if (cause is CancellationException && !completion.isCompleted) {
+                    mutableState.value = StartupState.Failed("Startup initialization was cancelled")
+                    completion.cancel(cause)
+                }
+            }
+            job.start()
         }
     }
 
