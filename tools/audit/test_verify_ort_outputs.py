@@ -107,11 +107,11 @@ class OrtRevisionValidationTests(unittest.TestCase):
             encoding="utf-8",
         )
         (root / "bom.spdx.yml").write_text(
-            "spdxVersion: SPDX-2.3\\n"
-            "SPDXID: SPDXRef-DOCUMENT\\n"
-            "name: The-Perfect\\n"
-            "documentNamespace: https://example.invalid/spdx/test\\n"
-            "packages: []\\n",
+            "spdxVersion: SPDX-2.3\n"
+            "SPDXID: SPDXRef-DOCUMENT\n"
+            "name: The-Perfect\n"
+            "documentNamespace: https://example.invalid/spdx/test\n"
+            "packages: []\n",
             encoding="utf-8",
         )
 
@@ -123,7 +123,7 @@ class OrtRevisionValidationTests(unittest.TestCase):
             root = Path(tmp)
             self.make_valid_results(root, revision)
             curations = root / ".ort.yml"
-            curations.write_text("curations: {}\\n", encoding="utf-8")
+            curations.write_text("curations: {}\n", encoding="utf-8")
             self.assertEqual([], MODULE.validate_outputs(root, revision, curations))
 
     def test_report_from_wrong_revision_is_rejected(self) -> None:
@@ -133,7 +133,7 @@ class OrtRevisionValidationTests(unittest.TestCase):
             root = Path(tmp)
             self.make_valid_results(root, "b" * 40)
             curations = root / ".ort.yml"
-            curations.write_text("curations: {}\\n", encoding="utf-8")
+            curations.write_text("curations: {}\n", encoding="utf-8")
             problems = MODULE.validate_outputs(root, "a" * 40, curations)
             self.assertTrue(any("does not match expected" in item for item in problems))
 
