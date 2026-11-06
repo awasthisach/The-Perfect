@@ -35,6 +35,8 @@ class SemanticSearchUseCase(
         // Bounded candidates: loading ALL files every keystroke caused lag/OOM.
         val recentFiles: List<FileItem> = try {
             searchRepository.getRecentIndexedFiles(CANDIDATE_LIMIT)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             emptyList()
         }

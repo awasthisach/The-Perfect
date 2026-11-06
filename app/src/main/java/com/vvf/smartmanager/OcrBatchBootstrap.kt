@@ -20,7 +20,7 @@ object OcrBatchBootstrap {
         ocrEngine: IOcrEngine,
         ocrIndexingService: OcrIndexingService,
         isEnabled: () -> Boolean = { false },
-        scheduleContinuation: (() -> Unit)? = null
+        scheduleContinuation: (suspend () -> Unit)? = null
     ) {
         OcrBatchRuntime.configure(scheduleContinuation = scheduleContinuation) {
             try {

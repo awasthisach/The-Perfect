@@ -21,6 +21,7 @@ import com.vvf.smartmanager.core.model.SemanticSearchResult
 import com.vvf.smartmanager.core.model.SizeFilter
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow

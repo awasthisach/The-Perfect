@@ -15,23 +15,28 @@ import com.vvf.smartmanager.core.background.workers.FileIndexingWorker
 import com.vvf.smartmanager.core.background.workers.JunkScanWorker
 import com.vvf.smartmanager.core.background.workers.IndexingAndOcrCoordinatorWorker
 import com.vvf.smartmanager.core.background.workers.OcrBatchWorker
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.runInterruptible
 import java.util.concurrent.TimeUnit
 
 /**
  * Central WorkManager Orchestrator for battery-friendly, offline-first background operations.
  * Safely handles test environments where WorkManager is not pre-configured.
  */
-class BackgroundSyncManager(private val context: Context) {
-
-    private val workManager: WorkManager? by lazy {
+class BackgroundSyncManager(
+    private val context: Context,
+    private val workManagerProvider: () -> WorkManager? = {
         try {
             WorkManager.getInstance(context)
-        } catch (_: Throwable) {
+        } catch (_: Exception) {
             null
         }
     }
+) {
+
+    private val workManager: WorkManager? by lazy(workManagerProvider)
 
     /**
      * Schedule periodic incremental storage indexing.
@@ -200,20 +205,24 @@ class BackgroundSyncManager(private val context: Context) {
     /**
      * Trigger immediate OCR batch processing pass.
      */
-    fun triggerImmediateOcrBatch() {
-        val wm = workManager ?: return
+    suspend fun triggerImmediateOcrBatch() {
+        val wm = checkNotNull(workManager) {
+            "WorkManager is unavailable; refusing to drop an OCR batch or continuation"
+        }
         val request = OneTimeWorkRequestBuilder<OcrBatchWorker>()
             .addTag("immediate_ocr")
             .build()
 
-        // OCR has its own unique identity: duplicate startup/settings triggers collapse,
-        // and OCR no longer depends on the success state of the storage-indexing chain.
-        // Storage rescans merge current tags transactionally in FileDao.
-        wm.enqueueUniqueWork(
+        // Await WorkManager's durable enqueue operation before the current worker can report
+        // success. If persistence fails or times out, the caller retries rather than losing work.
+        val operation = wm.enqueueUniqueWork(
             BackgroundConstants.UNIQUE_IMMEDIATE_OCR_BATCH_WORK,
             ExistingWorkPolicy.APPEND_OR_REPLACE,
             request
         )
+        runInterruptible(Dispatchers.IO) {
+            operation.result.get(10, TimeUnit.SECONDS)
+        }
     }
 
     /**

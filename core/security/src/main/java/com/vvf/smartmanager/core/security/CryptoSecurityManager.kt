@@ -139,6 +139,7 @@ class CryptoSecurityManager(
             }
             val rawKey = ByteArray(32)
             try {
+                SecureRandom().nextBytes(rawKey)
                 synchronized(memoryKeyMap) {
                     memoryKeyMap[memoryKeyId] = SecretKeySpec(rawKey, "AES")
                 }

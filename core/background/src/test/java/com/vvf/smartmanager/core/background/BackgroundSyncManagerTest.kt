@@ -88,11 +88,25 @@ class BackgroundSyncManagerTest {
 
         syncManager.triggerImmediateIndexing()
         syncManager.triggerImmediateBackup(includeVault = false)
-        syncManager.triggerImmediateOcrBatch()
+        runBlocking { syncManager.triggerImmediateOcrBatch() }
+        val ocrWork = WorkManager.getInstance(context)
+            .getWorkInfosForUniqueWork(BackgroundConstants.UNIQUE_IMMEDIATE_OCR_BATCH_WORK).get()
+        assertEquals(1, ocrWork.size)
         syncManager.triggerImmediateIndexingThenOcr()
 
         syncManager.cancelAllScheduledWork()
     }
+    @Test
+    fun immediateOcrBatchFailsClosedWhenWorkManagerIsUnavailable() = runBlocking {
+        val unavailableManager = BackgroundSyncManager(context) { null }
+        try {
+            unavailableManager.triggerImmediateOcrBatch()
+            fail("OCR scheduling must not silently succeed without WorkManager")
+        } catch (expected: IllegalStateException) {
+            assertTrue(expected.message.orEmpty().contains("refusing to drop"))
+        }
+    }
+
     @Test
     fun fileIndexingWorkerPropagatesCancellationAtFirstAndLastRetryAttempt() = runBlocking {
         for (attemptCount in listOf(0, 3)) {

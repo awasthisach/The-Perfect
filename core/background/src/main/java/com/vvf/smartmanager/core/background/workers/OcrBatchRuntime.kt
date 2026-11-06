@@ -22,12 +22,12 @@ object OcrBatchRuntime {
     private var batchRunner: (suspend () -> OcrBatchOutcome)? = null
 
     @Volatile
-    private var continuationScheduler: (() -> Unit)? = null
+    private var continuationScheduler: (suspend () -> Unit)? = null
 
     private val batchMutex = Mutex()
 
     fun configure(
-        scheduleContinuation: (() -> Unit)? = null,
+        scheduleContinuation: (suspend () -> Unit)? = null,
         realBatchRunner: suspend () -> OcrBatchOutcome
     ) {
         continuationScheduler = scheduleContinuation
@@ -44,7 +44,7 @@ object OcrBatchRuntime {
      * Schedules a separate durable WorkRequest after one bounded pass.
      * Missing scheduler wiring is a real failure; never silently drop remaining candidates.
      */
-    fun scheduleContinuation() {
+    suspend fun scheduleContinuation() {
         val configured = continuationScheduler
             ?: throw IllegalStateException("OCR continuation scheduler is not configured")
         configured()

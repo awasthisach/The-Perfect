@@ -1,9 +1,12 @@
 package com.vvf.smartmanager.core.domain.restore
 
 import com.vvf.smartmanager.core.model.CloudBackupInfo
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
+import org.junit.Assert.fail
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -78,6 +81,48 @@ class FailClosedRestorePipelineTest {
         val result = pipeline().restore("  ", null)
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull() is VerificationFailedException)
+    }
+
+    @Test
+    fun cancellationPropagatesAndIsNotConvertedToRestoreFailure() = runBlocking {
+        val cancellation = CancellationException("restore cancelled")
+        val pipeline = FailClosedRestorePipeline(
+            workingDir = temp.newFolder("cancel-work"),
+            downloader = object : BackupDownloader {
+                override suspend fun download(remoteBackupId: String): Result<DownloadedArtifact> {
+                    throw cancellation
+                }
+            },
+            verifier = object : BackupVerifier {
+                override suspend fun verify(
+                    artifact: DownloadedArtifact,
+                    expectedChecksum: String?
+                ): Result<VerifiedArtifact> = error("verification must not run")
+            },
+            decryptor = object : BackupDecryptor {
+                override suspend fun decrypt(
+                    verifiedArtifact: VerifiedArtifact,
+                    stagingDir: File,
+                    passphrase: CharArray?
+                ): Result<DecryptedBackup> = error("decryption must not run")
+            },
+            applier = object : RestoreApplier {
+                override suspend fun prepare(): Result<RestoreSnapshot> = error("prepare must not run")
+                override suspend fun apply(decryptedBackup: DecryptedBackup): Result<AppliedRestore> =
+                    error("apply must not run")
+                override suspend fun rollback(snapshot: RestoreSnapshot): Result<Unit> =
+                    error("rollback must not run")
+            }
+        )
+
+        val thrown = try {
+            pipeline.restore("remote-1", "abc")
+            fail("Cancellation must propagate")
+            null
+        } catch (actual: CancellationException) {
+            actual
+        }
+        assertSame(cancellation, thrown)
     }
 
     @Test

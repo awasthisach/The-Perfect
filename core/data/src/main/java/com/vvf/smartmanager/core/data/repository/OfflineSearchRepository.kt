@@ -294,7 +294,7 @@ class OfflineSearchRepository(
             SearchMatchType.TAG -> "Tagged with: ${item.tags.joinToString(", ")}"
             SearchMatchType.METADATA -> "Metadata/Type: ${item.mimeType ?: item.extension}"
             SearchMatchType.FTS -> "Matched in indexed content"
-            SearchMatchType.SEMANTIC -> "Semantic AI match"
+            SearchMatchType.SEMANTIC -> "Heuristic similarity match"
         }
     }
 

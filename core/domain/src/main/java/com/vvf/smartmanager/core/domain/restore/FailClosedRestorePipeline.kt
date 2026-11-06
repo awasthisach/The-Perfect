@@ -3,6 +3,10 @@ package com.vvf.smartmanager.core.domain.restore
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 
 /**
  * Orchestrates restore as a fail-closed transaction:
@@ -19,6 +23,14 @@ class FailClosedRestorePipeline(
     private val preparedSnapshots = ConcurrentHashMap<String, RestoreSnapshot>()
 
     override suspend fun restore(
+        remoteBackupId: String,
+        expectedChecksum: String?,
+        passphrase: CharArray?
+    ): Result<RestoreResult> = withContext(Dispatchers.IO) {
+        restoreOnIo(remoteBackupId, expectedChecksum, passphrase)
+    }
+
+    private suspend fun restoreOnIo(
         remoteBackupId: String,
         expectedChecksum: String?,
         passphrase: CharArray?
@@ -84,6 +96,22 @@ class FailClosedRestorePipeline(
                     timestamp = System.currentTimeMillis()
                 )
             )
+        } catch (cancelled: CancellationException) {
+            if (snapshot != null) {
+                val rollbackAttempt = withContext(NonCancellable) {
+                    runCatching { applier.rollback(snapshot!!) }
+                }
+                preparedSnapshots.remove(snapshot!!.token)
+                val rollbackResult = rollbackAttempt.getOrNull()
+                if (rollbackAttempt.isFailure) {
+                    cancelled.addSuppressed(rollbackAttempt.exceptionOrNull()!!)
+                } else if (rollbackResult?.isFailure == true) {
+                    cancelled.addSuppressed(rollbackResult.exceptionOrNull()!!)
+                } else if (rollbackResult?.isSuccess == true) {
+                    cleanupSnapshot(snapshot!!)
+                }
+            }
+            throw cancelled
         } catch (error: Throwable) {
             if (snapshot != null) {
                 val rollbackAttempt = runCatching { applier.rollback(snapshot!!) }
@@ -120,6 +148,14 @@ class FailClosedRestorePipeline(
         remoteBackupId: String,
         expectedChecksum: String?,
         passphrase: CharArray?
+    ): Result<DryRunResult> = withContext(Dispatchers.IO) {
+        dryRunOnIo(remoteBackupId, expectedChecksum, passphrase)
+    }
+
+    private suspend fun dryRunOnIo(
+        remoteBackupId: String,
+        expectedChecksum: String?,
+        passphrase: CharArray?
     ): Result<DryRunResult> {
         if (remoteBackupId.isBlank()) {
             passphrase?.fill(0.toChar())
@@ -144,6 +180,8 @@ class FailClosedRestorePipeline(
                     message = "Restore validation and decryption completed without mutating live data"
                 )
             )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (error: Throwable) {
             Result.failure(RestoreException("Fail-closed restore dry-run aborted", error))
         } finally {
@@ -152,13 +190,13 @@ class FailClosedRestorePipeline(
         }
     }
 
-    override suspend fun rollback(snapshotToken: String): Result<Unit> {
+    override suspend fun rollback(snapshotToken: String): Result<Unit> = withContext(Dispatchers.IO) {
         if (snapshotToken.isBlank()) {
-            return Result.failure(VerificationFailedException("Snapshot token is blank"))
+            return@withContext Result.failure(VerificationFailedException("Snapshot token is blank"))
         }
         val snapshot = preparedSnapshots[snapshotToken]
-            ?: return Result.failure(VerificationFailedException("Snapshot token is not active in this process"))
-        return applier.rollback(snapshot).also {
+            ?: return@withContext Result.failure(VerificationFailedException("Snapshot token is not active in this process"))
+        applier.rollback(snapshot).also {
             if (it.isSuccess) {
                 preparedSnapshots.remove(snapshotToken)
                 cleanupSnapshot(snapshot)
