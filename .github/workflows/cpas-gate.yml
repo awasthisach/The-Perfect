@@ -49,7 +49,7 @@ jobs:
             # Do not filter server-side by head_sha: pull_request runs can be recorded
             # against GitHub's synthetic merge SHA while the PR association carries
             # the actual candidate head SHA. Paginate before applying the exact SHA check.
-            runs_json="$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/actions/workflows/nightly-ort.yml/runs?event=${GITHUB_EVENT_NAME}&per_page=100")"
+            runs_json="$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/actions/workflows/nightly-ort.yml/runs?per_page=100")"
             run_id="$(printf '%s' "$runs_json" | jq -r --arg sha "$CANDIDATE_SHA" '[.[] | .workflow_runs[]? | select(.head_sha == $sha or any(.pull_requests[]?; .head.sha == $sha))] | sort_by(.created_at) | last | .id // empty')"
 
             if [ -n "$run_id" ]; then
