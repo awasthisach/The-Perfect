@@ -28,8 +28,9 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertIn("tools/audit/select_ort_run.py --candidate-sha", workflow)
         self.assertIn('"$run_conclusion" != "success"', workflow)
         self.assertIn('status.get("workflow_run_id")', workflow)
-        self.assertIn('status.get("checkout_revision")', workflow)
-        self.assertIn('status.get("scan_revision")', workflow)
+        self.assertIn('"checkout_revision": expected_sha', workflow)
+        self.assertIn('"scan_revision": expected_sha', workflow)
+        self.assertIn("for field, value in expected.items():", workflow)
         self.assertIn("Enforce fail-closed result after preserving status artifact", workflow)
         self.assertIn('if [ "$ORT_STAGE_OUTCOME" != "success" ]; then', workflow)
 
