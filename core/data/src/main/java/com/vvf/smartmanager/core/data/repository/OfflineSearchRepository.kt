@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -34,7 +35,8 @@ class OfflineSearchRepository(
     private val searchFtsDao: SearchFtsDao,
     private val fileDao: FileDao,
     private val storageManager: StorageManager,
-    cryptoSecurityManager: CryptoSecurityManager? = null
+    cryptoSecurityManager: CryptoSecurityManager? = null,
+    private val awaitStartupReady: suspend () -> Unit = {}
 ) : SearchRepository {
 
     private val historyStore: EncryptedSearchHistoryStore? =
@@ -59,9 +61,10 @@ class OfflineSearchRepository(
         _historyFlow.value = history
     }
 
-    override fun getSearchHistory(): Flow<List<String>> = _historyFlow.asStateFlow()
+    override fun getSearchHistory(): Flow<List<String>> = flow { awaitStartupReady(); emitAll(_historyFlow.asStateFlow()) }
 
     override suspend fun saveSearchQuery(query: String) = withContext(Dispatchers.IO) {
+        awaitStartupReady()
         val clean = query.trim().take(500)
         if (clean.isBlank()) return@withContext
         val current = _historyFlow.value.toMutableList()
@@ -71,25 +74,29 @@ class OfflineSearchRepository(
     }
 
     override suspend fun deleteSearchHistoryItem(query: String) = withContext(Dispatchers.IO) {
+        awaitStartupReady()
         val current = _historyFlow.value.toMutableList()
         current.remove(query.trim())
         saveHistory(current)
     }
 
     override suspend fun clearSearchHistory() = withContext(Dispatchers.IO) {
+        awaitStartupReady()
         saveHistory(emptyList())
     }
 
-    override fun getAvailableTags(): Flow<List<String>> {
-        return searchFtsDao.getAllTags().map { rawTagList ->
+    override fun getAvailableTags(): Flow<List<String>> = flow {
+        awaitStartupReady()
+        emitAll(searchFtsDao.getAllTags().map { rawTagList ->
             rawTagList.flatMap { raw ->
                 raw.split(",").map { it.trim() }
                     .filter { it.isNotEmpty() }
             }.distinct().sorted()
-        }.flowOn(Dispatchers.IO)
+        }.flowOn(Dispatchers.IO))
     }
 
     override suspend fun addTagToFile(path: String, tag: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        awaitStartupReady()
         try {
             val cleanTag = tag.trim().lowercase()
             if (cleanTag.isEmpty()) return@withContext Result.success(true)
@@ -120,6 +127,7 @@ class OfflineSearchRepository(
     }
 
     override suspend fun removeTagFromFile(path: String, tag: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        awaitStartupReady()
         try {
             fileDao.removeTagPreservingLatestMetadata(path, tag)
             Result.success(true)
@@ -130,15 +138,18 @@ class OfflineSearchRepository(
         }
     }
 
-    override fun getTotalIndexedCount(): Flow<Int> {
-        return searchFtsDao.getTotalIndexedCount().flowOn(Dispatchers.IO)
+    override fun getTotalIndexedCount(): Flow<Int> = flow {
+        awaitStartupReady()
+        emitAll(searchFtsDao.getTotalIndexedCount().flowOn(Dispatchers.IO))
     }
 
     override suspend fun rebuildFtsIndex() = withContext(Dispatchers.IO) {
+        awaitStartupReady()
         searchFtsDao.rebuildFtsIndex()
     }
 
     override suspend fun getRecentIndexedFiles(limit: Int): List<FileItem> = withContext(Dispatchers.IO) {
+        awaitStartupReady()
         val entities = fileDao.getRecentFiles(limit.coerceIn(1, 2_000)).first()
         entities.map { entity ->
             val tagList = parseVisibleTags(entity.tags)
@@ -160,6 +171,7 @@ class OfflineSearchRepository(
     }
 
     override fun searchFiles(query: String, filter: SearchFilter): Flow<List<SearchResultItem>> = flow {
+        awaitStartupReady()
         val trimmedQuery = query.trim().take(500)
         val entitiesFlow = when {
             trimmedQuery.isNotEmpty() -> {
