@@ -5,6 +5,8 @@ on:
   # candidate SHA; never on every PR synchronize or main push.
   schedule:
     - cron: "0 2 * * *"
+  push:
+    branches: ["hardening/**"]
   workflow_dispatch:
 
 permissions:
