@@ -66,5 +66,86 @@ class SourceArtifactPinTests(unittest.TestCase):
         self.assertTrue(any("pin is missing" in item for item in self.validate("no provenance pin")))
 
 
+class OrtRevisionValidationTests(unittest.TestCase):
+    def make_valid_results(self, root: Path, revision: str) -> None:
+        import json
+
+        repository = {"vcs": {"revision": revision}, "config": {}}
+        reports = {
+            "analyzer-result.json": {
+                "repository": repository,
+                "analyzer": {"result": {"projects": [], "packages": []}},
+            },
+            "scan-result.json": {
+                "repository": repository,
+                "scanner": {"scanResults": []},
+            },
+            "evaluation-result.json": {
+                "repository": repository,
+                "evaluator": {"violations": []},
+            },
+            "advisor-result.json": {
+                "repository": repository,
+                "advisor": {"results": {}},
+            },
+            "bom.cyclonedx.json": {
+                "bomFormat": "CycloneDX", "specVersion": "1.5", "version": 1,
+            },
+            "bom.spdx.json": {
+                "spdxVersion": "SPDX-2.3",
+                "dataLicense": "CC0-1.0",
+                "SPDXID": "SPDXRef-DOCUMENT",
+                "name": "The-Perfect",
+                "documentNamespace": "https://example.invalid/spdx/test",
+                "packages": [],
+            },
+        }
+        for name, payload in reports.items():
+            (root / name).write_text(json.dumps(payload), encoding="utf-8")
+        (root / "bom.cyclonedx.xml").write_text(
+            '<bom xmlns="http://cyclonedx.org/schema/bom/1.5"></bom>',
+            encoding="utf-8",
+        )
+        (root / "bom.spdx.yml").write_text(
+            "spdxVersion: SPDX-2.3\\n"
+            "SPDXID: SPDXRef-DOCUMENT\\n"
+            "name: The-Perfect\\n"
+            "documentNamespace: https://example.invalid/spdx/test\\n"
+            "packages: []\\n",
+            encoding="utf-8",
+        )
+
+    def test_all_ort_reports_with_exact_revision_pass(self) -> None:
+        import tempfile
+
+        revision = "a" * 40
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_valid_results(root, revision)
+            curations = root / ".ort.yml"
+            curations.write_text("curations: {}\\n", encoding="utf-8")
+            self.assertEqual([], MODULE.validate_outputs(root, revision, curations))
+
+    def test_report_from_wrong_revision_is_rejected(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_valid_results(root, "b" * 40)
+            curations = root / ".ort.yml"
+            curations.write_text("curations: {}\\n", encoding="utf-8")
+            problems = MODULE.validate_outputs(root, "a" * 40, curations)
+            self.assertTrue(any("does not match expected" in item for item in problems))
+
+    def test_missing_ort_output_is_rejected(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            problems = MODULE.validate_outputs(root, "a" * 40, root / ".ort.yml")
+            self.assertTrue(any("analyzer-result.json: missing" in item for item in problems))
+            self.assertTrue(any("bom.spdx.yml: missing" in item for item in problems))
+
+
 if __name__ == "__main__":
     unittest.main()
