@@ -66,7 +66,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import java.io.File
 
 class VVFApplication : Application(), Configuration.Provider {
@@ -125,6 +124,7 @@ class VVFApplication : Application(), Configuration.Provider {
     var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val startupReadiness = StartupReadiness()
 
     private val settingsPrefs by lazy {
         getSharedPreferences(SETTINGS_PREFS, MODE_PRIVATE)
@@ -143,6 +143,15 @@ class VVFApplication : Application(), Configuration.Provider {
     }
 
     override fun onCreate() {
+        super.onCreate()
+        cryptoSecurityManager = CryptoSecurityManager(this)
+        startupReadiness.start(applicationScope) { markRecovering ->
+            initializeApplication(markRecovering)
+        }
+    }
+
+    private suspend fun initializeApplication(markRecovering: () -> Unit) {
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
         super.onCreate()
         cryptoSecurityManager = CryptoSecurityManager(this)
         val jvmUnitTest = CryptoSecurityManager.isJvmUnitTestEnvironment(this)
@@ -214,17 +223,15 @@ class VVFApplication : Application(), Configuration.Provider {
             vaultJournalDao = database.vaultJournalDao(),
             fileDao = database.fileDao()
         )
+        markRecovering()
+        // Force Room open and complete migrations before journal reconciliation or service use.
+        database.openHelper.writableDatabase
         if (!jvmUnitTest) {
-            // Resolve interrupted vault operations before exposing ordinary search/index state.
-            val recoveredJournals = runBlocking(Dispatchers.IO) {
-                vaultRepository.recoverOrphanedJournals()
-            }
+            val recoveredJournals = vaultRepository.recoverOrphanedJournals()
             if (recoveredJournals > 0) {
                 Log.i(TAG, "Reconciled $recoveredJournals interrupted vault journal operation(s)")
             }
-            val removedVaultSearchRows = runBlocking(Dispatchers.IO) {
-                vaultRepository.reconcileVaultedSourceMetadata()
-            }
+            val removedVaultSearchRows = vaultRepository.reconcileVaultedSourceMetadata()
             if (removedVaultSearchRows > 0) {
                 Log.i(TAG, "Removed $removedVaultSearchRows stale search row(s) for vaulted sources")
             }
@@ -321,14 +328,15 @@ class VVFApplication : Application(), Configuration.Provider {
             onRestoreFinished = { restartIfRestoreClosedDatabase() }
         )
         backgroundSyncManager = BackgroundSyncManager(this)
-        FileIndexingRuntime.configure { indexPrimaryStorageForSearch() }
+        FileIndexingRuntime.configure { startupReadiness.awaitReady(); indexPrimaryStorageForSearch() }
         JunkScanBootstrap.wire(junkCleanerUseCase)
         OcrBatchBootstrap.wire(
             database = database,
             ocrEngine = ocrPlugin,
             ocrIndexingService = ocrIndexingService,
             isEnabled = ::isAutoIndexOcrEnabled,
-            scheduleContinuation = backgroundSyncManager::triggerImmediateOcrBatch
+            scheduleContinuation = backgroundSyncManager::triggerImmediateOcrBatch,
+            awaitReady = startupReadiness::awaitReady
         )
         val bgExceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
             Log.e(TAG, "Background sync scheduling failed safely", throwable)
@@ -349,8 +357,9 @@ class VVFApplication : Application(), Configuration.Provider {
                 Log.e(TAG, "Background sync scheduling failed", e)
             }
         }
+    
+        }
     }
-
 
     /**
      * Remove abandoned app-private plaintext ZIP/staging artifacts left by a prior process death.
