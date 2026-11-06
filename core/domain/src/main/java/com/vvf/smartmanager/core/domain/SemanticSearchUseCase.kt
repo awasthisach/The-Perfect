@@ -1,5 +1,7 @@
 package com.vvf.smartmanager.core.domain
 
+import kotlinx.coroutines.CancellationException
+
 import com.vvf.smartmanager.core.data.FileManagerRepository
 import com.vvf.smartmanager.core.data.SearchRepository
 import com.vvf.smartmanager.core.model.FileItem
