@@ -14,6 +14,25 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertIn("timeout-minutes: 90", workflow)
         self.assertIn("ref: ${{ github.sha }}", workflow)
 
+    def test_ort_manual_dispatch_checks_selected_ref_checkout_and_scan_revision(self):
+        workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
+        self.assertIn("ref: ${{ github.sha }}", workflow)
+        self.assertIn('actual_sha="$(git rev-parse HEAD)"', workflow)
+        self.assertIn('CHECKOUT_SHA: ${{ steps.verify_checkout.outputs.checkout_sha }}', workflow)
+        self.assertIn('"checkout_revision": checkout_sha', workflow)
+        self.assertIn('"scan_revision": scan_sha', workflow)
+        self.assertIn('"workflow_run_id": int(os.environ["WORKFLOW_RUN_ID"])', workflow)
+
+    def test_cpas_selects_exact_sha_and_fails_closed_on_bad_ort_provenance(self):
+        workflow = (ROOT / ".github/workflows/cpas-gate.yml").read_text(encoding="utf-8")
+        self.assertIn("tools/audit/select_ort_run.py --candidate-sha", workflow)
+        self.assertIn('"$run_conclusion" != "success"', workflow)
+        self.assertIn('status.get("workflow_run_id")', workflow)
+        self.assertIn('status.get("checkout_revision")', workflow)
+        self.assertIn('status.get("scan_revision")', workflow)
+        self.assertIn("Enforce fail-closed result after preserving status artifact", workflow)
+        self.assertIn('if [ "$ORT_STAGE_OUTCOME" != "success" ]; then', workflow)
+
     def test_branch_cleanup_workflow_is_read_only_and_never_deletes(self):
         workflow = (ROOT / ".github/workflows/cleanup-stale-branches.yml").read_text(encoding="utf-8")
         self.assertIn("contents: read", workflow)
