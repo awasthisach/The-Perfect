@@ -31,7 +31,7 @@ class GoogleDriveServiceImplTest {
         service = GoogleDriveServiceImpl(
             context,
             accessTokenProvider = DriveAccessTokenProvider {
-                throw DriveAuthorizationRequiredException("No authorized Google Drive account")
+                throw DriveAuthorizationRequiredException("Google Drive authorization required")
             }
         )
         service.disconnect()
@@ -42,7 +42,7 @@ class GoogleDriveServiceImplTest {
         val result = service.authenticate()
         assertTrue(result.isFailure)
         val msg = result.exceptionOrNull()?.message.orEmpty()
-        assertTrue(msg.contains("token", ignoreCase = true) || msg.contains("OAuth", ignoreCase = true))
+        assertTrue(msg.contains("token", ignoreCase = true) || msg.contains("OAuth", ignoreCase = true) || msg.contains("authorization", ignoreCase = true))
     }
 
     @Test

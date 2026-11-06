@@ -24,11 +24,9 @@ import java.util.TimeZone
 /**
  * Google Drive v3 REST implementation.
  *
- * Production path: call [setAccessToken] after OAuth / Credential Manager, then use list/upload/download.
- * Without a token, operations fail with a clear error (no simulated cloud data).
- *
- * Access tokens typically expire in ~1 hour. This client tracks issue time and fails closed with a
- * re-auth message when the token is likely expired. True refresh-token rotation needs an auth code flow.
+ * Drive operations obtain a short-lived token through AuthorizationClient for each API call.
+ * Google Play Services owns the token cache and renewal; unresolved consent fails closed and
+ * is surfaced to the UI. No refresh token or web-client secret is stored on-device.
  */
 class GoogleDriveServiceImpl(
     private val context: Context,

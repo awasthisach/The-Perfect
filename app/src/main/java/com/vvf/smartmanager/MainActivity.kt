@@ -118,6 +118,7 @@ class MainActivity : FragmentActivity() {
             VVFSmartManagerTheme {
                 VVFAppContent(
                     onGoogleDriveSignInRequested = { callback ->
+                        val app = application as VVFApplication
                         pendingGoogleDriveSignInCallback = callback
                         app.pendingGoogleDriveSignInCallback = callback
                         lifecycleScope.launch {
