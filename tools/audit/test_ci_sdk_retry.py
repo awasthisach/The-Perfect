@@ -19,10 +19,10 @@ class AndroidSdkRetryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)
             command = path / "sdkmanager"
-            command.write_text("#!/usr/bin/env python3\nimport os, sys\nfrom pathlib import Path\nif '--licenses' in sys.argv: raise SystemExit(int(os.environ['SDK_LICENSE_EXIT_CODE']))\np=Path(os.environ['SDK_COUNTER'])\nn=int(p.read_text())+1 if p.exists() else 1\np.write_text(str(n))\nthreshold=int(os.environ['SDK_SUCCEED_AT'])\nraise SystemExit(0 if threshold > 0 and n >= threshold else 1)\n")
+            command.write_text("#!/usr/bin/env python3\nimport os, sys\nfrom pathlib import Path\nif '--licenses' in sys.argv: raise SystemExit(int(os.environ['SDK_LICENSE_EXIT_CODE']))\np=Path(os.environ['SDK_COUNTER'])\nn=int(p.read_text())+1 if p.exists() else 1\np.write_text(str(n))\nthreshold=int(os.environ['SDK_SUCCEED_AT'])\nsucceeded=threshold > 0 and n >= threshold\nif succeeded and 'system-images;android-35;google_apis;x86_64' in sys.argv:\n    (Path(os.environ['ANDROID_HOME'])/'system-images/android-35/google_apis/x86_64').mkdir(parents=True, exist_ok=True)\nraise SystemExit(0 if succeeded else 1)\n")
             command.chmod(0o755)
             counter = path / "calls"
-            env = dict(os.environ, PATH=str(path)+os.pathsep+os.environ["PATH"], SDK_COUNTER=str(counter), SDK_SUCCEED_AT=str(succeed_at), SDK_LICENSE_EXIT_CODE=str(license_exit))
+            env = dict(os.environ, PATH=str(path)+os.pathsep+os.environ["PATH"], ANDROID_HOME=str(path / "android-sdk"), SDK_COUNTER=str(counter), SDK_SUCCEED_AT=str(succeed_at), SDK_LICENSE_EXIT_CODE=str(license_exit))
             result = subprocess.run(["bash", "-e", "-c", script or self._script()], env=env, capture_output=True, text=True, timeout=10)
             calls = int(counter.read_text()) if counter.exists() else 0
             return result.returncode, calls
