@@ -207,6 +207,8 @@ class VVFApplication : Application(), Configuration.Provider {
                 cryptoSecurityManager.wipeBuffer(passphrase)
             }
         }
+        // Open Room on the IO initializer thread so migrations complete before repositories exist.
+        database.openHelper.writableDatabase
 
         storageManager = StorageManager(this, database.fileDao())
         fileManagerRepository = AppCompositionRoot.offlineFileManagerRepository(
@@ -225,7 +227,6 @@ class VVFApplication : Application(), Configuration.Provider {
         )
         markRecovering()
         // Force Room open and complete migrations before journal reconciliation or service use.
-        database.openHelper.writableDatabase
         if (!jvmUnitTest) {
             val recoveredJournals = vaultRepository.recoverOrphanedJournals()
             if (recoveredJournals > 0) {
