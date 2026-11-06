@@ -33,7 +33,7 @@ class OcrRetryMigrationTest {
                         "INSERT INTO file_metadata(id, tags) VALUES " +
                             "(1, 'invoice,ocr_retry_after:1234:3,finance'), " +
                             "(2, 'myocr_retry_after:9999,invoice'), " +
-                            "(3, 'ocr_retry_after:invalid:4,report')"
+                            "(3, 'ocr_retry_after:invalid:4,report'), (4, 'ocr_retry_after:9999,report')"
                     )
                 }
 
@@ -70,7 +70,13 @@ class OcrRetryMigrationTest {
 
             cursor.moveToNext()
             assertEquals(3L, cursor.getLong(0))
-            assertEquals("report", cursor.getString(1))
+            assertEquals("ocr_retry_after:invalid:4,report", cursor.getString(1))
+            assertTrue(cursor.isNull(2))
+            assertEquals(0, cursor.getInt(3))
+
+            cursor.moveToNext()
+            assertEquals(4L, cursor.getLong(0))
+            assertEquals("ocr_retry_after:9999,report", cursor.getString(1))
             assertTrue(cursor.isNull(2))
             assertEquals(0, cursor.getInt(3))
         }

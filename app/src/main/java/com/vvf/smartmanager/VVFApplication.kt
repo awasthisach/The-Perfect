@@ -327,7 +327,8 @@ class VVFApplication : Application(), Configuration.Provider {
             database = database,
             ocrEngine = ocrPlugin,
             ocrIndexingService = ocrIndexingService,
-            isEnabled = ::isAutoIndexOcrEnabled
+            isEnabled = ::isAutoIndexOcrEnabled,
+            scheduleContinuation = backgroundSyncManager::triggerImmediateOcrBatch
         )
         val bgExceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
             Log.e(TAG, "Background sync scheduling failed safely", throwable)

@@ -84,7 +84,7 @@ class OfflineSearchRepository(
         return searchFtsDao.getAllTags().map { rawTagList ->
             rawTagList.flatMap { raw ->
                 raw.split(",").map { it.trim() }
-                    .filter { it.isNotEmpty() && !it.startsWith("ocr_retry_after:") }
+                    .filter { it.isNotEmpty() }
             }.distinct().sorted()
         }.flowOn(Dispatchers.IO)
     }
@@ -248,7 +248,7 @@ class OfflineSearchRepository(
     /** Hide internal worker retry bookkeeping from file/tag UI and search matching. */
     private fun parseVisibleTags(rawTags: String): List<String> =
         rawTags.split(",").map { it.trim() }
-            .filter { it.isNotEmpty() && !it.startsWith("ocr_retry_after:") }
+            .filter { it.isNotEmpty() }
 
     private fun sanitizeFtsQuery(query: String): String {
         val clean = query.replace(Regex("[^\\p{L}\\p{Nd}_\\s]"), " ").trim()

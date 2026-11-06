@@ -22,45 +22,61 @@ class OcrBatchWorkerTest {
             .build()
 
     @Test
-    fun healthyContinuationDoesNotConsumeFailureRetries() = runBlocking {
+    fun healthyContinuationSchedulesFreshWorkAndDoesNotConsumeFailureRetries() = runBlocking {
         var passes = 0
-        OcrBatchRuntime.configure {
+        var scheduled = 0
+        OcrBatchRuntime.configure(scheduleContinuation = { scheduled++ }) {
             passes++
-            OcrBatchOutcome.Completed(if (passes < 3) 40 else 3, hasMoreCandidates = passes < 3)
+            OcrBatchOutcome.Completed(40, hasMoreCandidates = true)
         }
+
         val result = worker(attempts = 12).doWork()
         assertTrue(result is ListenableWorker.Result.Success)
-        assertEquals(3, passes)
-        assertEquals(83, (result as ListenableWorker.Result.Success).outputData.getInt("processed_count", -1))
-    }
-
-    @Test
-    fun deferredFilesDoNotPreventTheNextEligiblePass() = runBlocking {
-        var passes = 0
-        OcrBatchRuntime.configure {
-            passes++
-            if (passes == 1) OcrBatchOutcome.Completed(0, true, 40)
-            else OcrBatchOutcome.Completed(1, false, 0)
-        }
-        val result = worker().doWork()
-        assertTrue(result is ListenableWorker.Result.Success)
-        assertEquals(2, passes)
-        assertEquals(1, (result as ListenableWorker.Result.Success).outputData.getInt("processed_count", -1))
-        assertEquals(40, (result as ListenableWorker.Result.Success).outputData.getInt("deferred_count", -1))
-    }
-
-    @Test
-    fun runtimeCanDisableOcrBetweenPasses() = runBlocking {
-        var passes = 0
-        OcrBatchRuntime.configure {
-            passes++
-            if (passes == 1) OcrBatchOutcome.Completed(40, true)
-            else OcrBatchOutcome.Completed(0)
-        }
-        val result = worker().doWork()
-        assertTrue(result is ListenableWorker.Result.Success)
-        assertEquals(2, passes)
+        assertEquals(1, passes)
+        assertEquals(1, scheduled)
         assertEquals(40, (result as ListenableWorker.Result.Success).outputData.getInt("processed_count", -1))
+    }
+
+    @Test
+    fun deferredFilesDoNotPreventTheNextEligibleWorkRequest() = runBlocking {
+        var passes = 0
+        var scheduled = 0
+        OcrBatchRuntime.configure(scheduleContinuation = { scheduled++ }) {
+            passes++
+            if (passes == 1) OcrBatchOutcome.Completed(0, hasMoreCandidates = true, failedCount = 40)
+            else OcrBatchOutcome.Completed(1, hasMoreCandidates = false)
+        }
+
+        val first = worker().doWork()
+        assertTrue(first is ListenableWorker.Result.Success)
+        assertEquals(1, passes)
+        assertEquals(1, scheduled)
+        assertEquals(40, (first as ListenableWorker.Result.Success).outputData.getInt("deferred_count", -1))
+
+        val second = worker().doWork()
+        assertTrue(second is ListenableWorker.Result.Success)
+        assertEquals(2, passes)
+        assertEquals(1, scheduled)
+        assertEquals(1, (second as ListenableWorker.Result.Success).outputData.getInt("processed_count", -1))
+    }
+
+    @Test
+    fun runtimeCanDisableOcrBeforeAQueuedContinuationRuns() = runBlocking {
+        var enabled = true
+        var scheduled = 0
+        OcrBatchRuntime.configure(scheduleContinuation = { scheduled++ }) {
+            if (!enabled) {
+                OcrBatchOutcome.Completed(0)
+            } else {
+                enabled = false
+                OcrBatchOutcome.Completed(40, hasMoreCandidates = true)
+            }
+        }
+
+        assertTrue(worker().doWork() is ListenableWorker.Result.Success)
+        assertEquals(1, scheduled)
+        assertTrue(worker().doWork() is ListenableWorker.Result.Success)
+        assertEquals(1, scheduled)
     }
 
     @Test
@@ -82,29 +98,23 @@ class OcrBatchWorkerTest {
     }
 
     @Test
-    fun cancellationBetweenPassesPropagates() = runBlocking {
-        var passes = 0
-        OcrBatchRuntime.configure {
-            passes++
-            if (passes == 1) OcrBatchOutcome.Completed(40, true)
-            else throw CancellationException("cancelled between batches")
-        }
+    fun cancellationDuringBatchPropagates() = runBlocking {
+        OcrBatchRuntime.configure { throw CancellationException("cancelled during batch") }
         try {
             worker().doWork()
             fail("Cancellation must not become retry or success")
-        } catch (_: CancellationException) {
-            assertEquals(2, passes)
+        } catch (cancelled: CancellationException) {
+            assertEquals("cancelled during batch", cancelled.message)
         }
     }
 
     @Test
-    fun anInconsistentNoProgressOutcomeCannotSpinForever() = runBlocking {
-        var passes = 0
-        OcrBatchRuntime.configure {
-            passes++
-            OcrBatchOutcome.Completed(0, true)
+    fun noProgressOutcomeRetriesWithoutSchedulingContinuation() = runBlocking {
+        var scheduled = 0
+        OcrBatchRuntime.configure(scheduleContinuation = { scheduled++ }) {
+            OcrBatchOutcome.Completed(0, hasMoreCandidates = true)
         }
         assertEquals(ListenableWorker.Result.retry(), worker().doWork())
-        assertEquals(1, passes)
+        assertEquals(0, scheduled)
     }
 }

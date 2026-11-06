@@ -19,9 +19,10 @@ object OcrBatchBootstrap {
         database: VVFDatabase,
         ocrEngine: IOcrEngine,
         ocrIndexingService: OcrIndexingService,
-        isEnabled: () -> Boolean = { false }
+        isEnabled: () -> Boolean = { false },
+        scheduleContinuation: (() -> Unit)? = null
     ) {
-        OcrBatchRuntime.configure {
+        OcrBatchRuntime.configure(scheduleContinuation = scheduleContinuation) {
             try {
                 if (!isEnabled() || !ocrEngine.isEnabled) {
                     return@configure OcrBatchOutcome.Completed(0)

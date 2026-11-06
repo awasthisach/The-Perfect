@@ -5,7 +5,7 @@ import kotlinx.coroutines.sync.withLock
 
 /**
  * App-process bridge for OCR batch. WorkManager cannot inject OCR engine/queue;
- * VVFApplication configures the real batch runner at process start.
+ * VVFApplication configures the real batch runner and durable continuation scheduler.
  */
 sealed interface OcrBatchOutcome {
     data class Completed(
@@ -20,15 +20,33 @@ sealed interface OcrBatchOutcome {
 object OcrBatchRuntime {
     @Volatile
     private var batchRunner: (suspend () -> OcrBatchOutcome)? = null
+
+    @Volatile
+    private var continuationScheduler: (() -> Unit)? = null
+
     private val batchMutex = Mutex()
 
-    fun configure(realBatchRunner: suspend () -> OcrBatchOutcome) {
+    fun configure(
+        scheduleContinuation: (() -> Unit)? = null,
+        realBatchRunner: suspend () -> OcrBatchOutcome
+    ) {
+        continuationScheduler = scheduleContinuation
         batchRunner = realBatchRunner
     }
 
     suspend fun runBatch(): OcrBatchOutcome = batchMutex.withLock {
         val configured = batchRunner
             ?: return@withLock OcrBatchOutcome.RetryableFailure("OCR batch dependencies are not ready")
+        configured()
+    }
+
+    /**
+     * Schedules a separate durable WorkRequest after one bounded pass.
+     * Missing scheduler wiring is a real failure; never silently drop remaining candidates.
+     */
+    fun scheduleContinuation() {
+        val configured = continuationScheduler
+            ?: throw IllegalStateException("OCR continuation scheduler is not configured")
         configured()
     }
 }

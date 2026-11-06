@@ -10,11 +10,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.yield
 
 /**
- * Background OCR batch worker for pending document queues.
- * Delegates to [OcrBatchRuntime] configured by the application composition root.
+ * Runs one bounded OCR pass. Remaining candidates are continued by a separate durable
+ * WorkRequest so a large library cannot keep one Worker alive past WorkManager's execution limit.
  */
 class OcrBatchWorker(
     appContext: Context,
@@ -24,20 +23,6 @@ class OcrBatchWorker(
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         Log.i(TAG, "OCR batch worker invoked")
         try {
-            runBoundedPasses()
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (e: Exception) {
-            Log.e(TAG, "OCR batch worker error", e)
-            if (runAttemptCount < 3) Result.retry()
-            else Result.failure(workDataOf("reason" to (e.message ?: "unknown")))
-        }
-    }
-
-    private suspend fun runBoundedPasses(): Result {
-        var totalProcessed = 0
-        var totalDeferred = 0
-        while (true) {
             currentCoroutineContext().ensureActive()
             if (isStopped) throw CancellationException("OCR batch worker stopped")
 
@@ -48,35 +33,37 @@ class OcrBatchWorker(
                         "OCR batch pass complete: processed=${outcome.processedCount}, " +
                             "deferred=${outcome.failedCount}, hasMore=${outcome.hasMoreCandidates}"
                     )
-                    totalProcessed += outcome.processedCount
-                    totalDeferred += outcome.failedCount
-                    if (!outcome.hasMoreCandidates) {
-                        return Result.success(
-                            workDataOf(
-                                "processed_count" to totalProcessed,
-                                "deferred_count" to totalDeferred
-                            )
+                    if (outcome.hasMoreCandidates) {
+                        check(outcome.processedCount > 0 || outcome.failedCount > 0) {
+                            "OCR batch reported remaining candidates without making progress"
+                        }
+                        // A healthy full batch is success. Queue the next bounded pass rather than
+                        // consuming WorkManager's failure retry/backoff budget.
+                        OcrBatchRuntime.scheduleContinuation()
+                    }
+                    Result.success(
+                        workDataOf(
+                            "processed_count" to outcome.processedCount,
+                            "deferred_count" to outcome.failedCount
                         )
-                    }
-                    check(outcome.processedCount > 0 || outcome.failedCount > 0) {
-                        "OCR batch reported remaining candidates without making progress"
-                    }
-                    // A full successful pass is continuation, not a failed work attempt.
-                    // Re-enter the runtime (which re-checks opt-in) without WorkManager backoff.
-                    // Cancellation/WorkManager's execution limit can stop between bounded passes;
-                    // per-file completion/defer markers preserve progress for the next execution.
-                    yield()
+                    )
                 }
                 is OcrBatchOutcome.RetryableFailure -> {
                     Log.w(TAG, "Retryable OCR batch failure: ${outcome.reason}")
-                    return if (runAttemptCount < 3) Result.retry()
+                    if (runAttemptCount < 3) Result.retry()
                     else Result.failure(workDataOf("reason" to outcome.reason))
                 }
                 is OcrBatchOutcome.PermanentFailure -> {
                     Log.e(TAG, "Permanent OCR batch failure: ${outcome.reason}")
-                    return Result.failure(workDataOf("reason" to outcome.reason))
+                    Result.failure(workDataOf("reason" to outcome.reason))
                 }
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Log.e(TAG, "OCR batch worker error", error)
+            if (runAttemptCount < 3) Result.retry()
+            else Result.failure(workDataOf("reason" to (error.message ?: "unknown")))
         }
     }
 

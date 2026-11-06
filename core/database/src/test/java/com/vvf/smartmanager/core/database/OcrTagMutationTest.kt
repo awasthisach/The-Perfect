@@ -189,6 +189,16 @@ class OcrTagMutationTest {
     }
 
     @Test
+    fun exactPrefixUserTagsRemainSearchableAndVisible() = runBlocking {
+        val exactUserTag = "ocr_retry_after:9999999999999"
+        seed(tags = "$exactUserTag,invoice", retryAt = 1_000L, attempt = 2)
+
+        assertEquals(listOf(PATH), searchFtsDao.searchByTag(exactUserTag).first().map { it.path })
+        assertEquals(setOf(exactUserTag, "invoice"), currentTags())
+        assertRetryState(1_000L, 2)
+    }
+
+    @Test
     fun legacyMigrationParserRemovesOnlyExactInternalMarker() {
         val parsed = parseLegacyOcrRetryMetadata("invoice, ocr_retry_after:1234:3, myocr_retry_after:9999, finance")
         assertEquals("invoice,myocr_retry_after:9999,finance", parsed.visibleTags)
@@ -201,6 +211,14 @@ class OcrTagMutationTest {
         assertNull(userOnly.retryAfterEpochMillis)
         assertEquals(0, userOnly.retryAttempt)
         assertFalse(userOnly.hadInternalMarker)
+
+        val partialPrefixUserTags = parseLegacyOcrRetryMetadata(
+            "ocr_retry_after:9999,ocr_retry_after:invalid:4,finance"
+        )
+        assertEquals("ocr_retry_after:9999,ocr_retry_after:invalid:4,finance", partialPrefixUserTags.visibleTags)
+        assertNull(partialPrefixUserTags.retryAfterEpochMillis)
+        assertEquals(0, partialPrefixUserTags.retryAttempt)
+        assertFalse(partialPrefixUserTags.hadInternalMarker)
     }
 
     private suspend fun seed(
