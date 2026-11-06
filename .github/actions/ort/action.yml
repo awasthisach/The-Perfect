@@ -324,7 +324,24 @@ runs:
         ORT_RESULTS_ARTIFACT_NAME="ort-results-${SW_NAME_SAFE}"
         ORT_RESULTS_ARTIFACT_NAME="${ORT_RESULTS_ARTIFACT_NAME}-${SW_VERSION}"
         export ORT_RESULTS_ARTIFACT_NAME SW_NAME SW_REVISION SW_NAME_SAFE
-        printenv >> "$GITHUB_ENV"
+        # Persist only the ORT inputs and derived paths this composite action needs.
+        # Never dump the runner environment: it also contains GitHub runtime credentials.
+        for name in \
+          HTTP_FILE_SERVER_PASSWORD HTTP_FILE_SERVER_TOKEN HTTP_FILE_SERVER_URL HTTP_FILE_SERVER_USERNAME \
+          ORT_CLI_ARGS ORT_CLI_ANALYZE_ARGS ORT_CLI_SCAN_ARGS ORT_CLI_EVALUATE_ARGS \
+          ORT_CLI_ADVISE_ARGS ORT_CLI_REPORT_ARGS ORT_CONFIG_PATH ORT_DOCKER_CLI_ARGS \
+          ORT_DOCKER_IMAGE ORT_HOME_PATH ORT_LOG_LEVEL ORT_RUN_COMMANDS ORT_YML_PATH \
+          PROJECT_PATH SW_NAME SW_VERSION POSTGRES_PASSWORD POSTGRES_URL POSTGRES_USERNAME \
+          ORT_JDK_JAVA_OPTIONS ORT_RESULTS_PATH ORT_RESULTS_ADVISOR_PATH ORT_RESULTS_ANALYZER_PATH \
+          ORT_RESULTS_CURRENT_PATH ORT_RESULTS_EVALUATED_MODEL_PATH ORT_RESULTS_EVALUATOR_PATH \
+          ORT_RESULTS_HTML_REPORT_PATH ORT_RESULTS_SCANNER_PATH ORT_RESULTS_SBOM_CYCLONE_XML_PATH \
+          ORT_RESULTS_SBOM_CYCLONE_JSON_PATH ORT_RESULTS_SBOM_SPDX_JSON_PATH \
+          ORT_RESULTS_SBOM_SPDX_YML_PATH ORT_RESULTS_WEB_APP_PATH ORT_RESULTS_ARTIFACT_NAME \
+          SW_NAME_SAFE; do
+          if [[ -v "$name" ]]; then
+            printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_ENV"
+          fi
+        done
     - name: Shallow clone ort-config repository if ORT_CONFIG_PATH is empty
       id: ort-config
       shell: bash
@@ -352,7 +369,24 @@ runs:
         export ORT_CONFIG_VCS_REVISION=$(git rev-parse HEAD)
         echo "ORT_CONFIG_VCS_URL: ${ORT_CONFIG_VCS_URL}"
         echo "ORT_CONFIG_VCS_REVISION: ${ORT_CONFIG_VCS_REVISION}"
-        printenv >> "$GITHUB_ENV"
+        # Persist only the ORT inputs and derived paths this composite action needs.
+        # Never dump the runner environment: it also contains GitHub runtime credentials.
+        for name in \
+          HTTP_FILE_SERVER_PASSWORD HTTP_FILE_SERVER_TOKEN HTTP_FILE_SERVER_URL HTTP_FILE_SERVER_USERNAME \
+          ORT_CLI_ARGS ORT_CLI_ANALYZE_ARGS ORT_CLI_SCAN_ARGS ORT_CLI_EVALUATE_ARGS \
+          ORT_CLI_ADVISE_ARGS ORT_CLI_REPORT_ARGS ORT_CONFIG_PATH ORT_DOCKER_CLI_ARGS \
+          ORT_DOCKER_IMAGE ORT_HOME_PATH ORT_LOG_LEVEL ORT_RUN_COMMANDS ORT_YML_PATH \
+          PROJECT_PATH SW_NAME SW_VERSION POSTGRES_PASSWORD POSTGRES_URL POSTGRES_USERNAME \
+          ORT_JDK_JAVA_OPTIONS ORT_RESULTS_PATH ORT_RESULTS_ADVISOR_PATH ORT_RESULTS_ANALYZER_PATH \
+          ORT_RESULTS_CURRENT_PATH ORT_RESULTS_EVALUATED_MODEL_PATH ORT_RESULTS_EVALUATOR_PATH \
+          ORT_RESULTS_HTML_REPORT_PATH ORT_RESULTS_SCANNER_PATH ORT_RESULTS_SBOM_CYCLONE_XML_PATH \
+          ORT_RESULTS_SBOM_CYCLONE_JSON_PATH ORT_RESULTS_SBOM_SPDX_JSON_PATH \
+          ORT_RESULTS_SBOM_SPDX_YML_PATH ORT_RESULTS_WEB_APP_PATH ORT_RESULTS_ARTIFACT_NAME \
+          SW_NAME_SAFE; do
+          if [[ -v "$name" ]]; then
+            printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_ENV"
+          fi
+        done
     - name: Compute ORT labels
       id: ort-labels
       shell: bash
@@ -383,7 +417,24 @@ runs:
           echo -e "\e[1;31m File ${ORT_YML_PATH} not found!."
         fi
         export ORT_CLI_ANALYZE_ARGS ORT_CLI_EVALUATE_ARGS ORT_CLI_REPORT_ARGS
-        printenv >> "$GITHUB_ENV"
+        # Persist only the ORT inputs and derived paths this composite action needs.
+        # Never dump the runner environment: it also contains GitHub runtime credentials.
+        for name in \
+          HTTP_FILE_SERVER_PASSWORD HTTP_FILE_SERVER_TOKEN HTTP_FILE_SERVER_URL HTTP_FILE_SERVER_USERNAME \
+          ORT_CLI_ARGS ORT_CLI_ANALYZE_ARGS ORT_CLI_SCAN_ARGS ORT_CLI_EVALUATE_ARGS \
+          ORT_CLI_ADVISE_ARGS ORT_CLI_REPORT_ARGS ORT_CONFIG_PATH ORT_DOCKER_CLI_ARGS \
+          ORT_DOCKER_IMAGE ORT_HOME_PATH ORT_LOG_LEVEL ORT_RUN_COMMANDS ORT_YML_PATH \
+          PROJECT_PATH SW_NAME SW_VERSION POSTGRES_PASSWORD POSTGRES_URL POSTGRES_USERNAME \
+          ORT_JDK_JAVA_OPTIONS ORT_RESULTS_PATH ORT_RESULTS_ADVISOR_PATH ORT_RESULTS_ANALYZER_PATH \
+          ORT_RESULTS_CURRENT_PATH ORT_RESULTS_EVALUATED_MODEL_PATH ORT_RESULTS_EVALUATOR_PATH \
+          ORT_RESULTS_HTML_REPORT_PATH ORT_RESULTS_SCANNER_PATH ORT_RESULTS_SBOM_CYCLONE_XML_PATH \
+          ORT_RESULTS_SBOM_CYCLONE_JSON_PATH ORT_RESULTS_SBOM_SPDX_JSON_PATH \
+          ORT_RESULTS_SBOM_SPDX_YML_PATH ORT_RESULTS_WEB_APP_PATH ORT_RESULTS_ARTIFACT_NAME \
+          SW_NAME_SAFE; do
+          if [[ -v "$name" ]]; then
+            printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_ENV"
+          fi
+        done
     - name: Cache dependencies
       id: cache-dependencies
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -474,8 +525,8 @@ runs:
         -o ${ORT_RESULTS_PATH/$USER/ort} \
         -f JSON \
         ${ORT_CLI_ANALYZE_ARGS} || ORT_CLI_ANALYZE_EXIT_CODE=$? \
-        && export ORT_CLI_ANALYZE_EXIT_CODE="${ORT_CLI_ANALYZE_EXIT_CODE:-0}" \
-        && printenv >> "$GITHUB_ENV"
+        && ORT_CLI_ANALYZE_EXIT_CODE="${ORT_CLI_ANALYZE_EXIT_CODE:-0}" \
+        && echo "exit-code=${ORT_CLI_ANALYZE_EXIT_CODE}" >> "$GITHUB_OUTPUT"
         [[ -f $ORT_RESULTS_ANALYZER_PATH ]] && \
           ln -frs $ORT_RESULTS_ANALYZER_PATH $ORT_RESULTS_CURRENT_PATH || \
           echo -e "\e[1;31m File $ORT_RESULTS_ANALYZER_PATH not found."
