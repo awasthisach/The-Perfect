@@ -8,6 +8,7 @@ import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import androidx.work.Configuration
+import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import com.vvf.smartmanager.core.background.workers.FileIndexingOutcome
@@ -129,7 +130,7 @@ class VVFApplication : Application(), Configuration.Provider {
         getSharedPreferences(SETTINGS_PREFS, MODE_PRIVATE)
     }
 
-    fun isAutoIndexOcrEnabled(): Boolean = settingsPrefs.getBoolean(KEY_AUTO_INDEX_OCR, true)
+    fun isAutoIndexOcrEnabled(): Boolean = settingsPrefs.getBoolean(KEY_AUTO_INDEX_OCR, false)
 
     fun setAutoIndexOcrEnabled(enabled: Boolean) {
         settingsPrefs.edit().putBoolean(KEY_AUTO_INDEX_OCR, enabled).apply()
@@ -167,8 +168,16 @@ class VVFApplication : Application(), Configuration.Provider {
         }
         // Play Integrity App Check is device/Play-only; skip on JVM unit tests (Robolectric).
         if (!jvmUnitTest) {
-            FirebaseAppCheck.getInstance().apply {
-                installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
+            val firebaseApp = FirebaseApp.initializeApp(this)
+            if (firebaseApp == null) {
+                // Offline/local builds may intentionally omit production Firebase config.
+                // Keep local vault/file functionality available; protected cloud calls must
+                // still fail closed because no App Check provider/token can be obtained.
+                Log.w(TAG, "Firebase is not configured; App Check is unavailable and protected cloud operations must remain disabled")
+            } else {
+                FirebaseAppCheck.getInstance(firebaseApp).apply {
+                    installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
+                }
             }
         }
         if (jvmUnitTest) {
@@ -314,15 +323,27 @@ class VVFApplication : Application(), Configuration.Provider {
         backgroundSyncManager = BackgroundSyncManager(this)
         FileIndexingRuntime.configure { indexPrimaryStorageForSearch() }
         JunkScanBootstrap.wire(junkCleanerUseCase)
-        OcrBatchBootstrap.wire(database, ocrPlugin, ocrIndexingService)
+        OcrBatchBootstrap.wire(
+            database = database,
+            ocrEngine = ocrPlugin,
+            ocrIndexingService = ocrIndexingService,
+            isEnabled = ::isAutoIndexOcrEnabled
+        )
         val bgExceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
             Log.e(TAG, "Background sync scheduling failed safely", throwable)
         }
         applicationScope.launch(bgExceptionHandler) {
             try {
                 backgroundSyncManager.schedulePeriodicIndexing(intervalHours = 6L)
-                backgroundSyncManager.triggerImmediateIndexing()
                 backgroundSyncManager.schedulePeriodicJunkScan(intervalHours = 12L)
+                // Always keep the periodic worker registered; the runtime's opt-in
+                // guard makes it a no-op until the user enables automatic OCR.
+                backgroundSyncManager.schedulePeriodicOcrBatch(intervalHours = 6L)
+                if (isAutoIndexOcrEnabled()) {
+                    backgroundSyncManager.triggerImmediateIndexingThenOcr()
+                } else {
+                    backgroundSyncManager.triggerImmediateIndexing()
+                }
             } catch (e: Throwable) {
                 Log.e(TAG, "Background sync scheduling failed", e)
             }
@@ -436,3 +457,4 @@ class VVFApplication : Application(), Configuration.Provider {
         }
     }
 }
+
