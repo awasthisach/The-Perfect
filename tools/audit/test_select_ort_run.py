@@ -59,6 +59,39 @@ class SelectOrtRunTests(unittest.TestCase):
         self.assertFalse(MODULE.is_completed_success(failed))
         self.assertFalse(MODULE.is_completed_success(incomplete))
 
+    def test_manual_wrong_head_is_rejected_despite_live_pr_association(self):
+        payload = {"workflow_runs": [{
+            "id": 201, "head_sha": OTHER, "event": "workflow_dispatch",
+            "pull_requests": [{"head": {"sha": CANDIDATE}}],
+            "created_at": "2026-11-06T05:00:00Z"
+        }]}
+        self.assertIsNone(MODULE.select_exact_candidate_run(payload, CANDIDATE))
+
+    def test_scheduled_wrong_head_is_rejected_despite_live_pr_association(self):
+        payload = {"workflow_runs": [{
+            "id": 202, "head_sha": OTHER, "event": "schedule",
+            "pull_requests": [{"head": {"sha": CANDIDATE}}],
+            "created_at": "2026-11-06T05:00:00Z"
+        }]}
+        self.assertIsNone(MODULE.select_exact_candidate_run(payload, CANDIDATE))
+
+    def test_missing_event_cannot_authorize_pr_fallback(self):
+        payload = {"workflow_runs": [{
+            "id": 203, "head_sha": OTHER,
+            "pull_requests": [{"head": {"sha": CANDIDATE}}]
+        }]}
+        self.assertIsNone(MODULE.select_exact_candidate_run(payload, CANDIDATE))
+
+    def test_newer_wrong_manual_run_cannot_mask_exact_candidate_run(self):
+        payload = {"workflow_runs": [
+            {"id": 204, "head_sha": CANDIDATE, "event": "workflow_dispatch",
+             "created_at": "2026-11-06T01:00:00Z"},
+            {"id": 205, "head_sha": OTHER, "event": "workflow_dispatch",
+             "pull_requests": [{"head": {"sha": CANDIDATE}}],
+             "created_at": "2026-11-06T06:00:00Z"}
+        ]}
+        self.assertEqual(204, MODULE.select_exact_candidate_run(payload, CANDIDATE)["id"])
+
     def test_invalid_or_short_candidate_sha_is_rejected(self):
         with self.assertRaises(ValueError):
             MODULE.select_exact_candidate_run([], "abc")

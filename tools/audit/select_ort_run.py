@@ -24,6 +24,10 @@ def workflow_runs(payload: Any) -> list[dict[str, Any]]:
 def belongs_to_candidate(run: dict[str, Any], candidate_sha: str) -> bool:
     if run.get("head_sha") == candidate_sha:
         return True
+    # A manual/scheduled run is bound to its selected ref. A later live PR
+    # association must never relabel an older checkout as the new candidate.
+    if run.get("event") != "pull_request":
+        return False
     pull_requests = run.get("pull_requests")
     if not isinstance(pull_requests, list):
         return False

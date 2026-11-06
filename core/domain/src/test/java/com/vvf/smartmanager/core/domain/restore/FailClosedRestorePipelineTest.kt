@@ -122,7 +122,12 @@ class FailClosedRestorePipelineTest {
         } catch (actual: CancellationException) {
             actual
         }
-        assertSame(cancellation, thrown)
+        // Coroutine stacktrace recovery may copy an exception, retaining its cause.
+        assertTrue(
+            "Cancellation must escape with the original cause retained",
+            generateSequence<Throwable>(thrown) { it.cause }.take(8).any { it === cancellation }
+        )
+        assertEquals(cancellation.message, thrown?.message)
     }
 
     @Test

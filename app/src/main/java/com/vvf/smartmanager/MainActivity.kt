@@ -45,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.animation.core.tween
@@ -339,6 +340,7 @@ private fun VVFNavHost(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     NavHost(
         navController = navController,
         startDestination = TopLevelDestination.EXPLORER.route,
@@ -471,7 +473,9 @@ private fun VVFNavHost(
                     if (enabled) {
                         // Schedule a deduplicated OCR pass immediately after the user opts in.
                         // Storage rescans preserve current OCR tags transactionally.
-                        app.backgroundSyncManager.triggerImmediateOcrBatch()
+                        coroutineScope.launch {
+                            app.backgroundSyncManager.triggerImmediateOcrBatch()
+                        }
                     }
                 },
                 initialOfflineOnlyMode = app.isOfflineOnlyModeEnabled(),
@@ -481,4 +485,3 @@ private fun VVFNavHost(
         }
     }
 }
-

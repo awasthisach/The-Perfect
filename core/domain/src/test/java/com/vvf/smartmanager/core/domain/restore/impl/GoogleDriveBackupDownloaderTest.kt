@@ -108,7 +108,12 @@ class GoogleDriveBackupDownloaderTest {
             actual
         }
 
-        assertTrue(thrown === cancellation)
+        // Coroutine stacktrace recovery may copy an exception, retaining its cause.
+        assertTrue(
+            "Cancellation must escape with the original cause retained",
+            generateSequence<Throwable>(thrown) { it.cause }.take(8).any { it === cancellation }
+        )
+        assertEquals(cancellation.message, thrown?.message)
         assertTrue(directory.listFiles().orEmpty().isEmpty())
     }
 }
