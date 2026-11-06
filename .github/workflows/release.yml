@@ -89,6 +89,14 @@ jobs:
             exit 1
           fi
 
+          # Download JUnit reports and their checkout-SHA manifest from this exact run.
+          gh run download "$run_id" --repo "$GITHUB_REPOSITORY" \
+            --name "sqlcipher-instrumented-${GITHUB_SHA}" --dir sqlcipher-reports
+          python3 tools/audit/validate_instrumented_reports.py \
+            --reports-dir sqlcipher-reports \
+            --expected-sha "$GITHUB_SHA" \
+            --expected-run-id "$run_id"
+
           python3 tools/audit/generate_evidence.py \
             --commit-sha "$GITHUB_SHA" \
             --run-id "$run_id" \

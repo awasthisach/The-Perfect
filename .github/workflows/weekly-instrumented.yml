@@ -118,6 +118,47 @@ jobs:
       - name: SQLCipher instrumentation (HARD)
         run: ./gradlew --no-daemon :app:connectedDebugAndroidTest :core:database:connectedDebugAndroidTest :core:database-compat:connectedDebugAndroidTest --stacktrace
 
+      - name: Record exact tested revision for SQLCipher reports
+        if: always()
+        env:
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+          WORKFLOW_EVENT: ${{ github.event_name }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          tested_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          Path("sqlcipher-instrumented-manifest.json").write_text(
+              json.dumps({
+                  "tested_sha": tested_sha,
+                  "run_id": int(os.environ["WORKFLOW_RUN_ID"]),
+                  "event": os.environ["WORKFLOW_EVENT"],
+              }, indent=2) + "\\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Validate SQLCipher JUnit reports (hard)
+        run: |
+          python3 tools/audit/validate_instrumented_reports.py \\
+            --reports-dir . \\
+            --expected-sha "$(git rev-parse HEAD)"
+
+      - name: Upload SQLCipher JUnit reports bound to exact SHA
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: sqlcipher-instrumented-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            sqlcipher-instrumented-manifest.json
+            **/build/outputs/androidTest-results/connected/debug/*.xml
+            **/build/reports/androidTests/connected/debug/**
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Upload diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
