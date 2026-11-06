@@ -1,10 +1,8 @@
 name: Nightly ORT Compliance Scan
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  # ORT is intentionally expensive. Run only on schedule or an explicitly frozen
+  # candidate SHA; never on every PR synchronize or main push.
   schedule:
     - cron: "0 2 * * *"
   workflow_dispatch:
@@ -13,27 +11,27 @@ permissions:
   contents: read
 
 concurrency:
-  group: nightly-ort-${{ github.event.pull_request.head.sha || github.sha }}
+  group: nightly-ort-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
   ort-scan:
     name: ORT Analyzer, Scanner, Evaluator, Advisor & SBOM
     runs-on: ubuntu-24.04
-    timeout-minutes: 300
+    timeout-minutes: 90
     steps:
       - name: Checkout exact candidate SHA
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
 
       - name: Run ORT compliance pipeline
         id: ort
         uses: ./.github/actions/ort
         with:
           sw-name: The-Perfect
-          sw-version: ${{ github.event.pull_request.head.sha || github.sha }}
+          sw-version: ${{ github.sha }}
           fail-on: "issues,violations"
           run: >-
             cache-dependencies,
@@ -49,7 +47,7 @@ jobs:
         id: verify_ort_reports
         if: always()
         env:
-          ORT_SCAN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          ORT_SCAN_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           RESULTS_DIR="$HOME/.ort/ort-results"
@@ -60,7 +58,7 @@ jobs:
         env:
           ORT_OUTCOME: ${{ steps.ort.outcome }}
           VERIFY_OUTCOME: ${{ steps.verify_ort_reports.outcome }}
-          ORT_SCAN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          ORT_SCAN_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -96,7 +94,7 @@ jobs:
           if [ -s ort-status.json ]; then
             cp ort-status.json ort-evidence/ort-status.json
           else
-            printf '%s\n' '{"gate_id":"GATE-LICENSE-001","scanner":"OSS Review Toolkit (ORT)","status":"BLOCKED","scan_revision":"${{ github.event.pull_request.head.sha || github.sha }}","reason":"ORT status was not generated"}' > ort-evidence/ort-status.json
+            printf '%s\n' '{"gate_id":"GATE-LICENSE-001","scanner":"OSS Review Toolkit (ORT)","status":"BLOCKED","scan_revision":"${{ github.sha }}","reason":"ORT status was not generated"}' > ort-evidence/ort-status.json
           fi
 
       - name: Upload ORT evidence artifact
