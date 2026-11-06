@@ -114,9 +114,10 @@ class BackgroundSyncManagerTest {
     }
 
     @Test
-    fun ocrWorkerContinuesBoundedPassesWithoutRetryBackoff() = runBlocking {
+    fun ocrWorkerSchedulesFreshBoundedPassWithoutRetryBackoff() = runBlocking {
         var passes = 0
-        OcrBatchRuntime.configure {
+        var continuationsScheduled = 0
+        OcrBatchRuntime.configure(scheduleContinuation = { continuationsScheduled++ }) {
             passes++
             if (passes == 1) {
                 OcrBatchOutcome.Completed(38, hasMoreCandidates = true, failedCount = 2)
@@ -125,13 +126,19 @@ class BackgroundSyncManagerTest {
             }
         }
 
-        val worker = TestListenableWorkerBuilder<OcrBatchWorker>(context).build()
-        val result = worker.doWork()
+        val firstResult = TestListenableWorkerBuilder<OcrBatchWorker>(context).build().doWork()
+        assertTrue("Expected first bounded pass to succeed, got: $firstResult", firstResult is ListenableWorker.Result.Success)
+        assertEquals(1, passes)
+        assertEquals(1, continuationsScheduled)
+        assertEquals(38, (firstResult as ListenableWorker.Result.Success).outputData.getInt("processed_count", -1))
+        assertEquals(2, firstResult.outputData.getInt("deferred_count", -1))
 
-        assertTrue("Expected success result, got: $result", result is ListenableWorker.Result.Success)
+        val secondResult = TestListenableWorkerBuilder<OcrBatchWorker>(context).build().doWork()
+        assertTrue("Expected separately scheduled pass to succeed, got: $secondResult", secondResult is ListenableWorker.Result.Success)
         assertEquals(2, passes)
-        assertEquals(45, (result as ListenableWorker.Result.Success).outputData.getInt("processed_count", -1))
-        assertEquals(3, (result as ListenableWorker.Result.Success).outputData.getInt("deferred_count", -1))
+        assertEquals(1, continuationsScheduled)
+        assertEquals(7, (secondResult as ListenableWorker.Result.Success).outputData.getInt("processed_count", -1))
+        assertEquals(1, secondResult.outputData.getInt("deferred_count", -1))
     }
 
     @Test

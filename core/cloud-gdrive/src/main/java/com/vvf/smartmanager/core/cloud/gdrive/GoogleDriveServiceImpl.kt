@@ -4,7 +4,10 @@ import android.content.Context
 import com.vvf.smartmanager.core.model.CloudAccount
 import com.vvf.smartmanager.core.model.CloudProviderType
 import com.vvf.smartmanager.core.model.FileItem
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
@@ -12,6 +15,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
+import java.io.IOException
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -104,23 +108,44 @@ class GoogleDriveServiceImpl(
         try {
             val parent = folderId.ifBlank { "root" }
             val q = "'$parent' in parents and trashed = false"
-            val response = driveApi.listFiles(bearer = bearer(), query = q)
-            val items = response.files.map { dto ->
-                FileItem(
-                    path = "gdrive://${dto.id.orEmpty()}",
-                    name = dto.name.orEmpty(),
-                    sizeBytes = dto.size?.toLongOrNull() ?: 0L,
-                    lastModified = parseDriveTime(dto.modifiedTime),
-                    isDirectory = dto.mimeType == "application/vnd.google-apps.folder",
-                    mimeType = dto.mimeType
+            val items = mutableListOf<FileItem>()
+            val seenPageTokens = mutableSetOf<String>()
+            var pageToken: String? = null
+
+            do {
+                currentCoroutineContext().ensureActive()
+                val response = driveApi.listFiles(
+                    bearer = bearer(),
+                    query = q,
+                    pageToken = pageToken
                 )
-            }
+                items += response.files.map { dto ->
+                    FileItem(
+                        path = "gdrive://${dto.id.orEmpty()}",
+                        name = dto.name.orEmpty(),
+                        sizeBytes = dto.size?.toLongOrNull() ?: 0L,
+                        lastModified = parseDriveTime(dto.modifiedTime),
+                        isDirectory = dto.mimeType == "application/vnd.google-apps.folder",
+                        mimeType = dto.mimeType
+                    )
+                }
+
+                val nextPageToken = response.nextPageToken?.takeIf(String::isNotBlank)
+                if (nextPageToken != null && !seenPageTokens.add(nextPageToken)) {
+                    throw IOException("Google Drive returned a repeated page token; refusing an incomplete listing")
+                }
+                pageToken = nextPageToken
+            } while (pageToken != null)
+
             currentAccount = currentAccount.copy(
                 isConnected = true,
                 lastSyncTimestamp = System.currentTimeMillis()
             )
             Result.success(items)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
+            // A failed later page must not be reported as a successful partial directory listing.
             Result.failure(e)
         }
     }

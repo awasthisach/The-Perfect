@@ -109,6 +109,14 @@ class OcrBatchWorkerTest {
     }
 
     @Test
+    fun missingContinuationSchedulerDoesNotSilentlyDropRemainingCandidates() = runBlocking {
+        OcrBatchRuntime.configure {
+            OcrBatchOutcome.Completed(1, hasMoreCandidates = true)
+        }
+        assertEquals(ListenableWorker.Result.retry(), worker().doWork())
+    }
+
+    @Test
     fun noProgressOutcomeRetriesWithoutSchedulingContinuation() = runBlocking {
         var scheduled = 0
         OcrBatchRuntime.configure(scheduleContinuation = { scheduled++ }) {
