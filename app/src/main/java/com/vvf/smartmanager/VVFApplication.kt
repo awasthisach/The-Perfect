@@ -328,7 +328,7 @@ class VVFApplication : Application(), Configuration.Provider {
         )
         backgroundSyncManager = BackgroundSyncManager(this)
         FileIndexingRuntime.configure { startupReadiness.awaitReady(); indexPrimaryStorageForSearch() }
-        JunkScanBootstrap.wire(junkCleanerUseCase)
+        JunkScanBootstrap.wire(junkCleanerUseCase, awaitReady = startupReadiness::awaitReady)
         OcrBatchBootstrap.wire(
             database = database,
             ocrEngine = ocrPlugin,
