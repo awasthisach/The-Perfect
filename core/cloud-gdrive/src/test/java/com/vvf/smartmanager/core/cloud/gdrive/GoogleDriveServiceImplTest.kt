@@ -96,7 +96,7 @@ class GoogleDriveServiceImplTest {
                 DriveFileListResponse(files = listOf(file("second")), nextPageToken = "same")
             )
         )
-        val pagedService = GoogleDriveServiceImpl(context, fake)
+        val pagedService = GoogleDriveServiceImpl(context, fake, DriveAccessTokenProvider { "test-token" })
         pagedService.setAccessToken("test-token")
 
         val result = pagedService.listDriveFiles("root")
@@ -112,7 +112,7 @@ class GoogleDriveServiceImplTest {
                 DriveFileListResponse(files = listOf(file("partial")), incompleteSearch = true)
             )
         )
-        val pagedService = GoogleDriveServiceImpl(context, fake)
+        val pagedService = GoogleDriveServiceImpl(context, fake, DriveAccessTokenProvider { "test-token" })
         pagedService.setAccessToken("test-token")
 
         val result = pagedService.listDriveFiles("root")
@@ -131,7 +131,7 @@ class GoogleDriveServiceImplTest {
             ),
             pageErrors = mapOf("expired" to rejected, "expired-again" to rejected)
         )
-        val pagedService = GoogleDriveServiceImpl(context, fake)
+        val pagedService = GoogleDriveServiceImpl(context, fake, DriveAccessTokenProvider { "test-token" })
         pagedService.setAccessToken("test-token")
 
         val result = pagedService.listDriveFiles("root")
