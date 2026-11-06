@@ -249,6 +249,8 @@ class GoogleDriveServiceImpl(
                     )
                     Result.success(id)
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 Result.failure(e)
             }
