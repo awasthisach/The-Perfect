@@ -4,6 +4,7 @@ import android.content.Context
 
 fun interface DriveAccessTokenProvider {
     suspend fun getAccessToken(): String
+    suspend fun revokeAccess() = Unit
 }
 
 class GoogleAuthorizationDriveAccessTokenProvider(
@@ -12,4 +13,7 @@ class GoogleAuthorizationDriveAccessTokenProvider(
     private val driveAuth = GoogleDriveAuth(context, serverClientId = "")
 
     override suspend fun getAccessToken(): String = driveAuth.requestDriveAccessTokenSilently()
+    override suspend fun revokeAccess() {
+        driveAuth.revokeDriveAccess().getOrThrow()
+    }
 }

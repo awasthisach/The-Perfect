@@ -8,6 +8,7 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import retrofit2.HttpException
 import retrofit2.Response
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
@@ -35,7 +36,6 @@ class GoogleDriveServiceImplTest {
                 throw DriveAuthorizationRequiredException("Google Drive authorization required")
             }
         )
-        service.disconnect()
     }
 
     @Test
@@ -59,10 +59,35 @@ class GoogleDriveServiceImplTest {
     }
 
     @Test
-    fun disconnect_clearsConnectedState() {
-        service.setAccessToken("dummy-not-used-without-network")
-        service.disconnect()
-        assertTrue(!service.getAccountInfo().isConnected)
+    fun disconnect_revokesGrantAndClearsLocalState() = runBlocking {
+        var revoked = false
+        val provider = object : DriveAccessTokenProvider {
+            override suspend fun getAccessToken(): String = "test-token"
+            override suspend fun revokeAccess() { revoked = true }
+        }
+        val connectedService = GoogleDriveServiceImpl(context, accessTokenProvider = provider)
+        connectedService.setAccessToken("test-token")
+
+        val result = connectedService.disconnect()
+
+        assertTrue(result.isSuccess)
+        assertTrue(revoked)
+        assertFalse(connectedService.getAccountInfo().isConnected)
+    }
+
+    @Test
+    fun disconnectClearsLocalStateEvenWhenRemoteRevocationFails() = runBlocking {
+        val provider = object : DriveAccessTokenProvider {
+            override suspend fun getAccessToken(): String = "test-token"
+            override suspend fun revokeAccess() { throw IllegalStateException("revoke failed") }
+        }
+        val connectedService = GoogleDriveServiceImpl(context, accessTokenProvider = provider)
+        connectedService.setAccessToken("test-token")
+
+        val result = connectedService.disconnect()
+
+        assertTrue(result.isFailure)
+        assertFalse(connectedService.getAccountInfo().isConnected)
     }
 
     @Test

@@ -13,5 +13,6 @@ interface GoogleDriveService {
     suspend fun listDriveFiles(folderId: String = "root"): Result<List<FileItem>>
     suspend fun uploadFile(localFile: FileItem, remoteFolderId: String = "root"): Result<String>
     suspend fun downloadFile(fileId: String, destinationPath: String): Result<Boolean>
+    suspend fun disconnect(): Result<Unit>
     suspend fun getStorageQuota(): Result<Pair<Long, Long>>
 }

@@ -117,6 +117,34 @@ class CloudViewModel(
         }
     }
 
+    fun disconnectGoogleDrive() {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(isLoading = true, statusMessage = "Disconnecting Google Drive and revoking its access…")
+            }
+            val result = googleDriveService.disconnect()
+            val updated = cloudSyncUseCase.getAccount(CloudProviderType.GOOGLE_DRIVE).copy(
+                isConnected = false,
+                accountEmail = "",
+                displayName = "Google Drive"
+            )
+            _uiState.update { state ->
+                val updatedMap = state.accounts.toMutableMap()
+                updatedMap[CloudProviderType.GOOGLE_DRIVE] = updated
+                state.copy(
+                    accounts = updatedMap,
+                    remoteFiles = if (state.selectedProvider == CloudProviderType.GOOGLE_DRIVE) emptyList() else state.remoteFiles,
+                    isLoading = false,
+                    statusMessage = if (result.isSuccess) {
+                        "Google Drive access revoked and disconnected."
+                    } else {
+                        "Local Google Drive session cleared, but remote revocation failed: ${result.exceptionOrNull()?.message ?: "unknown error"}"
+                    }
+                )
+            }
+        }
+    }
+
     fun connectProvider(providerType: CloudProviderType) {
         if (providerType == CloudProviderType.GOOGLE_DRIVE) {
             _uiState.update { it.copy(statusMessage = "Use the Google Drive connect action to sign in.") }

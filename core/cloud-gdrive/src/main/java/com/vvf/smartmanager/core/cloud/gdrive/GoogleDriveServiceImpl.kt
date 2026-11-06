@@ -295,14 +295,29 @@ class GoogleDriveServiceImpl(
 
     fun getAccountInfo(): CloudAccount = currentAccount
 
-    fun disconnect() {
+    override suspend fun disconnect(): Result<Unit> = withContext(Dispatchers.IO) {
+        // Clear local credentials/state even if remote revocation fails. The failure
+        // remains visible to the caller so the UI never claims the grant was revoked.
+        val revocation = try {
+            accessTokenProvider.revokeAccess()
+            Result.success(Unit)
+        } catch (cancelled: CancellationException) {
+            setAccessToken(null)
+            currentAccount = currentAccount.copy(isConnected = false, accountEmail = "")
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
         setAccessToken(null)
         currentAccount = CloudAccount(
             providerType = CloudProviderType.GOOGLE_DRIVE,
             isConnected = false,
+            accountEmail = "",
+            displayName = "Google Drive",
             usedBytes = 0L,
             totalBytes = 0L
         )
+        revocation
     }
 
     /**
