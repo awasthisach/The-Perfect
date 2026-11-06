@@ -136,15 +136,15 @@ jobs:
                   "tested_sha": tested_sha,
                   "run_id": int(os.environ["WORKFLOW_RUN_ID"]),
                   "event": os.environ["WORKFLOW_EVENT"],
-              }, indent=2) + "\\n",
+              }, indent=2) + "\n",
               encoding="utf-8",
           )
           PY
 
       - name: Validate SQLCipher JUnit reports (hard)
         run: |
-          python3 tools/audit/validate_instrumented_reports.py \\
-            --reports-dir . \\
+          python3 tools/audit/validate_instrumented_reports.py \
+            --reports-dir . \
             --expected-sha "$(git rev-parse HEAD)"
 
       - name: Upload SQLCipher JUnit reports bound to exact SHA
