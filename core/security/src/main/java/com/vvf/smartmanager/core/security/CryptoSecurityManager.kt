@@ -38,6 +38,9 @@ class CryptoSecurityManager(
         private const val DB_KEY_ALIAS = "vvf_db_passphrase_key_v1"
         private const val VAULT_KEY_ALIAS = "vvf_vault_master_key_v1"
         private const val VAULT_META_KEY_ALIAS = "vvf_vault_meta_key_v1"
+        private const val VAULT_DATA_DIRECTORY = "vvf_vault_encrypted"
+        private const val VAULT_FILE_EXTENSION = ".vvf"
+        private const val PREFS_NAME = "vvf_secure_vault_prefs"
         private const val AES_GCM_TRANSFORMATION = "AES/GCM/NoPadding"
         private const val GCM_TAG_LENGTH_BITS = 128
         private const val GCM_IV_LENGTH_BYTES = 12
@@ -100,31 +103,77 @@ class CryptoSecurityManager(
 
     private fun ensureMasterKeyExists(alias: String) {
         val ks = keyStore
+        val memoryKeyId = "$keyStoreProvider:$alias"
+        val keyExists = if (ks != null) {
+            ks.containsAlias(alias)
+        } else {
+            synchronized(memoryKeyMap) { memoryKeyMap.containsKey(memoryKeyId) }
+        }
+        if (keyExists) return
+
+        // Android Keystore keys are not restored with app backups. If encrypted user
+        // material survives without its wrapping key, generating a replacement would
+        // make the old data permanently unreadable while pretending setup succeeded.
+        if (hasProtectedDataForMissingKey(alias)) {
+            throw SecurityException(
+                "Required Keystore key '$alias' is missing while encrypted user data still exists. " +
+                    "Refusing to generate a replacement key or overwrite recovery material."
+            )
+        }
+
         if (ks != null) {
-            if (!ks.containsAlias(alias)) {
-                val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
-                val builder = KeyGenParameterSpec.Builder(
-                    alias,
-                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
-                )
-                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                    .setKeySize(256)
-                    .setRandomizedEncryptionRequired(true)
-                keyGenerator.init(builder.build())
-                keyGenerator.generateKey()
-            }
+            val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
+            val builder = KeyGenParameterSpec.Builder(
+                alias,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(256)
+                .setRandomizedEncryptionRequired(true)
+            keyGenerator.init(builder.build())
+            keyGenerator.generateKey()
         } else {
             if (!allowInMemoryFallback) {
                 throw IllegalStateException("AndroidKeyStore is unavailable in a production environment; refusing to use in-memory keys")
             }
-            val memoryKeyId = "$keyStoreProvider:$alias"
-            if (!memoryKeyMap.containsKey(memoryKeyId)) {
-                val rawKey = ByteArray(32)
-                SecureRandom().nextBytes(rawKey)
-                memoryKeyMap[memoryKeyId] = SecretKeySpec(rawKey, "AES")
+            val rawKey = ByteArray(32)
+            try {
+                synchronized(memoryKeyMap) {
+                    memoryKeyMap[memoryKeyId] = SecretKeySpec(rawKey, "AES")
+                }
+            } finally {
                 rawKey.fill(0)
             }
+        }
+    }
+
+    private fun hasProtectedDataForMissingKey(alias: String): Boolean {
+        val securePrefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return when (alias) {
+            DB_KEY_ALIAS -> {
+                val passphraseFiles = listOf(
+                    DB_PASSPHRASE_V2_FILE,
+                    ENCRYPTED_DB_PASSPHRASE_FILE,
+                    DB_PASSPHRASE_IV_FILE
+                ).any { File(context.filesDir, it).exists() }
+                passphraseFiles || context.databaseList().isNotEmpty()
+            }
+            VAULT_KEY_ALIAS -> {
+                val vaultDirectory = File(context.filesDir, VAULT_DATA_DIRECTORY)
+                vaultDirectory.walkTopDown().any { it.isFile && it.name.endsWith(VAULT_FILE_EXTENSION, ignoreCase = true) }
+            }
+            VAULT_META_KEY_ALIAS -> {
+                listOf(
+                    "vault_pin_hash",
+                    "vault_pin_salt",
+                    "vault_decoy_pin_hash",
+                    "vault_decoy_pin_salt",
+                    LOCKOUT_STATE_KEY,
+                    LOCKOUT_STATE_IV_KEY
+                ).any(securePrefs::contains)
+            }
+            else -> false
         }
     }
 
@@ -373,7 +422,7 @@ class CryptoSecurityManager(
         data object INVALID_FORMAT : VaultAuthResult
     }
 
-    private val prefs by lazy { context.getSharedPreferences("vvf_secure_vault_prefs", Context.MODE_PRIVATE) }
+    private val prefs by lazy { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
 
     fun isValidPinFormat(pin: String): Boolean = pin.length in 4..6 && pin.all { it.isDigit() }
     fun isVaultPinSet(): Boolean = isVaultConfigured()
