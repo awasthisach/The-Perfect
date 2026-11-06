@@ -221,7 +221,9 @@ class VVFApplication : Application(), Configuration.Provider {
             cryptoManager = cryptoSecurityManager,
             vaultDirectory = vaultDir,
             vaultJournalDao = database.vaultJournalDao(),
-            fileDao = database.fileDao()
+            fileDao = database.fileDao(),
+            awaitStartupReady = startupReadiness::awaitReady,
+            startupIsReady = startupReadiness::isReady
         )
         markRecovering()
         // Room was opened and migrations completed before repository construction.
