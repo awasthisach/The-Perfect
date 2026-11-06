@@ -55,6 +55,29 @@ class StartupReadinessInstrumentedTest {
     }
 
     @Test
+    fun injectedRecoveryFailureNeverReleasesProtectedOperation() = runBlocking {
+        val readiness = StartupReadiness()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        var protectedOperationExecuted = false
+        try {
+            val job = readiness.start(scope) { markRecovering ->
+                markRecovering()
+                throw IllegalStateException("instrumented recovery fault")
+            }
+            withTimeout(5_000) { job.join() }
+            assertTrue(readiness.state.value is StartupState.Failed)
+            val result = runCatching {
+                readiness.awaitReady()
+                protectedOperationExecuted = true
+            }
+            assertTrue(result.exceptionOrNull() is IllegalStateException)
+            assertFalse(protectedOperationExecuted)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun productionApplicationUsesRealInstrumentedStartupPath() = runBlocking {
         val app = InstrumentationRegistry.getInstrumentation().targetContext
             .applicationContext as VVFApplication
