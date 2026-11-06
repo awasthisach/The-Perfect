@@ -494,8 +494,7 @@ runs:
         -o ${ORT_RESULTS_PATH/$USER/ort} \
         -f JSON \
         ${ORT_CLI_ANALYZE_ARGS} || ORT_CLI_ANALYZE_EXIT_CODE=$? \
-        && ORT_CLI_ANALYZE_EXIT_CODE="${ORT_CLI_ANALYZE_EXIT_CODE:-0}" \
-        && echo "exit-code=${ORT_CLI_ANALYZE_EXIT_CODE}" >> "$GITHUB_OUTPUT"
+        && ORT_CLI_ANALYZE_EXIT_CODE="${ORT_CLI_ANALYZE_EXIT_CODE:-0}"
         [[ -f $ORT_RESULTS_ANALYZER_PATH ]] && \
           ln -frs $ORT_RESULTS_ANALYZER_PATH $ORT_RESULTS_CURRENT_PATH || \
           echo -e "\e[1;31m File $ORT_RESULTS_ANALYZER_PATH not found."
