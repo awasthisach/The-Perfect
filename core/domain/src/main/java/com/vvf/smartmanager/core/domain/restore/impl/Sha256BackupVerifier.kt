@@ -5,31 +5,50 @@ import com.vvf.smartmanager.core.domain.restore.ChecksumMismatchException
 import com.vvf.smartmanager.core.domain.restore.DownloadedArtifact
 import com.vvf.smartmanager.core.domain.restore.VerificationFailedException
 import com.vvf.smartmanager.core.domain.restore.VerifiedArtifact
+import java.security.MessageDigest
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 
-/** Fail-closed integrity gate: expected checksum must match the downloaded artifact digest. */
+/** Verify actual private artifact bytes against a separately trusted expected SHA-256. */
 class Sha256BackupVerifier : BackupVerifier {
     override suspend fun verify(
         artifact: DownloadedArtifact,
         expectedChecksum: String?
-    ): Result<VerifiedArtifact> {
+    ): Result<VerifiedArtifact> = withContext(Dispatchers.IO) {
+        if (expectedChecksum.isNullOrBlank() || !expectedChecksum.matches(Regex("[0-9a-fA-F]{64}"))) {
+            return@withContext Result.failure(VerificationFailedException("Trusted expected SHA-256 is required"))
+        }
         if (!artifact.file.isFile || artifact.file.length() == 0L) {
-            return Result.failure(VerificationFailedException("Artifact missing or empty"))
+            return@withContext Result.failure(VerificationFailedException("Artifact missing or empty"))
         }
-        if (expectedChecksum.isNullOrBlank()) {
-            return Result.failure(VerificationFailedException("Trusted expected checksum is required"))
+        try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            val context = currentCoroutineContext()
+            artifact.file.inputStream().use { input ->
+                val buffer = ByteArray(8192)
+                while (true) {
+                    context.ensureActive()
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    digest.update(buffer, 0, count)
+                }
+            }
+            val actual = digest.digest().joinToString("") {
+                (it.toInt() and 0xff).toString(16).padStart(2, '0')
+            }
+            // Cached download metadata is not proof that the bytes remain unchanged.
+            if (!expectedChecksum.equals(actual, ignoreCase = true)) {
+                Result.failure(ChecksumMismatchException(expectedChecksum, actual))
+            } else {
+                Result.success(VerifiedArtifact(artifact.file, artifact.backupInfo, actual))
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(VerificationFailedException("Unable to read artifact for checksum verification"))
         }
-        val actual = artifact.checksumSha256
-            ?: return Result.failure(VerificationFailedException("Downloaded artifact has no checksum"))
-        if (!expectedChecksum.equals(actual, ignoreCase = true)
-        ) {
-            return Result.failure(ChecksumMismatchException(expectedChecksum, actual))
-        }
-        return Result.success(
-            VerifiedArtifact(
-                file = artifact.file,
-                backupInfo = artifact.backupInfo,
-                checksumSha256 = actual
-            )
-        )
     }
 }

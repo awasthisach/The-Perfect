@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: drive-semantic-embed-production
@@ -31,6 +32,17 @@ jobs:
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           persist-credentials: false
+
+      - name: Verify protected production environment before mutations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/environments/production" > "${RUNNER_TEMP}/production-environment.json"
+          python3 tools/audit/verify_deployment_preflight.py \
+            --environment production \
+            --environment-file "${RUNNER_TEMP}/production-environment.json" \
+            --worker-config cloudflare/drive-semantic-embed/wrangler.toml
 
       - name: Fail closed when Worker source package is absent
         run: |

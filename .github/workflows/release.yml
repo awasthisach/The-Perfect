@@ -30,6 +30,16 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
+      - name: Verify protected release environment before mutations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/environments/release" > "${RUNNER_TEMP}/release-environment.json"
+          python3 tools/audit/verify_deployment_preflight.py \
+            --environment release \
+            --environment-file "${RUNNER_TEMP}/release-environment.json"
+
       - name: Require successful ORT evidence for this exact commit
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

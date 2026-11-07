@@ -16,6 +16,8 @@ let appCheckKeys;
 let authToken;
 let appCheckToken;
 let originalFetch;
+let authSigningKey;
+let upstreamPayload;
 let geminiCalls;
 
 function base64Url(value) {
@@ -49,7 +51,7 @@ async function signJwt(privateKey, kid, claims) {
 
 function claims(issuer, audience, subject) {
   const now = Math.floor(Date.now() / 1000);
-  return { iss: issuer, aud: audience, sub: subject, iat: now, exp: now + 300 };
+  return { iss: issuer, aud: audience, sub: subject, iat: now, exp: now + 300, auth_time: now };
 }
 
 function makeEnv() {
@@ -86,6 +88,7 @@ before(async () => {
   const authPair = await createSigningKeys("test-auth-kid");
   const appCheckPair = await createSigningKeys("test-appcheck-kid");
   authKeys = authPair.jwk;
+  authSigningKey = authPair.privateKey;
   appCheckKeys = appCheckPair.jwk;
   authToken = await signJwt(
     authPair.privateKey,
@@ -106,7 +109,9 @@ before(async () => {
     if (url === APPCHECK_JWKS_URL) return Response.json({ keys: [appCheckKeys] });
     if (url.includes("generativelanguage.googleapis.com")) {
       geminiCalls += 1;
-      return Response.json({ embeddings: [{ values: Array(768).fill(0.125) }] });
+      return Response.json(upstreamPayload === undefined
+        ? { embeddings: [{ values: Array(768).fill(0.125) }] }
+        : upstreamPayload);
     }
     throw new Error(`Unexpected outbound request: ${url}`);
   };
@@ -187,3 +192,37 @@ test("rejects invalid Firebase Auth even with valid App Check", async () => {
   assert.equal(response.status, 401);
   assert.equal(await responseError(response), "unauthorized");
 });
+
+for (const [name, payload] of [
+  ["non-array embeddings", { embeddings: {} }],
+  ["null embedding entry", { embeddings: [null] }]
+]) {
+  test(`rejects malformed upstream response: ${name} without throwing`, async () => {
+    upstreamPayload = payload;
+    try {
+      const response = await worker.fetch(makeRequest({
+        Authorization: `Bearer ${authToken}`, "X-Firebase-AppCheck": appCheckToken
+      }), makeEnv());
+      assert.equal(response.status, 502);
+      assert.equal(await responseError(response), "invalid_embedding_response");
+    } finally {
+      upstreamPayload = undefined;
+    }
+  });
+}
+
+for (const invalid of ["missing", "future"]) {
+  test(`rejects a correctly signed Firebase token with ${invalid} auth_time`, async () => {
+    const tokenClaims = claims(`https://securetoken.google.com/${PROJECT_ID}`, PROJECT_ID, "test-user");
+    if (invalid === "missing") delete tokenClaims.auth_time;
+    else tokenClaims.auth_time = Math.floor(Date.now() / 1000) + 3600;
+    const token = await signJwt(authSigningKey, authKeys.kid, tokenClaims);
+    const beforeCalls = geminiCalls;
+    const response = await worker.fetch(makeRequest({
+      Authorization: `Bearer ${token}`, "X-Firebase-AppCheck": appCheckToken
+    }), makeEnv());
+    assert.equal(response.status, 401);
+    assert.equal(await responseError(response), "unauthorized");
+    assert.equal(geminiCalls, beforeCalls);
+  });
+}

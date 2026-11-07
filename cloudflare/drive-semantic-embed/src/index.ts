@@ -112,8 +112,10 @@ async function verifyJwt(
       claims.iss !== expectedIssuer ||
       !audienceValid ||
       typeof claims.exp !== "number" ||
+      !Number.isFinite(claims.exp) ||
       claims.exp <= now ||
       typeof claims.iat !== "number" ||
+      !Number.isFinite(claims.iat) ||
       claims.iat > now + 60 ||
       typeof claims.sub !== "string" ||
       claims.sub.length === 0 ||
@@ -135,6 +137,11 @@ async function authenticateFirebase(request: Request, env: Env): Promise<string 
     `https://securetoken.google.com/${env.FIREBASE_PROJECT_ID}`,
     env.FIREBASE_PROJECT_ID
   );
+  const authTime = claims?.auth_time;
+  const now = Math.floor(Date.now() / 1000);
+  if (typeof authTime !== "number" || !Number.isFinite(authTime) || authTime < 0 || authTime > now + 60) {
+    return null;
+  }
   return typeof claims?.sub === "string" ? claims.sub : null;
 }
 
@@ -359,9 +366,14 @@ export default {
     }
 
     const payload = await upstream.json().catch(() => null) as {
-      embeddings?: Array<{ values?: unknown }>;
+      embeddings?: unknown;
     } | null;
-    const embeddings = payload?.embeddings?.map((item) => item.values);
+    // Runtime responses are untrusted; TypeScript casts do not validate their shape.
+    const entries = payload?.embeddings;
+    if (!Array.isArray(entries)) return json({ error: "invalid_embedding_response" }, 502, cors);
+    const embeddings = entries.map((item) =>
+      item !== null && typeof item === "object" ? (item as { values?: unknown }).values : undefined
+    );
     if (
       !Array.isArray(embeddings) ||
       embeddings.length !== requests.length ||

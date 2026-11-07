@@ -116,4 +116,33 @@ class GoogleDriveBackupDownloaderTest {
         assertEquals(cancellation.message, thrown?.message)
         assertTrue(directory.listFiles().orEmpty().isEmpty())
     }
+    @Test
+    fun repeatedDownloadsOfSameIdDoNotOverwriteAnExistingArtifact() = runBlocking {
+        val directory = temp.newFolder("isolated-downloads")
+        var count = 0
+        val downloader = GoogleDriveBackupDownloader(
+            FakeDriveService { _, path ->
+                count++
+                File(path).writeText("backup-$count")
+                Result.success(true)
+            }, directory
+        )
+        val first = downloader.download("same-id").getOrThrow()
+        val second = downloader.download("same-id").getOrThrow()
+        assertFalse(first.file.canonicalPath == second.file.canonicalPath)
+        assertEquals("backup-1", first.file.readText())
+        assertEquals("backup-2", second.file.readText())
+    }
+
+    @Test
+    fun acceptedLongRemoteIdDoesNotBecomeAnOverlongFilesystemName() = runBlocking {
+        val downloader = GoogleDriveBackupDownloader(
+            FakeDriveService { _, path -> File(path).writeText("backup"); Result.success(true) },
+            temp.newFolder("long-id")
+        )
+        val result = downloader.download("a".repeat(256))
+        assertTrue(result.isSuccess)
+        assertTrue(result.getOrThrow().file.name.length < 100)
+    }
+
 }

@@ -88,18 +88,18 @@ class OcrIndexingService(
                     if (event.autoIndexFts && event.ocrResult.fullText.isNotBlank()) {
                         try {
                             indexOcrResult(event.fileItem, event.ocrResult)
-                            Log.d(TAG, "Successfully indexed OCR text for ${event.fileItem.name} into FTS.")
+                            Log.d(TAG, "Successfully indexed OCR text into FTS")
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (e: Exception) {
-                            Log.e(TAG, "Failed to auto-index OCR text for file ${event.fileItem.name}", e)
+                            Log.e(TAG, "Failed to auto-index OCR text (${e.javaClass.simpleName})")
                         }
                     }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
-                Log.e(TAG, "Error in OCR completion event stream", e)
+                Log.e(TAG, "OCR completion stream failed (${e.javaClass.simpleName})")
             }
         }
         listeningJob = job
@@ -134,7 +134,7 @@ class OcrIndexingService(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Failed indexing OCR result into FTS for file ${fileItem.name}", e)
+            Log.e(TAG, "Failed indexing OCR result (${e.javaClass.simpleName})")
             Result.failure(e)
         }
     }
@@ -171,7 +171,7 @@ class OcrIndexingService(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Failed indexing extracted text for file ${fileItem.name}", e)
+            Log.e(TAG, "Failed indexing extracted text (${e.javaClass.simpleName})")
             Result.failure(e)
         }
     }

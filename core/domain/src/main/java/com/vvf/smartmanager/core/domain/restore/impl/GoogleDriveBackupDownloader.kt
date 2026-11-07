@@ -35,13 +35,13 @@ class GoogleDriveBackupDownloader(
 
             try {
                 val root = downloadDir.canonicalFile
-                val destination = File(root, "backup-$remoteBackupId.vvfbak").canonicalFile
+                val destination = File(root, "backup-${UUID.randomUUID()}.vvfbak").canonicalFile
                 if (destination.parentFile != root) {
                     return@withContext Result.failure(
                         VerificationFailedException("Backup destination escaped the private download directory")
                     )
                 }
-                val staged = File(root, ".backup-$remoteBackupId-${UUID.randomUUID()}.part")
+                val staged = File(root, ".backup-${UUID.randomUUID()}.part")
                 try {
                     val downloaded = driveService.downloadFile(remoteBackupId, staged.absolutePath)
                     val ok = downloaded.getOrElse { error ->
@@ -55,13 +55,8 @@ class GoogleDriveBackupDownloader(
                     }
 
                     val checksum = sha256(staged)
-                    if (destination.exists() && !destination.delete()) {
-                        return@withContext Result.failure(
-                            VerificationFailedException("Unable to replace the previous staged backup")
-                        )
-                    }
                     if (!staged.renameTo(destination)) {
-                        staged.copyTo(destination, overwrite = true)
+                        staged.copyTo(destination, overwrite = false)
                         if (!staged.delete()) {
                             return@withContext Result.failure(
                                 VerificationFailedException("Unable to remove temporary backup after publishing")
