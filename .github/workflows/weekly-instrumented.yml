@@ -9,7 +9,8 @@ on:
     - cron: "0 3 * * 1"
   workflow_dispatch:
   pull_request:
-    branches: [main]
+    # Run against the exact PR head so CPAS can stage fresh instrumentation evidence.
+    branches: [main, integration/project-completion-2026-11-05]
     types: [opened, synchronize, reopened]
 
 permissions:
@@ -193,6 +194,7 @@ jobs:
   publish-evidence:
     name: Publish weekly CPAS evidence
     needs: instrumented-hard
+    # PR runs validate the candidate but must not publish a ledger update or open a PR.
     if: success() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 10

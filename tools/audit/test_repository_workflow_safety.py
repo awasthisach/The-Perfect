@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class RepositoryWorkflowSafetyTest(unittest.TestCase):
-    def test_ort_runs_only_on_schedule_or_manual_candidate_dispatch(self):
+    def test_ort_runs_only_on_schedule_push_or_manual_candidate_dispatch(self):
         workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
         self.assertIn("  schedule:", workflow)
         self.assertIn("  workflow_dispatch:", workflow)
@@ -14,6 +14,12 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertNotRegex(workflow, r"(?m)^  pull_request:")
         self.assertIn("timeout-minutes: 90", workflow)
         self.assertIn("ref: ${{ github.sha }}", workflow)
+
+    def test_hard_instrumentation_runs_for_integration_targeted_prs_without_publishing(self):
+        workflow = (ROOT / ".github/workflows/weekly-instrumented.yml").read_text(encoding="utf-8")
+        self.assertIn("pull_request:\n    # Run against the exact PR head so CPAS can stage fresh instrumentation evidence.\n    branches: [main, integration/project-completion-2026-11-05]", workflow)
+        self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
+        self.assertIn("if: success() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')", workflow)
 
     def test_ort_manual_dispatch_checks_selected_ref_checkout_and_scan_revision(self):
         workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
