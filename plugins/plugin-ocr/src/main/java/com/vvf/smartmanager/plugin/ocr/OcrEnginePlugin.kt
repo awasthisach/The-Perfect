@@ -104,7 +104,7 @@ open class OcrEnginePlugin(
             onProgress?.invoke(OcrProgress(currentStep = "Scan Cancelled", isCancelled = true))
             Result.failure(ce)
         } catch (e: Exception) {
-            Log.e(TAG, "OCR processing failed for ${fileItem.path}", e)
+            Log.e(TAG, "OCR processing failed for file ${fileItem.name}", e)
             Result.failure(e)
         } finally {
             temporaryInput?.delete()

@@ -35,7 +35,7 @@ object BitmapUtils {
     ): Bitmap? {
         val file = File(filePath)
         if (!file.exists() || !file.canRead()) {
-            Log.w(TAG, "File does not exist or cannot be read: $filePath")
+            Log.w(TAG, "Image file does not exist or cannot be read")
             return null
         }
 
@@ -47,7 +47,7 @@ object BitmapUtils {
             BitmapFactory.decodeFile(filePath, options)
 
             if (options.outWidth <= 0 || options.outHeight <= 0) {
-                Log.w(TAG, "Invalid image bounds for file: $filePath (${options.outWidth}x${options.outHeight})")
+                Log.w(TAG, "Invalid image bounds (${options.outWidth}x${options.outHeight})")
                 return null
             }
 
@@ -76,10 +76,10 @@ object BitmapUtils {
                 decodedBitmap
             }
         } catch (oom: OutOfMemoryError) {
-            Log.e(TAG, "OOM caught while decoding image: $filePath. Falling back to extreme downsampling.", oom)
+            Log.e(TAG, "OOM caught while decoding image; falling back to extreme downsampling.", oom)
             decodeExtremeFallback(filePath, config)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to decode image from path: $filePath", e)
+            Log.e(TAG, "Failed to decode image", e)
             null
         }
     }
@@ -129,7 +129,7 @@ object BitmapUtils {
                 else -> 0f
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Could not read EXIF data for $filePath: ${e.message}")
+            Log.w(TAG, "Could not read image EXIF data: ${e.message}")
             0f
         }
     }

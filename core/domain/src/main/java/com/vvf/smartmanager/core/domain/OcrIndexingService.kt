@@ -92,7 +92,7 @@ class OcrIndexingService(
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (e: Exception) {
-                            Log.e(TAG, "Failed to auto-index OCR text for ${event.fileItem.path}", e)
+                            Log.e(TAG, "Failed to auto-index OCR text for file ${event.fileItem.name}", e)
                         }
                     }
                 }
@@ -134,7 +134,7 @@ class OcrIndexingService(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Failed indexing OCR result into FTS for ${fileItem.path}", e)
+            Log.e(TAG, "Failed indexing OCR result into FTS for file ${fileItem.name}", e)
             Result.failure(e)
         }
     }
@@ -171,7 +171,7 @@ class OcrIndexingService(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Failed indexing extracted text for ${fileItem.path}", e)
+            Log.e(TAG, "Failed indexing extracted text for file ${fileItem.name}", e)
             Result.failure(e)
         }
     }
