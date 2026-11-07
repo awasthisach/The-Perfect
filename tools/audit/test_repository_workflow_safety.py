@@ -10,7 +10,7 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
         self.assertIn("  schedule:", workflow)
         self.assertIn("  workflow_dispatch:", workflow)
-        self.assertIn('  push:\\n    branches: ["hardening/**"]', workflow)
+        self.assertIn('  push:\n    branches: ["hardening/**"]', workflow)
         self.assertNotRegex(workflow, r"(?m)^  pull_request:")
         self.assertIn("timeout-minutes: 90", workflow)
         self.assertIn("ref: ${{ github.sha }}", workflow)
