@@ -18,7 +18,10 @@ jobs:
   ort-scan:
     name: ORT Analyzer, Scanner, Evaluator, Advisor & SBOM
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    # Android/Gradle dependency scanning can exceed 90 minutes on a cold runner.
+    # Keep this within the CPAS gate's 300-minute evidence wait window while
+    # retaining a hard upper bound; incomplete reports remain BLOCKED.
+    timeout-minutes: 300
     steps:
       - name: Checkout exact candidate SHA
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0

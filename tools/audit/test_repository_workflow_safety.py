@@ -11,7 +11,7 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertIn("  schedule:", workflow)
         self.assertIn("  workflow_dispatch:", workflow)
         self.assertNotRegex(workflow, r"(?m)^  (?:push|pull_request):")
-        self.assertIn("timeout-minutes: 90", workflow)
+        self.assertIn("timeout-minutes: 300", workflow)
         self.assertIn("ref: ${{ github.sha }}", workflow)
 
     def test_ort_manual_dispatch_checks_selected_ref_checkout_and_scan_revision(self):
