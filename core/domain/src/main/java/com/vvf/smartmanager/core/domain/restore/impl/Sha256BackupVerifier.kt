@@ -15,10 +15,12 @@ class Sha256BackupVerifier : BackupVerifier {
         if (!artifact.file.isFile || artifact.file.length() == 0L) {
             return Result.failure(VerificationFailedException("Artifact missing or empty"))
         }
+        if (expectedChecksum.isNullOrBlank()) {
+            return Result.failure(VerificationFailedException("Trusted expected checksum is required"))
+        }
         val actual = artifact.checksumSha256
             ?: return Result.failure(VerificationFailedException("Downloaded artifact has no checksum"))
-        if (expectedChecksum != null && expectedChecksum.isNotBlank() &&
-            !expectedChecksum.equals(actual, ignoreCase = true)
+        if (!expectedChecksum.equals(actual, ignoreCase = true)
         ) {
             return Result.failure(ChecksumMismatchException(expectedChecksum, actual))
         }

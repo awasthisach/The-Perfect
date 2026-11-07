@@ -2,6 +2,7 @@ package com.vvf.smartmanager.core.domain.restore.impl
 
 import com.vvf.smartmanager.core.domain.restore.ChecksumMismatchException
 import com.vvf.smartmanager.core.domain.restore.DownloadedArtifact
+import com.vvf.smartmanager.core.domain.restore.VerificationFailedException
 import com.vvf.smartmanager.core.model.CloudBackupInfo
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
@@ -36,5 +37,18 @@ class Sha256BackupVerifierTest {
         )
         val result = Sha256BackupVerifier().verify(artifact, "abc")
         assertTrue(result.isSuccess)
+    }
+
+    @Test
+    fun missingExpectedChecksumFailsClosed() = runBlocking {
+        val file = temp.newFile("c.vvfbak").also { it.writeText("payload") }
+        val artifact = DownloadedArtifact(
+            file = file,
+            backupInfo = CloudBackupInfo("id", 1L, "c.vvfbak", file.length(), checksumSha256 = "abc"),
+            checksumSha256 = "abc"
+        )
+        val result = Sha256BackupVerifier().verify(artifact, null)
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is VerificationFailedException)
     }
 }
