@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, integration/project-completion-2026-11-05]
   workflow_dispatch:
 
 permissions:
