@@ -6,6 +6,11 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class RepositoryWorkflowSafetyTest(unittest.TestCase):
+    def test_ci_does_not_cancel_in_flight_candidate_builds(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn("group: ci-${{ github.workflow }}-${{ github.ref }}", workflow)
+        self.assertIn("cancel-in-progress: false", workflow)
+
     def test_ort_runs_only_on_schedule_or_manual_candidate_dispatch(self):
         workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
         self.assertIn("  schedule:", workflow)
