@@ -17,7 +17,7 @@ class StorageManagerFileOpsDeletionTest {
 
     @Test
     fun permanentDeleteFailurePreservesFileAndDatabaseMetadata() = runBlocking {
-        val context = RuntimeEnvironment.getApplication<android.app.Application>()
+        val context = RuntimeEnvironment.getApplication()
         val daoCalls = mutableListOf<String>()
         val ops = FailingDeleteStorageManager(context, recordingDao(daoCalls))
         val target = File(context.filesDir, "permanent-delete-failure.txt").apply {
@@ -33,7 +33,7 @@ class StorageManagerFileOpsDeletionTest {
 
     @Test
     fun emptyRecycleBinFailureDoesNotClearTrashMetadata() = runBlocking {
-        val context = RuntimeEnvironment.getApplication<android.app.Application>()
+        val context = RuntimeEnvironment.getApplication()
         val daoCalls = mutableListOf<String>()
         val ops = FailingDeleteStorageManager(context, recordingDao(daoCalls))
         val target = File(ops.testTrashDirectory(), "trash-delete-failure.txt").apply {
