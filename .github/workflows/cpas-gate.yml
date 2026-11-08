@@ -139,7 +139,7 @@ jobs:
           PY
 
           set +e
-          python3 tools/audit/verify_ort_outputs.py --results-dir ort-evidence/results --revision "$CANDIDATE_SHA" --curations-file .ort.yml
+          python3 tools/audit/verify_ort_outputs.py --results-dir ort-evidence/results --revision "$CANDIDATE_SHA" --curations-file ort-curations.yml
           validation_code=$?
           set -e
           if [ "$validation_code" -ne 0 ]; then

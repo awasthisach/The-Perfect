@@ -49,6 +49,10 @@ jobs:
           sw-name: The-Perfect
           sw-version: ${{ github.sha }}
           fail-on: "issues,violations"
+          ort-cli-analyze-args: >-
+            --package-curations-file /home/ort/work/The-Perfect/The-Perfect/ort-curations.yml
+          ort-cli-evaluate-args: >-
+            --package-curations-file /home/ort/work/The-Perfect/The-Perfect/ort-curations.yml
           run: >-
             cache-dependencies,
             cache-scan-results,
@@ -72,7 +76,7 @@ jobs:
             exit 1
           fi
           RESULTS_DIR="$HOME/.ort/ort-results"
-          python3 tools/audit/verify_ort_outputs.py --results-dir "$RESULTS_DIR" --revision "$ORT_SCAN_SHA" --curations-file .ort.yml
+          python3 tools/audit/verify_ort_outputs.py --results-dir "$RESULTS_DIR" --revision "$ORT_SCAN_SHA" --curations-file ort-curations.yml
 
       - name: Record ORT status
         if: always()

@@ -24,8 +24,8 @@ REQUIRED_OUTPUTS = RESULT_JSON_FILES + (
 
 
 CURATION_BLOCK_RE = re.compile(
-    r'(?ms)^\s{4}-\s+id:\s*"(?P<package_id>[^"]+)"\s*\n'
-    r"(?P<body>.*?)(?=^\s{4}-\s+id:|\Z)"
+    r'(?ms)^\s*-\s+id:\s*"(?P<package_id>[^"]+)"\s*\n'
+    r"(?P<body>.*?)(?=^\s*-\s+id:|\Z)"
 )
 SOURCE_PIN_RE = re.compile(
     r"source_artifact_url=(?P<url>\S+)\s+"
@@ -57,7 +57,7 @@ def validate_source_artifact_pins(
     for match in CURATION_BLOCK_RE.finditer(curations_text):
         package_id = match.group("package_id")
         body = match.group("body")
-        comment_match = re.search(r'(?m)^\s{8}comment:\s*"([^"]*)"\s*$', body)
+        comment_match = re.search(r'(?m)^\s+comment:\s*"([^"]*)"\s*$', body)
         if not comment_match:
             problems.append(f"{package_id}: curation comment is missing")
             continue
@@ -104,10 +104,12 @@ def validate_outputs(
             problems.append(f"{name}: empty")
 
     ort_sections = {
-        "analyzer-result.json": ("analyzer", "result"),
-        "scan-result.json": ("scanner", "scanResults"),
-        "evaluation-result.json": ("evaluator", "violations"),
-        "advisor-result.json": ("advisor", "results"),
+        "analyzer-result.json": ("analyzer", ("result",)),
+        # ORT 98 uses snake_case; retain the historical form for older pinned
+        # ORT outputs without weakening the requirement for a real list.
+        "scan-result.json": ("scanner", ("scan_results", "scanResults")),
+        "evaluation-result.json": ("evaluator", ("violations",)),
+        "advisor-result.json": ("advisor", ("results",)),
     }
 
     for name in RESULT_JSON_FILES + ("bom.cyclonedx.json", "bom.spdx.json"):
@@ -142,10 +144,15 @@ def validate_outputs(
                 )
                 continue
 
-            section_name, result_name = ort_sections[name]
+            section_name, result_names = ort_sections[name]
             section = data.get(section_name)
             expected_type = dict if name in ("analyzer-result.json", "advisor-result.json") else list
-            if not isinstance(section, dict) or not isinstance(section.get(result_name), expected_type):
+            result_name = next(
+                (candidate for candidate in result_names
+                 if isinstance(section.get(candidate), expected_type)),
+                None,
+            ) if isinstance(section, dict) else None
+            if not isinstance(section, dict) or result_name is None:
                 expected_label = "object" if expected_type is dict else "list"
                 problems.append(
                     f"{name}: missing valid ORT {section_name}.{result_name} {expected_label}"
@@ -200,7 +207,7 @@ def validate_outputs(
                 "spdxVersion": r"(?m)^spdxVersion:\s*['\"]?SPDX-\d+\.\d+['\"]?\s*$",
                 "SPDXID": r"(?m)^SPDXID:\s*['\"]?SPDXRef-DOCUMENT['\"]?\s*$",
                 "name": r"(?m)^name:\s*\S",
-                "documentNamespace": r"(?m)^documentNamespace:\s*https?://\S+",
+                "documentNamespace": r'''(?m)^documentNamespace:\s*[\"']?(?:https?://|spdx://)\S+[\"']?\s*$''',
                 "packages": r"(?m)^packages:\s*(?:\[\]|\s*)$",
             }
             for field, pattern in required_yaml_patterns.items():

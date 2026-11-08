@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 HASH_LENGTHS = {"MD5": 32, "SHA-1": 40, "SHA-256": 64, "SHA-384": 96, "SHA-512": 128}
+CURATIONS_FILE = "ort-curations.yml"
 
 
 def curation_blocks(text):
@@ -42,7 +43,7 @@ class OrtCurationHashTests(unittest.TestCase):
         self.assertFalse(valid_hash("SHA-256", "a" * 63))
 
     def test_repository_source_artifact_hashes(self):
-        text = (Path(__file__).resolve().parents[2] / ".ort.yml").read_text()
+        text = (Path(__file__).resolve().parents[2] / CURATIONS_FILE).read_text()
         count = 0
         for package_id, body in curation_blocks(text):
             artifact = re.search(
@@ -60,7 +61,7 @@ class OrtCurationHashTests(unittest.TestCase):
         self.assertGreaterEqual(count, 6)
 
     def test_artifact_origin_requires_a_pinned_matching_source(self):
-        text = (Path(__file__).resolve().parents[2] / ".ort.yml").read_text()
+        text = (Path(__file__).resolve().parents[2] / CURATIONS_FILE).read_text()
         for package_id, body in curation_blocks(text):
             if "source_code_origins: [ARTIFACT]" not in body:
                 continue
