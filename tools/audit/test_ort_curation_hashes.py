@@ -1,9 +1,17 @@
 import re
 import unittest
 from pathlib import Path
-import yaml
 
 HASH_LENGTHS = {"MD5": 32, "SHA-1": 40, "SHA-256": 64, "SHA-384": 96, "SHA-512": 128}
+
+
+def curation_blocks(text):
+    """Return package id and curation text without requiring PyYAML in CI."""
+    pattern = re.compile(
+        r'^\s*- id: "(?P<id>[^"]+)"\s*\n(?P<body>.*?)(?=^\s*- id: "|\Z)',
+        re.MULTILINE | re.DOTALL,
+    )
+    return [(match.group("id"), match.group("body")) for match in pattern.finditer(text)]
 
 
 def valid_hash(algorithm, value):
@@ -34,30 +42,43 @@ class OrtCurationHashTests(unittest.TestCase):
         self.assertFalse(valid_hash("SHA-256", "a" * 63))
 
     def test_repository_source_artifact_hashes(self):
-        config = yaml.safe_load((Path(__file__).resolve().parents[2] / ".ort.yml").read_text())
+        text = (Path(__file__).resolve().parents[2] / ".ort.yml").read_text()
         count = 0
-        for package in config.get("curations", {}).get("packages", []):
-            artifact = package.get("curations", {}).get("source_artifact")
+        for package_id, body in curation_blocks(text):
+            artifact = re.search(
+                r"source_artifact:\s*\n\s+url:\s+\"(?P<url>[^\"]+)\"\s*\n"
+                r"\s+hash:\s*\n\s+value:\s+\"(?P<value>[^\"]+)\"\s*\n"
+                r"\s+algorithm:\s+\"(?P<algorithm>[^\"]+)\"",
+                body,
+            )
             if not artifact:
                 continue
             count += 1
-            value = artifact.get("hash", {}).get("value")
-            algorithm = artifact.get("hash", {}).get("algorithm")
-            self.assertTrue(valid_hash(algorithm, value), f"{package['id']}: invalid {algorithm}; length={len(value or '')}")
+            value = artifact.group("value")
+            algorithm = artifact.group("algorithm")
+            self.assertTrue(valid_hash(algorithm, value), f"{package_id}: invalid {algorithm}; length={len(value or '')}")
         self.assertGreaterEqual(count, 6)
 
     def test_artifact_origin_requires_a_pinned_matching_source(self):
-        config = yaml.safe_load((Path(__file__).resolve().parents[2] / ".ort.yml").read_text())
-        for package in config.get("curations", {}).get("packages", []):
-            curation = package.get("curations", {})
-            if "ARTIFACT" not in curation.get("source_code_origins", []):
+        text = (Path(__file__).resolve().parents[2] / ".ort.yml").read_text()
+        for package_id, body in curation_blocks(text):
+            if "source_code_origins: [ARTIFACT]" not in body:
                 continue
-            artifact = curation.get("source_artifact", {})
-            provider, group, name, version = package["id"].split(":")
+            artifact = re.search(r"source_artifact:.*?\n\s+url:\s+\"([^\"]+)\"", body, re.DOTALL)
+            self.assertIsNotNone(artifact, package_id)
+            provider, group, name, version = package_id.split(":")
             self.assertEqual("Maven", provider)
             expected = f"https://repo.maven.apache.org/maven2/{group.replace('.', '/')}/{name}/{version}/{name}-{version}-sources.jar"
-            self.assertEqual(expected, artifact.get("url"))
-            self.assertTrue(valid_hash(artifact.get("hash", {}).get("algorithm"), artifact.get("hash", {}).get("value")))
+            self.assertEqual(expected, artifact.group(1))
+            artifact_body = re.search(r"source_artifact:(.*?)(?=\n\s+source_code_origins:)", body, re.DOTALL)
+            self.assertIsNotNone(artifact_body, package_id)
+            hash_match = re.search(
+                r"value:\s+\"([^\"]+)\".*?algorithm:\s+\"([^\"]+)\"",
+                artifact_body.group(1),
+                re.DOTALL,
+            )
+            self.assertIsNotNone(hash_match, package_id)
+            self.assertTrue(valid_hash(hash_match.group(2), hash_match.group(1)))
 
 
 if __name__ == "__main__":
