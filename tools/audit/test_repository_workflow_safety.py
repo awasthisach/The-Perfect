@@ -26,7 +26,7 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
     def test_package_curations_are_installed_in_analyzer_config_directory(self):
         workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
         self.assertIn("Prepare pinned ORT config with project package curations", workflow)
-        self.assertIn('git fetch --depth 1 origin 6cb99721f7e536361ca2b20d8bcdec9c3125236b', workflow)
+        self.assertIn('git -C "$config_dir" fetch --depth 1 origin 6cb99721f7e536361ca2b20d8bcdec9c3125236b', workflow)
         self.assertIn('install -m 0644 ort-curations.yml "$HOME/.ort/config/curations.yml"', workflow)
         self.assertNotIn("--package-curations-dir", workflow)
         self.assertNotIn("ort-cli-analyze-args:", workflow)
