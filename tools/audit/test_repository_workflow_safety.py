@@ -23,12 +23,15 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertIn('"scan_revision": scan_sha', workflow)
         self.assertIn('"workflow_run_id": int(os.environ["WORKFLOW_RUN_ID"])', workflow)
 
-    def test_package_curations_are_not_passed_to_unsupported_analyzer_option(self):
+    def test_package_curations_use_supported_analyzer_directory_option(self):
         workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
-        self.assertNotIn("ort-cli-analyze-args:", workflow)
+        self.assertIn("Prepare project package curations", workflow)
+        self.assertIn("cp ort-curations.yml .ort-project-curations/curations.yml", workflow)
+        self.assertIn("ort-cli-analyze-args:", workflow)
+        self.assertIn("--package-curations-dir", workflow)
+        self.assertNotIn("--package-curations-file", workflow.split("ort-cli-analyze-args:", 1)[1].split("ort-cli-evaluate-args:", 1)[0])
         self.assertIn("ort-cli-evaluate-args:", workflow)
         self.assertIn("--package-curations-file", workflow)
-        self.assertIn("ort-curations.yml", workflow)
 
     def test_cpas_selects_exact_sha_and_fails_closed_on_bad_ort_provenance(self):
         workflow = (ROOT / ".github/workflows/cpas-gate.yml").read_text(encoding="utf-8")

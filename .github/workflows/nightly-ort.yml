@@ -42,6 +42,12 @@ jobs:
           fi
           echo "checkout_sha=$actual_sha" >> "$GITHUB_OUTPUT"
 
+      - name: Prepare project package curations
+        run: |
+          set -euo pipefail
+          mkdir -p .ort-project-curations
+          cp ort-curations.yml .ort-project-curations/curations.yml
+
       - name: Run ORT compliance pipeline
         id: ort
         uses: ./.github/actions/ort
@@ -49,6 +55,8 @@ jobs:
           sw-name: The-Perfect
           sw-version: ${{ github.sha }}
           fail-on: "issues,violations"
+          ort-cli-analyze-args: >-
+            --package-curations-dir /home/ort/work/The-Perfect/The-Perfect/.ort-project-curations
           ort-cli-evaluate-args: >-
             --package-curations-file /home/ort/work/The-Perfect/The-Perfect/ort-curations.yml
           run: >-
