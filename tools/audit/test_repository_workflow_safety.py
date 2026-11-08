@@ -23,13 +23,13 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertIn('"scan_revision": scan_sha', workflow)
         self.assertIn('"workflow_run_id": int(os.environ["WORKFLOW_RUN_ID"])', workflow)
 
-    def test_package_curations_use_supported_analyzer_directory_option(self):
+    def test_package_curations_are_installed_in_analyzer_config_directory(self):
         workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
-        self.assertIn("Prepare project package curations", workflow)
-        self.assertIn("cp ort-curations.yml .ort-project-curations/curations.yml", workflow)
-        self.assertIn("ort-cli-analyze-args:", workflow)
-        self.assertIn("--package-curations-dir", workflow)
-        self.assertNotIn("--package-curations-file", workflow.split("ort-cli-analyze-args:", 1)[1].split("ort-cli-evaluate-args:", 1)[0])
+        self.assertIn("Prepare pinned ORT config with project package curations", workflow)
+        self.assertIn('git fetch --depth 1 origin 6cb99721f7e536361ca2b20d8bcdec9c3125236b', workflow)
+        self.assertIn('install -m 0644 ort-curations.yml "$HOME/.ort/config/curations.yml"', workflow)
+        self.assertNotIn("--package-curations-dir", workflow)
+        self.assertNotIn("ort-cli-analyze-args:", workflow)
         self.assertIn("ort-cli-evaluate-args:", workflow)
         self.assertIn("--package-curations-file", workflow)
 

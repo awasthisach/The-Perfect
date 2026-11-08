@@ -42,11 +42,16 @@ jobs:
           fi
           echo "checkout_sha=$actual_sha" >> "$GITHUB_OUTPUT"
 
-      - name: Prepare project package curations
+      - name: Prepare pinned ORT config with project package curations
         run: |
           set -euo pipefail
-          mkdir -p .ort-project-curations
-          cp ort-curations.yml .ort-project-curations/curations.yml
+          config_dir="$HOME/.ort/config"
+          mkdir -p "$HOME/.ort"
+          git init "$config_dir"
+          git -C "$config_dir" remote add origin https://github.com/oss-review-toolkit/ort-config.git
+          git -C "$config_dir" fetch --depth 1 origin 6cb99721f7e536361ca2b20d8bcdec9c3125236b
+          git -C "$config_dir" checkout --detach FETCH_HEAD
+          install -m 0644 ort-curations.yml "$config_dir/curations.yml"
 
       - name: Run ORT compliance pipeline
         id: ort
@@ -55,8 +60,6 @@ jobs:
           sw-name: The-Perfect
           sw-version: ${{ github.sha }}
           fail-on: "issues,violations"
-          ort-cli-analyze-args: >-
-            --package-curations-dir /home/ort/work/The-Perfect/The-Perfect/.ort-project-curations
           ort-cli-evaluate-args: >-
             --package-curations-file /home/ort/work/The-Perfect/The-Perfect/ort-curations.yml
           run: >-
