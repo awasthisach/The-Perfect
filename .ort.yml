@@ -12,7 +12,7 @@ curations:
         source_artifact:
           url: "https://repo.maven.apache.org/maven2/com/almworks/sqlite4java/sqlite4java/1.0.392/sqlite4java-1.0.392-sources.jar"
           hash:
-            value: "2efe18f7bea6fa9536802dd4ea54d948117216c"
+            value: "2efe18f7bea6fa9536802dd4ea54d948117216c6"
             algorithm: "SHA-1"
         source_code_origins: [ARTIFACT]
 
