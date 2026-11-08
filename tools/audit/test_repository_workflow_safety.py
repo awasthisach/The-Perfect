@@ -23,6 +23,10 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertIn('"scan_revision": scan_sha', workflow)
         self.assertIn('"workflow_run_id": int(os.environ["WORKFLOW_RUN_ID"])', workflow)
 
+    def test_project_ort_configuration_is_an_explicit_empty_mapping(self):
+        project_config = (ROOT / ".ort.yml").read_text(encoding="utf-8")
+        self.assertTrue(project_config.lstrip().startswith("--- {}"))
+
     def test_package_curations_are_installed_in_analyzer_config_directory(self):
         workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
         self.assertIn("Prepare pinned ORT config with project package curations", workflow)

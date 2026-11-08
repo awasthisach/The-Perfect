@@ -1,4 +1,3 @@
----
-# Project-level ORT configuration is intentionally empty.
-# Package curations live in the standalone ort-curations.yml file because
-# ORT 98 rejects package curations embedded in *.ort.yml.
+--- {}
+# Explicit empty repository configuration; comment-only YAML parses as null in ORT 98.
+# Package curations live in the standalone ort-curations.yml file.
