@@ -42,6 +42,20 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertIn("ort-cli-evaluate-args:", workflow)
         self.assertIn("--package-curations-file", workflow)
 
+    def test_ort_curates_every_unresolvable_vcs_revision_from_candidate_scan(self):
+        curations = (ROOT / "ort-curations.yml").read_text(encoding="utf-8")
+        for package_id in (
+            "Maven:commons-logging:commons-logging:1.2",
+            "Maven:org.apache.httpcomponents:httpclient:4.5.6",
+            "Maven:org.apache.httpcomponents:httpcore:4.4.16",
+            "Maven:org.apache.httpcomponents:httpmime:4.5.6",
+        ):
+            with self.subTest(package_id=package_id):
+                self.assertIn(f'- id: "{package_id}"', curations)
+                package_block = curations.split(f'- id: "{package_id}"', 1)[1].split("\\n- id:", 1)[0]
+                self.assertIn("source_artifact:", package_block)
+                self.assertIn("source_code_origins: [ARTIFACT]", package_block)
+
     def test_cpas_selects_exact_sha_and_fails_closed_on_bad_ort_provenance(self):
         workflow = (ROOT / ".github/workflows/cpas-gate.yml").read_text(encoding="utf-8")
         self.assertIn("tools/audit/select_ort_run.py --candidate-sha", workflow)
