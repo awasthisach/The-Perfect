@@ -35,7 +35,7 @@ jobs:
       - name: Wait for and stage ORT evidence for exact candidate SHA
         id: stage_ort
         continue-on-error: true
-        timeout-minutes: 300
+        timeout-minutes: 350
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -45,7 +45,7 @@ jobs:
           run_status=""
           run_conclusion=""
 
-          for attempt in $(seq 1 320); do
+          for attempt in $(seq 1 360); do
             # Do not filter server-side by head_sha: pull_request runs can be recorded
             # against GitHub's synthetic merge SHA while the PR association carries
             # the actual candidate head SHA. Paginate before applying the exact SHA check.

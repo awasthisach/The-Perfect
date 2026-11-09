@@ -18,10 +18,9 @@ jobs:
   ort-scan:
     name: ORT Analyzer, Scanner, Evaluator, Advisor & SBOM
     runs-on: ubuntu-24.04
-    # Android/Gradle dependency scanning can exceed 90 minutes on a cold runner.
-    # Keep this within the CPAS gate's 300-minute evidence wait window while
-    # retaining a hard upper bound; incomplete reports remain BLOCKED.
-    timeout-minutes: 300
+    # A cold Android/Gradle dependency scan can exceed five hours. GitHub-hosted
+    # runners cap a job at six hours; incomplete reports remain BLOCKED.
+    timeout-minutes: 360
     steps:
       - name: Checkout exact candidate SHA
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -52,8 +51,6 @@ jobs:
           git -C "$config_dir" fetch --depth 1 origin 6cb99721f7e536361ca2b20d8bcdec9c3125236b
           git -C "$config_dir" checkout --detach FETCH_HEAD
           install -m 0644 ort-curations.yml "$config_dir/curations.yml"
-          mkdir -p "$HOME/.ort/project-curations"
-          install -m 0644 ort-curations.yml "$HOME/.ort/project-curations/curations.yml"
 
       - name: Run ORT compliance pipeline
         id: ort
@@ -62,8 +59,6 @@ jobs:
           sw-name: The-Perfect
           sw-version: ${{ github.sha }}
           fail-on: "issues,violations"
-          ort-cli-analyze-args: >-
-            --package-curations-dir /home/ort/.ort/project-curations
           ort-cli-evaluate-args: >-
             --package-curations-file /home/ort/work/The-Perfect/The-Perfect/ort-curations.yml
           run: >-

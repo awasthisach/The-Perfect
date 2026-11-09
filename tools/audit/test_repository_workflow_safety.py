@@ -16,7 +16,7 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertIn("  schedule:", workflow)
         self.assertIn("  workflow_dispatch:", workflow)
         self.assertNotRegex(workflow, r"(?m)^  (?:push|pull_request):")
-        self.assertIn("timeout-minutes: 300", workflow)
+        self.assertIn("timeout-minutes: 360", workflow)
         self.assertIn("ref: ${{ github.sha }}", workflow)
 
     def test_ort_manual_dispatch_checks_selected_ref_checkout_and_scan_revision(self):
@@ -37,15 +37,17 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertIn("Prepare pinned ORT config with project package curations", workflow)
         self.assertIn('git -C "$config_dir" fetch --depth 1 origin 6cb99721f7e536361ca2b20d8bcdec9c3125236b', workflow)
         self.assertIn('install -m 0644 ort-curations.yml "$config_dir/curations.yml"', workflow)
-        self.assertIn('install -m 0644 ort-curations.yml "$HOME/.ort/project-curations/curations.yml"', workflow)
-        self.assertIn("ort-cli-analyze-args:", workflow)
-        self.assertIn("--package-curations-dir /home/ort/.ort/project-curations", workflow)
+        self.assertNotIn("ort-cli-analyze-args:", workflow)
+        self.assertNotIn("--package-curations-dir", workflow)
         self.assertIn("ort-cli-evaluate-args:", workflow)
         self.assertIn("--package-curations-file", workflow)
 
     def test_cpas_selects_exact_sha_and_fails_closed_on_bad_ort_provenance(self):
         workflow = (ROOT / ".github/workflows/cpas-gate.yml").read_text(encoding="utf-8")
         self.assertIn("tools/audit/select_ort_run.py --candidate-sha", workflow)
+        self.assertIn("timeout-minutes: 350", workflow)
+        self.assertIn('elif [ "$attempt" -ge 15 ]; then', workflow)
+        self.assertIn("after 15 minutes", workflow)
         self.assertIn('"$run_conclusion" != "success"', workflow)
         self.assertIn('status.get("workflow_run_id")', workflow)
         self.assertIn('"checkout_revision": expected_sha', workflow)

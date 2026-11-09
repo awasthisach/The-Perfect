@@ -75,3 +75,21 @@
         value: "229e4c0eae80465381ae02adf61bca5558360777"
         algorithm: "SHA-1"
     source_code_origins: [ARTIFACT]
+- id: "Maven:org.apache.httpcomponents:httpclient:4.5.6"
+  curations:
+    comment: "The published POM points to an unresolvable legacy Git revision; scan the pinned Maven Central source artifact instead: source_artifact_url=https://repo.maven.apache.org/maven2/org/apache/httpcomponents/httpclient/4.5.6/httpclient-4.5.6-sources.jar source_artifact_sha1=bda84e42670536453ecd61ee70349c2493445994."
+    source_artifact:
+      url: "https://repo.maven.apache.org/maven2/org/apache/httpcomponents/httpclient/4.5.6/httpclient-4.5.6-sources.jar"
+      hash:
+        value: "bda84e42670536453ecd61ee70349c2493445994"
+        algorithm: "SHA-1"
+    source_code_origins: [ARTIFACT]
+- id: "Maven:org.apache.httpcomponents:httpmime:4.5.6"
+  curations:
+    comment: "The published POM points to an unresolvable legacy Git revision; scan the pinned Maven Central source artifact instead: source_artifact_url=https://repo.maven.apache.org/maven2/org/apache/httpcomponents/httpmime/4.5.6/httpmime-4.5.6-sources.jar source_artifact_sha1=0f349336722665ba37bcc67d95efb5f2926b5ebc."
+    source_artifact:
+      url: "https://repo.maven.apache.org/maven2/org/apache/httpcomponents/httpmime/4.5.6/httpmime-4.5.6-sources.jar"
+      hash:
+        value: "0f349336722665ba37bcc67d95efb5f2926b5ebc"
+        algorithm: "SHA-1"
+    source_code_origins: [ARTIFACT]
