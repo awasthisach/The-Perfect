@@ -13,7 +13,8 @@ permissions:
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   # CI is per-ref and only the newest revision needs a build. Nightly ORT has its own non-cancelling concurrency group.
-  cancel-in-progress: true
+  # Keep an in-flight candidate build; newer pending revisions may supersede pending work.
+  cancel-in-progress: false
 
 env:
   UPLOAD_ARTIFACT_ACTION: b7c566a772e6b6bfb58ed0dc250532a479d7789f
@@ -40,7 +41,16 @@ jobs:
           packages: ""
           accept-android-sdk-licenses: true
       - name: Install required Android SDK components
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"; then
+              exit 0
+            fi
+            echo "::warning::Android SDK installation attempt ${attempt}/3 failed."
+          done
+          echo "::error::Android SDK installation failed after 3 attempts."
+          exit 1
       - name: Create local.properties
         run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
       - name: Generate SQLCipher 4.5.4 compatibility fixture
@@ -84,7 +94,7 @@ jobs:
         if: success()
         run: |
           set -euo pipefail
-          python3 tools/audit/generate_evidence.py --commit-sha "${{ github.sha }}" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --environment "github-actions-${{ runner.os }}-unit" --output docs/assurance/cpas-evidence-run.json
+          python3 tools/audit/generate_evidence.py --commit-sha "$(git rev-parse HEAD)" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --environment "github-actions-${{ runner.os }}-unit" --output docs/assurance/cpas-evidence-run.json
       - name: Upload CPAS unit evidence
         if: success()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -143,7 +153,7 @@ jobs:
         if: ${{ steps.emulator.outputs.booted == 'true' && steps.sqlcipher_instrumented.outcome == 'success' }}
         run: |
           set -euo pipefail
-          python3 tools/audit/generate_evidence.py --commit-sha "${{ github.sha }}" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --include-db --environment "github-actions-API35-emulator" --output docs/assurance/cpas-evidence-full.json
+          python3 tools/audit/generate_evidence.py --commit-sha "$(git rev-parse HEAD)" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --include-db --environment "github-actions-API35-emulator" --output docs/assurance/cpas-evidence-full.json
       - name: Publish gate summary
         if: always()
         run: |

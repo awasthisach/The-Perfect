@@ -53,7 +53,11 @@ class CpasVerifySelfTests(unittest.TestCase):
             write(assurance / "07-test-matrix.yaml", "matrix: []\n")
             write(
                 assurance / "08-risk-register.yaml",
-                "open_findings: []\nclosed_findings: []\n",
+                "open_findings:\n"
+                "  - id: PROD-009\n"
+                "    severity: high\n"
+                "    status: ci_verified\n"
+                "closed_findings: []\n",
             )
             write(
                 assurance / "09-gate-catalog.yaml",
@@ -75,6 +79,31 @@ class CpasVerifySelfTests(unittest.TestCase):
             self.assertEqual(status["production_status"]["value"], "BLOCKED")
             checks = {item["name"]: item for item in status["checks"]}
             self.assertEqual(checks["ort_sboms_present"]["status"], "BLOCKED")
+            self.assertEqual(checks["risk_register_gate"]["status"], "BLOCKED")
+            self.assertIn("PROD-009", status["blocking_findings"])
+
+    def test_open_critical_and_high_risks_block_production(self) -> None:
+        """Critical/high findings remain blockers until explicitly closed with evidence."""
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("cpas_verify", VERIFY)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+
+        findings = [
+            {"id": "PROD-008", "severity": "high", "status": "open"},
+            {"id": "PROD-009", "severity": "high", "status": "ci_verified"},
+            {"id": "PROD-010", "severity": "high", "status": "open"},
+            {"id": "PROD-011", "severity": "critical", "status": "triaged"},
+            {"id": "PROD-012", "severity": "high", "status": "closed"},
+        ]
+        blockers = mod.blocking_risks(findings)
+        self.assertEqual(
+            [item["id"] for item in blockers],
+            ["PROD-008", "PROD-009", "PROD-010", "PROD-011"],
+        )
+
 
     def test_invalid_risk_id_fails_grammar_check(self) -> None:
         self.assertTrue(VERIFY.is_file())

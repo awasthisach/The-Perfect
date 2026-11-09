@@ -4,7 +4,10 @@ import android.content.Context
 import com.vvf.smartmanager.core.model.CloudAccount
 import com.vvf.smartmanager.core.model.CloudProviderType
 import com.vvf.smartmanager.core.model.FileItem
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
@@ -12,6 +15,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
+import java.io.IOException
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -20,22 +24,18 @@ import java.util.TimeZone
 /**
  * Google Drive v3 REST implementation.
  *
- * Production path: call [setAccessToken] after OAuth / Credential Manager, then use list/upload/download.
- * Without a token, operations fail with a clear error (no simulated cloud data).
- *
- * Access tokens typically expire in ~1 hour. This client tracks issue time and fails closed with a
- * re-auth message when the token is likely expired. True refresh-token rotation needs an auth code flow.
+ * Drive operations obtain a short-lived token through AuthorizationClient for each API call.
+ * Google Play Services owns the token cache and renewal; unresolved consent fails closed and
+ * is surfaced to the UI. No refresh token or web-client secret is stored on-device.
  */
 class GoogleDriveServiceImpl(
     private val context: Context,
-    private val driveApi: DriveApi = DriveNetwork.createApi()
+    private val driveApi: DriveApi = DriveNetwork.createApi(),
+    private val accessTokenProvider: DriveAccessTokenProvider = GoogleAuthorizationDriveAccessTokenProvider(context)
 ) : GoogleDriveService {
 
     @Volatile
     private var accessToken: String? = null
-
-    @Volatile
-    private var tokenIssuedAtMs: Long = 0L
 
     private var currentAccount: CloudAccount = CloudAccount(
         providerType = CloudProviderType.GOOGLE_DRIVE,
@@ -48,7 +48,6 @@ class GoogleDriveServiceImpl(
 
     override fun setAccessToken(token: String?) {
         accessToken = token
-        tokenIssuedAtMs = if (token.isNullOrBlank()) 0L else System.currentTimeMillis()
         DriveNetwork.setDefaultAccessToken(token)
         if (token.isNullOrBlank()) {
             currentAccount = currentAccount.copy(
@@ -59,31 +58,17 @@ class GoogleDriveServiceImpl(
         }
     }
 
-    private fun bearer(): String {
-        val t = accessToken
-        if (t.isNullOrBlank()) {
-            throw IllegalStateException(
-                "Google Drive not authenticated. Complete OAuth / Credential Manager and call setAccessToken()."
-            )
-        }
-        val ageMs = System.currentTimeMillis() - tokenIssuedAtMs
-        if (tokenIssuedAtMs > 0L && ageMs > 55L * 60L * 1000L) {
-            throw IllegalStateException(
-                "Google Drive access token is likely expired (age=${ageMs / 1000}s). Please sign in again."
-            )
-        }
-        return "Bearer $t"
+    private suspend fun bearer(): String {
+        // AuthorizationClient owns the cached short-lived token and refresh lifecycle.
+        // A pending consent action is surfaced as re-authentication required.
+        val token = accessTokenProvider.getAccessToken()
+        accessToken = token
+        DriveNetwork.setDefaultAccessToken(token)
+        return "Bearer $token"
     }
 
     override suspend fun authenticate(): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            if (accessToken.isNullOrBlank()) {
-                return@withContext Result.failure(
-                    IllegalStateException(
-                        "No access token. Wire Google Sign-In / Credential Manager and call setAccessToken(token)."
-                    )
-                )
-            }
             val about = driveApi.about(bearer())
             val usage = about.storageQuota?.usage?.toLongOrNull() ?: 0L
             val limit = about.storageQuota?.limit?.toLongOrNull() ?: 0L
@@ -94,6 +79,8 @@ class GoogleDriveServiceImpl(
                 lastSyncTimestamp = System.currentTimeMillis()
             )
             Result.success(true)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             currentAccount = currentAccount.copy(isConnected = false)
             Result.failure(e)
@@ -104,25 +91,75 @@ class GoogleDriveServiceImpl(
         try {
             val parent = folderId.ifBlank { "root" }
             val q = "'$parent' in parents and trashed = false"
-            val response = driveApi.listFiles(bearer = bearer(), query = q)
-            val items = response.files.map { dto ->
-                FileItem(
-                    path = "gdrive://${dto.id.orEmpty()}",
-                    name = dto.name.orEmpty(),
-                    sizeBytes = dto.size?.toLongOrNull() ?: 0L,
-                    lastModified = parseDriveTime(dto.modifiedTime),
-                    isDirectory = dto.mimeType == "application/vnd.google-apps.folder",
-                    mimeType = dto.mimeType
-                )
+            val items = mutableListOf<FileItem>()
+            val seenPageTokens = mutableSetOf<String>()
+            var pageToken: String? = null
+            var pageTokenRestarts = 0
+
+            // Google documents that a rejected page token must be discarded and pagination
+            // restarted from page one. Bound the restart to avoid an unending retry loop.
+            while (true) {
+                try {
+                    do {
+                        currentCoroutineContext().ensureActive()
+                        val response = driveApi.listFiles(
+                            bearer = bearer(),
+                            query = q,
+                            pageToken = pageToken
+                        )
+                        if (response.incompleteSearch) {
+                            throw IOException("Google Drive reported incompleteSearch; refusing a partial listing")
+                        }
+                        items += response.files.map { dto ->
+                            FileItem(
+                                path = "gdrive://${dto.id.orEmpty()}",
+                                name = dto.name.orEmpty(),
+                                sizeBytes = dto.size?.toLongOrNull() ?: 0L,
+                                lastModified = parseDriveTime(dto.modifiedTime),
+                                isDirectory = dto.mimeType == "application/vnd.google-apps.folder",
+                                mimeType = dto.mimeType
+                            )
+                        }
+
+                        val nextPageToken = response.nextPageToken?.takeIf(String::isNotBlank)
+                        if (nextPageToken != null && !seenPageTokens.add(nextPageToken)) {
+                            throw IOException("Google Drive returned a repeated page token; refusing an incomplete listing")
+                        }
+                        pageToken = nextPageToken
+                    } while (pageToken != null)
+                    break
+                } catch (error: retrofit2.HttpException) {
+                    if (pageToken != null && pageTokenRestarts == 0 && error.isRejectedDrivePageToken()) {
+                        pageTokenRestarts++
+                        items.clear()
+                        seenPageTokens.clear()
+                        pageToken = null
+                        continue
+                    }
+                    throw error
+                }
             }
+
             currentAccount = currentAccount.copy(
                 isConnected = true,
                 lastSyncTimestamp = System.currentTimeMillis()
             )
             Result.success(items)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
+            // A failed later page must not be reported as a successful partial directory listing.
             Result.failure(e)
         }
+    }
+
+    private fun retrofit2.HttpException.isRejectedDrivePageToken(): Boolean {
+        if (code() != 400) return false
+        val errorBody = runCatching { response()?.errorBody()?.string().orEmpty() }.getOrDefault("")
+        val detail = "${message()} $errorBody"
+        return detail.contains("invalidPageToken", ignoreCase = true) ||
+            detail.contains("pageToken", ignoreCase = true) ||
+            detail.contains("page token", ignoreCase = true)
     }
 
     override suspend fun uploadFile(localFile: FileItem, remoteFolderId: String): Result<String> =
@@ -212,6 +249,8 @@ class GoogleDriveServiceImpl(
                     )
                     Result.success(id)
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 Result.failure(e)
             }
@@ -229,6 +268,8 @@ class GoogleDriveServiceImpl(
                     }
                 }
                 Result.success(true)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 Result.failure(e)
             }
@@ -245,6 +286,8 @@ class GoogleDriveServiceImpl(
                 totalBytes = limit
             )
             Result.success(Pair(usage, limit))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -252,14 +295,29 @@ class GoogleDriveServiceImpl(
 
     fun getAccountInfo(): CloudAccount = currentAccount
 
-    fun disconnect() {
+    override suspend fun disconnect(): Result<Unit> = withContext(Dispatchers.IO) {
+        // Clear local credentials/state even if remote revocation fails. The failure
+        // remains visible to the caller so the UI never claims the grant was revoked.
+        val revocation = try {
+            accessTokenProvider.revokeAccess()
+            Result.success(Unit)
+        } catch (cancelled: CancellationException) {
+            setAccessToken(null)
+            currentAccount = currentAccount.copy(isConnected = false, accountEmail = "")
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
         setAccessToken(null)
         currentAccount = CloudAccount(
             providerType = CloudProviderType.GOOGLE_DRIVE,
             isConnected = false,
+            accountEmail = "",
+            displayName = "Google Drive",
             usedBytes = 0L,
             totalBytes = 0L
         )
+        revocation
     }
 
     /**

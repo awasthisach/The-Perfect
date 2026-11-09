@@ -15,8 +15,8 @@
 - **Security:** Android Keystore, AES-GCM vault encryption, protected database passphrase
 - **Background work:** AndroidX WorkManager
 - **OCR:** ML Kit plugin
-- **Semantic search:** on-device plugin architecture
-- **Cloud:** Google Drive core integration plus cloud-driver SPI
+- **Search similarity:** deterministic on-device token/category hashing; a heuristic projection, not a learned embedding model or TFLite neural network.
+- **Cloud:** user-initiated Google Drive integration plus cloud-driver SPI. Refresh-token rotation is not implemented; access tokens expire after about 55 minutes and require re-authentication, so unattended long-running Drive sync is not supported.
 - **Build:** Gradle Kotlin DSL + version catalog
 - **Compile/Target SDK:** 36
 - **Minimum SDK:** 24
@@ -70,5 +70,14 @@ This repository is under active production hardening and is **not yet independen
 - [Production Readiness Audit](docs/PRODUCTION_READINESS_2026-08-31.md)
 - [Architecture Guide](docs/ARCHITECTURE.md)
 - [Security Whitepaper](docs/SECURITY_WHITEPAPER.md)
+
+
+## Current release limitations
+
+- The search similarity engine uses deterministic token/category hashing; it does not download or run a learned neural embedding model.
+- Google Drive refresh-token rotation is not implemented. Re-authentication is required after the access token expires (approximately 55 minutes).
+- The optional Cloudflare embedding-worker deployment workflow references `cloudflare/drive-semantic-embed`, but that worker source/configuration is absent from this repository. Remote embedding deployment and authenticated/App Check acceptance are blocked.
+- `docs/PRIVACY_POLICY_DRAFT.md` is a draft and is not a publishable Play Store privacy policy.
+- Production release remains NO-SHIP until same-SHA CI, SQLCipher/ORT/CPAS evidence, security findings, signing, and device/account acceptance are complete.
 
 Cloud restore remains intentionally fail-closed until download, integrity verification, atomic staging, rollback, and recovery tests are complete.

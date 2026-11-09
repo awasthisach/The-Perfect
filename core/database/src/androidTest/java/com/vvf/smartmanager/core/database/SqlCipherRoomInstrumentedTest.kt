@@ -145,6 +145,15 @@ class SqlCipherRoomInstrumentedTest {
                     modifiedDate = 2L
                 )
             )
+            // The legacy Room helper shares the current Kotlin entity for row insertion,
+            // but a real v1/v2 database predates these dedicated OCR retry columns.
+            // Drop them from the fixture before opening the production v1->v2->v3 path.
+            legacy.openHelper.writableDatabase.execSQL(
+                "ALTER TABLE file_metadata DROP COLUMN ocrRetryAfterEpochMillis"
+            )
+            legacy.openHelper.writableDatabase.execSQL(
+                "ALTER TABLE file_metadata DROP COLUMN ocrRetryAttempt"
+            )
         } finally {
             legacy.close()
         }

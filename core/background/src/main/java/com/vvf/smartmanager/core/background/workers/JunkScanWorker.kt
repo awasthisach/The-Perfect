@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -47,6 +48,8 @@ class JunkScanWorker(
                     Result.failure(workDataOf("reason" to outcome.reason))
                 }
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Log.e(TAG, "Junk scan worker error", e)
             if (runAttemptCount < 3) Result.retry()

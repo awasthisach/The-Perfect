@@ -9,20 +9,19 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: cpas-gate-${{ github.ref }}
-  # Main: serialize (preserve full-green evidence). PR: cancel stale runs.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: cpas-gate-${{ github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
 
 jobs:
   cpas-verify:
     name: CPAS Verify (fail-closed)
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 360
     steps:
-      - name: Checkout
-        # v6 runs on Node 24
+      - name: Checkout candidate SHA
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -33,12 +32,184 @@ jobs:
       - name: Run verifier self-tests
         run: python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
 
+      - name: Wait for and stage ORT evidence for exact candidate SHA
+        id: stage_ort
+        continue-on-error: true
+        timeout-minutes: 350
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          run_id=""
+          run_status=""
+          run_conclusion=""
+
+          for attempt in $(seq 1 360); do
+            # Do not filter server-side by head_sha: pull_request runs can be recorded
+            # against GitHub's synthetic merge SHA while the PR association carries
+            # the actual candidate head SHA. Paginate before applying the exact SHA check.
+            runs_json="$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/actions/workflows/nightly-ort.yml/runs?per_page=100")"
+            run_id="$(printf '%s' "$runs_json" | python3 tools/audit/select_ort_run.py --candidate-sha "$CANDIDATE_SHA")"
+
+            if [ -n "$run_id" ]; then
+              run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}")"
+              run_status="$(printf '%s' "$run_json" | jq -r '.status')"
+              run_conclusion="$(printf '%s' "$run_json" | jq -r '.conclusion // empty')"
+              if [ "$run_status" = "completed" ]; then
+                break
+              fi
+            elif [ "$attempt" -ge 15 ]; then
+              echo "::error::No ORT workflow run found for exact candidate SHA ${CANDIDATE_SHA} after 15 minutes. Dispatch Nightly ORT for this exact branch/SHA; CPAS will fail closed instead of waiting five hours."
+              exit 1
+            fi
+            sleep 60
+          done
+
+          if [ -z "$run_id" ] || [ "$run_status" != "completed" ] || [ "$run_conclusion" != "success" ]; then
+            echo "::error::No successful completed ORT run found for exact candidate SHA ${CANDIDATE_SHA}; run=${run_id:-missing}, conclusion=${run_conclusion:-pending}."
+            exit 1
+          fi
+
+          echo "ORT run id: $run_id"
+          echo "ORT conclusion: $run_conclusion"
+          gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name ort-results-evidence --dir ort-evidence
+          test -s ort-evidence/ort-status.json
+          test -d ort-evidence/results
+
+          export EXPECTED_ORT_RUN_ID="$run_id"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          status = json.loads(Path("ort-evidence/ort-status.json").read_text(encoding="utf-8"))
+          expected_sha = os.environ["CANDIDATE_SHA"]
+          expected_run_id = os.environ["EXPECTED_ORT_RUN_ID"]
+          expected = {
+              "workflow_sha": expected_sha,
+              "checkout_revision": expected_sha,
+              "scan_revision": expected_sha,
+          }
+          problems = []
+          if status.get("status") != "PASS":
+              problems.append(f"ORT evidence status is {status.get('status')!r}, not 'PASS'")
+          if str(status.get("workflow_run_id")) != expected_run_id:
+              problems.append("ORT artifact workflow_run_id does not match selected run")
+          for field, value in expected.items():
+              if status.get(field) != value:
+                  problems.append(f"ORT {field} {status.get(field)!r} does not match candidate {value!r}")
+          if problems:
+              raise SystemExit("ORT provenance rejected: " + "; ".join(problems))
+          print(f"Accepted ORT artifact provenance for run {expected_run_id} and SHA {expected_sha}")
+          PY
+
+          mkdir -p docs/assurance
+          for report in analyzer-result.json scan-result.json evaluation-result.json advisor-result.json bom.cyclonedx.json bom.cyclonedx.xml bom.spdx.json bom.spdx.yml; do
+            test -s "ort-evidence/results/$report" || {
+              echo "::error::ORT report missing or empty: $report"
+              exit 1
+            }
+          done
+
+          cp ort-evidence/results/bom.cyclonedx.json docs/assurance/ort-bom.cyclonedx.json
+          cp ort-evidence/results/bom.spdx.json docs/assurance/ort-bom.spdx.json
+          cp ort-evidence/ort-status.json docs/assurance/ort-status.json
+
+          export ORT_RUN_CONCLUSION="$run_conclusion"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path("docs/assurance/ort-status.json")
+          status = json.loads(path.read_text(encoding="utf-8"))
+          expected_sha = os.environ["CANDIDATE_SHA"]
+          problems = []
+          if status.get("scan_revision") != expected_sha:
+              problems.append(
+                  f"ORT scan SHA {status.get('scan_revision')!r} does not match candidate {expected_sha!r}"
+              )
+          if os.environ.get("ORT_RUN_CONCLUSION") != "success":
+              problems.append(
+                  f"ORT workflow conclusion is {os.environ.get('ORT_RUN_CONCLUSION')!r}, not 'success'"
+              )
+          if problems:
+              status["status"] = "BLOCKED"
+              status["reason"] = "; ".join(problems)
+              path.write_text(json.dumps(status, indent=2) + "\n", encoding="utf-8")
+              print(status["reason"])
+          PY
+
+          set +e
+          python3 tools/audit/verify_ort_outputs.py --results-dir ort-evidence/results --revision "$CANDIDATE_SHA" --curations-file ort-curations.yml
+          validation_code=$?
+          set -e
+          if [ "$validation_code" -ne 0 ]; then
+            python3 - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path("docs/assurance/ort-status.json")
+          status = json.loads(path.read_text(encoding="utf-8"))
+          status["status"] = "BLOCKED"
+          status["reason"] = "ORT report/SBOM validation failed; inspect ort-results-evidence artifact"
+          path.write_text(json.dumps(status, indent=2) + "\n", encoding="utf-8")
+          PY
+          fi
+
+      - name: Wait for and stage SQLCipher instrumented evidence for exact candidate SHA
+        id: stage_instrumented
+        continue-on-error: true
+        timeout-minutes: 45
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          run_id=""
+          run_status=""
+          run_conclusion=""
+
+          for attempt in $(seq 1 60); do
+            runs_json="$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/actions/workflows/weekly-instrumented.yml/runs?event=${EVENT_NAME}&per_page=100")"
+            run_id="$(printf '%s' "$runs_json" | jq -r --arg sha "$CANDIDATE_SHA" '[.[] | .workflow_runs[]? | select(.head_sha == $sha or any(.pull_requests[]?; .head.sha == $sha))] | sort_by(.created_at) | last | .id // empty')"
+            if [ -n "$run_id" ]; then
+              run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}")"
+              run_status="$(printf '%s' "$run_json" | jq -r '.status')"
+              run_conclusion="$(printf '%s' "$run_json" | jq -r '.conclusion // empty')"
+              if [ "$run_status" = "completed" ]; then break; fi
+            fi
+            sleep 60
+          done
+
+          if [ -z "$run_id" ] || [ "$run_status" != "completed" ] || [ "$run_conclusion" != "success" ]; then
+            echo "::error::No successful weekly SQLCipher hard-gate run found for exact candidate SHA $CANDIDATE_SHA; run=${run_id:-missing}, conclusion=${run_conclusion:-pending}."
+            exit 1
+          fi
+
+          jobs_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100")"
+          job_id="$(printf '%s' "$jobs_json" | jq -r '[.jobs[] | select(.name == "SQLCipher Instrumented (hard)" and .conclusion == "success")] | last | .id // empty')"
+          if [ -z "$job_id" ]; then
+            echo "::error::Weekly run $run_id has no successful SQLCipher Instrumented (hard) job."
+            exit 1
+          fi
+
+          echo "Weekly instrumented run id: $run_id; job id: $job_id"
+          python3 tools/audit/generate_evidence.py \
+            --commit-sha "$CANDIDATE_SHA" \
+            --run-id "$run_id" \
+            --job-id "instrumented-hard" \
+            --result PASS \
+            --include-db \
+            --db-only \
+            --environment "github-actions-API35-emulator-weekly" \
+            --output docs/assurance/cpas-evidence-weekly.json \
+            --merge-ledger
+
       - name: Run semantic CPAS verification
         id: cpas
-        # Fail-closed: BLOCKED is an expected production state while critical
-        # findings remain open. Emit a warning annotation, not an error, so the
-        # job stays green without hiding the BLOCKED status.
-        # Unexpected verifier crashes (no status file) still fail the job.
+        if: always()
         run: |
           set +e
           python3 tools/audit/cpas_verify.py --root .
@@ -52,28 +223,57 @@ jobs:
 
           status=$(python3 -c 'import json; print(json.load(open("cpas-status.json"))["production_status"]["value"])')
           blockers=$(python3 -c 'import json; print(",".join(json.load(open("cpas-status.json")).get("blocking_findings") or []) or "none")')
+          failed_checks=$(python3 -c 'import json; d=json.load(open("cpas-status.json")); print(",".join(c["name"] for c in d.get("checks", []) if c.get("status") != "PASS") or "none")')
           echo "production_status=$status" >> "$GITHUB_OUTPUT"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           echo "blockers=$blockers" >> "$GITHUB_OUTPUT"
+          echo "failed_checks=$failed_checks" >> "$GITHUB_OUTPUT"
 
-          if [ "$status" = "PASS" ]; then
+          if [ "$status" = "PASS" ] && [ "$code" -eq 0 ]; then
             echo "CPAS production_status=PASS"
             exit 0
           fi
 
           if [ "$status" = "BLOCKED" ]; then
-            echo "::warning::CPAS production_status=BLOCKED (fail-closed). blockers=${blockers}. See cpas-status artifact. Release promotion still requires PASS."
-            exit 0
+            echo "::error::CPAS production_status=BLOCKED. blockers=${blockers}; failed_checks=${failed_checks}. See cpas-status artifact."
+            exit 1
           fi
 
-          echo "::error::Unexpected CPAS status=${status} exit_code=${code}"
+          echo "::error::CPAS status/code mismatch or unexpected status=${status} exit_code=${code}"
           exit 1
 
       - name: Upload computed CPAS status
+        id: upload_cpas_status
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: cpas-status-${{ github.sha }}
+          name: cpas-status-${{ github.event.pull_request.head.sha || github.sha }}
           path: cpas-status.json
           if-no-files-found: error
           retention-days: 14
+
+      - name: Enforce fail-closed result after preserving status artifact
+        if: always()
+        env:
+          ORT_STAGE_OUTCOME: ${{ steps.stage_ort.outcome }}
+          INSTRUMENTED_STAGE_OUTCOME: ${{ steps.stage_instrumented.outcome }}
+          CPAS_OUTCOME: ${{ steps.cpas.outcome }}
+          STATUS_ARTIFACT_OUTCOME: ${{ steps.upload_cpas_status.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$ORT_STAGE_OUTCOME" != "success" ]; then
+            echo "::error::ORT evidence staging outcome was $ORT_STAGE_OUTCOME"
+            exit 1
+          fi
+          if [ "$INSTRUMENTED_STAGE_OUTCOME" != "success" ]; then
+            echo "::error::SQLCipher instrumented evidence staging outcome was $INSTRUMENTED_STAGE_OUTCOME"
+            exit 1
+          fi
+          if [ "$CPAS_OUTCOME" != "success" ]; then
+            echo "::error::CPAS verification outcome was $CPAS_OUTCOME"
+            exit 1
+          fi
+          if [ "$STATUS_ARTIFACT_OUTCOME" != "success" ]; then
+            echo "::error::CPAS status artifact upload outcome was $STATUS_ARTIFACT_OUTCOME"
+            exit 1
+          fi

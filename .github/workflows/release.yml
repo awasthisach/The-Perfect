@@ -23,10 +23,22 @@ jobs:
     name: Build Signed Release
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    environment:
+      name: release
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Verify protected release environment before mutations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/environments/release" > "${RUNNER_TEMP}/release-environment.json"
+          python3 tools/audit/verify_deployment_preflight.py \
+            --environment release \
+            --environment-file "${RUNNER_TEMP}/release-environment.json"
 
       - name: Require successful ORT evidence for this exact commit
         env:
@@ -51,6 +63,10 @@ jobs:
               raise SystemExit("ORT evidence SHA does not match this release commit")
           PY
           python3 tools/audit/verify_ort_outputs.py --results-dir ort-evidence/results --revision "$GITHUB_SHA"
+          mkdir -p docs/assurance
+          cp ort-evidence/results/bom.cyclonedx.json docs/assurance/ort-bom.cyclonedx.json
+          cp ort-evidence/results/bom.spdx.json docs/assurance/ort-bom.spdx.json
+          cp ort-evidence/ort-status.json docs/assurance/ort-status.json
           cp ort-evidence/ort-status.json ort-status.json
 
       - name: Set up JDK 17
@@ -65,6 +81,44 @@ jobs:
 
       - name: Install Android SDK components
         run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Require successful SQLCipher evidence for this exact commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          runs_json="$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/actions/workflows/weekly-instrumented.yml/runs?per_page=100")"
+          run_id="$(printf '%s' "$runs_json" | jq -r --arg sha "$GITHUB_SHA" '[.[] | .workflow_runs[]? | select(.head_sha == $sha or any(.pull_requests[]?; .head.sha == $sha)) | select(.status == "completed" and .conclusion == "success")] | sort_by(.created_at) | last | .id // empty')"
+          if [ -z "$run_id" ]; then
+            echo "::error::No successful Weekly Instrumented Hard Gate exists for exact release SHA ${GITHUB_SHA}; run it on this commit before release."
+            exit 1
+          fi
+
+          jobs_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100")"
+          job_id="$(printf '%s' "$jobs_json" | jq -r '[.jobs[] | select(.name == "SQLCipher Instrumented (hard)" and .conclusion == "success")] | last | .id // empty')"
+          if [ -z "$job_id" ]; then
+            echo "::error::Weekly run ${run_id} has no successful SQLCipher Instrumented (hard) job."
+            exit 1
+          fi
+
+          # Download JUnit reports and their checkout-SHA manifest from this exact run.
+          gh run download "$run_id" --repo "$GITHUB_REPOSITORY" \
+            --name "sqlcipher-instrumented-${GITHUB_SHA}" --dir sqlcipher-reports
+          python3 tools/audit/validate_instrumented_reports.py \
+            --reports-dir sqlcipher-reports \
+            --expected-sha "$GITHUB_SHA" \
+            --expected-run-id "$run_id"
+
+          python3 tools/audit/generate_evidence.py \
+            --commit-sha "$GITHUB_SHA" \
+            --run-id "$run_id" \
+            --job-id "$job_id" \
+            --result PASS \
+            --include-db \
+            --db-only \
+            --environment "github-actions-API35-emulator-release" \
+            --output docs/assurance/cpas-evidence-release.json \
+            --merge-ledger
 
       - name: CPAS structural + semantic verification (hard fail)
         run: |
@@ -159,7 +213,7 @@ jobs:
           cat release-meta/apk-manifest.txt
 
       - name: Generate SBOM with Syft
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@2ed2d2006fea5d582c257dbad4532b1e4cbc8b83 # verified upstream commit
         with:
           file: ${{ steps.apk.outputs.path }}
           format: spdx-json

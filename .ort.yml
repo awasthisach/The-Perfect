@@ -1,0 +1,3 @@
+--- {}
+# Explicit empty repository configuration; comment-only YAML parses as null in ORT 98.
+# Package curations live in the standalone ort-curations.yml file.
