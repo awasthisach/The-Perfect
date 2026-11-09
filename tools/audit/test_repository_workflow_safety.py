@@ -52,7 +52,7 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         ):
             with self.subTest(package_id=package_id):
                 self.assertIn(f'- id: "{package_id}"', curations)
-                package_block = curations.split(f'- id: "{package_id}"', 1)[1].split("\\n- id:", 1)[0]
+                package_block = curations.split(f'- id: "{package_id}"', 1)[1].split("\n- id:", 1)[0]
                 self.assertIn("source_artifact:", package_block)
                 self.assertIn("source_code_origins: [ARTIFACT]", package_block)
 
