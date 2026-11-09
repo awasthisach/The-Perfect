@@ -52,6 +52,8 @@ jobs:
           git -C "$config_dir" fetch --depth 1 origin 6cb99721f7e536361ca2b20d8bcdec9c3125236b
           git -C "$config_dir" checkout --detach FETCH_HEAD
           install -m 0644 ort-curations.yml "$config_dir/curations.yml"
+          mkdir -p "$HOME/.ort/project-curations"
+          install -m 0644 ort-curations.yml "$HOME/.ort/project-curations/curations.yml"
 
       - name: Run ORT compliance pipeline
         id: ort
@@ -60,6 +62,8 @@ jobs:
           sw-name: The-Perfect
           sw-version: ${{ github.sha }}
           fail-on: "issues,violations"
+          ort-cli-analyze-args: >-
+            --package-curations-dir /home/ort/.ort/project-curations
           ort-cli-evaluate-args: >-
             --package-curations-file /home/ort/work/The-Perfect/The-Perfect/ort-curations.yml
           run: >-

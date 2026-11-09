@@ -37,8 +37,9 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertIn("Prepare pinned ORT config with project package curations", workflow)
         self.assertIn('git -C "$config_dir" fetch --depth 1 origin 6cb99721f7e536361ca2b20d8bcdec9c3125236b', workflow)
         self.assertIn('install -m 0644 ort-curations.yml "$config_dir/curations.yml"', workflow)
-        self.assertNotIn("--package-curations-dir", workflow)
-        self.assertNotIn("ort-cli-analyze-args:", workflow)
+        self.assertIn('install -m 0644 ort-curations.yml "$HOME/.ort/project-curations/curations.yml"', workflow)
+        self.assertIn("ort-cli-analyze-args:", workflow)
+        self.assertIn("--package-curations-dir /home/ort/.ort/project-curations", workflow)
         self.assertIn("ort-cli-evaluate-args:", workflow)
         self.assertIn("--package-curations-file", workflow)
 

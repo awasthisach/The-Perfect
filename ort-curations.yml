@@ -56,3 +56,22 @@
         value: "834947f69ce51cf3201b0d64b61db21cbcf4ba8e"
         algorithm: "SHA-1"
     source_code_origins: [ARTIFACT]
+
+- id: "Maven:commons-logging:commons-logging:1.2"
+  curations:
+    comment: "The published POM points to retired Apache Subversion trunk; scan the pinned Maven Central source artifact instead: source_artifact_url=https://repo.maven.apache.org/maven2/commons-logging/commons-logging/1.2/commons-logging-1.2-sources.jar source_artifact_sha1=ecf26c7507d67782a3bbd148d170b31dfad001aa."
+    source_artifact:
+      url: "https://repo.maven.apache.org/maven2/commons-logging/commons-logging/1.2/commons-logging-1.2-sources.jar"
+      hash:
+        value: "ecf26c7507d67782a3bbd148d170b31dfad001aa"
+        algorithm: "SHA-1"
+    source_code_origins: [ARTIFACT]
+- id: "Maven:org.apache.httpcomponents:httpcore:4.4.16"
+  curations:
+    comment: "The published POM points to a Git repository revision that is not resolvable by ORT; scan the pinned Maven Central source artifact instead: source_artifact_url=https://repo.maven.apache.org/maven2/org/apache/httpcomponents/httpcore/4.4.16/httpcore-4.4.16-sources.jar source_artifact_sha1=229e4c0eae80465381ae02adf61bca5558360777."
+    source_artifact:
+      url: "https://repo.maven.apache.org/maven2/org/apache/httpcomponents/httpcore/4.4.16/httpcore-4.4.16-sources.jar"
+      hash:
+        value: "229e4c0eae80465381ae02adf61bca5558360777"
+        algorithm: "SHA-1"
+    source_code_origins: [ARTIFACT]
