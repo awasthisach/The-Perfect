@@ -59,6 +59,9 @@ jobs:
               if [ "$run_status" = "completed" ]; then
                 break
               fi
+            elif [ "$attempt" -ge 15 ]; then
+              echo "::error::No ORT workflow run found for exact candidate SHA ${CANDIDATE_SHA} after 15 minutes. Dispatch Nightly ORT for this exact branch/SHA; CPAS will fail closed instead of waiting five hours."
+              exit 1
             fi
             sleep 60
           done
