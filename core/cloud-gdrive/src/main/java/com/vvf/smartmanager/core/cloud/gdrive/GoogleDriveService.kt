@@ -1,6 +1,10 @@
 package com.vvf.smartmanager.core.cloud.gdrive
 
 import com.vvf.smartmanager.core.model.CloudBackupInfo
+data class CloudBackupListing(
+    val backups: List<CloudBackupInfo>,
+    val legacyBackupCount: Int
+)
 import com.vvf.smartmanager.core.model.FileItem
 
 /**
@@ -20,7 +24,7 @@ interface GoogleDriveService {
         checksumSha256: String
     ): Result<String> = uploadFile(localFile, remoteFolderId)
     /** Lists only backups with a valid durable checksum; legacy entries are excluded. */
-    suspend fun listCloudBackups(folderId: String = "VVF_Backups"): Result<List<CloudBackupInfo>> =
+    suspend fun listCloudBackups(folderId: String = "VVF_Backups"): Result<CloudBackupListing> =
         Result.failure(UnsupportedOperationException("Durable Drive backup listing is unavailable"))
     suspend fun downloadFile(fileId: String, destinationPath: String): Result<Boolean>
     suspend fun disconnect(): Result<Unit>

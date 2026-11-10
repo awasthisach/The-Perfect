@@ -115,6 +115,42 @@ class GoogleDriveServiceImplTest {
         assertTrue(api != null)
     }
     @Test
+    fun listCloudBackups_countsEntriesWithoutValidChecksumAndExcludesThemFromRestoreList() = runBlocking {
+        val validChecksum = "a".repeat(64)
+        val fake = FakeDriveApi(
+            responses = mutableListOf(
+                DriveFileListResponse(
+                    files = listOf(
+                        DriveFileDto(id = "legacy-missing", name = "old-missing.vvfbak"),
+                        DriveFileDto(
+                            id = "legacy-invalid",
+                            name = "old-invalid.vvfbak",
+                            appProperties = mapOf("vvf_sha256" to "not-a-checksum")
+                        ),
+                        DriveFileDto(
+                            id = "valid",
+                            name = "valid.vvfbak",
+                            appProperties = mapOf("vvf_sha256" to validChecksum)
+                        )
+                    )
+                )
+            )
+        )
+        val service = GoogleDriveServiceImpl(
+            context,
+            fake,
+            DriveAccessTokenProvider { "test-token" }
+        )
+
+        val result = service.listCloudBackups("a".repeat(25))
+
+        assertTrue(result.isSuccess)
+        assertEquals(2, result.getOrThrow().legacyBackupCount)
+        assertEquals(listOf("valid"), result.getOrThrow().backups.map { it.backupId })
+        assertEquals(validChecksum, result.getOrThrow().backups.single().checksumSha256)
+    }
+
+    @Test
     fun listDriveFiles_followsEveryPageAndRestartsFromFirstPageOnRejectedToken() = runBlocking {
         val rejectedPageToken = httpError(
             400,

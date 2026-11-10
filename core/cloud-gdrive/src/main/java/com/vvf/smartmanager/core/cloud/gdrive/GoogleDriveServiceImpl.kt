@@ -268,6 +268,10 @@ class GoogleDriveServiceImpl(
                 if (response.incompleteSearch) {
                     return@withContext Result.failure(IllegalStateException("Google Drive reported incompleteSearch; refusing partial backup history"))
                 }
+                val legacyBackupCount = response.files.count { dto ->
+                    val checksum = dto.appProperties["vvf_sha256"]
+                    checksum.isNullOrBlank() || !checksum.matches(Regex("[0-9a-fA-F]{64}"))
+                }
                 val backups = response.files.mapNotNull { dto ->
                     val id = dto.id?.takeIf(String::isNotBlank) ?: return@mapNotNull null
                     val checksum = dto.appProperties["vvf_sha256"]
@@ -281,7 +285,12 @@ class GoogleDriveServiceImpl(
                         checksumSha256 = checksum.lowercase()
                     )
                 }
-                Result.success(backups)
+                Result.success(
+                    CloudBackupListing(
+                        backups = backups,
+                        legacyBackupCount = legacyBackupCount
+                    )
+                )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {

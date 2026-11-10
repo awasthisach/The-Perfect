@@ -1,6 +1,7 @@
 package com.vvf.smartmanager.core.domain
 
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveService
+import com.vvf.smartmanager.core.cloud.gdrive.CloudBackupListing
 import com.vvf.smartmanager.core.database.dao.CloudSyncDao
 import com.vvf.smartmanager.core.database.model.CloudSyncEntity
 import com.vvf.smartmanager.core.domain.backup.ArchiveService
@@ -119,7 +120,7 @@ class CloudSyncUseCase(
         }
     }
 
-    suspend fun listCloudBackups(): Result<List<CloudBackupInfo>> {
+    suspend fun listCloudBackups(): Result<CloudBackupListing> {
         if (!networkAllowed()) return Result.failure(IllegalStateException("Strict Offline-First mode blocks external cloud calls"))
         return googleDriveService.listCloudBackups()
     }

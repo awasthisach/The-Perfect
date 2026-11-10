@@ -59,8 +59,13 @@ class CloudViewModel(
                     isLoading = false
                 )
             }
-            cloudSyncUseCase.listCloudBackups().onSuccess { backups ->
-                _uiState.update { it.copy(backupHistory = backups.sortedByDescending { backup -> backup.timestamp }) }
+            cloudSyncUseCase.listCloudBackups().onSuccess { listing ->
+                _uiState.update {
+                    it.copy(
+                        backupHistory = listing.backups.sortedByDescending { backup -> backup.timestamp },
+                        legacyBackupCount = listing.legacyBackupCount
+                    )
+                }
             }
             loadRemoteFiles(_uiState.value.selectedProvider)
         }
