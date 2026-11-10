@@ -50,6 +50,14 @@ class Sha256BackupVerifierTest {
     }
 
     @Test
+    fun blankExpectedChecksumFailsClosed() = runBlocking {
+        val file = temp.newFile("blank.vvfbak").also { it.writeText("payload") }
+        val result = Sha256BackupVerifier().verify(artifact(file, digest("payload")), "   ")
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is VerificationFailedException)
+    }
+
+    @Test
     fun modifiedBytesCannotPassUsingCachedDigest() = runBlocking {
         val file = temp.newFile("tampered.vvfbak").also { it.writeText("original") }
         val expected = digest("original")
