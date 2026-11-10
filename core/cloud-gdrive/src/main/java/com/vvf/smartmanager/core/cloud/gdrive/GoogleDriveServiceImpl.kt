@@ -192,7 +192,8 @@ class GoogleDriveServiceImpl(
         localFile: FileItem,
         remoteFolderId: String,
         checksumSha256: String?
-    ): Result<String> = try {
+    ): Result<String> {
+        return try {
         val path = localFile.path
         val file = File(path)
         if (!file.exists() || !file.isFile) {
@@ -252,6 +253,7 @@ class GoogleDriveServiceImpl(
         throw cancelled
     } catch (e: Exception) {
         Result.failure(e)
+    }
     }
 
     override suspend fun listCloudBackups(folderId: String): Result<List<com.vvf.smartmanager.core.model.CloudBackupInfo>> =
