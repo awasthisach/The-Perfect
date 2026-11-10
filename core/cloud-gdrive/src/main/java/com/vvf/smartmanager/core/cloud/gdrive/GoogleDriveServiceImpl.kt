@@ -256,7 +256,7 @@ class GoogleDriveServiceImpl(
     }
     }
 
-    override suspend fun listCloudBackups(folderId: String): Result<List<com.vvf.smartmanager.core.model.CloudBackupInfo>> =
+    override suspend fun listCloudBackups(folderId: String): Result<CloudBackupListing> =
         withContext(Dispatchers.IO) {
             if (!networkAllowed()) return@withContext offlineFailure()
             try {

@@ -1,11 +1,12 @@
 package com.vvf.smartmanager.core.cloud.gdrive
 
 import com.vvf.smartmanager.core.model.CloudBackupInfo
+import com.vvf.smartmanager.core.model.FileItem
+
 data class CloudBackupListing(
     val backups: List<CloudBackupInfo>,
     val legacyBackupCount: Int
 )
-import com.vvf.smartmanager.core.model.FileItem
 
 /**
  * Service contract for Google Drive core synchronization using REST API and Credential Manager.
