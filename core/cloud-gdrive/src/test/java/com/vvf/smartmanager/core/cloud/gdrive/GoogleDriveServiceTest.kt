@@ -50,6 +50,12 @@ class GoogleDriveServiceTest {
             return Result.success("gdrive_remote_${localFile.name}")
         }
 
+        override suspend fun uploadBackup(
+            localFile: FileItem,
+            remoteFolderId: String,
+            checksumSha256: String
+        ): Result<String> = uploadFile(localFile, remoteFolderId)
+
         override suspend fun downloadFile(fileId: String, destinationPath: String): Result<Boolean> {
             if (!isAuth) return Result.failure(IllegalStateException("Not authenticated"))
             return Result.success(true)

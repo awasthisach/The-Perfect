@@ -38,6 +38,11 @@ class CloudSyncUseCaseTest {
         override suspend fun authenticate(): Result<Boolean> = Result.success(true)
         override suspend fun listDriveFiles(folderId: String): Result<List<FileItem>> = Result.success(emptyList())
         override suspend fun uploadFile(localFile: FileItem, remoteFolderId: String): Result<String> = uploadResult
+        override suspend fun uploadBackup(
+            localFile: FileItem,
+            remoteFolderId: String,
+            checksumSha256: String
+        ): Result<String> = uploadResult
         override suspend fun downloadFile(fileId: String, destinationPath: String): Result<Boolean> = Result.success(true)
         override suspend fun disconnect(): Result<Unit> = Result.success(Unit)
         override suspend fun getStorageQuota(): Result<Pair<Long, Long>> = Result.success(0L to 1L)

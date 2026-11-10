@@ -23,7 +23,7 @@ interface GoogleDriveService {
         localFile: FileItem,
         remoteFolderId: String = "root",
         checksumSha256: String
-    ): Result<String> = uploadFile(localFile, remoteFolderId)
+    ): Result<String>
     /** Lists only backups with a valid durable checksum; legacy entries are excluded. */
     suspend fun listCloudBackups(folderId: String = "VVF_Backups"): Result<CloudBackupListing> =
         Result.failure(UnsupportedOperationException("Durable Drive backup listing is unavailable"))
