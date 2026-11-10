@@ -9,6 +9,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.Request
@@ -201,11 +203,7 @@ class GoogleDriveServiceImpl(
         }
 
         val parent = resolveFolderId(remoteFolderId)
-        val safeName = file.name.replace("\\", "\\\\").replace("\"", "\\\"")
-        val appProperties = checksumSha256
-            ?.let { ",\"appProperties\":{\"vvf_sha256\":\"$it\"}" }
-            .orEmpty()
-        val metadataJson = """{"name":"$safeName","parents":["$parent"]}$appProperties"""
+        val metadataJson = buildDriveUploadMetadataJson(file.name, parent, checksumSha256)
         val mediaType = (localFile.mimeType?.takeIf { it.isNotBlank() } ?: "application/octet-stream")
             .toMediaType()
 
@@ -387,8 +385,7 @@ class GoogleDriveServiceImpl(
         val existing = driveApi.listFiles(bearer(), query = query, pageSize = 10).files.firstOrNull()
         if (existing?.id != null) return existing.id
 
-        val safeFolderName = ref.replace("\\", "\\\\").replace("\"", "\\\"")
-        val metadata = """{"name":"$safeFolderName","mimeType":"application/vnd.google-apps.folder","parents":["root"]}"""
+        val metadata = buildDriveFolderMetadataJson(ref)
             .toRequestBody("application/json; charset=UTF-8".toMediaType())
         return driveApi.createFolder(bearer(), metadata).id
             ?: throw IllegalStateException("Drive folder creation returned no id for '$ref'")
@@ -436,3 +433,27 @@ class GoogleDriveServiceImpl(
         }
     }
 }
+
+
+/** Builds valid Drive v3 upload metadata with JSON-safe values. */
+internal fun buildDriveUploadMetadataJson(
+    fileName: String,
+    parentId: String,
+    checksumSha256: String?
+): String {
+    val metadata = JSONObject()
+        .put("name", fileName)
+        .put("parents", JSONArray().put(parentId))
+    if (!checksumSha256.isNullOrBlank()) {
+        metadata.put("appProperties", JSONObject().put("vvf_sha256", checksumSha256))
+    }
+    return metadata.toString()
+}
+
+/** Builds valid Drive v3 folder metadata with JSON-safe values. */
+internal fun buildDriveFolderMetadataJson(folderName: String): String =
+    JSONObject()
+        .put("name", folderName)
+        .put("mimeType", "application/vnd.google-apps.folder")
+        .put("parents", JSONArray().put("root"))
+        .toString()

@@ -3,6 +3,7 @@ package com.vvf.smartmanager.core.cloud.gdrive
 import android.content.Context
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody.Companion.toResponseBody
 import retrofit2.HttpException
@@ -224,6 +225,36 @@ class GoogleDriveServiceImplTest {
 
         assertTrue(result.isFailure)
         assertEquals(listOf(null, "expired", null, "expired-again"), fake.requestedPageTokens)
+    }
+
+    @Test
+    fun uploadMetadata_isValidJsonAndPersistsChecksumAsAppProperty() {
+        val checksum = "a".repeat(64)
+        val metadata = JSONObject(
+            buildDriveUploadMetadataJson("backup \"final\".vvfbak", "folder-id", checksum)
+        )
+
+        assertEquals("backup \"final\".vvfbak", metadata.getString("name"))
+        assertEquals("folder-id", metadata.getJSONArray("parents").getString(0))
+        assertEquals(checksum, metadata.getJSONObject("appProperties").getString("vvf_sha256"))
+    }
+
+    @Test
+    fun ordinaryUploadMetadata_isValidJsonWithoutBackupChecksumProperty() {
+        val metadata = JSONObject(buildDriveUploadMetadataJson("report \\ archive.pdf", "root", null))
+
+        assertEquals("report \\ archive.pdf", metadata.getString("name"))
+        assertEquals("root", metadata.getJSONArray("parents").getString(0))
+        assertFalse(metadata.has("appProperties"))
+    }
+
+    @Test
+    fun folderMetadata_isValidJsonAndEscapesFolderName() {
+        val metadata = JSONObject(buildDriveFolderMetadataJson("VVF \"Backups\""))
+
+        assertEquals("VVF \"Backups\"", metadata.getString("name"))
+        assertEquals("application/vnd.google-apps.folder", metadata.getString("mimeType"))
+        assertEquals("root", metadata.getJSONArray("parents").getString(0))
     }
 
     private fun file(name: String) = DriveFileDto(
