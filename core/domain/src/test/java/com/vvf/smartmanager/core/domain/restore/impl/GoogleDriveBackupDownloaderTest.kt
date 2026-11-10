@@ -25,6 +25,11 @@ class GoogleDriveBackupDownloaderTest {
             Result.success(emptyList())
         override suspend fun uploadFile(localFile: FileItem, remoteFolderId: String): Result<String> =
             Result.failure(UnsupportedOperationException("unused"))
+        override suspend fun uploadBackup(
+            localFile: FileItem,
+            remoteFolderId: String,
+            checksumSha256: String
+        ): Result<String> = Result.failure(UnsupportedOperationException("unused"))
         override suspend fun downloadFile(fileId: String, destinationPath: String): Result<Boolean> =
             download(fileId, destinationPath)
         override suspend fun disconnect(): Result<Unit> = Result.success(Unit)
