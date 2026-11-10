@@ -31,7 +31,8 @@ import java.util.TimeZone
 class GoogleDriveServiceImpl(
     private val context: Context,
     private val driveApi: DriveApi = DriveNetwork.createApi(),
-    private val accessTokenProvider: DriveAccessTokenProvider = GoogleAuthorizationDriveAccessTokenProvider(context)
+    private val accessTokenProvider: DriveAccessTokenProvider = GoogleAuthorizationDriveAccessTokenProvider(context),
+    private val networkAllowed: () -> Boolean = { true }
 ) : GoogleDriveService {
 
     @Volatile
@@ -67,7 +68,11 @@ class GoogleDriveServiceImpl(
         return "Bearer $token"
     }
 
+    private fun offlineFailure(): Result<Nothing> =
+        Result.failure(IllegalStateException("Strict Offline-First mode blocks external cloud calls"))
+
     override suspend fun authenticate(): Result<Boolean> = withContext(Dispatchers.IO) {
+        if (!networkAllowed()) return@withContext offlineFailure()
         try {
             val about = driveApi.about(bearer())
             val usage = about.storageQuota?.usage?.toLongOrNull() ?: 0L
@@ -88,6 +93,7 @@ class GoogleDriveServiceImpl(
     }
 
     override suspend fun listDriveFiles(folderId: String): Result<List<FileItem>> = withContext(Dispatchers.IO) {
+        if (!networkAllowed()) return@withContext offlineFailure()
         try {
             val parent = folderId.ifBlank { "root" }
             val q = "'$parent' in parents and trashed = false"
@@ -164,100 +170,126 @@ class GoogleDriveServiceImpl(
 
     override suspend fun uploadFile(localFile: FileItem, remoteFolderId: String): Result<String> =
         withContext(Dispatchers.IO) {
+            if (!networkAllowed()) return@withContext offlineFailure()
+            uploadFileInternal(localFile, remoteFolderId, null)
+        }
+
+    override suspend fun uploadBackup(
+        localFile: FileItem,
+        remoteFolderId: String,
+        checksumSha256: String
+    ): Result<String> = withContext(Dispatchers.IO) {
+        if (!networkAllowed()) return@withContext offlineFailure()
+        if (!checksumSha256.matches(Regex("[0-9a-fA-F]{64}"))) {
+            return@withContext Result.failure(
+                IllegalArgumentException("Backup SHA-256 must be exactly 64 hexadecimal characters")
+            )
+        }
+        uploadFileInternal(localFile, remoteFolderId, checksumSha256.lowercase())
+    }
+
+    private suspend fun uploadFileInternal(
+        localFile: FileItem,
+        remoteFolderId: String,
+        checksumSha256: String?
+    ): Result<String> = try {
+        val path = localFile.path
+        val file = File(path)
+        if (!file.exists() || !file.isFile) {
+            return Result.failure(IllegalArgumentException("Local file not found: $path"))
+        }
+
+        val parent = resolveFolderId(remoteFolderId)
+        val safeName = file.name.replace("\\", "\\\\").replace("\"", "\\\"")
+        val appProperties = checksumSha256
+            ?.let { ",\"appProperties\":{\"vvf_sha256\":\"$it\"}" }
+            .orEmpty()
+        val metadataJson = """{"name":"$safeName","parents":["$parent"]}$appProperties"""
+        val mediaType = (localFile.mimeType?.takeIf { it.isNotBlank() } ?: "application/octet-stream")
+            .toMediaType()
+
+        val related = MultipartBody.Builder()
+            .setType("multipart/related".toMediaType())
+            .addPart(MultipartBody.Part.create(
+                metadataJson.toRequestBody("application/json; charset=UTF-8".toMediaType())
+            ))
+            .addPart(MultipartBody.Part.create(file.asRequestBody(mediaType)))
+            .build()
+
+        val request = Request.Builder()
+            .url(
+                "https://www.googleapis.com/upload/drive/v3/files" +
+                    "?uploadType=multipart&fields=id,name,mimeType,size,md5Checksum,parents,modifiedTime,appProperties"
+            )
+            .header("Authorization", bearer())
+            .post(related)
+            .build()
+
+        DriveNetwork.uploadClient().newCall(request).execute().use { response ->
+            val bodyText = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                val detail = bodyText.take(400).ifBlank { response.message }
+                return Result.failure(IllegalStateException("Drive upload failed: HTTP ${response.code} — $detail"))
+            }
+            val uploaded = try {
+                DriveUploadResponseParser.parse(bodyText)
+            } catch (e: Exception) {
+                return Result.failure(IllegalStateException("Drive upload returned invalid JSON response", e))
+            }
+            val id = uploaded?.id?.takeIf { it.isNotBlank() }
+                ?: return Result.failure(IllegalStateException("Upload succeeded but no file id returned: ${bodyText.take(200)}"))
+            val remoteMd5 = uploaded.md5Checksum
+            val remoteSize = uploaded.size?.toLongOrNull()
+            val localMd5 = calculateMd5(file)
+            if (remoteMd5.isNullOrBlank()) return Result.failure(IllegalStateException("Drive upload returned no integrity checksum for binary artifact $id"))
+            if (!remoteMd5.equals(localMd5, ignoreCase = true)) return Result.failure(IllegalStateException("Drive upload integrity mismatch for $id"))
+            if (remoteSize == null) return Result.failure(IllegalStateException("Drive upload returned no size for binary artifact $id"))
+            if (remoteSize != file.length()) return Result.failure(IllegalStateException("Drive upload size mismatch for $id"))
+            currentAccount = currentAccount.copy(usedBytes = currentAccount.usedBytes + file.length(), lastSyncTimestamp = System.currentTimeMillis())
+            Result.success(id)
+        }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+
+    override suspend fun listCloudBackups(folderId: String): Result<List<com.vvf.smartmanager.core.model.CloudBackupInfo>> =
+        withContext(Dispatchers.IO) {
+            if (!networkAllowed()) return@withContext offlineFailure()
             try {
-                val path = localFile.path
-                val file = File(path)
-                if (!file.exists() || !file.isFile) {
-                    return@withContext Result.failure(IllegalArgumentException("Local file not found: $path"))
+                val parent = resolveFolderId(folderId)
+                val response = driveApi.listFiles(
+                    bearer(),
+                    query = "'$parent' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'"
+                )
+                if (response.incompleteSearch) {
+                    return@withContext Result.failure(IllegalStateException("Google Drive reported incompleteSearch; refusing partial backup history"))
                 }
-
-                val parent = resolveFolderId(remoteFolderId)
-                val safeName = file.name.replace("\\", "\\\\").replace("\"", "\\\"")
-                val metadataJson = """{"name":"$safeName","parents":["$parent"]}"""
-                val mediaType = (localFile.mimeType?.takeIf { it.isNotBlank() } ?: "application/octet-stream")
-                    .toMediaType()
-
-                // Google requires the upload host and multipart/related, not Retrofit form-data.
-                val related = MultipartBody.Builder()
-                    .setType("multipart/related".toMediaType())
-                    .addPart(
-                        MultipartBody.Part.create(
-                            metadataJson.toRequestBody("application/json; charset=UTF-8".toMediaType())
-                        )
+                val backups = response.files.mapNotNull { dto ->
+                    val id = dto.id?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+                    val checksum = dto.appProperties["vvf_sha256"]
+                        ?.takeIf { it.matches(Regex("[0-9a-fA-F]{64}")) }
+                        ?: return@mapNotNull null
+                    com.vvf.smartmanager.core.model.CloudBackupInfo(
+                        backupId = id,
+                        timestamp = parseDriveTime(dto.modifiedTime),
+                        backupName = dto.name.orEmpty(),
+                        backupSizeBytes = dto.size?.toLongOrNull() ?: 0L,
+                        checksumSha256 = checksum.lowercase()
                     )
-                    .addPart(MultipartBody.Part.create(file.asRequestBody(mediaType)))
-                    .build()
-
-                val request = Request.Builder()
-                    .url(
-                        "https://www.googleapis.com/upload/drive/v3/files" +
-                            "?uploadType=multipart&fields=id,name,mimeType,size,md5Checksum,parents,modifiedTime"
-                    )
-                    .header("Authorization", bearer())
-                    .post(related)
-                    .build()
-
-                DriveNetwork.uploadClient().newCall(request).execute().use { response ->
-                    val bodyText = response.body?.string().orEmpty()
-                    if (!response.isSuccessful) {
-                        val detail = bodyText.take(400).ifBlank { response.message }
-                        return@withContext Result.failure(
-                            IllegalStateException("Drive upload failed: HTTP ${response.code} — $detail")
-                        )
-                    }
-
-                    val uploaded = try {
-                        DriveUploadResponseParser.parse(bodyText)
-                    } catch (e: Exception) {
-                        return@withContext Result.failure(
-                            IllegalStateException("Drive upload returned invalid JSON response", e)
-                        )
-                    }
-
-                    val id = uploaded?.id?.takeIf { it.isNotBlank() }
-                        ?: return@withContext Result.failure(
-                            IllegalStateException("Upload succeeded but no file id returned: ${bodyText.take(200)}")
-                        )
-                    val remoteMd5 = uploaded.md5Checksum
-                    val remoteSize = uploaded.size?.toLongOrNull()
-
-                    val localMd5 = calculateMd5(file)
-                    if (remoteMd5.isNullOrBlank()) {
-                        return@withContext Result.failure(
-                            IllegalStateException("Drive upload returned no integrity checksum for binary artifact $id")
-                        )
-                    }
-                    if (!remoteMd5.equals(localMd5, ignoreCase = true)) {
-                        return@withContext Result.failure(
-                            IllegalStateException("Drive upload integrity mismatch for $id")
-                        )
-                    }
-                    if (remoteSize == null) {
-                        return@withContext Result.failure(
-                            IllegalStateException("Drive upload returned no size for binary artifact $id")
-                        )
-                    }
-                    if (remoteSize != file.length()) {
-                        return@withContext Result.failure(
-                            IllegalStateException("Drive upload size mismatch for $id")
-                        )
-                    }
-
-                    currentAccount = currentAccount.copy(
-                        usedBytes = currentAccount.usedBytes + file.length(),
-                        lastSyncTimestamp = System.currentTimeMillis()
-                    )
-                    Result.success(id)
                 }
+                Result.success(backups)
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (e: Exception) {
-                Result.failure(e)
+            } catch (error: Exception) {
+                Result.failure(error)
             }
         }
 
     override suspend fun downloadFile(fileId: String, destinationPath: String): Result<Boolean> =
         withContext(Dispatchers.IO) {
+            if (!networkAllowed()) return@withContext offlineFailure()
             try {
                 val body = driveApi.downloadFile(bearer(), fileId)
                 val dest = File(destinationPath)
@@ -276,6 +308,7 @@ class GoogleDriveServiceImpl(
         }
 
     override suspend fun getStorageQuota(): Result<Pair<Long, Long>> = withContext(Dispatchers.IO) {
+        if (!networkAllowed()) return@withContext offlineFailure()
         try {
             val about = driveApi.about(bearer())
             val usage = about.storageQuota?.usage?.toLongOrNull() ?: 0L
@@ -296,6 +329,11 @@ class GoogleDriveServiceImpl(
     fun getAccountInfo(): CloudAccount = currentAccount
 
     override suspend fun disconnect(): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!networkAllowed()) {
+            setAccessToken(null)
+            currentAccount = currentAccount.copy(isConnected = false, accountEmail = "")
+            return@withContext Result.success(Unit)
+        }
         // Clear local credentials/state even if remote revocation fails. The failure
         // remains visible to the caller so the UI never claims the grant was revoked.
         val revocation = try {

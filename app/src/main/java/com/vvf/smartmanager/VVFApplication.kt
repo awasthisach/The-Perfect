@@ -281,7 +281,10 @@ class VVFApplication : Application(), Configuration.Provider {
             fileManagerRepository = fileManagerRepository,
             searchRepository = searchRepository
         )
-        googleDriveService = GoogleDriveServiceImpl(this@VVFApplication)
+        googleDriveService = GoogleDriveServiceImpl(
+            context = this@VVFApplication,
+            networkAllowed = { !isOfflineOnlyModeEnabled() }
+        )
         val cloudDrivers = mapOf(
             CloudProviderType.ONE_DRIVE to OneDriveDriverImpl(),
             CloudProviderType.DROPBOX to DropboxDriverImpl(),
@@ -327,7 +330,8 @@ class VVFApplication : Application(), Configuration.Provider {
                 Log.i(TAG, "Closed Room database before restore snapshot")
             },
             cloudSyncDao = database.cloudSyncDao(),
-            onRestoreFinished = { restartIfRestoreClosedDatabase() }
+            onRestoreFinished = { restartIfRestoreClosedDatabase() },
+            networkAllowed = { !isOfflineOnlyModeEnabled() }
         )
         backgroundSyncManager = BackgroundSyncManager(this@VVFApplication)
         FileIndexingRuntime.configure { startupReadiness.awaitReady(); indexPrimaryStorageForSearch() }
@@ -469,4 +473,3 @@ class VVFApplication : Application(), Configuration.Provider {
         }
     }
 }
-

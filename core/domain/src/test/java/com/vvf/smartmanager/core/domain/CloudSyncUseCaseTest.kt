@@ -131,7 +131,7 @@ class CloudSyncUseCaseTest {
 
     @Test
     fun restoreUsesInjectedFailClosedPipeline() = runBlocking {
-        val info = CloudBackupInfo("remote-1", 1L, "backup.vvfbak", 10L, checksumSha256 = "abc")
+        val info = CloudBackupInfo("remote-1", 1L, "backup.vvfbak", 10L, checksumSha256 = "a".repeat(64))
         val pipeline = FailClosedRestorePipeline(
             workingDir = temp.newFolder("restore-work"),
             downloader = object : BackupDownloader {
@@ -167,5 +167,26 @@ class CloudSyncUseCaseTest {
 
         assertTrue(result.isSuccess)
         assertEquals(CloudSyncStatus.SUCCESS, useCase.syncState.value)
+    }
+
+    @Test
+    fun strictOfflineModeBlocksAllCloudDomainOperations() = runBlocking {
+        val useCase = CloudSyncUseCase(FakeDriveService(), networkAllowed = { false })
+
+        assertTrue(useCase.authenticateProvider(CloudProviderType.GOOGLE_DRIVE).isFailure)
+        assertTrue(useCase.listRemoteFiles(CloudProviderType.GOOGLE_DRIVE).isFailure)
+        assertTrue(useCase.syncFileToCloud(sampleFile).isFailure)
+    }
+
+    @Test
+    fun restoreRejectsLegacyBackupWithoutDurableChecksum() = runBlocking {
+        val useCase = CloudSyncUseCase(FakeDriveService())
+
+        val result = useCase.restoreCloudBackup(
+            CloudBackupInfo("remote-legacy", 1L, "legacy.vvfbak", 10L, checksumSha256 = null)
+        )
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message.orEmpty().contains("checksum metadata"))
     }
 }

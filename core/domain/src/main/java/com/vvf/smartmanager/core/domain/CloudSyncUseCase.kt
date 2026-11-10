@@ -35,7 +35,8 @@ class CloudSyncUseCase(
     private val archiveService: ArchiveService? = null,
     private val restorePipeline: RestorePipeline? = null,
     private val cloudSyncDao: CloudSyncDao? = null,
-    private val onRestoreFinished: (() -> Unit)? = null
+    private val onRestoreFinished: (() -> Unit)? = null,
+    private val networkAllowed: () -> Boolean = { true }
 ) {
 
     private val _syncState = MutableStateFlow(CloudSyncStatus.IDLE)
@@ -48,6 +49,7 @@ class CloudSyncUseCase(
     private val archiveMutex = Mutex()
 
     suspend fun authenticateProvider(providerType: CloudProviderType): Result<Boolean> {
+        if (!networkAllowed()) return Result.failure(IllegalStateException("Strict Offline-First mode blocks external cloud calls"))
         return if (providerType == CloudProviderType.GOOGLE_DRIVE) {
             googleDriveService.authenticate()
         } else {
@@ -69,6 +71,7 @@ class CloudSyncUseCase(
     }
 
     suspend fun getAccount(providerType: CloudProviderType): CloudAccount {
+        if (!networkAllowed()) return CloudAccount(providerType = providerType, isConnected = false)
         return if (providerType == CloudProviderType.GOOGLE_DRIVE) {
             googleDriveService.getStorageQuota().fold(
                 onSuccess = { quota ->
@@ -103,6 +106,7 @@ class CloudSyncUseCase(
     }
 
     suspend fun listRemoteFiles(providerType: CloudProviderType, path: String = "root"): Result<List<FileItem>> {
+        if (!networkAllowed()) return Result.failure(IllegalStateException("Strict Offline-First mode blocks external cloud calls"))
         return if (providerType == CloudProviderType.GOOGLE_DRIVE) {
             googleDriveService.listDriveFiles(path)
         } else {
@@ -115,6 +119,11 @@ class CloudSyncUseCase(
         }
     }
 
+    suspend fun listCloudBackups(): Result<List<CloudBackupInfo>> {
+        if (!networkAllowed()) return Result.failure(IllegalStateException("Strict Offline-First mode blocks external cloud calls"))
+        return googleDriveService.listCloudBackups()
+    }
+
     suspend fun createCloudBackup(
         providerType: CloudProviderType,
         includeVault: Boolean = false,
@@ -122,6 +131,11 @@ class CloudSyncUseCase(
         passphrase: CharArray? = null,
         vaultPin: String? = null
     ): Result<CloudBackupInfo> = archiveMutex.withLock {
+        if (!networkAllowed()) {
+            passphrase?.fill(0.toChar())
+            _syncState.value = CloudSyncStatus.ERROR
+            return Result.failure(IllegalStateException("Strict Offline-First mode blocks external cloud calls"))
+        }
         val service = archiveService
         if (service == null) {
             passphrase?.fill(0.toChar())
@@ -151,7 +165,7 @@ class CloudSyncUseCase(
                         mimeType = "application/octet-stream"
                     )
                     val uploadResult = if (providerType == CloudProviderType.GOOGLE_DRIVE) {
-                        googleDriveService.uploadFile(fileItem, "VVF_Backups")
+                        googleDriveService.uploadBackup(fileItem, "VVF_Backups", artifact.checksumSha256)
                     } else {
                         val driver = pluginDrivers[providerType]
                             ?: return@fold Result.failure(IllegalStateException("Provider plugin not found"))
@@ -207,6 +221,21 @@ class CloudSyncUseCase(
         backupInfo: CloudBackupInfo,
         passphrase: CharArray? = null
     ): Result<Boolean> = archiveMutex.withLock {
+        if (!networkAllowed()) {
+            passphrase?.fill(0.toChar())
+            _syncState.value = CloudSyncStatus.ERROR
+            return Result.failure(IllegalStateException("Strict Offline-First mode blocks external cloud calls"))
+        }
+        if (backupInfo.backupId.isBlank()) {
+            passphrase?.fill(0.toChar())
+            _syncState.value = CloudSyncStatus.ERROR
+            return Result.failure(IllegalArgumentException("Backup id is blank; refusing restore"))
+        }
+        if (!backupInfo.checksumSha256.orEmpty().matches(Regex("[0-9a-fA-F]{64}"))) {
+            passphrase?.fill(0.toChar())
+            _syncState.value = CloudSyncStatus.ERROR
+            return Result.failure(IllegalArgumentException("Backup checksum metadata is missing or invalid; refusing restore"))
+        }
         val pipeline = restorePipeline
         if (pipeline == null) {
             passphrase?.fill(0.toChar())
@@ -216,11 +245,6 @@ class CloudSyncUseCase(
                     "Cloud restore is unavailable: no FailClosedRestorePipeline is configured for ${backupInfo.backupName}."
                 )
             )
-        }
-        if (backupInfo.backupId.isBlank()) {
-            passphrase?.fill(0.toChar())
-            _syncState.value = CloudSyncStatus.ERROR
-            return Result.failure(IllegalArgumentException("Backup id is blank; refusing restore"))
         }
         _syncState.value = CloudSyncStatus.DOWNLOADING
         try {
@@ -249,6 +273,10 @@ class CloudSyncUseCase(
         fileItem: FileItem,
         providerType: CloudProviderType = CloudProviderType.GOOGLE_DRIVE
     ): Result<CloudSyncItem> {
+        if (!networkAllowed()) {
+            _syncState.value = CloudSyncStatus.ERROR
+            return Result.failure(IllegalStateException("Strict Offline-First mode blocks external cloud calls"))
+        }
         _syncState.value = CloudSyncStatus.UPLOADING
         val existing = cloudSyncDao?.getRecord(fileItem.path, providerType.name)
         val itemId = existing?.id?.toString() ?: UUID.randomUUID().toString()
