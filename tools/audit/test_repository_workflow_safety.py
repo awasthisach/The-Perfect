@@ -36,7 +36,7 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         project_config = (ROOT / ".ort.yml").read_text(encoding="utf-8")
         self.assertIn('pattern: "(?i).*test.*"', project_config)
         self.assertIn('reason: "TEST_DEPENDENCY_OF"', project_config)
-        self.assertIn("production compile/runtime scopes remain included", project_config)
+        self.assertIn("Production compile/runtime scopes remain included", project_config)
 
     def test_ort_scanner_skips_excluded_scopes_without_dropping_analyzer_metadata(self):
         workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
