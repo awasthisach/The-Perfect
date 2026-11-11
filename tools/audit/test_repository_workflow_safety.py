@@ -62,7 +62,8 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
 
     def test_ort_scanner_skips_excluded_scopes_without_dropping_analyzer_metadata(self):
         workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
-        self.assertIn("ort-cli-scan-args: -P ort.scanner.skipExcluded=true", workflow)
+        self.assertIn("ort-cli-args: -P ort.scanner.skipExcluded=true", workflow)
+        self.assertNotIn("ort-cli-scan-args: -P", workflow)
         self.assertIn("Retain excluded test dependencies in analyzer/SBOM metadata", workflow)
 
     def test_package_curations_are_installed_in_analyzer_config_directory(self):
