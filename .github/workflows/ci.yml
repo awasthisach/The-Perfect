@@ -57,8 +57,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Hosted images normally contain most build tools. Avoid contacting Ubuntu
-          # mirrors unless a required compiler, header, or Tcl tool is actually absent.
+          # SQLCipher fixture generation needs a compiler, OpenSSL and zlib.
+          # Tcl headers are only needed for SQLite's optional Tcl regression tests,
+          # which this fixture-generation step does not run.
           missing_packages=()
           if ! command -v cc >/dev/null 2>&1 || ! command -v make >/dev/null 2>&1; then
             missing_packages+=(build-essential)
@@ -66,10 +67,8 @@ jobs:
           if [ ! -f /usr/include/openssl/evp.h ]; then
             missing_packages+=(libssl-dev)
           fi
-          if ! command -v tclsh >/dev/null 2>&1 || {
-            [ ! -f /usr/include/tcl/tcl.h ] && [ ! -f /usr/include/tcl8.6/tcl.h ];
-          }; then
-            missing_packages+=(tcl-dev)
+          if ! command -v tclsh >/dev/null 2>&1; then
+            missing_packages+=(tcl)
           fi
           if [ ! -f /usr/include/zlib.h ]; then
             missing_packages+=(zlib1g-dev)
@@ -102,7 +101,6 @@ jobs:
           command -v tclsh >/dev/null
           test -f /usr/include/openssl/evp.h
           test -f /usr/include/zlib.h
-          test -f /usr/include/tcl/tcl.h || test -f /usr/include/tcl8.6/tcl.h
 
           mkdir -p core/database-compat/src/androidTest/assets
           curl -fsSL https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz -o /tmp/sqlcipher-4.5.4.tar.gz
