@@ -328,6 +328,21 @@ class GoogleDriveServiceImplTest {
     }
 
     @Test
+    fun uploadMetadata_preservesNewlinesUnicodeAndJsonControlCharacters() {
+        val fileName = "backup\nहिंदी-資料-\u0001\\\".vvfbak"
+        val parentId = "folder-\n\u0002-id"
+        val checksum = "d".repeat(64)
+
+        val metadata = JSONObject(
+            buildDriveUploadMetadataJson(fileName, parentId, checksum)
+        )
+
+        assertEquals(fileName, metadata.getString("name"))
+        assertEquals(parentId, metadata.getJSONArray("parents").getString(0))
+        assertEquals(checksum, metadata.getJSONObject("appProperties").getString("vvf_sha256"))
+    }
+
+    @Test
     fun ordinaryUploadMetadata_isValidJsonWithoutBackupChecksumProperty() {
         val metadata = JSONObject(buildDriveUploadMetadataJson("report \\ archive.pdf", "root", null))
 
