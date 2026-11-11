@@ -190,6 +190,56 @@ class GoogleDriveServiceImplTest {
     }
 
     @Test
+    fun listCloudBackups_returnsAllEntriesAndLegacyCountAcrossMoreThanOneHundredFiles() = runBlocking {
+        val checksum = "c".repeat(64)
+        val legacyIndexes = setOf(10, 110, 150)
+        fun backupFile(index: Int): DriveFileDto {
+            val properties = when (index) {
+                110, 150 -> mapOf("vvf_sha256" to "invalid-checksum")
+                in legacyIndexes -> emptyMap()
+                else -> mapOf("vvf_sha256" to checksum)
+            }
+            return DriveFileDto(
+                id = "backup-$index",
+                name = "backup-$index.vvfbak",
+                appProperties = properties
+            )
+        }
+        val fake = FakeDriveApi(
+            responses = mutableListOf(
+                DriveFileListResponse(
+                    files = (0 until 100).map(::backupFile),
+                    nextPageToken = "page-two"
+                ),
+                DriveFileListResponse(
+                    files = (100 until 200).map(::backupFile),
+                    nextPageToken = "page-three"
+                ),
+                DriveFileListResponse(
+                    files = (200 until 205).map(::backupFile)
+                )
+            )
+        )
+        val pagedService = GoogleDriveServiceImpl(
+            context,
+            fake,
+            DriveAccessTokenProvider { "test-token" }
+        )
+
+        val result = pagedService.listCloudBackups("a".repeat(25))
+
+        assertTrue(result.isSuccess)
+        val listing = result.getOrThrow()
+        assertEquals(202, listing.backups.size)
+        assertEquals(3, listing.legacyBackupCount)
+        assertEquals("backup-0", listing.backups.first().backupId)
+        assertEquals("backup-204", listing.backups.last().backupId)
+        assertFalse(listing.backups.any { it.backupId in legacyIndexes.map { index -> "backup-$index" } })
+        assertEquals(listOf(null, "page-two", "page-three"), fake.requestedPageTokens)
+        assertEquals(listOf(100, 100, 100), fake.requestedPageSizes)
+    }
+
+    @Test
     fun listDriveFiles_followsEveryPageAndRestartsFromFirstPageOnRejectedToken() = runBlocking {
         val rejectedPageToken = httpError(
             400,
@@ -315,6 +365,7 @@ class GoogleDriveServiceImplTest {
         private val aboutFailure: Exception? = null
     ) : DriveApi {
         val requestedPageTokens = mutableListOf<String?>()
+        val requestedPageSizes = mutableListOf<Int>()
 
         override suspend fun listFiles(
             bearer: String,
@@ -325,6 +376,7 @@ class GoogleDriveServiceImplTest {
             pageToken: String?
         ): DriveFileListResponse {
             requestedPageTokens += pageToken
+            requestedPageSizes += pageSize
             pageToken?.let { pageErrors[it]?.let { error -> throw error } }
             return responses.removeAt(0)
         }
