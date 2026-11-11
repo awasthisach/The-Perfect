@@ -11,17 +11,21 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertIn("group: ci-${{ github.workflow }}-${{ github.ref }}", workflow)
         self.assertIn("cancel-in-progress: false", workflow)
 
-    def test_ort_runs_only_on_schedule_or_manual_candidate_dispatch(self):
+    def test_ort_runs_nightly_and_for_exact_candidate_pull_request_heads(self):
         workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
         self.assertIn("  schedule:", workflow)
+        self.assertIn("  pull_request:", workflow)
+        self.assertIn("branches: [main]", workflow)
+        self.assertIn("types: [opened, synchronize, reopened, ready_for_review]", workflow)
         self.assertIn("  workflow_dispatch:", workflow)
-        self.assertNotRegex(workflow, r"(?m)^  (?:push|pull_request):")
+        self.assertNotRegex(workflow, r"(?m)^  push:")
         self.assertIn("timeout-minutes: 360", workflow)
-        self.assertIn("ref: ${{ github.sha }}", workflow)
+        self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
+        self.assertIn("sw-version: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
 
     def test_ort_manual_dispatch_checks_selected_ref_checkout_and_scan_revision(self):
         workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
-        self.assertIn("ref: ${{ github.sha }}", workflow)
+        self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
         self.assertIn('actual_sha="$(git rev-parse HEAD)"', workflow)
         self.assertIn('CHECKOUT_SHA: ${{ steps.verify_checkout.outputs.checkout_sha }}', workflow)
         self.assertIn('"checkout_revision": checkout_sha', workflow)
