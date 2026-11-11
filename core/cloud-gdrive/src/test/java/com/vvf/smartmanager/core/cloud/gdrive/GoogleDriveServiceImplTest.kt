@@ -152,6 +152,44 @@ class GoogleDriveServiceImplTest {
     }
 
     @Test
+    fun listCloudBackups_followsEveryPageAndCountsLegacyEntriesAcrossPages() = runBlocking {
+        val checksum = "b".repeat(64)
+        val fake = FakeDriveApi(
+            responses = mutableListOf(
+                DriveFileListResponse(
+                    files = listOf(
+                        DriveFileDto(id = "valid-page-one", name = "one.vvfbak",
+                            appProperties = mapOf("vvf_sha256" to checksum)),
+                        DriveFileDto(id = "legacy-page-one", name = "old-one.vvfbak")
+                    ),
+                    nextPageToken = "page-two"
+                ),
+                DriveFileListResponse(
+                    files = listOf(
+                        DriveFileDto(id = "valid-page-two", name = "two.vvfbak",
+                            appProperties = mapOf("vvf_sha256" to checksum)),
+                        DriveFileDto(id = "legacy-page-two", name = "old-two.vvfbak",
+                            appProperties = mapOf("vvf_sha256" to "invalid"))
+                    )
+                )
+            )
+        )
+        val pagedService = GoogleDriveServiceImpl(
+            context,
+            fake,
+            DriveAccessTokenProvider { "test-token" }
+        )
+
+        val result = pagedService.listCloudBackups("a".repeat(25))
+
+        assertTrue(result.isSuccess)
+        assertEquals(listOf("valid-page-one", "valid-page-two"),
+            result.getOrThrow().backups.map { it.backupId })
+        assertEquals(2, result.getOrThrow().legacyBackupCount)
+        assertEquals(listOf(null, "page-two"), fake.requestedPageTokens)
+    }
+
+    @Test
     fun listDriveFiles_followsEveryPageAndRestartsFromFirstPageOnRejectedToken() = runBlocking {
         val rejectedPageToken = httpError(
             400,

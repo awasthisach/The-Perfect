@@ -259,18 +259,50 @@ class GoogleDriveServiceImpl(
             if (!networkAllowed()) return@withContext offlineFailure()
             try {
                 val parent = resolveFolderId(folderId)
-                val response = driveApi.listFiles(
-                    bearer(),
-                    query = "'$parent' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'"
-                )
-                if (response.incompleteSearch) {
-                    return@withContext Result.failure(IllegalStateException("Google Drive reported incompleteSearch; refusing partial backup history"))
+                val query = "'$parent' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'"
+                val files = mutableListOf<DriveFileDto>()
+                val seenPageTokens = mutableSetOf<String>()
+                var pageToken: String? = null
+                var pageTokenRestarts = 0
+
+                // Do not return a partial backup history if a later page fails.
+                while (true) {
+                    try {
+                        do {
+                            currentCoroutineContext().ensureActive()
+                            val response = driveApi.listFiles(
+                                bearer = bearer(),
+                                query = query,
+                                pageToken = pageToken
+                            )
+                            if (response.incompleteSearch) {
+                                throw IOException("Google Drive reported incompleteSearch; refusing partial backup history")
+                            }
+                            files += response.files
+                            val nextPageToken = response.nextPageToken?.takeIf(String::isNotBlank)
+                            if (nextPageToken != null && !seenPageTokens.add(nextPageToken)) {
+                                throw IOException("Google Drive returned a repeated page token; refusing an incomplete backup history")
+                            }
+                            pageToken = nextPageToken
+                        } while (pageToken != null)
+                        break
+                    } catch (error: retrofit2.HttpException) {
+                        if (pageToken != null && pageTokenRestarts == 0 && error.isRejectedDrivePageToken()) {
+                            pageTokenRestarts++
+                            files.clear()
+                            seenPageTokens.clear()
+                            pageToken = null
+                            continue
+                        }
+                        throw error
+                    }
                 }
-                val legacyBackupCount = response.files.count { dto ->
+
+                val legacyBackupCount = files.count { dto ->
                     val checksum = dto.appProperties["vvf_sha256"]
                     checksum.isNullOrBlank() || !checksum.matches(Regex("[0-9a-fA-F]{64}"))
                 }
-                val backups = response.files.mapNotNull { dto ->
+                val backups = files.mapNotNull { dto ->
                     val id = dto.id?.takeIf(String::isNotBlank) ?: return@mapNotNull null
                     val checksum = dto.appProperties["vvf_sha256"]
                         ?.takeIf { it.matches(Regex("[0-9a-fA-F]{64}")) }
