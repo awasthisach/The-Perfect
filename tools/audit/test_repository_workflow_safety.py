@@ -11,6 +11,25 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertIn("group: ci-${{ github.workflow }}-${{ github.ref }}", workflow)
         self.assertIn("cancel-in-progress: false", workflow)
 
+    def test_sqlcipher_fixture_installs_only_missing_dependencies_with_bounded_retries(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        fixture_step = workflow.split(
+            "- name: Generate SQLCipher 4.5.4 compatibility fixture", 1
+        )[1].split("- name:", 1)[0]
+        self.assertIn("missing_packages=()", fixture_step)
+        self.assertIn("All SQLCipher build dependencies are already available; skipping apt.", fixture_step)
+        self.assertIn("for attempt in 1 2 3", fixture_step)
+        self.assertIn("Acquire::Retries=1", fixture_step)
+        self.assertIn("Acquire::http::Timeout=15", fixture_step)
+        self.assertIn("Acquire::https::Timeout=15", fixture_step)
+        self.assertIn('if [ "$dependencies_ready" != true ]; then', fixture_step)
+        self.assertIn('echo "::error::Unable to install required SQLCipher build dependencies after 3 attempts."', fixture_step)
+        self.assertIn("command -v cc", fixture_step)
+        self.assertIn("command -v tclsh", fixture_step)
+        self.assertIn("test -f /usr/include/openssl/evp.h", fixture_step)
+        self.assertIn("test -f /usr/include/zlib.h", fixture_step)
+        self.assertIn("curl -fsSL https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz", fixture_step)
+
     def test_ort_runs_nightly_and_for_exact_candidate_pull_request_heads(self):
         workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
         self.assertIn("  schedule:", workflow)

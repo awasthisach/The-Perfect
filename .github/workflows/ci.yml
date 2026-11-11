@@ -56,8 +56,54 @@ jobs:
       - name: Generate SQLCipher 4.5.4 compatibility fixture
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y build-essential libssl-dev tcl-dev zlib1g-dev
+
+          # Hosted images normally contain most build tools. Avoid contacting Ubuntu
+          # mirrors unless a required compiler, header, or Tcl tool is actually absent.
+          missing_packages=()
+          if ! command -v cc >/dev/null 2>&1 || ! command -v make >/dev/null 2>&1; then
+            missing_packages+=(build-essential)
+          fi
+          if [ ! -f /usr/include/openssl/evp.h ]; then
+            missing_packages+=(libssl-dev)
+          fi
+          if ! command -v tclsh >/dev/null 2>&1 || {
+            [ ! -f /usr/include/tcl/tcl.h ] && [ ! -f /usr/include/tcl8.6/tcl.h ];
+          }; then
+            missing_packages+=(tcl-dev)
+          fi
+          if [ ! -f /usr/include/zlib.h ]; then
+            missing_packages+=(zlib1g-dev)
+          fi
+
+          if [ "${#missing_packages[@]}" -gt 0 ]; then
+            dependencies_ready=false
+            for attempt in 1 2 3; do
+              echo "Installing missing SQLCipher build dependencies (attempt ${attempt}/3): ${missing_packages[*]}"
+              if sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 update \
+                && sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 install -y --no-install-recommends "${missing_packages[@]}"; then
+                dependencies_ready=true
+                break
+              fi
+              if [ "$attempt" -lt 3 ]; then
+                sleep "$((attempt * 20))"
+              fi
+            done
+            if [ "$dependencies_ready" != true ]; then
+              echo "::error::Unable to install required SQLCipher build dependencies after 3 attempts."
+              exit 1
+            fi
+          else
+            echo "All SQLCipher build dependencies are already available; skipping apt."
+          fi
+
+          # Do not allow a partial package install to masquerade as a successful setup.
+          command -v cc >/dev/null
+          command -v make >/dev/null
+          command -v tclsh >/dev/null
+          test -f /usr/include/openssl/evp.h
+          test -f /usr/include/zlib.h
+          test -f /usr/include/tcl/tcl.h || test -f /usr/include/tcl8.6/tcl.h
+
           mkdir -p core/database-compat/src/androidTest/assets
           curl -fsSL https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz -o /tmp/sqlcipher-4.5.4.tar.gz
           tar -xzf /tmp/sqlcipher-4.5.4.tar.gz -C /tmp
