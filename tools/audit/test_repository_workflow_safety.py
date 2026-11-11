@@ -111,6 +111,13 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertNotIn("--method DELETE", workflow)
         self.assertIn("no branches were deleted", workflow.lower())
 
+    def test_dagger_dependency_uses_version_catalog(self):
+        catalog = (ROOT / "gradle/libs.versions.toml").read_text(encoding="utf-8")
+        app_build = (ROOT / "app/build.gradle.kts").read_text(encoding="utf-8")
+        self.assertIn('dagger = { group = "com.google.dagger", name = "dagger", version.ref = "hilt" }', catalog)
+        self.assertIn("implementation(libs.dagger)", app_build)
+        self.assertNotIn('implementation("com.google.dagger:dagger:', app_build)
+
     def test_release_sbom_action_is_pinned_to_an_exact_commit(self):
         workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
         self.assertIn("anchore/sbom-action@2ed2d2006fea5d582c257dbad4532b1e4cbc8b83", workflow)
