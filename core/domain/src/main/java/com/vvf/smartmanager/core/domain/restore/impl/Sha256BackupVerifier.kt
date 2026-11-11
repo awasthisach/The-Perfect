@@ -12,7 +12,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
-/** Verify actual private artifact bytes against a separately trusted expected SHA-256. */
+/** Verify artifact bytes against the expected SHA-256; AES-GCM authentication provides tamper resistance. */
 class Sha256BackupVerifier : BackupVerifier {
     override suspend fun verify(
         artifact: DownloadedArtifact,
