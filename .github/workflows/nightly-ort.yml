@@ -1,8 +1,8 @@
 name: Nightly ORT Compliance Scan
 
 on:
-  # ORT is intentionally expensive. Run only on schedule or an explicitly frozen
-  # candidate SHA; never on every PR synchronize or main push.
+  # This candidate-branch workflow permits only manual dispatch. GitHub scheduled
+  # events use the default branch; changing that schedule requires an owner change on main.
   schedule:
     - cron: "0 2 * * *"
   workflow_dispatch:
@@ -16,8 +16,8 @@ concurrency:
 
 jobs:
   ort-scan:
-    # Only a deliberate, one-time manual scan of the frozen candidate branch may run.
-    # The daily schedule on the default branch is intentionally a no-op.
+    # This guard applies only when this branch's workflow file is selected.
+    # The default-branch schedule remains controlled by main until an owner changes it.
     if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/audit/fixes-2026-11' }}
     name: ORT Analyzer, Scanner, Evaluator, Advisor & SBOM
     runs-on: ubuntu-24.04
