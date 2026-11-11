@@ -65,7 +65,7 @@ jobs:
           fail-on: "issues,violations"
           # Retain excluded test dependencies in analyzer/SBOM metadata, but do not
           # run expensive source scans on dependencies that are not shipped.
-          ort-cli-scan-args: -P ort.scanner.skipExcluded=true
+          ort-cli-args: -P ort.scanner.skipExcluded=true
           ort-cli-evaluate-args: >-
             --package-curations-file /home/ort/work/The-Perfect/The-Perfect/ort-curations.yml
           run: >-
