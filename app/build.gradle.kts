@@ -144,7 +144,7 @@ dependencies {
   implementation(libs.firebase.appcheck.recaptcha)
   implementation("com.google.firebase:firebase-appcheck-playintegrity")
   implementation(libs.hiltAndroidRuntime)
-  implementation("com.google.dagger:dagger:2.60.1")
+  implementation(libs.dagger)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.logging.interceptor)
