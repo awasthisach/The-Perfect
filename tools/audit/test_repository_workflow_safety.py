@@ -32,9 +32,16 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertIn('"scan_revision": scan_sha', workflow)
         self.assertIn('"workflow_run_id": int(os.environ["WORKFLOW_RUN_ID"])', workflow)
 
-    def test_project_ort_configuration_is_an_explicit_empty_mapping(self):
+    def test_ort_excludes_only_test_scopes_from_source_scanning(self):
         project_config = (ROOT / ".ort.yml").read_text(encoding="utf-8")
-        self.assertTrue(project_config.lstrip().startswith("--- {}"))
+        self.assertIn('pattern: "(?i).*test.*"', project_config)
+        self.assertIn('reason: "TEST_DEPENDENCY_OF"', project_config)
+        self.assertIn("production compile/runtime scopes remain included", project_config)
+
+    def test_ort_scanner_skips_excluded_scopes_without_dropping_analyzer_metadata(self):
+        workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
+        self.assertIn("ort-cli-scan-args: -P ort.scanner.skipExcluded=true", workflow)
+        self.assertIn("Retain excluded test dependencies in analyzer/SBOM metadata", workflow)
 
     def test_package_curations_are_installed_in_analyzer_config_directory(self):
         workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
