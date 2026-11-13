@@ -113,6 +113,8 @@ def validate_risk_register(findings: list[dict[str, str]]) -> list[str]:
     seen_ids: set[str] = set()
     for item in findings:
         risk_id = item.get("id", "<missing-id>")
+        if not RISK_ID_RE.fullmatch(risk_id):
+            problems.append(f"{risk_id}: missing or invalid risk ID")
         if risk_id in seen_ids:
             problems.append(f"{risk_id}: duplicate risk ID")
         seen_ids.add(risk_id)
