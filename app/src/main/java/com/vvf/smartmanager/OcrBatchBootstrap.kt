@@ -53,14 +53,14 @@ object OcrBatchBootstrap {
                         // Engines may throw instead of returning Result.failure(). Defer this
                         // file before continuing so it cannot monopolize every future batch.
                         deferCandidate(fileDao, item.path)
-                        failureCount++unknown error"})"
+                        failureCount++
                         continue
                     }
                     val extractionError = extraction.exceptionOrNull()
                     if (extractionError != null) {
                         if (extractionError is CancellationException) throw extractionError
                         deferCandidate(fileDao, item.path)
-                        failureCount++unknown error"})"
+                        failureCount++
                         continue
                     }
                     val ocr = extraction.getOrThrow()
@@ -70,14 +70,14 @@ object OcrBatchBootstrap {
                         throw cancelled
                     } catch (error: Exception) {
                         deferCandidate(fileDao, item.path)
-                        failureCount++unknown error"})"
+                        failureCount++
                         continue
                     }
                     val indexingError = indexing.exceptionOrNull()
                     if (indexingError != null) {
                         if (indexingError is CancellationException) throw indexingError
                         deferCandidate(fileDao, item.path)
-                        failureCount++unknown error"})"
+                        failureCount++
                         continue
                     }
                     clearCandidateDeferral(fileDao, item.path)
