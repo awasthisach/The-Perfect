@@ -122,6 +122,8 @@ class CpasVerifySelfTests(unittest.TestCase):
                 "  - title: Missing identifier\n"
                 "    severity: high\n"
                 "    status: open\n"
+                "    notes: >\n"
+                "      - descriptive note, not a risk record\n"
                 "closed_findings:\n"
                 "  - id: PROD-009\n"
                 "    severity: high\n"
@@ -132,6 +134,11 @@ class CpasVerifySelfTests(unittest.TestCase):
             findings = mod.parse_risks(risk_path)
             problems = mod.validate_risk_register(findings)
 
+        self.assertEqual(
+            [item["id"] for item in findings],
+            ["PROD-008", "<missing-id>", "PROD-009"],
+            "nested bullets in folded notes must not be parsed as risk records",
+        )
         self.assertTrue(any("PROD-008: missing or invalid severity" in item for item in problems))
         self.assertTrue(any("<missing-id>: missing or invalid risk ID" in item for item in problems))
         self.assertTrue(any("PROD-009: closed entry is missing a valid closed_at date" in item for item in problems))
