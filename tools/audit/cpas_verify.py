@@ -73,28 +73,28 @@ def parse_risks(path: Path) -> list[dict[str, str]]:
     section: str | None = None
     in_findings_block = False
     for line in path.read_text(encoding="utf-8").splitlines():
-        section_match = re.match(r"^(open_findings|closed_findings):\\s*$", line)
+        section_match = re.match(r"^(open_findings|closed_findings):\s*$", line)
         if section_match:
             section = section_match.group(1)
             in_findings_block = True
             current = None
             continue
-        if in_findings_block and re.match(r"^[a-z_]+:\\s*$", line) and not line.startswith(" "):
+        if in_findings_block and re.match(r"^[a-z_]+:\s*$", line) and not line.startswith(" "):
             in_findings_block = False
             current = None
             section = None
             continue
-        match = re.match(r"\\s*- id:\\s*(\\S+)", line)
+        match = re.match(r"\s*- id:\s*(\S+)", line)
         if match and in_findings_block:
             current = {"id": match.group(1), "section": section or ""}
             findings.append(current)
             continue
         if current:
             for field in ("severity", "status"):
-                match = re.match(rf"\\s*{field}:\\s*(\\S+)", line)
+                match = re.match(rf"\s*{field}:\s*(\S+)", line)
                 if match:
                     current[field] = match.group(1)
-            closed_match = re.match(r"\\s*closed_at:\\s*[\"']?([0-9]{4}-[0-9]{2}-[0-9]{2})[\"']?\\s*$", line)
+            closed_match = re.match(r"\s*closed_at:\s*[\"']?([0-9]{4}-[0-9]{2}-[0-9]{2})[\"']?\s*$", line)
             if closed_match:
                 current["closed_at"] = closed_match.group(1)
     return findings
