@@ -84,20 +84,21 @@ def parse_risks(path: Path) -> list[dict[str, str]]:
             current = None
             section = None
             continue
-        if in_findings_block and re.match(r"\s*-\s+", line):
-            match = re.match(r"\s*-\s+id:\s*(\S+)", line)
+        # Only top-level risk records are parsed; nested note bullets are prose.
+        if in_findings_block and re.match(r"^  -\s+", line):
+            match = re.match(r"^  -\s+id:\s*(\S+)", line)
             current = {"id": match.group(1) if match else "<missing-id>", "section": section or ""}
             findings.append(current)
             continue
         if current:
             for field in ("severity", "status"):
-                match = re.match(rf"\s*{field}:\s*(\S+)", line)
+                match = re.match(rf"^    {field}:\s*(\S+)", line)
                 if match:
                     current[field] = match.group(1)
-            closed_match = re.match(r"\s*closed_at:\s*[\"']?([0-9]{4}-[0-9]{2}-[0-9]{2})[\"']?\s*$", line)
+            closed_match = re.match(r"^    closed_at:\s*[\"']?([0-9]{4}-[0-9]{2}-[0-9]{2})[\"']?\s*$", line)
             if closed_match:
                 current["closed_at"] = closed_match.group(1)
-            evidence_match = re.match(r"\s*closure_evidence:\s*\[([^]]*)\]\s*$", line)
+            evidence_match = re.match(r"^    closure_evidence:\s*\[([^]]*)\]\s*$", line)
             if evidence_match:
                 current["closure_evidence"] = ",".join(
                     value.strip() for value in evidence_match.group(1).split(",") if value.strip()
