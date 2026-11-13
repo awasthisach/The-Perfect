@@ -66,11 +66,17 @@ fun SettingsScreen(
     onAutoIndexOcrChange: ((Boolean) -> Unit)? = null,
     initialOfflineOnlyMode: Boolean = true,
     onOfflineOnlyModeChange: ((Boolean) -> Unit)? = null,
+    initialFirebaseIdentityAvailable: Boolean = false,
+    initialFirebaseIdentityConnected: Boolean = false,
+    onFirebaseIdentityChange: (suspend (Boolean) -> Boolean)? = null,
     modifier: Modifier = Modifier
 ) {
     var biometricEnabled by remember(initialBiometricEnabled) { mutableStateOf(initialBiometricEnabled) }
     var autoIndexOcr by remember(initialAutoIndexOcr) { mutableStateOf(initialAutoIndexOcr) }
     var offlineOnlyMode by remember(initialOfflineOnlyMode) { mutableStateOf(initialOfflineOnlyMode) }
+    var firebaseIdentityConnected by remember(initialFirebaseIdentityConnected) { mutableStateOf(initialFirebaseIdentityConnected) }
+    var firebaseIdentityBusy by remember { mutableStateOf(false) }
+    var firebaseIdentityError by remember { mutableStateOf(false) }
     var showLicensesDialog by remember { mutableStateOf(false) }
     var showArchitectureDialog by remember { mutableStateOf(false) }
     var showBiometricAuthDialog by remember { mutableStateOf(false) }
@@ -174,6 +180,59 @@ fun SettingsScreen(
                                 onOfflineOnlyModeChange?.invoke(it)
                             }
                         )
+                    }
+                }
+            }
+            if (initialFirebaseIdentityAvailable) {
+                item {
+                    Text("Protected Cloud Identity", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Card(shape = RoundedCornerShape(14.dp)) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                if (firebaseIdentityConnected) "Google identity connected to Firebase" else "No protected-service identity connected",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                "This establishes identity only. File text is not sent to the embedding service by this setting; separate explicit AI-data consent is still required.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 6.dp)
+                            )
+                            if (firebaseIdentityError) {
+                                Text(
+                                    "Authentication could not be completed. Check Firebase Google sign-in configuration and try again.",
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(top = 6.dp)
+                                )
+                            }
+                            TextButton(
+                                enabled = !firebaseIdentityBusy && onFirebaseIdentityChange != null,
+                                onClick = {
+                                    val connect = !firebaseIdentityConnected
+                                    coroutineScope.launch {
+                                        firebaseIdentityBusy = true
+                                        firebaseIdentityError = false
+                                        val succeeded = runCatching {
+                                            onFirebaseIdentityChange?.invoke(connect) == true
+                                        }.getOrDefault(false)
+                                        if (succeeded) firebaseIdentityConnected = connect
+                                        else firebaseIdentityError = true
+                                        firebaseIdentityBusy = false
+                                    }
+                                },
+                                modifier = Modifier.testTag("firebase_identity_toggle")
+                            ) {
+                                Text(
+                                    when {
+                                        firebaseIdentityBusy -> "Working…"
+                                        firebaseIdentityConnected -> "Disconnect Google identity"
+                                        else -> "Connect Google identity"
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
