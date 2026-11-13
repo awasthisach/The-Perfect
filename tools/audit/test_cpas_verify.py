@@ -105,6 +105,38 @@ class CpasVerifySelfTests(unittest.TestCase):
         )
 
 
+    def test_malformed_risk_register_entries_fail_closed(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("cpas_verify", VERIFY)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            risk_path = Path(tmp) / "08-risk-register.yaml"
+            risk_path.write_text(
+                "open_findings:\\n"
+                "  - id: PROD-008\\n"
+                "    status: open\\n"
+                "  - title: Missing identifier\\n"
+                "    severity: high\\n"
+                "    status: open\\n"
+                "closed_findings:\\n"
+                "  - id: PROD-009\\n"
+                "    severity: high\\n"
+                "    status: closed\\n"
+                "    closed_at: \"2026-99-99\"\\n",
+                encoding="utf-8",
+            )
+            findings = mod.parse_risks(risk_path)
+            problems = mod.validate_risk_register(findings)
+
+        self.assertTrue(any("PROD-008: missing or invalid severity" in item for item in problems))
+        self.assertTrue(any("<missing-id>: missing or invalid risk ID" in item for item in problems))
+        self.assertTrue(any("PROD-009: closed entry is missing a valid closed_at date" in item for item in problems))
+        self.assertTrue(mod.validate_risk_register([]))
+
     def test_invalid_risk_id_fails_grammar_check(self) -> None:
         self.assertTrue(VERIFY.is_file())
         # Live repo should reject non-PROD risk IDs if introduced; smoke the regex path
