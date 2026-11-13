@@ -224,13 +224,31 @@ def validate_outputs(
                 "SPDXID": r"(?m)^SPDXID:\s*['\"]?SPDXRef-DOCUMENT['\"]?\s*$",
                 "name": r"(?m)^name:\s*\S",
                 "documentNamespace": r'''(?m)^documentNamespace:\s*[\"']?(?:https?://|spdx://)\S+[\"']?\s*$''',
-                "packages": r"(?m)^packages:\s*(?:\[\]|\s*)$",
             }
             for field, pattern in required_yaml_patterns.items():
                 if not re.search(pattern, yaml_text):
                     problems.append(f"bom.spdx.yml: missing or invalid {field} field")
-            if re.search(r"(?m)^packages:\s*(?:\[\s*\])?\s*$", yaml_text):
-                problems.append("bom.spdx.yml: packages list is empty")
+
+            package_lines = yaml_text.splitlines()
+            package_line_index = next(
+                (index for index, line in enumerate(package_lines)
+                 if re.match(r"^packages:\s*(.*)$", line)),
+                None,
+            )
+            if package_line_index is None:
+                problems.append("bom.spdx.yml: missing packages field")
+            else:
+                package_line = re.match(r"^packages:\s*(.*)$", package_lines[package_line_index])
+                inline_packages = package_line.group(1).strip() if package_line else ""
+                if inline_packages == "[]":
+                    problems.append("bom.spdx.yml: packages list is empty")
+                elif not inline_packages:
+                    first_item = next(
+                        (line.strip() for line in package_lines[package_line_index + 1:] if line.strip()),
+                        "",
+                    )
+                    if not first_item.startswith("-"):
+                        problems.append("bom.spdx.yml: packages list is empty")
 
     return problems
 
