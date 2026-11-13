@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: cpas-gate-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   cpas-verify:
