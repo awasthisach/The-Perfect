@@ -135,6 +135,7 @@ class CpasVerifySelfTests(unittest.TestCase):
         self.assertTrue(any("PROD-008: missing or invalid severity" in item for item in problems))
         self.assertTrue(any("<missing-id>: missing or invalid risk ID" in item for item in problems))
         self.assertTrue(any("PROD-009: closed entry is missing a valid closed_at date" in item for item in problems))
+        self.assertTrue(any("PROD-009: closed entry is missing valid closure_evidence IDs" in item for item in problems))
         self.assertTrue(mod.validate_risk_register([]))
 
     def test_open_status_is_valid_and_closed_entries_require_real_dates(self) -> None:
@@ -148,10 +149,14 @@ class CpasVerifySelfTests(unittest.TestCase):
         valid_findings = [
             {"id": "PROD-008", "severity": "high", "status": "open", "section": "open_findings"},
             {"id": "PROD-001", "severity": "high", "status": "closed",
-             "section": "closed_findings", "closed_at": "2026-09-03"},
+             "section": "closed_findings", "closed_at": "2026-09-03", "closure_evidence": "EVID-001"},
         ]
         self.assertEqual(mod.validate_risk_register(valid_findings), [])
         self.assertEqual([item["id"] for item in mod.blocking_risks(valid_findings)], ["PROD-008"])
+        self.assertEqual(
+            mod.validate_risk_closure_evidence(valid_findings, {"EVID-001"}), []
+        )
+        self.assertTrue(mod.validate_risk_closure_evidence(valid_findings, set()))
 
 
     def test_invalid_risk_id_fails_grammar_check(self) -> None:

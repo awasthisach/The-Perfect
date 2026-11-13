@@ -45,6 +45,7 @@ closed_findings:
     severity: high
     title: Storage boundary must fail closed
     status: closed
+    closure_evidence: [EVID-001]
     notes: "StoragePathPolicy fail-closed. EVID-001 on CI 33790505509. Related issue #3."
     residual_risk: low
     related_issue: 3
@@ -55,6 +56,7 @@ closed_findings:
     severity: critical
     title: Durable cloud upload result contract
     status: closed
+    closure_evidence: [EVID-006]
     notes: >
       DurableUploadContract + CloudSyncUseCase reject blank remote IDs; unit tests
       green on CI 33790505509 (EVID-006). Live Google Drive E2E is residual and
@@ -69,6 +71,7 @@ closed_findings:
     severity: critical
     title: Fail-closed cloud restore pipeline
     status: closed
+    closure_evidence: [EVID-007]
     notes: >
       FailClosedRestorePipeline unit paths are covered by EVID-007. Clean-device
       interrupted restore remains residual and is tracked by WAIVER-021-CLOUD-E2E.
@@ -83,6 +86,7 @@ closed_findings:
     severity: high
     title: Production listing must not create sample or demo files
     status: closed
+    closure_evidence: [EVID-002]
     notes: "STORAGE-INV-002 / EVID-002 on CI 33790505509. Related issue #3."
     residual_risk: low
     related_issue: 3
@@ -93,6 +97,7 @@ closed_findings:
     severity: high
     title: Android storage permission and policy gate
     status: closed
+    closure_evidence: [EVID-002]
     notes: "StorageAccessPolicy + StoragePermissionGate + lint NewApi guard. Related issue #20."
     residual_risk: low
     related_issue: 20

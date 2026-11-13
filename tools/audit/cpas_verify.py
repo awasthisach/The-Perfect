@@ -97,6 +97,11 @@ def parse_risks(path: Path) -> list[dict[str, str]]:
             closed_match = re.match(r"\s*closed_at:\s*[\"']?([0-9]{4}-[0-9]{2}-[0-9]{2})[\"']?\s*$", line)
             if closed_match:
                 current["closed_at"] = closed_match.group(1)
+            evidence_match = re.match(r"\s*closure_evidence:\s*\[([^]]*)\]\s*$", line)
+            if evidence_match:
+                current["closure_evidence"] = ",".join(
+                    value.strip() for value in evidence_match.group(1).split(",") if value.strip()
+                )
     return findings
 
 
@@ -134,6 +139,29 @@ def validate_risk_register(findings: list[dict[str, str]]) -> list[str]:
                 datetime.strptime(closed_at, "%Y-%m-%d")
             except ValueError:
                 problems.append(f"{risk_id}: closed entry is missing a valid closed_at date")
+            evidence_ids = [
+                value.strip() for value in item.get("closure_evidence", "").split(",") if value.strip()
+            ]
+            if not evidence_ids or any(not EVIDENCE_ID_RE.fullmatch(value) for value in evidence_ids):
+                problems.append(f"{risk_id}: closed entry is missing valid closure_evidence IDs")
+    return problems
+
+
+def validate_risk_closure_evidence(
+    findings: list[dict[str, str]], valid_evidence_ids: set[str]
+) -> list[str]:
+    """Require every closed risk to reference a PASS evidence-ledger entry."""
+    problems: list[str] = []
+    for item in findings:
+        if item.get("status") != "closed":
+            continue
+        risk_id = item.get("id", "<missing-id>")
+        evidence_ids = [
+            value.strip() for value in item.get("closure_evidence", "").split(",") if value.strip()
+        ]
+        for evidence_id in evidence_ids:
+            if evidence_id not in valid_evidence_ids:
+                problems.append(f"{risk_id}: closure evidence {evidence_id} is absent or not PASS in the evidence ledger")
     return problems
 
 
@@ -293,6 +321,20 @@ def main() -> int:
         except (json.JSONDecodeError, OSError) as exc:
             ledger_detail = f"invalid JSON: {exc}"
     checks.append(check("evidence_ledger_integrity", ledger_ok, ledger_detail))
+
+    valid_evidence_ids = {
+        str(entry.get("id"))
+        for entry in entries
+        if isinstance(entry, dict) and entry.get("result") == "PASS" and required_ledger_fields(entry)
+    } if isinstance(entries, list) else set()
+    closure_evidence_problems = validate_risk_closure_evidence(findings, valid_evidence_ids)
+    checks.append(check(
+        "risk_closure_evidence",
+        not closure_evidence_problems,
+        "all closed risks reference PASS evidence-ledger entries"
+        if not closure_evidence_problems
+        else "; ".join(closure_evidence_problems),
+    ))
 
     # Failed records cannot support production PASS (evidence policy).
     failed_evidence = [
