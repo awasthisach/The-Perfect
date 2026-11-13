@@ -116,17 +116,17 @@ class CpasVerifySelfTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             risk_path = Path(tmp) / "08-risk-register.yaml"
             risk_path.write_text(
-                "open_findings:\\n"
-                "  - id: PROD-008\\n"
-                "    status: open\\n"
-                "  - title: Missing identifier\\n"
-                "    severity: high\\n"
-                "    status: open\\n"
-                "closed_findings:\\n"
-                "  - id: PROD-009\\n"
-                "    severity: high\\n"
-                "    status: closed\\n"
-                "    closed_at: \"2026-99-99\"\\n",
+                "open_findings:\n"
+                "  - id: PROD-008\n"
+                "    status: open\n"
+                "  - title: Missing identifier\n"
+                "    severity: high\n"
+                "    status: open\n"
+                "closed_findings:\n"
+                "  - id: PROD-009\n"
+                "    severity: high\n"
+                "    status: closed\n"
+                "    closed_at: \"2026-99-99\"\n",
                 encoding="utf-8",
             )
             findings = mod.parse_risks(risk_path)
