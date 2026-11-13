@@ -84,9 +84,9 @@ def parse_risks(path: Path) -> list[dict[str, str]]:
             current = None
             section = None
             continue
-        match = re.match(r"\s*- id:\s*(\S+)", line)
-        if match and in_findings_block:
-            current = {"id": match.group(1), "section": section or ""}
+        if in_findings_block and re.match(r"\s*-\s+", line):
+            match = re.match(r"\s*-\s+id:\s*(\S+)", line)
+            current = {"id": match.group(1) if match else "<missing-id>", "section": section or ""}
             findings.append(current)
             continue
         if current:
@@ -108,6 +108,8 @@ def validate_risk_register(findings: list[dict[str, str]]) -> list[str]:
         "repair_implemented", "tested", "ci_verified", "closed",
     }
     problems: list[str] = []
+    if not findings:
+        problems.append("risk register contains no findings")
     seen_ids: set[str] = set()
     for item in findings:
         risk_id = item.get("id", "<missing-id>")
@@ -124,8 +126,12 @@ def validate_risk_register(findings: list[dict[str, str]]) -> list[str]:
             problems.append(f"{risk_id}: closed entry must be moved to closed_findings")
         if section == "closed_findings" and status != "closed":
             problems.append(f"{risk_id}: closed_findings entry is not closed")
-        if status == "closed" and not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", item.get("closed_at", "")):
-            problems.append(f"{risk_id}: closed entry is missing a valid closed_at date")
+        if status == "closed":
+            closed_at = item.get("closed_at", "")
+            try:
+                datetime.strptime(closed_at, "%Y-%m-%d")
+            except ValueError:
+                problems.append(f"{risk_id}: closed entry is missing a valid closed_at date")
     return problems
 
 
