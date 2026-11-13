@@ -137,6 +137,23 @@ class CpasVerifySelfTests(unittest.TestCase):
         self.assertTrue(any("PROD-009: closed entry is missing a valid closed_at date" in item for item in problems))
         self.assertTrue(mod.validate_risk_register([]))
 
+    def test_open_status_is_valid_and_closed_entries_require_real_dates(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("cpas_verify", VERIFY)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+
+        valid_findings = [
+            {"id": "PROD-008", "severity": "high", "status": "open", "section": "open_findings"},
+            {"id": "PROD-001", "severity": "high", "status": "closed",
+             "section": "closed_findings", "closed_at": "2026-09-03"},
+        ]
+        self.assertEqual(mod.validate_risk_register(valid_findings), [])
+        self.assertEqual([item["id"] for item in mod.blocking_risks(valid_findings)], ["PROD-008"])
+
+
     def test_invalid_risk_id_fails_grammar_check(self) -> None:
         self.assertTrue(VERIFY.is_file())
         # Live repo should reject non-PROD risk IDs if introduced; smoke the regex path

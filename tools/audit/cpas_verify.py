@@ -104,7 +104,7 @@ def validate_risk_register(findings: list[dict[str, str]]) -> list[str]:
     """Reject malformed entries that could otherwise evade the critical/high blocker gate."""
     allowed_severities = {"critical", "high", "medium", "low"}
     allowed_statuses = {
-        "discovered", "triaged", "reproduced", "root_cause_verified",
+        "open", "discovered", "triaged", "reproduced", "root_cause_verified",
         "repair_implemented", "tested", "ci_verified", "closed",
     }
     problems: list[str] = []
