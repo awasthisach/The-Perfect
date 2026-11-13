@@ -89,7 +89,8 @@ class OrtRevisionValidationTests(unittest.TestCase):
                 "advisor": {"results": {}},
             },
             "bom.cyclonedx.json": {
-                "bomFormat": "CycloneDX", "specVersion": "1.5", "version": 1,\n                "components": [{"type": "library", "name": "example-library", "version": "1.2.3"}],
+                "bomFormat": "CycloneDX", "specVersion": "1.5", "version": 1,
+                "components": [{"type": "library", "name": "example-library", "version": "1.2.3"}],
             },
             "bom.spdx.json": {
                 "spdxVersion": "SPDX-2.3",
@@ -111,7 +112,9 @@ class OrtRevisionValidationTests(unittest.TestCase):
             "SPDXID: SPDXRef-DOCUMENT\n"
             "name: The-Perfect\n"
             "documentNamespace: https://example.invalid/spdx/test\n"
-            "packages:\\n"\n            "  - SPDXID: SPDXRef-Package-library\\n"\n            "    name: example-library\\n",
+            "packages:\n"
+            "  - SPDXID: SPDXRef-Package-library\n"
+            "    name: example-library\n",
             encoding="utf-8",
         )
 
