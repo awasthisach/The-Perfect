@@ -74,11 +74,11 @@ class OrtRevisionValidationTests(unittest.TestCase):
         reports = {
             "analyzer-result.json": {
                 "repository": repository,
-                "analyzer": {"result": {"projects": [], "packages": []}},
+                "analyzer": {"result": {"projects": [{"id": "Gradle:com.vvf:app:1.0"}], "packages": [{"id": "Maven:example:library:1.2.3"}]}},
             },
             "scan-result.json": {
                 "repository": repository,
-                "scanner": {"scanResults": []},
+                "scanner": {"scanResults": [{"id": "Maven:example:library:1.2.3"}]},
             },
             "evaluation-result.json": {
                 "repository": repository,
@@ -89,7 +89,7 @@ class OrtRevisionValidationTests(unittest.TestCase):
                 "advisor": {"results": {}},
             },
             "bom.cyclonedx.json": {
-                "bomFormat": "CycloneDX", "specVersion": "1.5", "version": 1,
+                "bomFormat": "CycloneDX", "specVersion": "1.5", "version": 1,\n                "components": [{"type": "library", "name": "example-library", "version": "1.2.3"}],
             },
             "bom.spdx.json": {
                 "spdxVersion": "SPDX-2.3",
@@ -97,13 +97,13 @@ class OrtRevisionValidationTests(unittest.TestCase):
                 "SPDXID": "SPDXRef-DOCUMENT",
                 "name": "The-Perfect",
                 "documentNamespace": "https://example.invalid/spdx/test",
-                "packages": [],
+                "packages": [{"SPDXID": "SPDXRef-Package-library", "name": "example-library"}],
             },
         }
         for name, payload in reports.items():
             (root / name).write_text(json.dumps(payload), encoding="utf-8")
         (root / "bom.cyclonedx.xml").write_text(
-            '<bom xmlns="http://cyclonedx.org/schema/bom/1.5"></bom>',
+            '<bom xmlns="http://cyclonedx.org/schema/bom/1.5"><components><component type="library" bom-ref="pkg:generic/example-library@1.2.3"><name>example-library</name><version>1.2.3</version></component></components></bom>',
             encoding="utf-8",
         )
         (root / "bom.spdx.yml").write_text(
@@ -111,7 +111,7 @@ class OrtRevisionValidationTests(unittest.TestCase):
             "SPDXID: SPDXRef-DOCUMENT\n"
             "name: The-Perfect\n"
             "documentNamespace: https://example.invalid/spdx/test\n"
-            "packages: []\n",
+            "packages:\\n"\n            "  - SPDXID: SPDXRef-Package-library\\n"\n            "    name: example-library\\n",
             encoding="utf-8",
         )
 
@@ -125,6 +125,61 @@ class OrtRevisionValidationTests(unittest.TestCase):
             curations = root / ".ort.yml"
             curations.write_text("curations: {}\n", encoding="utf-8")
             self.assertEqual([], MODULE.validate_outputs(root, revision, curations))
+
+    def test_empty_dependency_outputs_are_rejected(self) -> None:
+        import json
+        import tempfile
+
+        revision = "a" * 40
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_valid_results(root, revision)
+
+            analyzer_path = root / "analyzer-result.json"
+            analyzer = json.loads(analyzer_path.read_text(encoding="utf-8"))
+            analyzer["analyzer"]["result"]["projects"] = []
+            analyzer["analyzer"]["result"]["packages"] = []
+            analyzer_path.write_text(json.dumps(analyzer), encoding="utf-8")
+
+            scanner_path = root / "scan-result.json"
+            scanner = json.loads(scanner_path.read_text(encoding="utf-8"))
+            scanner["scanner"]["scanResults"] = []
+            scanner_path.write_text(json.dumps(scanner), encoding="utf-8")
+
+            cyclonedx_path = root / "bom.cyclonedx.json"
+            cyclonedx = json.loads(cyclonedx_path.read_text(encoding="utf-8"))
+            cyclonedx["components"] = []
+            cyclonedx_path.write_text(json.dumps(cyclonedx), encoding="utf-8")
+
+            spdx_path = root / "bom.spdx.json"
+            spdx = json.loads(spdx_path.read_text(encoding="utf-8"))
+            spdx["packages"] = []
+            spdx_path.write_text(json.dumps(spdx), encoding="utf-8")
+
+            (root / "bom.cyclonedx.xml").write_text(
+                '<bom xmlns="http://cyclonedx.org/schema/bom/1.5"></bom>',
+                encoding="utf-8",
+            )
+            (root / "bom.spdx.yml").write_text(
+                "spdxVersion: SPDX-2.3\n"
+                "SPDXID: SPDXRef-DOCUMENT\n"
+                "name: The-Perfect\n"
+                "documentNamespace: https://example.invalid/spdx/test\n"
+                "packages: []\n",
+                encoding="utf-8",
+            )
+            curations = root / ".ort.yml"
+            curations.write_text("curations: {}\n", encoding="utf-8")
+
+            problems = MODULE.validate_outputs(root, revision, curations)
+
+            self.assertTrue(any("no projects" in item for item in problems))
+            self.assertTrue(any("no packages" in item for item in problems))
+            self.assertTrue(any("no package scan results" in item for item in problems))
+            self.assertTrue(any("components list is missing or empty" in item for item in problems))
+            self.assertTrue(any("packages list is empty" in item for item in problems))
+            self.assertTrue(any("contains no components" in item for item in problems))
+            self.assertTrue(any("bom.spdx.yml: packages list is empty" in item for item in problems))
 
     def test_report_from_wrong_revision_is_rejected(self) -> None:
         import tempfile
