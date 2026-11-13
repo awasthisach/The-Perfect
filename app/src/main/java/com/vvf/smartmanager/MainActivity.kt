@@ -7,6 +7,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricManager
 import androidx.lifecycle.lifecycleScope
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
 import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -128,6 +130,21 @@ class MainActivity : FragmentActivity() {
         setContent {
             VVFSmartManagerTheme {
                 VVFAppContent(
+                    onFirebaseIdentityChange = { connect ->
+                        val firebaseAuth = FirebaseAuth.getInstance()
+                        if (connect) {
+                            // Exchange the Google ID token for a Firebase session. It is not
+                            // a Firebase ID token and is never used as a Drive access token.
+                            val googleIdToken = googleDriveAuth.requestGoogleIdToken().getOrThrow()
+                            firebaseAuth.signInWithCredential(
+                                GoogleAuthProvider.getCredential(googleIdToken, null)
+                            ).await()
+                            firebaseAuth.currentUser != null
+                        } else {
+                            firebaseAuth.signOut()
+                            true
+                        }
+                    },
                     onGoogleDriveSignInRequested = { callback ->
                         val app = application as VVFApplication
                         pendingGoogleDriveSignInCallback = callback
@@ -161,7 +178,8 @@ class MainActivity : FragmentActivity() {
 
 @Composable
 fun VVFAppContent(
-    onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit
+    onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit,
+    onFirebaseIdentityChange: suspend (Boolean) -> Boolean
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -447,7 +465,13 @@ private fun VVFNavHost(
             PluginsScreen(viewModel = pluginsViewModel, onNavigateBack = { navController.popBackStack() })
         }
         composable(TopLevelDestination.SETTINGS.route) {
+            val firebaseAvailable = com.google.firebase.FirebaseApp.getApps(context).isNotEmpty()
+            val firebaseIdentityConnected = firebaseAvailable &&
+                FirebaseAuth.getInstance().currentUser != null
             SettingsScreen(
+                initialFirebaseIdentityAvailable = firebaseAvailable,
+                initialFirebaseIdentityConnected = firebaseIdentityConnected,
+                onFirebaseIdentityChange = onFirebaseIdentityChange,
                 initialBiometricEnabled = app.vaultAuthUseCase.isBiometricEnabled(),
                 onBiometricEnabledChange = { enabled, pin ->
                     if (!enabled) {
