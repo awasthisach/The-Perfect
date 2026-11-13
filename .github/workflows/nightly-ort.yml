@@ -56,6 +56,24 @@ jobs:
           git -C "$config_dir" checkout --detach FETCH_HEAD
           install -m 0644 ort-curations.yml "$config_dir/curations.yml"
 
+          # Reuse compatible public scan results before running expensive source scans.
+          # ClearlyDefined is read-only; new results are persisted in the local cache,
+          # which the ORT action already stores under $HOME/.ort/scanner/.
+          cat > "$config_dir/config.yml" <<'ORT_CONFIG'
+          ort:
+            scanner:
+              storages:
+                local:
+                  backend:
+                    localFileStorage:
+                      directory: ~/.ort/scanner/results
+                      compression: false
+                clearlyDefined:
+                  serverUrl: https://api.clearlydefined.io
+              storageReaders: [local, clearlyDefined]
+              storageWriters: [local]
+          ORT_CONFIG
+
       - name: Run ORT compliance pipeline
         id: ort
         uses: ./.github/actions/ort
