@@ -160,10 +160,19 @@ def validate_outputs(
                 continue
             if name == "analyzer-result.json":
                 analyzer_result = section[result_name]
-                if not isinstance(analyzer_result.get("projects"), list) or not isinstance(analyzer_result.get("packages"), list):
+                projects = analyzer_result.get("projects")
+                packages = analyzer_result.get("packages")
+                if not isinstance(projects, list) or not isinstance(packages, list):
                     problems.append(f"{name}: analyzer result must include projects and packages lists")
-                elif curations_file is not None:
-                    problems.extend(validate_source_artifact_pins(data, curations_file))
+                else:
+                    if not projects:
+                        problems.append(f"{name}: analyzer result contains no projects")
+                    if not packages:
+                        problems.append(f"{name}: analyzer result contains no packages")
+                    if curations_file is not None:
+                        problems.extend(validate_source_artifact_pins(data, curations_file))
+            elif name == "scan-result.json" and not section[result_name]:
+                problems.append(f"{name}: scanner result contains no package scan results")
         elif name == "bom.cyclonedx.json":
             if data.get("bomFormat") != "CycloneDX":
                 problems.append(f"{name}: bomFormat is not CycloneDX")
@@ -171,6 +180,9 @@ def validate_outputs(
                 problems.append(f"{name}: missing valid specVersion")
             if not isinstance(data.get("version"), int) or data["version"] < 1:
                 problems.append(f"{name}: missing valid positive BOM version")
+            components = data.get("components")
+            if not isinstance(components, list) or not components:
+                problems.append(f"{name}: components list is missing or empty")
         elif name == "bom.spdx.json":
             required_spdx_strings = ("spdxVersion", "dataLicense", "SPDXID", "name", "documentNamespace")
             missing_fields = [
@@ -185,6 +197,8 @@ def validate_outputs(
                 problems.append(f"{name}: SPDXID must be SPDXRef-DOCUMENT")
             if not isinstance(data.get("packages"), list):
                 problems.append(f"{name}: packages must be a list")
+            elif not data["packages"]:
+                problems.append(f"{name}: packages list is empty")
 
     xml_path = results_dir / "bom.cyclonedx.xml"
     if xml_path.is_file() and xml_path.stat().st_size:
@@ -193,6 +207,8 @@ def validate_outputs(
             local_name = root.tag.rsplit("}", 1)[-1]
             if local_name != "bom" or "cyclonedx.org/schema" not in root.tag:
                 problems.append("bom.cyclonedx.xml: root is not a CycloneDX bom")
+            elif not any(node.tag.rsplit("}", 1)[-1] == "component" for node in root.iter()):
+                problems.append("bom.cyclonedx.xml: contains no components")
         except (OSError, ET.ParseError) as exc:
             problems.append(f"bom.cyclonedx.xml: invalid XML ({exc})")
 
@@ -213,6 +229,8 @@ def validate_outputs(
             for field, pattern in required_yaml_patterns.items():
                 if not re.search(pattern, yaml_text):
                     problems.append(f"bom.spdx.yml: missing or invalid {field} field")
+            if re.search(r"(?m)^packages:\\s*(?:\\[\\s*\\])?\\s*$", yaml_text):
+                problems.append("bom.spdx.yml: packages list is empty")
 
     return problems
 
