@@ -35,7 +35,7 @@ object OcrBatchBootstrap {
                     nowEpochMillis = System.currentTimeMillis()
                 ).first()
                 var processed = 0
-                val failures = mutableListOf<String>()
+                var failureCount = 0
                 for (entity in candidates) {
                     val item = FileItem(
                         path = entity.path,
@@ -53,14 +53,14 @@ object OcrBatchBootstrap {
                         // Engines may throw instead of returning Result.failure(). Defer this
                         // file before continuing so it cannot monopolize every future batch.
                         deferCandidate(fileDao, item.path)
-                        failures += "${item.name}: extraction threw (${error.message ?: "unknown error"})"
+                        failureCount++unknown error"})"
                         continue
                     }
                     val extractionError = extraction.exceptionOrNull()
                     if (extractionError != null) {
                         if (extractionError is CancellationException) throw extractionError
                         deferCandidate(fileDao, item.path)
-                        failures += "${item.name}: extraction failed (${extractionError.message ?: "unknown error"})"
+                        failureCount++unknown error"})"
                         continue
                     }
                     val ocr = extraction.getOrThrow()
@@ -70,23 +70,24 @@ object OcrBatchBootstrap {
                         throw cancelled
                     } catch (error: Exception) {
                         deferCandidate(fileDao, item.path)
-                        failures += "${item.name}: indexing threw (${error.message ?: "unknown error"})"
+                        failureCount++unknown error"})"
                         continue
                     }
                     val indexingError = indexing.exceptionOrNull()
                     if (indexingError != null) {
                         if (indexingError is CancellationException) throw indexingError
                         deferCandidate(fileDao, item.path)
-                        failures += "${item.name}: indexing failed (${indexingError.message ?: "unknown error"})"
+                        failureCount++unknown error"})"
                         continue
                     }
                     clearCandidateDeferral(fileDao, item.path)
                     processed++
                 }
-                if (failures.isNotEmpty()) {
+                if (failureCount > 0) {
+                    // Never write local filenames, paths, OCR text, or exception details to Logcat.
                     android.util.Log.w(
                         "OcrBatchBootstrap",
-                        "Deferred ${failures.size} OCR candidate(s): ${failures.take(5).joinToString("; ")}"
+                        "Deferred $failureCount OCR candidate(s); file details omitted for privacy"
                     )
                 }
                 // Continue immediately in another bounded worker pass when the candidate
@@ -95,7 +96,7 @@ object OcrBatchBootstrap {
                 OcrBatchOutcome.Completed(
                     processedCount = processed,
                     hasMoreCandidates = candidates.size == OCR_BATCH_SIZE,
-                    failedCount = failures.size
+                    failedCount = failureCount
                 )
             } catch (e: CancellationException) {
                 throw e
