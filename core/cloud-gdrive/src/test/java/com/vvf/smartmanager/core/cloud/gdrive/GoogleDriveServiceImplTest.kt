@@ -92,6 +92,28 @@ class GoogleDriveServiceImplTest {
     }
 
     @Test
+    fun disconnectOfflineOnlyClearsLocalSessionWithoutClaimingRemoteRevocation() = runBlocking {
+        var revoked = false
+        val provider = object : DriveAccessTokenProvider {
+            override suspend fun getAccessToken(): String = "test-token"
+            override suspend fun revokeAccess() { revoked = true }
+        }
+        val offlineService = GoogleDriveServiceImpl(
+            context = context,
+            accessTokenProvider = provider,
+            networkAllowed = { false }
+        )
+        offlineService.setAccessToken("test-token")
+
+        val result = offlineService.disconnect()
+
+        assertTrue(result.isFailure)
+        assertFalse(revoked)
+        assertFalse(offlineService.getAccountInfo().isConnected)
+        assertTrue(result.exceptionOrNull()?.message.orEmpty().contains("not revoked"))
+    }
+
+    @Test
     fun authenticatePropagatesCoroutineCancellation() = runBlocking {
         val api = FakeDriveApi(
             responses = mutableListOf(),
