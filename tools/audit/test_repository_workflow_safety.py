@@ -11,6 +11,16 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertIn("group: ci-${{ github.workflow }}-${{ github.ref }}", workflow)
         self.assertIn("cancel-in-progress: false", workflow)
 
+    def test_ort_action_never_persists_the_runner_environment(self):
+        workflow = (ROOT / ".github/actions/ort/action.yml").read_text(encoding="utf-8")
+        self.assertNotIn("printenv", workflow)
+        self.assertIn("Persist only the ORT inputs and derived paths this composite action needs.", workflow)
+        scanner = workflow.split("- name: Run ORT Scanner", 1)[1].split("- name: Run ORT Advisor", 1)[0]
+        reporter = workflow.split("- name: Run ORT Reporter", 1)[1].split("- name: Remove current-result.yml", 1)[0]
+        self.assertIn("HTTP_FILE_SERVER_PASSWORD: ${{ inputs.http-file-server-password }}", scanner)
+        self.assertIn("POSTGRES_PASSWORD: ${{ inputs.db-password }}", scanner)
+        self.assertIn("POSTGRES_PASSWORD: ${{ inputs.db-password }}", reporter)
+
     def test_heavy_candidate_workflows_cancel_stale_same_ref_runs(self):
         expected = {
             ".github/workflows/nightly-ort.yml": "nightly-ort-${{ github.ref }}",
