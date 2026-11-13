@@ -12,8 +12,8 @@ permissions:
   actions: read
 
 concurrency:
-  group: cpas-gate-${{ github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
-  cancel-in-progress: false
+  group: cpas-gate-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   cpas-verify:

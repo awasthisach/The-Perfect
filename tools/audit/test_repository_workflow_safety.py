@@ -11,6 +11,19 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertIn("group: ci-${{ github.workflow }}-${{ github.ref }}", workflow)
         self.assertIn("cancel-in-progress: false", workflow)
 
+    def test_heavy_candidate_workflows_cancel_stale_same_ref_runs(self):
+        expected = {
+            ".github/workflows/nightly-ort.yml": "nightly-ort-${{ github.ref }}",
+            ".github/workflows/cpas-gate.yml": "cpas-gate-${{ github.ref }}",
+            ".github/workflows/weekly-instrumented.yml": "weekly-instrumented-${{ github.event_name }}-${{ github.ref }}",
+            ".github/workflows/worker-validation.yml": "worker-validation-${{ github.ref }}",
+        }
+        for relative_path, group in expected.items():
+            with self.subTest(workflow=relative_path):
+                workflow = (ROOT / relative_path).read_text(encoding="utf-8")
+                self.assertIn(f"group: {group}", workflow)
+                self.assertIn("cancel-in-progress: true", workflow)
+
     def test_sqlcipher_fixture_installs_only_missing_dependencies_with_bounded_retries(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         fixture_step = workflow.split(

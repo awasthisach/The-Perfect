@@ -15,7 +15,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: worker-validation-${{ github.event.pull_request.head.sha || github.sha }}
+  group: worker-validation-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   validate:

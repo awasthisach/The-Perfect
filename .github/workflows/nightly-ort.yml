@@ -14,8 +14,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: nightly-ort-${{ github.event.pull_request.head.sha || github.sha }}
-  cancel-in-progress: false
+  group: nightly-ort-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   ort-scan:
