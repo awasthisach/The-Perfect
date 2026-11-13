@@ -28,7 +28,8 @@ import kotlinx.coroutines.withContext
  */
 class GoogleDriveAuth(
     private val context: Context,
-    private val serverClientId: String
+    private val serverClientId: String,
+    private val networkAllowed: () -> Boolean = { true }
 ) {
 
     private val credentialManager = CredentialManager.create(context)
@@ -37,6 +38,7 @@ class GoogleDriveAuth(
         filterByAuthorizedAccounts: Boolean = false
     ): Result<String> = withContext(Dispatchers.Main) {
         try {
+            requireNetworkAllowed()
             val googleIdOption = GetGoogleIdOption.Builder()
                 .setFilterByAuthorizedAccounts(filterByAuthorizedAccounts)
                 .setServerClientId(serverClientId)
@@ -72,6 +74,7 @@ class GoogleDriveAuth(
      * A PendingIntent is returned when user consent or account selection is required.
      */
     fun authorizeDriveAccess(): Task<AuthorizationResult> {
+        requireNetworkAllowed()
         val request = AuthorizationRequest.builder()
             .setRequestedScopes(listOf(Scope(DRIVE_FILE_SCOPE)))
             .build()
@@ -113,6 +116,7 @@ class GoogleDriveAuth(
 
     suspend fun revokeDriveAccess(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            requireNetworkAllowed()
             Identity.getAuthorizationClient(context).revokeAccess(
                 RevokeAccessRequest.builder().setScopes(listOf(Scope(DRIVE_FILE_SCOPE))).build()
             ).await()
@@ -121,6 +125,13 @@ class GoogleDriveAuth(
             throw cancelled
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    private fun requireNetworkAllowed() {
+        check(networkAllowed()) {
+            "Google Drive authentication is blocked while Strict Offline-First mode is enabled. " +
+                "Turn it off in Settings to connect or revoke Drive access."
         }
     }
 

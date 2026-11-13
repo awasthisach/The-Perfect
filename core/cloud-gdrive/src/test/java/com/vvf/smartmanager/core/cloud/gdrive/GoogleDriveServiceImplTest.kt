@@ -114,6 +114,22 @@ class GoogleDriveServiceImplTest {
     }
 
     @Test
+    fun googleDriveAuthorizationIsBlockedBeforeNetworkUseInOfflineOnlyMode() {
+        val auth = GoogleDriveAuth(
+            context = context,
+            serverClientId = "unused-test-client-id",
+            networkAllowed = { false }
+        )
+
+        try {
+            auth.authorizeDriveAccess()
+            throw AssertionError("Expected offline-only authorization to be blocked")
+        } catch (error: IllegalStateException) {
+            assertTrue(error.message.orEmpty().contains("Strict Offline-First"))
+        }
+    }
+
+    @Test
     fun authenticatePropagatesCoroutineCancellation() = runBlocking {
         val api = FakeDriveApi(
             responses = mutableListOf(),
