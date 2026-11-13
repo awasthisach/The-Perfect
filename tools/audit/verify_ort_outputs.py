@@ -229,7 +229,7 @@ def validate_outputs(
             for field, pattern in required_yaml_patterns.items():
                 if not re.search(pattern, yaml_text):
                     problems.append(f"bom.spdx.yml: missing or invalid {field} field")
-            if re.search(r"(?m)^packages:\\s*(?:\\[\\s*\\])?\\s*$", yaml_text):
+            if re.search(r"(?m)^packages:\s*(?:\[\s*\])?\s*$", yaml_text):
                 problems.append("bom.spdx.yml: packages list is empty")
 
     return problems
