@@ -189,12 +189,12 @@ fun SettingsScreen(
                     Card(shape = RoundedCornerShape(14.dp)) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(
-                                if (firebaseIdentityConnected) "Google identity connected to Firebase" else "No protected-service identity connected",
+                                if (firebaseIdentityConnected) "Firebase identity connected" else "No protected-service identity connected",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                "This establishes identity only. File text is not sent to the embedding service by this setting; separate explicit AI-data consent is still required.",
+                                if (offlineOnlyMode) "Identity connection is blocked while Strict Offline-First is enabled. Turn it off to connect. This does not send file text; separate explicit AI-data consent is still required." else "This establishes identity only. File text is not sent to the embedding service by this setting; separate explicit AI-data consent is still required.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(top = 6.dp)
@@ -208,7 +208,7 @@ fun SettingsScreen(
                                 )
                             }
                             TextButton(
-                                enabled = !firebaseIdentityBusy && onFirebaseIdentityChange != null,
+                                enabled = !firebaseIdentityBusy && onFirebaseIdentityChange != null && (!offlineOnlyMode || firebaseIdentityConnected),
                                 onClick = {
                                     val connect = !firebaseIdentityConnected
                                     coroutineScope.launch {
@@ -227,8 +227,8 @@ fun SettingsScreen(
                                 Text(
                                     when {
                                         firebaseIdentityBusy -> "Working…"
-                                        firebaseIdentityConnected -> "Disconnect Google identity"
-                                        else -> "Connect Google identity"
+                                        firebaseIdentityConnected -> "Disconnect Firebase identity"
+                                        else -> "Connect Google account to Firebase"
                                     }
                                 )
                             }
