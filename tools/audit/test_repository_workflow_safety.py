@@ -15,6 +15,8 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         workflow = (ROOT / ".github/actions/ort/action.yml").read_text(encoding="utf-8")
         self.assertNotIn("printenv", workflow)
         self.assertIn("Persist only the ORT inputs and derived paths this composite action needs.", workflow)
+        self.assertIn(r"printf '%s=%s\\n'", workflow)
+        self.assertIn(r"s#(https?://)[^/@]+@#\\1#", workflow)
         scanner = workflow.split("- name: Run ORT Scanner", 1)[1].split("- name: Run ORT Advisor", 1)[0]
         reporter = workflow.split("- name: Run ORT Reporter", 1)[1].split("- name: Remove current-result.yml", 1)[0]
         self.assertIn("HTTP_FILE_SERVER_PASSWORD: ${{ inputs.http-file-server-password }}", scanner)

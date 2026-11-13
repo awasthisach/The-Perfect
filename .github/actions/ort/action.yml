@@ -339,7 +339,7 @@ runs:
           ORT_RESULTS_SBOM_SPDX_YML_PATH ORT_RESULTS_WEB_APP_PATH ORT_RESULTS_ARTIFACT_NAME \
           SW_NAME_SAFE; do
           if [[ -v "$name" ]]; then
-            printf '%s=%s\\n' "$name" "${!name}" >> "$GITHUB_ENV"
+            printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_ENV"
           fi
         done
     - name: Shallow clone ort-config repository if ORT_CONFIG_PATH is empty
@@ -366,10 +366,10 @@ runs:
       run: |
         cd $ORT_CONFIG_PATH
         # Preserve config provenance without exposing URL userinfo.
-        ORT_CONFIG_VCS_URL="$(git config remote.origin.url | sed -E 's#(https?://)[^/@]+@#\\1#')"
+        ORT_CONFIG_VCS_URL="$(git config remote.origin.url | sed -E 's#(https?://)[^/@]+@#\1#')"
         ORT_CONFIG_VCS_REVISION="$(git rev-parse HEAD)"
-        printf 'ORT_CONFIG_VCS_URL=%s\\n' "$ORT_CONFIG_VCS_URL" >> "$GITHUB_ENV"
-        printf 'ORT_CONFIG_VCS_REVISION=%s\\n' "$ORT_CONFIG_VCS_REVISION" >> "$GITHUB_ENV"
+        printf 'ORT_CONFIG_VCS_URL=%s\n' "$ORT_CONFIG_VCS_URL" >> "$GITHUB_ENV"
+        printf 'ORT_CONFIG_VCS_REVISION=%s\n' "$ORT_CONFIG_VCS_REVISION" >> "$GITHUB_ENV"
     - name: Compute ORT labels
       id: ort-labels
       shell: bash
@@ -401,7 +401,7 @@ runs:
         fi
         # Persist only the computed ORT CLI arguments, not the complete runner environment.
         for name in ORT_CLI_ANALYZE_ARGS ORT_CLI_EVALUATE_ARGS ORT_CLI_REPORT_ARGS; do
-          printf '%s=%s\\n' "$name" "${!name}" >> "$GITHUB_ENV"
+          printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_ENV"
         done
     - name: Cache dependencies
       id: cache-dependencies
