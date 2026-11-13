@@ -371,9 +371,22 @@ class GoogleDriveServiceImpl(
 
     override suspend fun disconnect(): Result<Unit> = withContext(Dispatchers.IO) {
         if (!networkAllowed()) {
+            // Clear this device's session, but do not claim the provider grant was revoked.
+            // Remote revocation is a network operation and must be retried when online.
             setAccessToken(null)
-            currentAccount = currentAccount.copy(isConnected = false, accountEmail = "")
-            return@withContext Result.success(Unit)
+            currentAccount = CloudAccount(
+                providerType = CloudProviderType.GOOGLE_DRIVE,
+                isConnected = false,
+                accountEmail = "",
+                displayName = "Google Drive",
+                usedBytes = 0L,
+                totalBytes = 0L
+            )
+            return@withContext Result.failure(
+                IllegalStateException(
+                    "Local Google Drive session cleared, but remote access was not revoked because offline-only mode is enabled."
+                )
+            )
         }
         // Clear local credentials/state even if remote revocation fails. The failure
         // remains visible to the caller so the UI never claims the grant was revoked.
