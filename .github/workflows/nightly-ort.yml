@@ -15,7 +15,7 @@ permissions:
 
 concurrency:
   group: nightly-ort-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   ort-scan:
