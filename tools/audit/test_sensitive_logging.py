@@ -8,6 +8,7 @@ PATHS = [
     "core/domain/src/main/java/com/vvf/smartmanager/core/domain/OcrIndexingService.kt",
     "plugins/plugin-ocr/src/main/java/com/vvf/smartmanager/plugin/ocr/OcrEnginePlugin.kt",
     "core/common/src/main/java/com/vvf/smartmanager/core/common/BitmapUtils.kt",
+    "app/src/main/java/com/vvf/smartmanager/OcrBatchBootstrap.kt",
 ]
 
 
