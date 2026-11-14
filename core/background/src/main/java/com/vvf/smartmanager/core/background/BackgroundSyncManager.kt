@@ -228,11 +228,16 @@ class BackgroundSyncManager(
     /**
      * Stop all scheduled and queued OCR work when the user revokes OCR consent.
      * Cancelling the unique one-time chain also interrupts an active CoroutineWorker.
+     *
+     * Official WorkManager API: cancelUniqueWork(uniqueWorkName) cancels unfinished work
+     * in the named unique chain for both one-time and periodic unique work.
+     * There is no cancelUniquePeriodicWork method.
+     * @see <a href="https://developer.android.com/reference/androidx/work/WorkManager#cancelUniqueWork(java.lang.String)">WorkManager.cancelUniqueWork</a>
      */
     fun cancelOcrBatchWork() {
         val wm = workManager ?: return
         wm.cancelUniqueWork(BackgroundConstants.UNIQUE_IMMEDIATE_OCR_BATCH_WORK)
-        wm.cancelUniquePeriodicWork(BackgroundConstants.UNIQUE_OCR_BATCH_WORK)
+        wm.cancelUniqueWork(BackgroundConstants.UNIQUE_OCR_BATCH_WORK)
     }
 
     /**
