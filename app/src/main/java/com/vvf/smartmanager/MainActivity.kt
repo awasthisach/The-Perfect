@@ -505,6 +505,10 @@ private fun VVFNavHost(
                         coroutineScope.launch {
                             app.backgroundSyncManager.triggerImmediateOcrBatch()
                         }
+                    } else {
+                        // Revoke consent immediately: stop the active batch and all queued/
+                        // periodic OCR work. The batch runner also re-checks consent per file.
+                        app.backgroundSyncManager.cancelOcrBatchWork()
                     }
                 },
                 initialOfflineOnlyMode = app.isOfflineOnlyModeEnabled(),
