@@ -62,7 +62,7 @@ fun SettingsScreen(
     onNavigateBack: (() -> Unit)? = null,
     initialBiometricEnabled: Boolean = false,
     onBiometricEnabledChange: (suspend (Boolean, String?) -> Boolean)? = null,
-    initialAutoIndexOcr: Boolean = true,
+    initialAutoIndexOcr: Boolean = false,
     onAutoIndexOcrChange: ((Boolean) -> Unit)? = null,
     initialOfflineOnlyMode: Boolean = true,
     onOfflineOnlyModeChange: ((Boolean) -> Unit)? = null,
