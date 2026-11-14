@@ -59,6 +59,14 @@ class CloudViewModel(
                     isLoading = false
                 )
             }
+            cloudSyncUseCase.listCloudBackups().onSuccess { listing ->
+                _uiState.update {
+                    it.copy(
+                        backupHistory = listing.backups.sortedByDescending { backup -> backup.timestamp },
+                        legacyBackupCount = listing.legacyBackupCount
+                    )
+                }
+            }
             loadRemoteFiles(_uiState.value.selectedProvider)
         }
     }
@@ -113,6 +121,34 @@ class CloudViewModel(
                         statusMessage = "Google Drive connection failed: ${authentication.exceptionOrNull()?.message ?: "authentication was not accepted"}"
                     )
                 }
+            }
+        }
+    }
+
+    fun disconnectGoogleDrive() {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(isLoading = true, statusMessage = "Disconnecting Google Drive and revoking its access…")
+            }
+            val result = googleDriveService.disconnect()
+            val updated = cloudSyncUseCase.getAccount(CloudProviderType.GOOGLE_DRIVE).copy(
+                isConnected = false,
+                accountEmail = "",
+                displayName = "Google Drive"
+            )
+            _uiState.update { state ->
+                val updatedMap = state.accounts.toMutableMap()
+                updatedMap[CloudProviderType.GOOGLE_DRIVE] = updated
+                state.copy(
+                    accounts = updatedMap,
+                    remoteFiles = if (state.selectedProvider == CloudProviderType.GOOGLE_DRIVE) emptyList() else state.remoteFiles,
+                    isLoading = false,
+                    statusMessage = if (result.isSuccess) {
+                        "Google Drive access revoked and disconnected."
+                    } else {
+                        "Local Google Drive session cleared, but remote revocation failed: ${result.exceptionOrNull()?.message ?: "unknown error"}"
+                    }
+                )
             }
         }
     }

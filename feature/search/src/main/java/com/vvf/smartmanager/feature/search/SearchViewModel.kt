@@ -21,6 +21,7 @@ import com.vvf.smartmanager.core.model.SemanticSearchResult
 import com.vvf.smartmanager.core.model.SizeFilter
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -141,7 +142,7 @@ class SearchViewModel(
             com.vvf.smartmanager.core.model.SearchResultItem(
                 fileItem = hit.fileItem,
                 matchType = com.vvf.smartmanager.core.model.SearchMatchType.SEMANTIC,
-                matchedSnippet = "Semantic match $pct%$concept"
+                matchedSnippet = "Hashed text similarity $pct%$concept"
             )
         }
         val mergedResults = buildList {

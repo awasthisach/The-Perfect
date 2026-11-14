@@ -4,7 +4,7 @@ name: Weekly Instrumented Hard Gate
 # emulator continue-on-error skips on the primary CI job.
 on:
   push:
-    branches: [fix/portable-backup-security]
+    branches: [main, fix/portable-backup-security]
   schedule:
     - cron: "0 3 * * 1"
   workflow_dispatch:
@@ -13,11 +13,10 @@ on:
     types: [opened, synchronize, reopened]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
-  group: weekly-instrumented
+  group: weekly-instrumented-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -47,10 +46,31 @@ jobs:
 
       - name: Install SDK components
         run: |
-          # Accept all licenses first to prevent interactive prompts
-          yes | sdkmanager --licenses || true
-          # Install required components without the 'yes' pipe
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+          set -euo pipefail
+          # License acceptance is the only sdkmanager command piped through yes.
+          # sdkmanager may close stdin early; inspect its exit code rather than the
+          # producer's expected SIGPIPE under pipefail.
+          set +e
+          yes | sdkmanager --licenses
+          license_status=${PIPESTATUS[1]}
+          set -e
+          if [ "$license_status" -ne 0 ]; then
+            echo "::error::Android SDK license acceptance failed."
+            exit "$license_status"
+          fi
+
+          installed=false
+          for attempt in 1 2 3; do
+            if sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"; then
+              installed=true
+              break
+            fi
+            echo "::warning::Android SDK installation attempt ${attempt}/3 failed."
+          done
+          if [ "$installed" != "true" ]; then
+            echo "::error::Android SDK installation failed after 3 attempts."
+            exit 1
+          fi
           test -d "$ANDROID_HOME/system-images/android-35/google_apis/x86_64"
 
 
@@ -117,75 +137,48 @@ jobs:
           adb devices
 
       - name: SQLCipher instrumentation (HARD)
-        run: ./gradlew --no-daemon :core:database:connectedDebugAndroidTest :core:database-compat:connectedDebugAndroidTest --stacktrace
+        run: ./gradlew --no-daemon :app:connectedDebugAndroidTest :core:database:connectedDebugAndroidTest :core:database-compat:connectedDebugAndroidTest --stacktrace
 
-      # Keep ledger freshness aligned with weekly hard gate (environment must contain "emulator")
-      - name: Generate CPAS instrumented evidence
-        if: success() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+      - name: Record exact tested revision for SQLCipher reports
+        if: always()
+        env:
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+          WORKFLOW_EVENT: ${{ github.event_name }}
         run: |
-          set -euo pipefail
-          python3 tools/audit/generate_evidence.py \
-            --commit-sha "${{ github.sha }}" \
-            --run-id "${{ github.run_id }}" \
-            --job-id "${{ github.job }}" \
-            --result PASS \
-            --include-db \
-            --environment "github-actions-API35-emulator-weekly" \
-            --output docs/assurance/cpas-evidence-weekly.json \
-            --merge-ledger
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
 
-      - name: Upload weekly CPAS evidence artifacts
-        if: success() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+          tested_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          Path("sqlcipher-instrumented-manifest.json").write_text(
+              json.dumps({
+                  "tested_sha": tested_sha,
+                  "run_id": int(os.environ["WORKFLOW_RUN_ID"]),
+                  "event": os.environ["WORKFLOW_EVENT"],
+              }, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Validate SQLCipher JUnit reports (hard)
+        run: |
+          python3 tools/audit/validate_instrumented_reports.py \
+            --reports-dir . \
+            --expected-sha "$(git rev-parse HEAD)"
+
+      - name: Upload SQLCipher JUnit reports bound to exact SHA
+        if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: weekly-cpas-evidence
+          name: sqlcipher-instrumented-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
-            docs/assurance/cpas-evidence-weekly.json
-            docs/assurance/evidence-ledger.json
+            sqlcipher-instrumented-manifest.json
+            **/build/outputs/androidTest-results/connected/debug/*.xml
+            **/build/reports/androidTests/connected/debug/**
           if-no-files-found: error
           retention-days: 30
-
-      - name: Create PR with updated evidence ledger
-        if: success() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          # Check if evidence-ledger.json was modified
-          if git diff --quiet docs/assurance/evidence-ledger.json; then
-            echo "No changes to evidence-ledger.json, skipping PR"
-            exit 0
-          fi
-
-          # Create a new branch
-          BRANCH="auto/evidence-update-$(date +%Y%m%d-%H%M%S)"
-          git checkout -b "$BRANCH"
-
-          # Commit changes
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/assurance/evidence-ledger.json
-          git commit -m "chore(compliance): auto-update evidence ledger from weekly instrumented gate"
-
-          # Push branch
-          git push origin "$BRANCH"
-
-          # Create PR
-          gh pr create \
-            --title "Auto-update evidence ledger (weekly instrumented gate)" \
-            --body "Automated PR from Weekly Instrumented Hard Gate workflow.
-
-          This PR updates \`docs/assurance/evidence-ledger.json\` with fresh evidence
-          from the weekly SQLCipher instrumented test run.
-
-          **Verification**: CPAS gate should PASS after merge.
-          **Generated by**: GitHub Actions workflow run #${{ github.run_id }}" \
-            --base main \
-            --head "$BRANCH" \
-            --label "compliance,automated"
-
-          echo "Created PR with branch: $BRANCH"
 
       - name: Upload diagnostics on failure
         if: failure()
@@ -197,3 +190,71 @@ jobs:
             **/build/reports/androidTests/**
           if-no-files-found: ignore
           retention-days: 14
+  publish-evidence:
+    name: Publish weekly CPAS evidence
+    needs: instrumented-hard
+    if: success() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout tested revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Generate CPAS instrumented evidence
+        run: |
+          set -euo pipefail
+          python3 tools/audit/generate_evidence.py \
+            --commit-sha "$(git rev-parse HEAD)" \
+            --run-id "${{ github.run_id }}" \
+            --job-id "instrumented-hard" \
+            --result PASS \
+            --include-db \
+            --db-only \
+            --environment "github-actions-API35-emulator-weekly" \
+            --output docs/assurance/cpas-evidence-weekly.json \
+            --merge-ledger
+
+      - name: Upload weekly CPAS evidence artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: weekly-cpas-evidence
+          path: |
+            docs/assurance/cpas-evidence-weekly.json
+            docs/assurance/evidence-ledger.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create PR with updated evidence ledger
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet docs/assurance/evidence-ledger.json; then
+            echo "No changes to evidence-ledger.json, skipping PR"
+            exit 0
+          fi
+
+          BRANCH="auto/evidence-update-$(date +%Y%m%d-%H%M%S)"
+          git checkout -b "$BRANCH"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/assurance/evidence-ledger.json
+          git commit -m "chore(compliance): auto-update evidence ledger from weekly instrumented gate"
+          git push origin "$BRANCH"
+          gh pr create \
+            --title "Auto-update evidence ledger (weekly instrumented gate)" \
+            --body "Automated PR from Weekly SQLCipher Instrumented Hard Gate.
+
+          This PR updates docs/assurance/evidence-ledger.json with evidence
+          from the successful instrumented run on SHA ${{ github.sha }}.
+
+          Verification: SQLCipher evidence only; CPAS/ORT and open risks still determine release readiness.
+          Generated by: GitHub Actions workflow run #${{ github.run_id }}" \
+            --base main \
+            --head "$BRANCH" \
+            --label "compliance,automated"

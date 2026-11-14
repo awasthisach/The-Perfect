@@ -1,6 +1,10 @@
 package com.vvf.smartmanager.core.security
 
 import androidx.test.core.app.ApplicationProvider
+import android.content.Context
+import android.content.ContextWrapper
+import java.io.File
+import java.util.UUID
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -206,6 +210,98 @@ class CryptoSecurityManagerTest {
                 isJvmUnitTestEnvironment = false
             )
         )
+    }
+
+    @Test
+    fun missingDatabaseKeyDoesNotRegenerateWhenEncryptedPassphraseExists() {
+        val context = isolatedContext()
+        try {
+            val original = CryptoSecurityManager(context, "Robolectric")
+            original.getOrCreateDatabasePassphrase().fill(0)
+            CryptoSecurityManager.clearInMemoryKeysForTests()
+
+            try {
+                CryptoSecurityManager(context, "Robolectric")
+                throw AssertionError("Missing database key must not be silently regenerated")
+            } catch (expected: SecurityException) {
+                assertTrue(expected.message.orEmpty().contains("Refusing to generate a replacement key"))
+            }
+        } finally {
+            CryptoSecurityManager.clearInMemoryKeysForTests()
+        }
+    }
+
+    @Test
+    fun missingVaultKeyDoesNotRegenerateWhenEncryptedVaultFileExists() {
+        val context = isolatedContext()
+        try {
+            val original = CryptoSecurityManager(context, "Robolectric")
+            val (encrypted, _) = original.encryptBytes("vault-data".toByteArray())
+            val vaultDirectory = File(context.filesDir, "vvf_vault_encrypted").apply { mkdirs() }
+            File(vaultDirectory, "enc_fixture.vvf").writeBytes(encrypted)
+            CryptoSecurityManager.clearInMemoryKeysForTests()
+
+            try {
+                CryptoSecurityManager(context, "Robolectric")
+                throw AssertionError("Missing vault key must not be silently regenerated")
+            } catch (expected: SecurityException) {
+                assertTrue(expected.message.orEmpty().contains("Refusing to generate a replacement key"))
+            }
+        } finally {
+            CryptoSecurityManager.clearInMemoryKeysForTests()
+        }
+    }
+
+    @Test
+    fun missingVaultMetadataKeyDoesNotRegenerateWhenPinMetadataExists() {
+        val context = isolatedContext()
+        try {
+            val original = CryptoSecurityManager(context, "Robolectric")
+            assertTrue(original.setupVaultPin("482951"))
+            CryptoSecurityManager.clearInMemoryKeysForTests()
+
+            try {
+                CryptoSecurityManager(context, "Robolectric")
+                throw AssertionError("Missing vault metadata key must not be silently regenerated")
+            } catch (expected: SecurityException) {
+                assertTrue(expected.message.orEmpty().contains("Refusing to generate a replacement key"))
+            }
+        } finally {
+            CryptoSecurityManager.clearInMemoryKeysForTests()
+        }
+    }
+
+    @Test
+    fun missingDatabasePassphraseDoesNotCreateReplacementWhenDatabaseExists() {
+        val context = isolatedContext()
+        try {
+            val manager = CryptoSecurityManager(context, "Robolectric")
+            File(context.filesDir, "vvf-existing.db").writeText("encrypted-database-placeholder")
+
+            try {
+                manager.getOrCreateDatabasePassphrase()
+                throw AssertionError("Must not create a new database passphrase over an existing database")
+            } catch (expected: SecurityException) {
+                assertTrue(expected.message.orEmpty().contains("recovery material is missing"))
+            }
+            assertFalse(File(context.filesDir, "vvf_db_passphrase_v2.bin").exists())
+        } finally {
+            CryptoSecurityManager.clearInMemoryKeysForTests()
+        }
+    }
+
+    private fun isolatedContext(): Context {
+        val base = ApplicationProvider.getApplicationContext<Context>()
+        val root = File(base.cacheDir, "keystore-recovery-${UUID.randomUUID()}").apply { mkdirs() }
+        return object : ContextWrapper(base) {
+            override fun getFilesDir(): File = File(root, "files").apply { mkdirs() }
+            override fun getSharedPreferences(name: String, mode: Int) =
+                base.getSharedPreferences("$name-${root.name}", mode)
+            override fun getDatabasePath(name: String): File =
+                File(getFilesDir(), name)
+            override fun databaseList(): Array<String> =
+                getFilesDir().listFiles().orEmpty().filter { it.extension == "db" }.map { it.name }.toTypedArray()
+        }
     }
 
     private fun assertThrowsSecurityFailure(block: () -> Unit) {

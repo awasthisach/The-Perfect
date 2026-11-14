@@ -47,7 +47,8 @@ object AppCompositionRoot {
         databaseName: String,
         beforeRestoreApply: (() -> Unit)? = null,
         cloudSyncDao: CloudSyncDao? = null,
-        onRestoreFinished: (() -> Unit)? = null
+        onRestoreFinished: (() -> Unit)? = null,
+        networkAllowed: () -> Boolean = { true }
     ): CloudSyncUseCase {
         val restoreWorkingDir = File(context.filesDir, "restore-work")
         val restorePipeline = FailClosedRestorePipeline(
@@ -72,7 +73,8 @@ object AppCompositionRoot {
             archiveService = archiveService,
             restorePipeline = restorePipeline,
             cloudSyncDao = cloudSyncDao,
-            onRestoreFinished = onRestoreFinished
+            onRestoreFinished = onRestoreFinished,
+            networkAllowed = networkAllowed
         )
     }
 }
