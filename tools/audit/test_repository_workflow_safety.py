@@ -34,7 +34,14 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
             with self.subTest(workflow=relative_path):
                 workflow = (ROOT / relative_path).read_text(encoding="utf-8")
                 self.assertIn(f"group: {group}", workflow)
-                self.assertIn("cancel-in-progress: true", workflow)
+                # Heavy gates cancel only superseded PR runs; scheduled/main must not be cancelled.
+                if relative_path == ".github/workflows/worker-validation.yml":
+                    self.assertIn("cancel-in-progress: true", workflow)
+                else:
+                    self.assertIn(
+                        "cancel-in-progress: ${{ github.event_name == 'pull_request' }}",
+                        workflow,
+                    )
 
     def test_sqlcipher_fixture_installs_only_missing_dependencies_with_bounded_retries(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")

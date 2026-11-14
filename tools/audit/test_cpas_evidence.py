@@ -41,8 +41,18 @@ class CpasEvidenceTests(unittest.TestCase):
                     "    implementation_refs: [core]\n"
                     "    test_refs: [core]\n",
                 "07-test-matrix.yaml": "matrix: []\n",
+                # Minimal closed finding so risk_register_schema/gate do not false-positive.
                 "08-risk-register.yaml":
-                    "open_findings: []\nclosed_findings: []\n",
+                    "open_findings: []\n"
+                    "closed_findings:\n"
+                    "  - id: PROD-001\n"
+                    "    severity: high\n"
+                    "    title: Synthetic closed finding for fixture\n"
+                    "    status: closed\n"
+                    "    closure_evidence: [EVID-001]\n"
+                    "    residual_risk: low\n"
+                    "    last_updated: \"2026-11-14\"\n"
+                    "    closed_at: \"2026-11-14\"\n",
                 "09-gate-catalog.yaml":
                     "gates:\n  - id: GATE-CPAS-001\n",
                 "evidence-ledger.schema.json": "{}\n",
