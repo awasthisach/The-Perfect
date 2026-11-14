@@ -37,6 +37,14 @@ object OcrBatchBootstrap {
                 var processed = 0
                 var failureCount = 0
                 for (entity in candidates) {
+                    // Re-check consent for every candidate; Settings can revoke OCR mid-batch.
+                    if (!isEnabled() || !ocrEngine.isEnabled) {
+                        return@configure OcrBatchOutcome.Completed(
+                            processedCount = processed,
+                            hasMoreCandidates = false,
+                            failedCount = failureCount
+                        )
+                    }
                     val item = FileItem(
                         path = entity.path,
                         name = entity.name,
@@ -62,6 +70,15 @@ object OcrBatchBootstrap {
                         deferCandidate(fileDao, item.path)
                         failureCount++
                         continue
+                    }
+                    // Extraction may finish after the user revokes consent. Do not index
+                    // its result or advance to another file after that point.
+                    if (!isEnabled() || !ocrEngine.isEnabled) {
+                        return@configure OcrBatchOutcome.Completed(
+                            processedCount = processed,
+                            hasMoreCandidates = false,
+                            failedCount = failureCount
+                        )
                     }
                     val ocr = extraction.getOrThrow()
                     val indexing = try {
@@ -95,7 +112,7 @@ object OcrBatchBootstrap {
                 // the entire library indexing chain.
                 OcrBatchOutcome.Completed(
                     processedCount = processed,
-                    hasMoreCandidates = candidates.size == OCR_BATCH_SIZE,
+                    hasMoreCandidates = isEnabled() && ocrEngine.isEnabled && candidates.size == OCR_BATCH_SIZE,
                     failedCount = failureCount
                 )
             } catch (e: CancellationException) {
