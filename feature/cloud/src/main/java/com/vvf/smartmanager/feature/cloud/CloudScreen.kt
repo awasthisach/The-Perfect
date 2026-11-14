@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -43,14 +44,18 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -77,6 +82,27 @@ fun CloudScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    var showDriveDisconnectConfirmation by remember { mutableStateOf(false) }
+
+    if (showDriveDisconnectConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showDriveDisconnectConfirmation = false },
+            title = { Text("Disconnect Google Drive?") },
+            text = { Text("This revokes VVF Smart Manager's Google Drive access and clears the local connection. Your files in Google Drive are not deleted.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDriveDisconnectConfirmation = false
+                        viewModel.disconnectGoogleDrive()
+                    },
+                    modifier = Modifier.testTag("confirm_disconnect_google_drive")
+                ) { Text("Disconnect") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDriveDisconnectConfirmation = false }) { Text("Cancel") }
+            }
+        )
+    }
 
     LaunchedEffect(uiState.statusMessage) {
         uiState.statusMessage?.let {
@@ -161,6 +187,17 @@ fun CloudScreen(
                 }
             }
 
+            if (uiState.legacyBackupCount > 0) {
+                item {
+                    Text(
+                        text = stringResource(R.string.cloud_legacy_backup_warning, uiState.legacyBackupCount),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+
             item {
                 val currentProvider = uiState.selectedProvider
                 val currentAccount = uiState.accounts[currentProvider] ?: CloudAccount(currentProvider)
@@ -207,14 +244,25 @@ fun CloudScreen(
                                     Text("Connect", fontSize = 12.sp)
                                 }
                             } else {
-                                Surface(shape = RoundedCornerShape(6.dp), color = EmeraldGreen.copy(alpha = 0.15f)) {
-                                    Text(
-                                        "Active",
-                                        color = EmeraldGreen,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 11.sp,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Surface(shape = RoundedCornerShape(6.dp), color = EmeraldGreen.copy(alpha = 0.15f)) {
+                                        Text(
+                                            "Active",
+                                            color = EmeraldGreen,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                    if (currentProvider == CloudProviderType.GOOGLE_DRIVE) {
+                                        TextButton(
+                                            onClick = { showDriveDisconnectConfirmation = true },
+                                            modifier = Modifier.testTag("disconnect_google_drive_button")
+                                        ) { Text("Disconnect") }
+                                    }
                                 }
                             }
                         }

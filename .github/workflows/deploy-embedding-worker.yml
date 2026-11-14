@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: drive-semantic-embed-production
@@ -24,11 +25,43 @@ jobs:
     if: inputs.confirm_deploy == 'yes'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    environment:
+      name: production
     steps:
       - name: Checkout The-Perfect only
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           persist-credentials: false
+
+      - name: Verify protected production environment before mutations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/environments/production" > "${RUNNER_TEMP}/production-environment.json"
+          python3 tools/audit/verify_deployment_preflight.py \
+            --environment production \
+            --environment-file "${RUNNER_TEMP}/production-environment.json" \
+            --worker-config cloudflare/drive-semantic-embed/wrangler.toml
+
+      - name: Fail closed when Worker source package is absent
+        run: |
+          set -euo pipefail
+          required_files=(
+            cloudflare/drive-semantic-embed/package.json
+            cloudflare/drive-semantic-embed/package-lock.json
+            cloudflare/drive-semantic-embed/wrangler.toml
+          )
+          missing=0
+          for required_file in "${required_files[@]}"; do
+            if [ ! -s "$required_file" ]; then
+              echo "::error title=Worker source missing::$required_file is absent; refusing to validate secrets or mutate the production Worker."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
 
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -76,7 +109,7 @@ jobs:
           const response = await fetch("https://drive-semantic-embed.awasthi-sach.workers.dev/");
           if (!response.ok) throw new Error(`Worker health endpoint returned HTTP ${response.status}`);
           const body = await response.json();
-          if (body.ok !== true || body.model !== "gemini-embedding-2" || body.version !== "3" || body.dimension !== 768) {
+          if (body.ok !== true || body.model !== "gemini-embedding-2" || body.version !== "4" || body.dimension !== 768) {
             throw new Error("Deployed Worker health contract does not match expected model/version/dimension");
           }
           process.stdout.write("Embedding Worker health contract verified.\n");
@@ -88,7 +121,7 @@ jobs:
           status="$(curl --silent --show-error --output /tmp/worker-auth-smoke.json --write-out '%{http_code}' \
             --request POST \
             --header 'Content-Type: application/json' \
-            --data '{"texts":["release-gate-auth-smoke"],"mode":"query","version":"3"}' \
+            --data '{"texts":["release-gate-auth-smoke"],"mode":"query","version":"4"}' \
             https://drive-semantic-embed.awasthi-sach.workers.dev/embed)"
           if [ "$status" != "401" ]; then
             echo "::error::Native /embed without Authorization must return 401; got HTTP $status. The deployed Worker may still enforce the old Origin-only policy or is misconfigured."

@@ -38,7 +38,13 @@ class CloudSyncUseCaseTest {
         override suspend fun authenticate(): Result<Boolean> = Result.success(true)
         override suspend fun listDriveFiles(folderId: String): Result<List<FileItem>> = Result.success(emptyList())
         override suspend fun uploadFile(localFile: FileItem, remoteFolderId: String): Result<String> = uploadResult
+        override suspend fun uploadBackup(
+            localFile: FileItem,
+            remoteFolderId: String,
+            checksumSha256: String
+        ): Result<String> = uploadResult
         override suspend fun downloadFile(fileId: String, destinationPath: String): Result<Boolean> = Result.success(true)
+        override suspend fun disconnect(): Result<Unit> = Result.success(Unit)
         override suspend fun getStorageQuota(): Result<Pair<Long, Long>> = Result.success(0L to 1L)
     }
 
@@ -130,7 +136,7 @@ class CloudSyncUseCaseTest {
 
     @Test
     fun restoreUsesInjectedFailClosedPipeline() = runBlocking {
-        val info = CloudBackupInfo("remote-1", 1L, "backup.vvfbak", 10L, checksumSha256 = "abc")
+        val info = CloudBackupInfo("remote-1", 1L, "backup.vvfbak", 10L, checksumSha256 = "a".repeat(64))
         val pipeline = FailClosedRestorePipeline(
             workingDir = temp.newFolder("restore-work"),
             downloader = object : BackupDownloader {
@@ -166,5 +172,26 @@ class CloudSyncUseCaseTest {
 
         assertTrue(result.isSuccess)
         assertEquals(CloudSyncStatus.SUCCESS, useCase.syncState.value)
+    }
+
+    @Test
+    fun strictOfflineModeBlocksAllCloudDomainOperations() = runBlocking {
+        val useCase = CloudSyncUseCase(FakeDriveService(), networkAllowed = { false })
+
+        assertTrue(useCase.authenticateProvider(CloudProviderType.GOOGLE_DRIVE).isFailure)
+        assertTrue(useCase.listRemoteFiles(CloudProviderType.GOOGLE_DRIVE).isFailure)
+        assertTrue(useCase.syncFileToCloud(sampleFile).isFailure)
+    }
+
+    @Test
+    fun restoreRejectsLegacyBackupWithoutDurableChecksum() = runBlocking {
+        val useCase = CloudSyncUseCase(FakeDriveService())
+
+        val result = useCase.restoreCloudBackup(
+            CloudBackupInfo("remote-legacy", 1L, "legacy.vvfbak", 10L, checksumSha256 = null)
+        )
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message.orEmpty().contains("checksum metadata"))
     }
 }

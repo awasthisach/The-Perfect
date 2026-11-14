@@ -113,6 +113,10 @@ open class StorageManagerFileOps(
         }
     }
 
+    /** Physical deletion seam so failures can be injected in regression tests. */
+    protected open fun deletePhysical(file: File): Boolean =
+        if (file.isDirectory) file.deleteRecursively() else file.delete()
+
     fun deleteSafely(path: String): Result<Boolean> = try {
         val f = requireAllowedPhysicalPath(path)
         if (f.exists() && f.canWrite()) {
@@ -126,7 +130,10 @@ open class StorageManagerFileOps(
             var count = 0
             for (path in paths) {
                 val file = requireAllowedPhysicalPath(path)
-                if (file.exists()) { if (file.isDirectory) file.deleteRecursively() else file.delete() }
+                if (file.exists() && !deletePhysical(file)) {
+                    throw java.io.IOException("Failed to permanently delete " + file.name)
+                }
+                // Metadata is removed only after physical deletion is confirmed.
                 fileDao.deleteByPath(path)
                 count++
             }
@@ -182,8 +189,17 @@ open class StorageManagerFileOps(
 
     suspend fun emptyRecycleBin(): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val files = trashDirectory.listFiles() ?: emptyArray()
-            for (file in files) { if (file.isDirectory) file.deleteRecursively() else file.delete() }
+            if (!trashDirectory.isDirectory) {
+                throw java.io.IOException("Recycle bin is unavailable")
+            }
+            val files = trashDirectory.listFiles()
+                ?: throw java.io.IOException("Recycle bin cannot be enumerated")
+            for (file in files) {
+                if (!deletePhysical(file)) {
+                    throw java.io.IOException("Failed to empty recycle-bin item " + file.name)
+                }
+            }
+            // Keep every trash row until all physical entries have been removed.
             fileDao.emptyTrash()
             Result.success(true)
         } catch (e: Exception) { Result.failure(e) }

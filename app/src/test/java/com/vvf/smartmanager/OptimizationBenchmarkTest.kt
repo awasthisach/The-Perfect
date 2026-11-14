@@ -18,10 +18,10 @@ import kotlin.system.measureTimeMillis
 
 /**
  * Phase 15 Benchmark and Optimization Verification Test.
- * Robolectric SDK pinned to 34 (compileSdk 36 is not yet fully supported by Robolectric).
+ * Robolectric SDK 33 matches the database test suite's supported native SQLite runtime.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], manifest = Config.NONE)
+@Config(sdk = [33], manifest = Config.NONE)
 class OptimizationBenchmarkTest {
 
     private lateinit var context: Context

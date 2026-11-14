@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
 private const val OCR_PLUGIN_ID = "plugin.ocr.mlkit"
-private const val SEMANTIC_PLUGIN_ID = "plugin.semantic.tflite"
+private const val SEMANTIC_PLUGIN_ID = "plugin.semantic.hashed-text-similarity"
 private const val CLOUD_PLUGIN_ID = "plugin.cloud.drivers"
 
 enum class PluginCategory {
@@ -99,14 +99,14 @@ class PluginManager(
             ),
             PluginDescriptor(
                 id = SEMANTIC_PLUGIN_ID,
-                name = "AI Semantic Search Engine",
-                description = "Local hashed-embedding index for concept-based search.",
+                name = "On-Device Hashed Text Similarity",
+                description = "Deterministic token/category hashing for heuristic text-similarity ranking; not a learned embedding model.",
                 version = semanticSearchPlugin?.version ?: "1.0.0",
                 category = PluginCategory.SEMANTIC_AI,
                 isInstalled = semanticSearchPlugin != null && semanticReady,
                 isEnabled = semanticSearchPlugin?.isEnabled ?: false,
                 isModelDownloaded = semanticReady,
-                sizeMb = 18
+                sizeMb = 0
             ),
             PluginDescriptor(
                 id = CLOUD_PLUGIN_ID,

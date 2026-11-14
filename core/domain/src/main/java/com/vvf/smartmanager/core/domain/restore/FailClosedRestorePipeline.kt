@@ -3,6 +3,10 @@ package com.vvf.smartmanager.core.domain.restore
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 
 /**
  * Orchestrates restore as a fail-closed transaction:
@@ -22,6 +26,14 @@ class FailClosedRestorePipeline(
         remoteBackupId: String,
         expectedChecksum: String?,
         passphrase: CharArray?
+    ): Result<RestoreResult> = withContext(Dispatchers.IO) {
+        restoreOnIo(remoteBackupId, expectedChecksum, passphrase)
+    }
+
+    private suspend fun restoreOnIo(
+        remoteBackupId: String,
+        expectedChecksum: String?,
+        passphrase: CharArray?
     ): Result<RestoreResult> {
         if (remoteBackupId.isBlank()) {
             passphrase?.fill(0.toChar())
@@ -34,14 +46,27 @@ class FailClosedRestorePipeline(
         return try {
             requireWorkingDirectory(stagingDir)
 
-            val downloaded = downloader.download(remoteBackupId).getOrElse { return Result.failure(it) }
-            val verified = verifier.verify(downloaded, expectedChecksum).getOrElse { return Result.failure(it) }
-            val decrypted = decryptor.decrypt(verified, stagingDir, passphrase).getOrElse { return Result.failure(it) }
+            val downloaded = downloader.download(remoteBackupId).getOrElse { error ->
+                if (error is CancellationException) throw error
+                return Result.failure(error)
+            }
+            val verified = verifier.verify(downloaded, expectedChecksum).getOrElse { error ->
+                if (error is CancellationException) throw error
+                return Result.failure(error)
+            }
+            val decrypted = decryptor.decrypt(verified, stagingDir, passphrase).getOrElse { error ->
+                if (error is CancellationException) throw error
+                return Result.failure(error)
+            }
 
-            snapshot = applier.prepare().getOrElse { return Result.failure(it) }
+            snapshot = applier.prepare().getOrElse { error ->
+                if (error is CancellationException) throw error
+                return Result.failure(error)
+            }
             preparedSnapshots[snapshot!!.token] = snapshot!!
 
             val applied = applier.apply(decrypted).getOrElse { error ->
+                if (error is CancellationException) throw error
                 val rollbackResult = applier.rollback(snapshot!!)
                 preparedSnapshots.remove(snapshot!!.token)
                 if (rollbackResult.isFailure) {
@@ -84,6 +109,22 @@ class FailClosedRestorePipeline(
                     timestamp = System.currentTimeMillis()
                 )
             )
+        } catch (cancelled: CancellationException) {
+            if (snapshot != null) {
+                val rollbackAttempt = withContext(NonCancellable) {
+                    runCatching { applier.rollback(snapshot!!) }
+                }
+                preparedSnapshots.remove(snapshot!!.token)
+                val rollbackResult = rollbackAttempt.getOrNull()
+                if (rollbackAttempt.isFailure) {
+                    cancelled.addSuppressed(rollbackAttempt.exceptionOrNull()!!)
+                } else if (rollbackResult?.isFailure == true) {
+                    cancelled.addSuppressed(rollbackResult.exceptionOrNull()!!)
+                } else if (rollbackResult?.isSuccess == true) {
+                    cleanupSnapshot(snapshot!!)
+                }
+            }
+            throw cancelled
         } catch (error: Throwable) {
             if (snapshot != null) {
                 val rollbackAttempt = runCatching { applier.rollback(snapshot!!) }
@@ -120,6 +161,14 @@ class FailClosedRestorePipeline(
         remoteBackupId: String,
         expectedChecksum: String?,
         passphrase: CharArray?
+    ): Result<DryRunResult> = withContext(Dispatchers.IO) {
+        dryRunOnIo(remoteBackupId, expectedChecksum, passphrase)
+    }
+
+    private suspend fun dryRunOnIo(
+        remoteBackupId: String,
+        expectedChecksum: String?,
+        passphrase: CharArray?
     ): Result<DryRunResult> {
         if (remoteBackupId.isBlank()) {
             passphrase?.fill(0.toChar())
@@ -129,9 +178,18 @@ class FailClosedRestorePipeline(
         val stagingDir = File(workingDir, "dry-run-$token")
         return try {
             requireWorkingDirectory(stagingDir)
-            val downloaded = downloader.download(remoteBackupId).getOrElse { return Result.failure(it) }
-            val verified = verifier.verify(downloaded, expectedChecksum).getOrElse { return Result.failure(it) }
-            val decrypted = decryptor.decrypt(verified, stagingDir, passphrase).getOrElse { return Result.failure(it) }
+            val downloaded = downloader.download(remoteBackupId).getOrElse { error ->
+                if (error is CancellationException) throw error
+                return Result.failure(error)
+            }
+            val verified = verifier.verify(downloaded, expectedChecksum).getOrElse { error ->
+                if (error is CancellationException) throw error
+                return Result.failure(error)
+            }
+            val decrypted = decryptor.decrypt(verified, stagingDir, passphrase).getOrElse { error ->
+                if (error is CancellationException) throw error
+                return Result.failure(error)
+            }
             val fileCount = decrypted.stagingDir.walkTopDown().count { it.isFile }
             val vaultCount = decrypted.vaultDir.walkTopDown().count { it.isFile }
             Result.success(
@@ -144,6 +202,8 @@ class FailClosedRestorePipeline(
                     message = "Restore validation and decryption completed without mutating live data"
                 )
             )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (error: Throwable) {
             Result.failure(RestoreException("Fail-closed restore dry-run aborted", error))
         } finally {
@@ -152,18 +212,19 @@ class FailClosedRestorePipeline(
         }
     }
 
-    override suspend fun rollback(snapshotToken: String): Result<Unit> {
+    override suspend fun rollback(snapshotToken: String): Result<Unit> = withContext(Dispatchers.IO) {
         if (snapshotToken.isBlank()) {
-            return Result.failure(VerificationFailedException("Snapshot token is blank"))
+            return@withContext Result.failure(VerificationFailedException("Snapshot token is blank"))
         }
         val snapshot = preparedSnapshots[snapshotToken]
-            ?: return Result.failure(VerificationFailedException("Snapshot token is not active in this process"))
-        return applier.rollback(snapshot).also {
-            if (it.isSuccess) {
-                preparedSnapshots.remove(snapshotToken)
-                cleanupSnapshot(snapshot)
-            }
+            ?: return@withContext Result.failure(VerificationFailedException("Snapshot token is not active in this process"))
+        val result = applier.rollback(snapshot)
+        result.exceptionOrNull()?.let { if (it is CancellationException) throw it }
+        if (result.isSuccess) {
+            preparedSnapshots.remove(snapshotToken)
+            cleanupSnapshot(snapshot)
         }
+        result
     }
 
     private fun cleanupSnapshot(snapshot: RestoreSnapshot) {
