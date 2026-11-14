@@ -226,6 +226,16 @@ class BackgroundSyncManager(
     }
 
     /**
+     * Stop all scheduled and queued OCR work when the user revokes OCR consent.
+     * Cancelling the unique one-time chain also interrupts an active CoroutineWorker.
+     */
+    fun cancelOcrBatchWork() {
+        val wm = workManager ?: return
+        wm.cancelUniqueWork(BackgroundConstants.UNIQUE_IMMEDIATE_OCR_BATCH_WORK)
+        wm.cancelUniquePeriodicWork(BackgroundConstants.UNIQUE_OCR_BATCH_WORK)
+    }
+
+    /**
      * Observe status of cloud sync jobs.
      */
     fun getCloudSyncWorkInfos(): Flow<List<WorkInfo>> {
