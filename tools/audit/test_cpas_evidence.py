@@ -1,4 +1,11 @@
-"""Isolated regression tests for CPAS evidence validation."""
+"""Isolated regression tests for CPAS evidence validation.
+
+Contract source: tools/audit/cpas_verify.py and
+docs/assurance/evidence-ledger.schema.json
+  - evidence id: ^EVID-[0-9]{3,}$
+  - source_commit: 40-char lowercase hex
+  - closed risk closure_evidence must reference PASS ledger entries
+"""
 import json
 import subprocess
 import sys
@@ -41,8 +48,8 @@ class CpasEvidenceTests(unittest.TestCase):
                     "    implementation_refs: [core]\n"
                     "    test_refs: [core]\n",
                 "07-test-matrix.yaml": "matrix: []\n",
-                # Closed finding references a fixed PASS entry so mutating EVID-001
-                # (result/control) does not also trip risk_closure_evidence.
+                # Closed finding references fixed PASS EVID-900 (valid EVID-NNN).
+                # Mutable EVID-001 is the entry under test and is not used for closure.
                 "08-risk-register.yaml":
                     "open_findings: []\n"
                     "closed_findings:\n"
@@ -50,7 +57,7 @@ class CpasEvidenceTests(unittest.TestCase):
                     "    severity: high\n"
                     "    title: Synthetic closed finding for fixture\n"
                     "    status: closed\n"
-                    "    closure_evidence: [EVID-FIXTURE]\n"
+                    "    closure_evidence: [EVID-900]\n"
                     "    residual_risk: low\n"
                     "    last_updated: \"2026-11-14\"\n"
                     "    closed_at: \"2026-11-14\"\n",
@@ -65,7 +72,6 @@ class CpasEvidenceTests(unittest.TestCase):
                 write(f"docs/assurance/{name}", text)
 
             (root / "core").mkdir()
-            # Synthetic markers isolate evidence checks, not Android behavior.
             write(
                 "app/build.gradle.kts",
                 'signingConfigs { create("release") }\n'
@@ -77,10 +83,11 @@ class CpasEvidenceTests(unittest.TestCase):
                 "// FirebaseAppCheck PlayIntegrityAppCheckProviderFactory\n",
             )
 
+            # Fixed PASS entry for risk closure (never mutated by test cases).
             fixed = {
-                "id": "EVID-FIXTURE",
+                "id": "EVID-900",
                 "control_id": "STORAGE-INV-001",
-                "test_id": "STORAGE-TEST-FIXTURE",
+                "test_id": "STORAGE-TEST-900",
                 "source_commit": "b" * 40,
                 "ci_run_id": "999001",
                 "ci_job_id": "999002",
@@ -89,6 +96,7 @@ class CpasEvidenceTests(unittest.TestCase):
                 "result": "PASS",
                 "environment": "github-actions-API35-emulator",
             }
+            # Mutable entry under test (default PASS; callers override fields).
             entry = {
                 "id": "EVID-001",
                 "control_id": "STORAGE-INV-001",
@@ -104,7 +112,14 @@ class CpasEvidenceTests(unittest.TestCase):
             entry.update(changes)
             write(
                 "docs/assurance/evidence-ledger.json",
-                json.dumps({"policy": {}, "entries": [fixed, entry]}),
+                json.dumps({
+                    "schema_version": "1.0",
+                    "policy": {
+                        "status_values": ["pending", "verified", "failed"],
+                        "production_rule": "Synthetic fixture policy",
+                    },
+                    "entries": [fixed, entry],
+                }),
             )
             proc = subprocess.run(
                 [sys.executable, str(VERIFY), "--root", str(root)],
