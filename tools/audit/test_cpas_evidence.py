@@ -41,7 +41,8 @@ class CpasEvidenceTests(unittest.TestCase):
                     "    implementation_refs: [core]\n"
                     "    test_refs: [core]\n",
                 "07-test-matrix.yaml": "matrix: []\n",
-                # Minimal closed finding so risk_register_schema/gate do not false-positive.
+                # Closed finding references a fixed PASS entry so mutating EVID-001
+                # (result/control) does not also trip risk_closure_evidence.
                 "08-risk-register.yaml":
                     "open_findings: []\n"
                     "closed_findings:\n"
@@ -49,7 +50,7 @@ class CpasEvidenceTests(unittest.TestCase):
                     "    severity: high\n"
                     "    title: Synthetic closed finding for fixture\n"
                     "    status: closed\n"
-                    "    closure_evidence: [EVID-001]\n"
+                    "    closure_evidence: [EVID-FIXTURE]\n"
                     "    residual_risk: low\n"
                     "    last_updated: \"2026-11-14\"\n"
                     "    closed_at: \"2026-11-14\"\n",
@@ -76,6 +77,18 @@ class CpasEvidenceTests(unittest.TestCase):
                 "// FirebaseAppCheck PlayIntegrityAppCheckProviderFactory\n",
             )
 
+            fixed = {
+                "id": "EVID-FIXTURE",
+                "control_id": "STORAGE-INV-001",
+                "test_id": "STORAGE-TEST-FIXTURE",
+                "source_commit": "b" * 40,
+                "ci_run_id": "999001",
+                "ci_job_id": "999002",
+                "executed_at": stamp(now - timedelta(hours=2)),
+                "expires_at": stamp(now + timedelta(days=7)),
+                "result": "PASS",
+                "environment": "github-actions-API35-emulator",
+            }
             entry = {
                 "id": "EVID-001",
                 "control_id": "STORAGE-INV-001",
@@ -91,7 +104,7 @@ class CpasEvidenceTests(unittest.TestCase):
             entry.update(changes)
             write(
                 "docs/assurance/evidence-ledger.json",
-                json.dumps({"policy": {}, "entries": [entry]}),
+                json.dumps({"policy": {}, "entries": [fixed, entry]}),
             )
             proc = subprocess.run(
                 [sys.executable, str(VERIFY), "--root", str(root)],
