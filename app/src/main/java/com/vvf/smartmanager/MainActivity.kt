@@ -133,8 +133,6 @@ class MainActivity : FragmentActivity() {
                     onFirebaseIdentityChange = { connect ->
                         val firebaseAuth = FirebaseAuth.getInstance()
                         if (connect) {
-                            // Exchange the Google ID token for a Firebase session. It is not
-                            // a Firebase ID token and is never used as a Drive access token.
                             val googleIdToken = googleDriveAuth.requestGoogleIdToken().getOrThrow()
                             firebaseAuth.signInWithCredential(
                                 GoogleAuthProvider.getCredential(googleIdToken, null)
@@ -361,3 +359,155 @@ fun VVFAppContent(
         }
     }
 }
+
+@Composable
+private fun VVFNavHost(
+    navController: androidx.navigation.NavHostController,
+    app: VVFApplication,
+    onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit,
+    onFirebaseIdentityChange: suspend (Boolean) -> Boolean,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    NavHost(
+        navController = navController,
+        startDestination = TopLevelDestination.EXPLORER.route,
+        enterTransition = { fadeIn(animationSpec = tween(250)) + slideInHorizontally(animationSpec = tween(250), initialOffsetX = { it / 4 }) },
+        exitTransition = { fadeOut(animationSpec = tween(200)) + slideOutHorizontally(animationSpec = tween(200), targetOffsetX = { -it / 4 }) },
+        modifier = modifier
+    ) {
+        composable(TopLevelDestination.EXPLORER.route) {
+            val explorerViewModel: ExplorerViewModel = viewModel(
+                factory = ExplorerViewModel.provideFactory(
+                    listFilesUseCase = app.listFilesUseCase,
+                    fileOperationsUseCase = app.fileOperationsUseCase,
+                    storagePermissionGate = StoragePermissionGate(app)
+                )
+            )
+            ExplorerScreen(
+                viewModel = explorerViewModel,
+                onOpenSettings = { navController.navigate(TopLevelDestination.SETTINGS.route) },
+                onOpenPlugins = { navController.navigate(TopLevelDestination.PLUGINS.route) }
+            )
+        }
+        composable(TopLevelDestination.VAULT.route) {
+            val vaultViewModel: VaultViewModel = viewModel(
+                factory = VaultViewModel.provideFactory(
+                    getVaultItemsUseCase = app.getVaultItemsUseCase,
+                    lockFileInVaultUseCase = app.lockFileInVaultUseCase,
+                    restoreVaultItemUseCase = app.restoreVaultItemUseCase,
+                    exportVaultItemUseCase = app.exportVaultItemUseCase,
+                    deleteVaultItemUseCase = app.deleteVaultItemUseCase,
+                    vaultAuthUseCase = app.vaultAuthUseCase
+                )
+            )
+            VaultScreen(viewModel = vaultViewModel)
+        }
+        composable(TopLevelDestination.CLEANER.route) {
+            val cleanerViewModel: CleanerViewModel = viewModel(
+                factory = CleanerViewModel.provideFactory(
+                    duplicateCleanerUseCase = app.duplicateCleanerUseCase,
+                    junkCleanerUseCase = app.junkCleanerUseCase,
+                    aiIntelligenceUseCase = app.aiIntelligenceUseCase,
+                    canScanPrimaryStorage = { StoragePermissionGate(app).evaluate().canBrowsePrimaryTree }
+                )
+            )
+            CleanerScreen(viewModel = cleanerViewModel)
+        }
+        composable(TopLevelDestination.SEARCH.route) {
+            val searchViewModel: SearchViewModel = viewModel(
+                factory = SearchViewModel.provideFactory(
+                    searchFilesUseCase = app.searchFilesUseCase,
+                    searchHistoryUseCase = app.searchHistoryUseCase,
+                    tagManagementUseCase = app.tagManagementUseCase,
+                    fileOperationsUseCase = app.fileOperationsUseCase,
+                    searchIndexManagementUseCase = app.searchIndexManagementUseCase,
+                    semanticSearchUseCase = app.semanticSearchUseCase,
+                    aiIntelligenceUseCase = app.aiIntelligenceUseCase
+                )
+            )
+            SearchScreen(viewModel = searchViewModel)
+        }
+        composable(TopLevelDestination.CLOUD.route) {
+            val cloudViewModel: CloudViewModel = viewModel(
+                factory = CloudViewModel.provideFactory(
+                    cloudSyncUseCase = app.cloudSyncUseCase,
+                    googleDriveService = app.googleDriveService
+                )
+            )
+            CloudRoute(
+                viewModel = cloudViewModel,
+                onSignInRequested = onGoogleDriveSignInRequested
+            )
+        }
+        composable(TopLevelDestination.PLUGINS.route) {
+            val pluginsViewModel: PluginsViewModel = viewModel(
+                factory = PluginsViewModel.provideFactory(
+                    ocrPlugin = app.ocrPlugin,
+                    extractTextUseCase = app.extractTextUseCase,
+                    indexOcrTextUseCase = app.indexOcrTextUseCase,
+                    saveOcrTextUseCase = app.saveOcrTextUseCase
+                )
+            )
+            PluginsScreen(viewModel = pluginsViewModel, onNavigateBack = { navController.popBackStack() })
+        }
+        composable(TopLevelDestination.SETTINGS.route) {
+            val firebaseAvailable = com.google.firebase.FirebaseApp.getApps(context).isNotEmpty()
+            val firebaseIdentityConnected = firebaseAvailable &&
+                FirebaseAuth.getInstance().currentUser != null
+            SettingsScreen(
+                initialFirebaseIdentityAvailable = firebaseAvailable,
+                initialFirebaseIdentityConnected = firebaseIdentityConnected,
+                onFirebaseIdentityChange = onFirebaseIdentityChange,
+                initialBiometricEnabled = app.vaultAuthUseCase.isBiometricEnabled(),
+                onBiometricEnabledChange = { enabled, pin ->
+                    if (!enabled) {
+                        app.vaultAuthUseCase.setBiometricEnabled(false)
+                        true
+                    } else {
+                        val strongBiometricAvailable =
+                            BiometricManager.from(context).canAuthenticate(
+                                BiometricManager.Authenticators.BIOMETRIC_STRONG
+                            ) == BiometricManager.BIOMETRIC_SUCCESS
+                        val vaultConfigured = app.vaultAuthUseCase.isVaultConfigured()
+                        val enrollmentAuthorized = strongBiometricAvailable && vaultConfigured &&
+                            pin != null && withContext(Dispatchers.IO) {
+                                app.vaultAuthUseCase.verifyPin(pin) &&
+                                    app.vaultAuthUseCase.createVaultBiometricCipher() != null
+                            }
+                        if (canEnableBiometricVault(strongBiometricAvailable, enrollmentAuthorized)) {
+                            app.vaultAuthUseCase.setBiometricEnabled(true)
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                },
+                initialAutoIndexOcr = app.isAutoIndexOcrEnabled(),
+                onAutoIndexOcrChange = { enabled ->
+                    app.setAutoIndexOcrEnabled(enabled)
+                    if (enabled) {
+                        coroutineScope.launch {
+                            app.backgroundSyncManager.triggerImmediateOcrBatch()
+                        }
+                    } else {
+                        app.backgroundSyncManager.cancelOcrBatchWork()
+                    }
+                },
+                initialOfflineOnlyMode = app.isOfflineOnlyModeEnabled(),
+                onOfflineOnlyModeChange = { enabled -> app.setOfflineOnlyModeEnabled(enabled) },
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+    }
+}
+
+/**
+ * Biometric vault enrollment is allowed only when strong biometric hardware is available
+ * and vault PIN verification plus keystore cipher creation both succeed.
+ */
+internal fun canEnableBiometricVault(
+    strongBiometricAvailable: Boolean,
+    enrollmentAuthorized: Boolean
+): Boolean = strongBiometricAvailable && enrollmentAuthorized
