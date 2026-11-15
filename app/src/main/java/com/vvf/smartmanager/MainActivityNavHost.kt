@@ -33,6 +33,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/**
+ * Navigation host for VVF Smart Manager top-level destinations.
+ * Internal to the app module; lives in the same package as MainActivity so
+ * VVFAppContent can call it without public API surface.
+ *
+ * onFirebaseIdentityChange is required for Settings (Worker auth path).
+ * onGoogleDriveSignInRequested is the Activity-scoped higher-order callback;
+ * CloudRoute receives a no-arg lambda that completes the ViewModel sign-in.
+ */
 @Composable
 internal fun VVFNavHost(
     navController: androidx.navigation.NavHostController,
@@ -46,15 +55,30 @@ internal fun VVFNavHost(
     NavHost(
         navController = navController,
         startDestination = TopLevelDestination.EXPLORER.route,
-        enterTransition = { fadeIn(animationSpec = tween(250)) + slideInHorizontally(animationSpec = tween(250), initialOffsetX = { it / 4 }) },
-        exitTransition = { fadeOut(animationSpec = tween(200)) + slideOutHorizontally(animationSpec = tween(200), targetOffsetX = { -it / 4 }) },
-        popEnterTransition = { fadeIn(animationSpec = tween(250)) + slideInHorizontally(animationSpec = tween(250), initialOffsetX = { -it / 4 }) },
-        popExitTransition = { fadeOut(animationSpec = tween(200)) + slideOutHorizontally(animationSpec = tween(200), targetOffsetX = { it / 4 }) },
+        enterTransition = {
+            fadeIn(animationSpec = tween(250)) +
+                slideInHorizontally(animationSpec = tween(250), initialOffsetX = { it / 4 })
+        },
+        exitTransition = {
+            fadeOut(animationSpec = tween(200)) +
+                slideOutHorizontally(animationSpec = tween(200), targetOffsetX = { -it / 4 })
+        },
+        popEnterTransition = {
+            fadeIn(animationSpec = tween(250)) +
+                slideInHorizontally(animationSpec = tween(250), initialOffsetX = { -it / 4 })
+        },
+        popExitTransition = {
+            fadeOut(animationSpec = tween(200)) +
+                slideOutHorizontally(animationSpec = tween(200), targetOffsetX = { it / 4 })
+        },
         modifier = modifier
     ) {
         composable(TopLevelDestination.EXPLORER.route) {
             val explorerViewModel: ExplorerViewModel = viewModel(
                 factory = ExplorerViewModel.provideFactory(
+                    appContext = app,
+                    getDirectoryFilesUseCase = app.getDirectoryFilesUseCase,
+                    getCategorizedFilesUseCase = app.getCategorizedFilesUseCase,
                     getStorageOverviewUseCase = app.getStorageOverviewUseCase,
                     fileOperationsUseCase = app.fileOperationsUseCase,
                     recycleBinUseCase = app.recycleBinUseCase,
@@ -120,9 +144,15 @@ internal fun VVFNavHost(
                     googleDriveService = app.googleDriveService
                 )
             )
+            // CloudRoute expects a no-arg () -> Unit. Bridge the Activity higher-order
+            // callback so the Result is delivered to the ViewModel completion path.
             CloudRoute(
                 viewModel = cloudViewModel,
-                onRequestSignIn = onGoogleDriveSignInRequested
+                onGoogleDriveSignInRequested = {
+                    onGoogleDriveSignInRequested { accessTokenResult ->
+                        cloudViewModel.completeGoogleDriveSignIn(accessTokenResult)
+                    }
+                }
             )
         }
         composable(TopLevelDestination.PLUGINS.route) {
@@ -134,7 +164,10 @@ internal fun VVFNavHost(
                     saveOcrTextUseCase = app.saveOcrTextUseCase
                 )
             )
-            PluginsScreen(viewModel = pluginsViewModel, onNavigateBack = { navController.popBackStack() })
+            PluginsScreen(
+                viewModel = pluginsViewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
         }
         composable(TopLevelDestination.SETTINGS.route) {
             val firebaseAvailable = com.google.firebase.FirebaseApp.getApps(context).isNotEmpty()
@@ -160,6 +193,7 @@ internal fun VVFNavHost(
                                 app.vaultAuthUseCase.verifyPin(pin) &&
                                     app.vaultAuthUseCase.createVaultBiometricCipher() != null
                             }
+                        // Single definition lives in BiometricEnrollmentPolicy.kt
                         if (canEnableBiometricVault(strongBiometricAvailable, enrollmentAuthorized)) {
                             app.vaultAuthUseCase.setBiometricEnabled(true)
                             true
@@ -186,9 +220,3 @@ internal fun VVFNavHost(
         }
     }
 }
-
-/** Strong biometric + vault PIN enrollment gate. */
-internal fun canEnableBiometricVault(
-    strongBiometricAvailable: Boolean,
-    enrollmentAuthorized: Boolean
-): Boolean = strongBiometricAvailable && enrollmentAuthorized
