@@ -35,15 +35,21 @@ import kotlin.coroutines.resume
  * - baseUrl is blank
  *
  * It does not treat a Google Drive / Credential Manager ID token as a Firebase Auth ID token.
+ *
+ * Firebase instances are obtained lazily via providers so pure unit tests of the
+ * fail-closed preconditions never trigger FirebaseApp / Process.myPid.
  */
 class EmbeddingWorkerClient(
     private val baseUrl: String,
     private val isOfflineOnly: () -> Boolean,
     private val isRemoteAiConsentGranted: () -> Boolean,
-    private val firebaseAuth: FirebaseAuth = FirebaseAuth.getInstance(),
-    private val firebaseAppCheck: FirebaseAppCheck = FirebaseAppCheck.getInstance(),
+    private val firebaseAuthProvider: () -> FirebaseAuth = { FirebaseAuth.getInstance() },
+    private val firebaseAppCheckProvider: () -> FirebaseAppCheck = { FirebaseAppCheck.getInstance() },
     private val httpClient: OkHttpClient = defaultClient(),
 ) {
+
+    private val firebaseAuth by lazy { firebaseAuthProvider() }
+    private val firebaseAppCheck by lazy { firebaseAppCheckProvider() }
 
     sealed class Result {
         data class Success(
