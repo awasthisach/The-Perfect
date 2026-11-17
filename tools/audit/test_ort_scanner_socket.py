@@ -71,6 +71,11 @@ class OrtScannerSocketTest(unittest.TestCase):
         self.assertIn(host_socket + ":/ssh.socket", args)
         self.assertIn("SSH_AUTH_SOCK=/ssh.socket", args)
 
+    def test_scan_cache_path_uses_action_input_not_runner_env_context(self):
+        action = ACTION_FILE.read_text(encoding="utf-8")
+        self.assertIn("path: '~/${{ inputs.ort-home-path }}/scanner/'", action)
+        self.assertNotIn("${{ env.HOME}}/${{ env.ORT_HOME_PATH }}", action)
+
 
 if __name__ == "__main__":
     unittest.main()
