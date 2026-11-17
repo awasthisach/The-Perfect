@@ -439,7 +439,7 @@ runs:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       if: contains(inputs.run, 'cache-scan-results') && startsWith(runner.os, 'Linux')
       with:
-        path: '${{ env.HOME}}/${{ env.ORT_HOME_PATH }}/scanner/'
+        path: '~/${{ inputs.ort-home-path }}/scanner/'
         key: ${{ runner.os }}-ort-scan-results-${{ hashFiles('**/*.gradle', '**/*.gradle.kts', '**/gradle.lockfile', 'gradle/libs.versions.toml', '.ort.yml', 'ort-curations.yml', '.github/workflows/nightly-ort.yml', '.github/actions/ort/action.yml') }}
         restore-keys: |
           ${{ runner.os }}-ort-scan-results-
