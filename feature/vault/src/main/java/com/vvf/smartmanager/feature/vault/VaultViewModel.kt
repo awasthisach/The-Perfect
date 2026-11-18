@@ -251,6 +251,15 @@ class VaultViewModel(
                         )
                     }
                 }
+                is com.vvf.smartmanager.core.security.CryptoSecurityManager.VaultAuthResult.CORRUPTED_STATE -> {
+                    _uiState.update {
+                        it.copy(
+                            enteredPin = "",
+                            isPinVerifying = false,
+                            errorMessage = "Vault security metadata is damaged. Unlock is blocked; restore or recover the vault."
+                        )
+                    }
+                }
                 is com.vvf.smartmanager.core.security.CryptoSecurityManager.VaultAuthResult.INVALID_PIN -> {
                     if (result.lockoutSeconds > 0) {
                         _uiState.update { it.copy(isPinVerifying = false) }
@@ -364,7 +373,13 @@ class VaultViewModel(
                             it.copy(
                                 enteredPin = "",
                                 isPinVerifying = false,
-                                errorMessage = "Current PIN is incorrect"
+                                errorMessage = if (
+                                    result is com.vvf.smartmanager.core.security.CryptoSecurityManager.VaultAuthResult.CORRUPTED_STATE
+                                ) {
+                                    "Vault security metadata is damaged. PIN change is blocked; recover the vault first."
+                                } else {
+                                    "Current PIN is incorrect"
+                                }
                             )
                         }
                     }
@@ -688,6 +703,10 @@ class VaultViewModel(
             } else if (result is com.vvf.smartmanager.core.security.CryptoSecurityManager.VaultAuthResult.INVALID_PIN) {
                 _uiState.update { it.copy(failedAttempts = result.failedAttempts) }
                 if (result.lockoutSeconds > 0) startLockoutTimer(result.lockoutSeconds)
+            } else if (result is com.vvf.smartmanager.core.security.CryptoSecurityManager.VaultAuthResult.CORRUPTED_STATE) {
+                _uiState.update {
+                    it.copy(errorMessage = "Vault security metadata is damaged. Biometric enrollment is blocked.")
+                }
             }
             return false
         }

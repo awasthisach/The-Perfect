@@ -2,6 +2,7 @@ package com.vvf.smartmanager.core.security
 
 import android.content.Context
 import android.os.SystemClock
+import android.util.Log
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -52,6 +53,7 @@ class CryptoSecurityManager(
         private const val DB_PASSPHRASE_TEMP_SUFFIX = ".tmp"
         private const val DB_PASSPHRASE_FORMAT_VERSION: Byte = 2
         private const val PBKDF2_ITERATIONS = 600_000
+        private const val TAG = "CryptoSecurity"
         private const val LOCKOUT_STATE_KEY = "vault_lockout_state_v2"
         private const val LOCKOUT_STATE_IV_KEY = "vault_lockout_state_v2_iv"
         private val memoryKeyMap = mutableMapOf<String, SecretKey>()
@@ -427,6 +429,7 @@ class CryptoSecurityManager(
         data class INVALID_PIN(val failedAttempts: Int, val lockoutSeconds: Int) : VaultAuthResult
         data class LOCKED_OUT(val remainingSeconds: Int) : VaultAuthResult
         data object INVALID_FORMAT : VaultAuthResult
+        data object CORRUPTED_STATE : VaultAuthResult
     }
 
     private val prefs by lazy { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
@@ -530,7 +533,8 @@ class CryptoSecurityManager(
 
     fun setupDecoyPin(decoyPin: String): Boolean {
         if (!isValidPinFormat(decoyPin)) return false
-        if (matchesRealPin(decoyPin)) return false
+        // Refuse to configure a decoy if the real credential cannot be verified.
+        if (matchesRealPin(decoyPin) != PinMatch.NO_MATCH) return false
         val salt = ByteArray(16); SecureRandom().nextBytes(salt)
         val hash = hashPin(decoyPin, salt)
         val (encHash, hashIv) = encryptBytes(hash, alias = VAULT_META_KEY_ALIAS)
@@ -552,30 +556,89 @@ class CryptoSecurityManager(
 
     fun verifyVaultPin(pin: String): Boolean = verifyVaultPinWithResult(pin) == VaultAuthResult.SUCCESS_REAL
     fun verifyDecoyPin(pin: String): Boolean = verifyVaultPinWithResult(pin) == VaultAuthResult.SUCCESS_DECOY
-    fun isSameAsVaultPin(pin: String): Boolean = isValidPinFormat(pin) && matchesRealPin(pin)
+    fun isSameAsVaultPin(pin: String): Boolean =
+        isValidPinFormat(pin) && matchesRealPin(pin) == PinMatch.MATCH
 
     fun verifyVaultPinWithResult(pin: String): VaultAuthResult {
         if (!isValidPinFormat(pin)) return VaultAuthResult.INVALID_FORMAT
-        val remainingLockout = getRemainingLockoutSeconds()
+        val remainingLockout = try {
+            getRemainingLockoutSeconds()
+        } catch (error: Exception) {
+            Log.e(TAG, "Vault lockout metadata could not be authenticated; PIN unlock is blocked", error)
+            return VaultAuthResult.CORRUPTED_STATE
+        }
         if (remainingLockout > 0) return VaultAuthResult.LOCKED_OUT(remainingLockout)
-        if (matchesRealPin(pin)) { resetFailedAttempts(); return VaultAuthResult.SUCCESS_REAL }
-        if (matchesDecoyPin(pin)) { resetFailedAttempts(); return VaultAuthResult.SUCCESS_DECOY }
+
+        when (matchesRealPin(pin)) {
+            PinMatch.MATCH -> { resetFailedAttempts(); return VaultAuthResult.SUCCESS_REAL }
+            PinMatch.CORRUPTED -> return VaultAuthResult.CORRUPTED_STATE
+            PinMatch.NO_MATCH -> Unit
+        }
+        when (matchesDecoyPin(pin)) {
+            PinMatch.MATCH -> { resetFailedAttempts(); return VaultAuthResult.SUCCESS_DECOY }
+            PinMatch.CORRUPTED -> return VaultAuthResult.CORRUPTED_STATE
+            PinMatch.NO_MATCH -> Unit
+        }
         return recordFailedAttempt()
     }
 
-    private fun matchesRealPin(pin: String): Boolean = matchesStoredPin(pin, "vault_pin_hash", "vault_pin_hash_iv", "vault_pin_salt", "vault_pin_salt_iv")
-    private fun matchesDecoyPin(pin: String): Boolean = matchesStoredPin(pin, "vault_decoy_pin_hash", "vault_decoy_pin_hash_iv", "vault_decoy_pin_salt", "vault_decoy_pin_salt_iv")
+    private enum class PinMatch { MATCH, NO_MATCH, CORRUPTED }
 
-    private fun matchesStoredPin(pin: String, hashKey: String, hashIvKey: String, saltKey: String, saltIvKey: String): Boolean {
-        val hash = prefs.getString(hashKey, null) ?: return false
-        val hashIv = prefs.getString(hashIvKey, null) ?: return false
-        val salt = prefs.getString(saltKey, null) ?: return false
-        val saltIv = prefs.getString(saltIvKey, null) ?: return false
+    private fun matchesRealPin(pin: String): PinMatch =
+        matchesStoredPin(pin, "vault_pin_hash", "vault_pin_hash_iv", "vault_pin_salt", "vault_pin_salt_iv", "real")
+
+    private fun matchesDecoyPin(pin: String): PinMatch =
+        matchesStoredPin(pin, "vault_decoy_pin_hash", "vault_decoy_pin_hash_iv", "vault_decoy_pin_salt", "vault_decoy_pin_salt_iv", "decoy")
+
+    private fun matchesStoredPin(
+        pin: String,
+        hashKey: String,
+        hashIvKey: String,
+        saltKey: String,
+        saltIvKey: String,
+        credentialLabel: String
+    ): PinMatch {
+        val encodedValues = listOf(
+            prefs.getString(hashKey, null),
+            prefs.getString(hashIvKey, null),
+            prefs.getString(saltKey, null),
+            prefs.getString(saltIvKey, null)
+        )
+        if (encodedValues.all { it == null }) return PinMatch.NO_MATCH
+        if (encodedValues.any { it.isNullOrBlank() }) {
+            Log.e(TAG, "Stored $credentialLabel PIN metadata is incomplete; unlock is blocked")
+            return PinMatch.CORRUPTED
+        }
+
+        var expectedHash: ByteArray? = null
+        var decodedSalt: ByteArray? = null
+        var computedHash: ByteArray? = null
         return try {
-            val expectedHash = decryptBytes(Base64.decode(hash, Base64.NO_WRAP), Base64.decode(hashIv, Base64.NO_WRAP), VAULT_META_KEY_ALIAS)
-            val decodedSalt = decryptBytes(Base64.decode(salt, Base64.NO_WRAP), Base64.decode(saltIv, Base64.NO_WRAP), VAULT_META_KEY_ALIAS)
-            MessageDigest.isEqual(expectedHash, hashPin(pin, decodedSalt))
-        } catch (_: Exception) { false }
+            val encryptedHash = Base64.decode(encodedValues[0]!!, Base64.NO_WRAP)
+            val hashIv = Base64.decode(encodedValues[1]!!, Base64.NO_WRAP)
+            val encryptedSalt = Base64.decode(encodedValues[2]!!, Base64.NO_WRAP)
+            val saltIv = Base64.decode(encodedValues[3]!!, Base64.NO_WRAP)
+            require(hashIv.size == GCM_IV_LENGTH_BYTES && saltIv.size == GCM_IV_LENGTH_BYTES) {
+                "Stored PIN metadata has an invalid IV length"
+            }
+            require(encryptedHash.size >= 16 && encryptedSalt.size >= 16) {
+                "Stored PIN metadata ciphertext is truncated"
+            }
+            expectedHash = decryptBytes(encryptedHash, hashIv, VAULT_META_KEY_ALIAS)
+            decodedSalt = decryptBytes(encryptedSalt, saltIv, VAULT_META_KEY_ALIAS)
+            require(expectedHash.size == 32 && decodedSalt.size == 16) {
+                "Stored PIN metadata has an invalid plaintext length"
+            }
+            computedHash = hashPin(pin, decodedSalt)
+            if (MessageDigest.isEqual(expectedHash, computedHash)) PinMatch.MATCH else PinMatch.NO_MATCH
+        } catch (error: Exception) {
+            Log.e(TAG, "Stored $credentialLabel PIN metadata failed decoding or authentication; unlock is blocked", error)
+            PinMatch.CORRUPTED
+        } finally {
+            expectedHash?.fill(0)
+            decodedSalt?.fill(0)
+            computedHash?.fill(0)
+        }
     }
 
     fun changeVaultPin(oldPin: String, newPin: String): Boolean {

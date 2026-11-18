@@ -153,6 +153,32 @@ class GoogleDriveServiceImplTest {
         val api = DriveNetwork.createApi(debugLogging = false)
         assertTrue(api != null)
     }
+
+    @Test
+    fun driveModifiedTime_acceptsRfc3339UtcAndOffsetWithFractionalSeconds() {
+        val utc = parseDriveTimeMillis("2026-11-18T12:34:56Z")
+        val offset = parseDriveTimeMillis("2026-11-18T12:34:56.123456+05:30")
+
+        assertEquals(java.time.Instant.parse("2026-11-18T12:34:56Z").toEpochMilli(), utc)
+        assertEquals(
+            java.time.OffsetDateTime.parse("2026-11-18T12:34:56.123456+05:30")
+                .toInstant().toEpochMilli(),
+            offset
+        )
+    }
+
+    @Test
+    fun driveModifiedTime_rejectsMissingMalformedAndInvalidCalendarValues() {
+        listOf(null, "", "2026-11-18 12:34:56", "2026-02-30T12:34:56Z").forEach { value ->
+            try {
+                parseDriveTimeMillis(value)
+                throw AssertionError("Expected invalid modifiedTime to be rejected: $value")
+            } catch (expected: IllegalArgumentException) {
+                assertTrue(expected.message.orEmpty().contains("modifiedTime"))
+            }
+        }
+    }
+
     @Test
     fun listCloudBackups_countsEntriesWithoutValidChecksumAndExcludesThemFromRestoreList() = runBlocking {
         val validChecksum = "a".repeat(64)
@@ -160,15 +186,17 @@ class GoogleDriveServiceImplTest {
             responses = mutableListOf(
                 DriveFileListResponse(
                     files = listOf(
-                        DriveFileDto(id = "legacy-missing", name = "old-missing.vvfbak"),
+                        DriveFileDto(id = "legacy-missing", name = "old-missing.vvfbak", modifiedTime = "2026-11-18T12:34:56Z"),
                         DriveFileDto(
                             id = "legacy-invalid",
                             name = "old-invalid.vvfbak",
+                            modifiedTime = "2026-11-18T12:34:56Z",
                             appProperties = mapOf("vvf_sha256" to "not-a-checksum")
                         ),
                         DriveFileDto(
                             id = "valid",
                             name = "valid.vvfbak",
+                            modifiedTime = "2026-11-18T12:34:56Z",
                             appProperties = mapOf("vvf_sha256" to validChecksum)
                         )
                     )
@@ -196,17 +224,18 @@ class GoogleDriveServiceImplTest {
             responses = mutableListOf(
                 DriveFileListResponse(
                     files = listOf(
-                        DriveFileDto(id = "valid-page-one", name = "one.vvfbak",
+                        DriveFileDto(id = "valid-page-one", name = "one.vvfbak", modifiedTime = "2026-11-18T12:34:56Z",
                             appProperties = mapOf("vvf_sha256" to checksum)),
-                        DriveFileDto(id = "legacy-page-one", name = "old-one.vvfbak")
+                        DriveFileDto(id = "legacy-page-one", name = "old-one.vvfbak", modifiedTime = "2026-11-18T12:34:56Z")
                     ),
                     nextPageToken = "page-two"
                 ),
                 DriveFileListResponse(
                     files = listOf(
-                        DriveFileDto(id = "valid-page-two", name = "two.vvfbak",
+                        DriveFileDto(id = "valid-page-two", name = "two.vvfbak", modifiedTime = "2026-11-18T12:34:56Z",
                             appProperties = mapOf("vvf_sha256" to checksum)),
                         DriveFileDto(id = "legacy-page-two", name = "old-two.vvfbak",
+                            modifiedTime = "2026-11-18T12:34:56Z",
                             appProperties = mapOf("vvf_sha256" to "invalid"))
                     )
                 )
@@ -240,6 +269,7 @@ class GoogleDriveServiceImplTest {
             return DriveFileDto(
                 id = "backup-$index",
                 name = "backup-$index.vvfbak",
+                modifiedTime = "2026-11-18T12:34:56Z",
                 appProperties = properties
             )
         }

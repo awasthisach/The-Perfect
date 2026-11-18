@@ -180,6 +180,48 @@ class CryptoSecurityManagerTest {
         assertTrue(prefs.contains("vault_lockout_state_v2"))
     }
 
+
+    @Test
+    fun corruptedRealPinMetadataDoesNotCountAsAnIncorrectPin() {
+        val isolated = isolatedContext()
+        val manager = CryptoSecurityManager(isolated, "Robolectric")
+        assertTrue(manager.setupVaultPin("482951"))
+        isolated.getSharedPreferences("vvf_secure_vault_prefs", Context.MODE_PRIVATE)
+            .edit().putString("vault_pin_hash", "%%%").commit()
+
+        val result = manager.verifyVaultPinWithResult("000000")
+
+        assertEquals(CryptoSecurityManager.VaultAuthResult.CORRUPTED_STATE, result)
+        assertEquals(0, manager.getFailedAttemptsCount())
+    }
+
+    @Test
+    fun incompleteDecoyPinMetadataBlocksUnlockWithoutIncreasingFailedAttempts() {
+        val isolated = isolatedContext()
+        val manager = CryptoSecurityManager(isolated, "Robolectric")
+        assertTrue(manager.setupVaultPin("482951"))
+        assertTrue(manager.setupDecoyPin("135790"))
+        isolated.getSharedPreferences("vvf_secure_vault_prefs", Context.MODE_PRIVATE)
+            .edit().remove("vault_decoy_pin_salt_iv").commit()
+
+        val result = manager.verifyVaultPinWithResult("000000")
+
+        assertEquals(CryptoSecurityManager.VaultAuthResult.CORRUPTED_STATE, result)
+        assertEquals(0, manager.getFailedAttemptsCount())
+    }
+
+    @Test
+    fun genuineIncorrectPinStillIncrementsFailedAttemptCount() {
+        val isolated = isolatedContext()
+        val manager = CryptoSecurityManager(isolated, "Robolectric")
+        assertTrue(manager.setupVaultPin("482951"))
+
+        val result = manager.verifyVaultPinWithResult("000000")
+
+        assertTrue(result is CryptoSecurityManager.VaultAuthResult.INVALID_PIN)
+        assertEquals(1, manager.getFailedAttemptsCount())
+    }
+
     @Test
     fun portableBackupEncryptionWorksWithoutDeviceKeystoreKey() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()

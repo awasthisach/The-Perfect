@@ -40,6 +40,42 @@ open_findings:
     related_issue: 141
     last_updated: "2026-11-03"
 
+  - id: PROD-011
+    severity: medium
+    title: Biometric authorization key invalidation needs explicit recovery handling
+    status: open
+    notes: >
+      The biometric authorization cipher previously swallowed all exceptions. The candidate
+      adds a dedicated invalidated-key cleanup path and provider-injected unit tests. Physical
+      biometric enrollment-change testing is still required before closure.
+    residual_risk: medium
+    related_issue: 141
+    last_updated: "2026-11-18"
+
+  - id: PROD-012
+    severity: medium
+    title: Corrupted encrypted PIN metadata must not be treated as an incorrect PIN
+    status: open
+    notes: >
+      PIN verification now distinguishes a genuine mismatch from incomplete or unauthenticated
+      stored metadata and fails closed without increasing the incorrect-PIN counter. CI evidence
+      and recovery UX validation are required before closure.
+    residual_risk: medium
+    related_issue: 141
+    last_updated: "2026-11-18"
+
+  - id: PROD-013
+    severity: low
+    title: Google Drive modifiedTime must be parsed as strict RFC 3339
+    status: open
+    notes: >
+      The previous parser accepted only narrow UTC patterns and substituted epoch zero on
+      failure. The candidate uses strict timezone-aware parsing and rejects missing or malformed
+      values rather than presenting a false timestamp.
+    residual_risk: low
+    related_issue: 141
+    last_updated: "2026-11-18"
+
 closed_findings:
   - id: PROD-001
     severity: high

@@ -19,9 +19,9 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import java.text.ParsePosition
 import java.text.SimpleDateFormat
 import java.util.Locale
-import java.util.TimeZone
 
 /**
  * Google Drive v3 REST implementation.
@@ -309,7 +309,7 @@ class GoogleDriveServiceImpl(
                         ?: return@mapNotNull null
                     com.vvf.smartmanager.core.model.CloudBackupInfo(
                         backupId = id,
-                        timestamp = parseDriveTime(dto.modifiedTime),
+                        timestamp = parseDriveTimeMillis(dto.modifiedTime),
                         backupName = dto.name.orEmpty(),
                         backupSizeBytes = dto.size?.toLongOrNull() ?: 0L,
                         checksumSha256 = checksum.lowercase()
@@ -459,26 +459,33 @@ class GoogleDriveServiceImpl(
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
-    private fun parseDriveTime(iso: String?): Long {
-        if (iso.isNullOrBlank()) return 0L
-        return try {
-            val fmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
-                timeZone = TimeZone.getTimeZone("UTC")
-            }
-            fmt.parse(iso)?.time ?: 0L
-        } catch (_: Exception) {
-            try {
-                val fmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
-                    timeZone = TimeZone.getTimeZone("UTC")
-                }
-                fmt.parse(iso)?.time ?: 0L
-            } catch (_: Exception) {
-                0L
-            }
-        }
-    }
 }
 
+
+/**
+ * Parse Drive's RFC 3339 modifiedTime strictly. SimpleDateFormat is retained for API 24
+ * compatibility; fractions are normalized to milliseconds for the Long epoch-ms model.
+ * Missing or malformed timestamps fail the listing instead of masquerading as 1970-01-01.
+ */
+internal fun parseDriveTimeMillis(value: String?): Long {
+    require(!value.isNullOrBlank()) { "Google Drive modifiedTime is missing" }
+    val match = DRIVE_RFC3339_PATTERN.matchEntire(value)
+        ?: throw IllegalArgumentException("Google Drive modifiedTime is not RFC 3339")
+    val fraction = match.groupValues[2].padEnd(3, '0').take(3)
+    val normalized = "${match.groupValues[1]}.${fraction}${match.groupValues[3]}"
+    val formatter = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.US).apply {
+        isLenient = false
+    }
+    val position = ParsePosition(0)
+    val parsed = formatter.parse(normalized, position)
+    require(parsed != null && position.index == normalized.length) {
+        "Google Drive modifiedTime is invalid"
+    }
+    return parsed.time
+}
+
+private val DRIVE_RFC3339_PATTERN =
+    Regex("""^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:[.]([0-9]+))?(Z|[+][0-9]{2}:[0-9]{2}|-[0-9]{2}:[0-9]{2})$""")
 
 /** Builds valid Drive v3 upload metadata with JSON-safe values. */
 internal fun buildDriveUploadMetadataJson(
