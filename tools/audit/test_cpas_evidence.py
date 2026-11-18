@@ -121,8 +121,29 @@ class CpasEvidenceTests(unittest.TestCase):
                     "entries": [fixed, entry],
                 }),
             )
+            # Synthetic current-run artifact attestation required by the production gate.
+            candidate_sha = "a" * 40
+            write("instrumented-stage-status.json", json.dumps({
+                "status": "PASS",
+                "candidate_sha": candidate_sha,
+                "event": "pull_request",
+                "run_id": "123456",
+                "job_id": "654321",
+                "artifact_id": 987654,
+                "artifact_name": f"sqlcipher-instrumented-{candidate_sha}",
+                "artifact_digest": "sha256:" + "c" * 64,
+                "modules": {
+                    "app": {"tests": 4, "failures": 0, "errors": 0, "skipped": 0},
+                    "core/database": {"tests": 3, "failures": 0, "errors": 0, "skipped": 0},
+                    "core/database-compat": {"tests": 3, "failures": 0, "errors": 0, "skipped": 0},
+                },
+            }))
             proc = subprocess.run(
-                [sys.executable, str(VERIFY), "--root", str(root)],
+                [
+                    sys.executable, str(VERIFY), "--root", str(root),
+                    "--candidate-sha", candidate_sha,
+                    "--candidate-event", "pull_request",
+                ],
                 capture_output=True,
                 text=True,
             )
