@@ -113,9 +113,6 @@ class PrimaryStorageIndexReconcilerTest {
             IndexedSourceAccessState.AVAILABLE.name,
             database.sourceFileRecordDao().getByIdentityKey(currentIdentity.stableKey)?.accessState
         )
-        val staleIdentity = SourceFileIdentity(
-            FileSourceType.INTERNAL_STORAGE, "primary", stalePath
-        )
         assertEquals(
             IndexedSourceAccessState.SOURCE_REMOVED.name,
             database.sourceFileRecordDao().getByIdentityKey(staleIdentity.stableKey)?.accessState
