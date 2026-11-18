@@ -2,18 +2,34 @@ package com.vvf.smartmanager.core.background
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import androidx.work.ExistingWorkPolicy
 import androidx.work.ListenableWorker
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import androidx.work.testing.TestListenableWorkerBuilder
+import androidx.work.testing.WorkManagerTestInitHelper
 import com.vvf.smartmanager.core.background.workers.CloudBackupWorker
 import com.vvf.smartmanager.core.background.workers.FileIndexingWorker
+import com.vvf.smartmanager.core.background.workers.FileIndexingRuntime
+import com.vvf.smartmanager.core.background.workers.FileIndexingOutcome
+import com.vvf.smartmanager.core.background.workers.IndexingAndOcrCoordinatorWorker
 import com.vvf.smartmanager.core.background.workers.JunkScanWorker
 import com.vvf.smartmanager.core.background.workers.OcrBatchWorker
+import kotlinx.coroutines.CancellationException
+import com.vvf.smartmanager.core.background.workers.OcrBatchOutcome
+import com.vvf.smartmanager.core.background.workers.OcrBatchRuntime
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.fail
+import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.concurrent.TimeUnit
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
@@ -27,7 +43,34 @@ class BackgroundSyncManagerTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
+        WorkManagerTestInitHelper.initializeTestWorkManager(context)
+        FileIndexingRuntime.configure { FileIndexingOutcome.Completed(0) }
+        OcrBatchRuntime.configure { OcrBatchOutcome.Completed(0, hasMoreCandidates = false, failedCount = 0) }
         syncManager = BackgroundSyncManager(context)
+    }
+
+    @After
+    fun tearDown() {
+        WorkManagerTestInitHelper.closeWorkDatabase()
+    }
+
+
+    private suspend fun awaitOcrWorkToFinish() {
+        val workManager = WorkManager.getInstance(context)
+        val infos = workManager
+            .getWorkInfosForUniqueWork(BackgroundConstants.UNIQUE_IMMEDIATE_OCR_BATCH_WORK)
+            .get()
+        assertEquals(1, infos.size)
+        withTimeout(10_000) {
+            while (true) {
+                val info = workManager.getWorkInfoById(infos.single().id).get()
+                if (info?.state?.isFinished == true) {
+                    assertEquals(androidx.work.WorkInfo.State.SUCCEEDED, info.state)
+                    return@withTimeout
+                }
+                delay(10)
+            }
+        }
     }
 
     @Test
@@ -41,11 +84,152 @@ class BackgroundSyncManagerTest {
         syncManager.schedulePeriodicIndexing(intervalHours = 6)
         syncManager.schedulePeriodicCloudBackup(intervalHours = 24, wifiOnly = true, chargingOnly = true)
         syncManager.schedulePeriodicJunkScan(intervalHours = 12)
+        syncManager.schedulePeriodicOcrBatch(intervalHours = 6)
 
         syncManager.triggerImmediateIndexing()
         syncManager.triggerImmediateBackup(includeVault = false)
-        syncManager.triggerImmediateOcrBatch()
+        runBlocking { syncManager.triggerImmediateOcrBatch() }
+        val ocrWork = WorkManager.getInstance(context)
+            .getWorkInfosForUniqueWork(BackgroundConstants.UNIQUE_IMMEDIATE_OCR_BATCH_WORK).get()
+        assertEquals(1, ocrWork.size)
+        syncManager.triggerImmediateIndexingThenOcr()
 
         syncManager.cancelAllScheduledWork()
     }
+    @Test
+    fun immediateOcrBatchFailsClosedWhenWorkManagerIsUnavailable() = runBlocking {
+        val unavailableManager = BackgroundSyncManager(context) { null }
+        try {
+            unavailableManager.triggerImmediateOcrBatch()
+            fail("OCR scheduling must not silently succeed without WorkManager")
+        } catch (expected: IllegalStateException) {
+            assertTrue(expected.message.orEmpty().contains("refusing to drop"))
+        }
+    }
+
+    @Test
+    fun fileIndexingWorkerPropagatesCancellationAtFirstAndLastRetryAttempt() = runBlocking {
+        for (attemptCount in listOf(0, 3)) {
+            FileIndexingRuntime.configure {
+                throw CancellationException("test cancellation at attempt $attemptCount")
+            }
+            val worker = TestListenableWorkerBuilder<FileIndexingWorker>(
+                context,
+                runAttemptCount = attemptCount
+            ).build()
+
+            try {
+                worker.doWork()
+                fail("Expected CancellationException to propagate at attempt $attemptCount")
+            } catch (cancelled: CancellationException) {
+                assertEquals("test cancellation at attempt $attemptCount", cancelled.message)
+            }
+        }
+    }
+
+    @Test
+    fun ocrWorkerSchedulesFreshBoundedPassWithoutRetryBackoff() = runBlocking {
+        var passes = 0
+        var continuationsScheduled = 0
+        OcrBatchRuntime.configure(scheduleContinuation = { continuationsScheduled++ }) {
+            passes++
+            if (passes == 1) {
+                OcrBatchOutcome.Completed(38, hasMoreCandidates = true, failedCount = 2)
+            } else {
+                OcrBatchOutcome.Completed(7, hasMoreCandidates = false, failedCount = 1)
+            }
+        }
+
+        val firstResult = TestListenableWorkerBuilder<OcrBatchWorker>(context).build().doWork()
+        assertTrue("Expected first bounded pass to succeed, got: $firstResult", firstResult is ListenableWorker.Result.Success)
+        assertEquals(1, passes)
+        assertEquals(1, continuationsScheduled)
+        assertEquals(38, (firstResult as ListenableWorker.Result.Success).outputData.getInt("processed_count", -1))
+        assertEquals(2, firstResult.outputData.getInt("deferred_count", -1))
+
+        val secondResult = TestListenableWorkerBuilder<OcrBatchWorker>(context).build().doWork()
+        assertTrue("Expected separately scheduled pass to succeed, got: $secondResult", secondResult is ListenableWorker.Result.Success)
+        assertEquals(2, passes)
+        assertEquals(1, continuationsScheduled)
+        assertEquals(7, (secondResult as ListenableWorker.Result.Success).outputData.getInt("processed_count", -1))
+        assertEquals(1, secondResult.outputData.getInt("deferred_count", -1))
+    }
+
+    @Test
+    fun ocrWorkerCompletesWhenNoFurtherCandidatesRemain() = runBlocking {
+        OcrBatchRuntime.configure {
+            OcrBatchOutcome.Completed(
+                processedCount = 7,
+                hasMoreCandidates = false,
+                failedCount = 1
+            )
+        }
+
+        val worker = TestListenableWorkerBuilder<OcrBatchWorker>(context).build()
+        val result = worker.doWork()
+
+        assertTrue("Expected success result, got: $result", result is ListenableWorker.Result.Success)
+        assertEquals(7, (result as ListenableWorker.Result.Success).outputData.getInt("processed_count", -1))
+        assertEquals(1, (result as ListenableWorker.Result.Success).outputData.getInt("deferred_count", -1))
+    }
+
+    @Test
+    fun coordinatorSchedulesOcrEvenWhenIndexingFailsPermanently() = runBlocking {
+        FileIndexingRuntime.configure { FileIndexingOutcome.PermanentFailure("scan failed") }
+        var ocrPasses = 0
+        OcrBatchRuntime.configure {
+            ocrPasses++
+            OcrBatchOutcome.Completed(2, hasMoreCandidates = false, failedCount = 0)
+        }
+
+        val worker = TestListenableWorkerBuilder<IndexingAndOcrCoordinatorWorker>(context).build()
+        val result = worker.doWork()
+
+        assertTrue("Expected indexing failure, got: $result", result is ListenableWorker.Result.Failure)
+        val queuedOcr = WorkManager.getInstance(context)
+            .getWorkInfosForUniqueWork(BackgroundConstants.UNIQUE_IMMEDIATE_OCR_BATCH_WORK).get()
+        assertEquals(1, queuedOcr.size)
+        awaitOcrWorkToFinish()
+        assertEquals(1, ocrPasses)
+    }
+
+    @Test
+    fun coordinatorSchedulesOcrAfterSuccessfulIndexing() = runBlocking {
+        FileIndexingRuntime.configure { FileIndexingOutcome.Completed(3) }
+        var ocrPasses = 0
+        OcrBatchRuntime.configure {
+            ocrPasses++
+            OcrBatchOutcome.Completed(1, hasMoreCandidates = false, failedCount = 0)
+        }
+
+        val worker = TestListenableWorkerBuilder<IndexingAndOcrCoordinatorWorker>(context).build()
+        val result = worker.doWork()
+
+        assertTrue("Expected success result, got: $result", result is ListenableWorker.Result.Success)
+        val queuedOcr = WorkManager.getInstance(context)
+            .getWorkInfosForUniqueWork(BackgroundConstants.UNIQUE_IMMEDIATE_OCR_BATCH_WORK).get()
+        assertEquals(1, queuedOcr.size)
+        awaitOcrWorkToFinish()
+        assertEquals(1, ocrPasses)
+        assertEquals(3, (result as ListenableWorker.Result.Success).outputData.getInt("indexed_count", -1))
+    }
+
+    @Test
+    fun permissionRescanRequestIsAppendedInsteadOfDroppedWhenOldWorkIsPending() = runBlocking {
+        val workManager = WorkManager.getInstance(context)
+        val existing = OneTimeWorkRequestBuilder<IndexingAndOcrCoordinatorWorker>()
+            .setInitialDelay(1, TimeUnit.DAYS)
+            .build()
+        workManager.enqueueUniqueWork(
+            "immediate_indexing_then_ocr",
+            ExistingWorkPolicy.KEEP,
+            existing
+        ).result.get()
+
+        syncManager.triggerImmediateIndexingThenOcr()
+
+        val queued = workManager.getWorkInfosForUniqueWork("immediate_indexing_then_ocr").get()
+        assertEquals(2, queued.size)
+    }
+
 }

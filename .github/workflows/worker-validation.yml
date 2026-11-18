@@ -1,0 +1,45 @@
+name: Drive Embedding Worker Validation
+on:
+  pull_request:
+    paths:
+      - "cloudflare/drive-semantic-embed/**"
+      - ".github/workflows/deploy-embedding-worker.yml"
+      - ".github/workflows/worker-validation.yml"
+  push:
+    branches: [main, "integration/project-completion-2026-11-05"]
+    paths:
+      - "cloudflare/drive-semantic-embed/**"
+      - ".github/workflows/deploy-embedding-worker.yml"
+      - ".github/workflows/worker-validation.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: worker-validation-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    name: Worker Security Tests & Bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          package-manager-cache: false
+      - name: Install locked Worker package
+        working-directory: cloudflare/drive-semantic-embed
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Run authentication and input-validation tests
+        working-directory: cloudflare/drive-semantic-embed
+        run: npm test
+      - name: Install pinned Wrangler
+        run: npm install --global wrangler@4.149.0
+      - name: Build Worker without deploying
+        run: wrangler deploy --dry-run --outdir "$RUNNER_TEMP/worker-build" --config cloudflare/drive-semantic-embed/wrangler.toml

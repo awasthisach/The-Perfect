@@ -67,35 +67,169 @@ def required_ledger_fields(entry: object) -> bool:
 
 
 def parse_risks(path: Path) -> list[dict[str, str]]:
-    """Parse both open_findings and closed_findings sections."""
+    """Parse risk entries while retaining their declared section."""
     findings: list[dict[str, str]] = []
     current: dict[str, str] | None = None
+    section: str | None = None
     in_findings_block = False
     for line in path.read_text(encoding="utf-8").splitlines():
-        if re.match(r"^(open_findings|closed_findings):\s*$", line):
+        section_match = re.match(r"^(open_findings|closed_findings):\s*$", line)
+        if section_match:
+            section = section_match.group(1)
             in_findings_block = True
             current = None
             continue
         if in_findings_block and re.match(r"^[a-z_]+:\s*$", line) and not line.startswith(" "):
             in_findings_block = False
             current = None
+            section = None
             continue
-        match = re.match(r"\s*- id:\s*(\S+)", line)
-        if match and in_findings_block:
-            current = {"id": match.group(1)}
+        # Only top-level risk records are parsed; nested note bullets are prose.
+        if in_findings_block and re.match(r"^  -\s+", line):
+            match = re.match(r"^  -\s+id:\s*(\S+)", line)
+            current = {"id": match.group(1) if match else "<missing-id>", "section": section or ""}
             findings.append(current)
             continue
         if current:
             for field in ("severity", "status"):
-                match = re.match(rf"\s*{field}:\s*(\S+)", line)
+                match = re.match(rf"^    {field}:\s*(\S+)", line)
                 if match:
                     current[field] = match.group(1)
+            closed_match = re.match(r"^    closed_at:\s*[\"']?([0-9]{4}-[0-9]{2}-[0-9]{2})[\"']?\s*$", line)
+            if closed_match:
+                current["closed_at"] = closed_match.group(1)
+            evidence_match = re.match(r"^    closure_evidence:\s*\[([^]]*)\]\s*$", line)
+            if evidence_match:
+                current["closure_evidence"] = ",".join(
+                    value.strip() for value in evidence_match.group(1).split(",") if value.strip()
+                )
     return findings
+
+
+def validate_risk_register(findings: list[dict[str, str]]) -> list[str]:
+    """Reject malformed entries that could otherwise evade the critical/high blocker gate."""
+    allowed_severities = {"critical", "high", "medium", "low"}
+    allowed_statuses = {
+        "open", "discovered", "triaged", "reproduced", "root_cause_verified",
+        "repair_implemented", "tested", "ci_verified", "closed",
+    }
+    problems: list[str] = []
+    if not findings:
+        problems.append("risk register contains no findings")
+    seen_ids: set[str] = set()
+    for item in findings:
+        risk_id = item.get("id", "<missing-id>")
+        if not RISK_ID_RE.fullmatch(risk_id):
+            problems.append(f"{risk_id}: missing or invalid risk ID")
+        if risk_id in seen_ids:
+            problems.append(f"{risk_id}: duplicate risk ID")
+        seen_ids.add(risk_id)
+        if item.get("severity") not in allowed_severities:
+            problems.append(f"{risk_id}: missing or invalid severity")
+        if item.get("status") not in allowed_statuses:
+            problems.append(f"{risk_id}: missing or invalid lifecycle status")
+        section = item.get("section")
+        status = item.get("status")
+        if section == "open_findings" and status == "closed":
+            problems.append(f"{risk_id}: closed entry must be moved to closed_findings")
+        if section == "closed_findings" and status != "closed":
+            problems.append(f"{risk_id}: closed_findings entry is not closed")
+        if status == "closed":
+            closed_at = item.get("closed_at", "")
+            try:
+                datetime.strptime(closed_at, "%Y-%m-%d")
+            except ValueError:
+                problems.append(f"{risk_id}: closed entry is missing a valid closed_at date")
+            evidence_ids = [
+                value.strip() for value in item.get("closure_evidence", "").split(",") if value.strip()
+            ]
+            if not evidence_ids or any(not EVIDENCE_ID_RE.fullmatch(value) for value in evidence_ids):
+                problems.append(f"{risk_id}: closed entry is missing valid closure_evidence IDs")
+    return problems
+
+
+def validate_risk_closure_evidence(
+    findings: list[dict[str, str]], valid_evidence_ids: set[str]
+) -> list[str]:
+    """Require every closed risk to reference a PASS evidence-ledger entry."""
+    problems: list[str] = []
+    for item in findings:
+        if item.get("status") != "closed":
+            continue
+        risk_id = item.get("id", "<missing-id>")
+        evidence_ids = [
+            value.strip() for value in item.get("closure_evidence", "").split(",") if value.strip()
+        ]
+        for evidence_id in evidence_ids:
+            if evidence_id not in valid_evidence_ids:
+                problems.append(f"{risk_id}: closure evidence {evidence_id} is absent or not PASS in the evidence ledger")
+    return problems
+
+
+def blocking_risks(findings: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Return critical/high findings that have not reached an evidence-backed closed state."""
+    return [
+        item for item in findings
+        if item.get("severity") in {"critical", "high"} and item.get("status") != "closed"
+    ]
+
+
+def validate_instrumented_stage_status(
+    status: object, candidate_sha: str | None, candidate_event: str | None
+) -> list[str]:
+    """Validate this run's downloaded, exact-SHA artifact provenance before CPAS can PASS."""
+    if not isinstance(status, dict):
+        return ["instrumented stage status is missing or malformed"]
+    problems: list[str] = []
+    if status.get("status") != "PASS":
+        code = str(status.get("status") or "UNKNOWN")
+        detail = str(status.get("detail") or "no staging detail")
+        problems.append(f"current instrumented stage is {code}: {detail}")
+    if not candidate_sha or not SHA_RE.fullmatch(candidate_sha):
+        problems.append("candidate SHA was not supplied as a full commit SHA")
+    elif status.get("candidate_sha") != candidate_sha:
+        problems.append("instrumented artifact candidate SHA does not match CPAS target SHA")
+    if not candidate_event or status.get("event") != candidate_event:
+        problems.append("instrumented artifact event does not match CPAS trigger event")
+    run_id = str(status.get("run_id") or "")
+    if not run_id.isdigit() or int(run_id) <= 0:
+        problems.append("instrumented artifact has no valid producer run ID")
+    job_id = str(status.get("job_id") or "")
+    if not job_id.isdigit() or int(job_id) <= 0:
+        problems.append("instrumented artifact has no valid producer job ID")
+    try:
+        artifact_id = int(status.get("artifact_id"))
+    except (TypeError, ValueError):
+        artifact_id = 0
+    if artifact_id <= 0:
+        problems.append("instrumented artifact has no valid artifact ID")
+    expected_name = f"sqlcipher-instrumented-{candidate_sha}" if candidate_sha else ""
+    if status.get("artifact_name") != expected_name:
+        problems.append("instrumented artifact name does not bind the exact candidate SHA")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(status.get("artifact_digest") or "")):
+        problems.append("instrumented artifact digest is missing or invalid")
+    modules = status.get("modules")
+    if not isinstance(modules, dict):
+        problems.append("instrumented report module counts are missing")
+    else:
+        for module in ("app", "core/database", "core/database-compat"):
+            counts = modules.get(module)
+            if not isinstance(counts, dict):
+                problems.append(f"instrumented report counts are missing for {module}")
+                continue
+            if not isinstance(counts.get("tests"), int) or counts["tests"] <= 0:
+                problems.append(f"instrumented report has no tests for {module}")
+            for field in ("failures", "errors", "skipped"):
+                if counts.get(field) != 0:
+                    problems.append(f"instrumented report {module} has {field}={counts.get(field)!r}")
+    return problems
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Verify CPAS assurance contracts")
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument("--candidate-sha")
+    parser.add_argument("--candidate-event")
     return parser.parse_args()
 
 
@@ -119,7 +253,8 @@ def parse_waivers(path: Path) -> list[dict[str, str]]:
 
 
 def main() -> int:
-    root = parse_args().root.resolve()
+    args = parse_args()
+    root = args.root.resolve()
     assurance = root / "docs" / "assurance"
     sheet = assurance / "FINAL_CPAS_SHEET.md"
     risk_path = assurance / "08-risk-register.yaml"
@@ -128,6 +263,7 @@ def main() -> int:
     gate_path = assurance / "09-gate-catalog.yaml"
     tech_path = assurance / "04-technology-registry.yaml"
     ledger_path = assurance / "evidence-ledger.json"
+    instrumented_stage_path = root / "instrumented-stage-status.json"
     output_path = root / "cpas-status.json"
 
     required = [
@@ -181,20 +317,19 @@ def main() -> int:
 
     findings = parse_risks(risk_path) if risk_path.is_file() else []
     invalid_risk_ids = sorted(item["id"] for item in findings if not RISK_ID_RE.fullmatch(item.get("id", "")))
+    risk_register_problems = validate_risk_register(findings)
     checks.append(check("risk_id_grammar", not invalid_risk_ids,
                         "all risk IDs match PROD-NNN" if not invalid_risk_ids else f"invalid risk IDs: {invalid_risk_ids}"))
+    checks.append(check("risk_register_schema", not risk_register_problems,
+                        "risk entries have valid severity, lifecycle, section and closure metadata"
+                        if not risk_register_problems else "; ".join(risk_register_problems)))
 
-    open_blockers = []
-    for item in findings:
-        sev = item.get("severity")
-        st = item.get("status")
-        if sev == "critical" and st != "closed":
-            open_blockers.append(item)
-        elif sev == "high" and st not in {"closed", "ci_verified"}:
-            open_blockers.append(item)
-    checks.append(check("risk_register_gate", not open_blockers,
-                        "no open critical/high findings" if not open_blockers else
-                        "open blockers: " + ", ".join(item["id"] for item in open_blockers)))
+    open_blockers = blocking_risks(findings)
+    checks.append(check("risk_register_gate", not open_blockers and not risk_register_problems,
+                        "no open critical/high findings and register is structurally valid"
+                        if not open_blockers and not risk_register_problems else
+                        "open blockers: " + ", ".join(item["id"] for item in open_blockers) +
+                        ("; invalid entries: " + "; ".join(risk_register_problems) if risk_register_problems else "")))
 
     gate_ids = ids_from_yaml(gate_path) if gate_path.is_file() else []
     invalid_gates = sorted(g for g in gate_ids if not GATE_ID_RE.fullmatch(g))
@@ -242,6 +377,37 @@ def main() -> int:
         except (json.JSONDecodeError, OSError) as exc:
             ledger_detail = f"invalid JSON: {exc}"
     checks.append(check("evidence_ledger_integrity", ledger_ok, ledger_detail))
+
+    stage_status_data: object = None
+    if instrumented_stage_path.is_file():
+        try:
+            stage_status_data = json.loads(instrumented_stage_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            stage_status_data = None
+    stage_problems = validate_instrumented_stage_status(
+        stage_status_data, args.candidate_sha, args.candidate_event
+    )
+    checks.append(check(
+        "instrumented_stage_provenance",
+        not stage_problems,
+        "current exact-SHA artifact, digest, run, job and test reports are verified"
+        if not stage_problems
+        else "; ".join(stage_problems),
+    ))
+
+    valid_evidence_ids = {
+        str(entry.get("id"))
+        for entry in entries
+        if isinstance(entry, dict) and entry.get("result") == "PASS" and required_ledger_fields(entry)
+    } if isinstance(entries, list) else set()
+    closure_evidence_problems = validate_risk_closure_evidence(findings, valid_evidence_ids)
+    checks.append(check(
+        "risk_closure_evidence",
+        not closure_evidence_problems,
+        "all closed risks reference PASS evidence-ledger entries"
+        if not closure_evidence_problems
+        else "; ".join(closure_evidence_problems),
+    ))
 
     # Failed records cannot support production PASS (evidence policy).
     failed_evidence = [
@@ -352,7 +518,14 @@ def main() -> int:
             checks.append(check("ort_sboms_present", False, f"invalid ort-status.json: {exc}"))
 
     instr_stale = True
-    if isinstance(entries, list) and entries:
+    if stage_problems:
+        stage_code = "missing"
+        if isinstance(stage_status_data, dict):
+            stage_code = str(stage_status_data.get("status") or "UNKNOWN")
+        instr_freshness_detail = (
+            f"current exact-SHA stage is {stage_code}; ledger freshness is not used as a substitute"
+        )
+    elif isinstance(entries, list) and entries:
         instr = [
             e for e in entries
             if isinstance(e, dict) and "emulator" in str(e.get("environment", "")).lower()
@@ -368,12 +541,19 @@ def main() -> int:
                 except (KeyError, ValueError):
                     ages.append(999.0)
             instr_stale = all(a > 14.0 for a in ages)
+            instr_freshness_detail = (
+                "instrumented DB evidence within 14 days"
+                if not instr_stale
+                else "no instrumented evidence in 14 days — run weekly hard gate"
+            )
+        else:
+            instr_freshness_detail = "evidence ledger has no emulator record; current exact-SHA artifact is not a ledger substitute"
+    else:
+        instr_freshness_detail = "instrumented evidence ledger is empty; current artifact stage is verified"
     checks.append(check(
         "instrumented_evidence_freshness",
         not instr_stale,
-        "instrumented DB evidence within 14 days"
-        if not instr_stale
-        else "no instrumented evidence in 14 days — run weekly hard gate",
+        instr_freshness_detail,
     ))
 
     build_gradle = root / "app" / "build.gradle.kts"

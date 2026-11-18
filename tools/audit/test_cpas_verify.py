@@ -53,7 +53,11 @@ class CpasVerifySelfTests(unittest.TestCase):
             write(assurance / "07-test-matrix.yaml", "matrix: []\n")
             write(
                 assurance / "08-risk-register.yaml",
-                "open_findings: []\nclosed_findings: []\n",
+                "open_findings:\n"
+                "  - id: PROD-009\n"
+                "    severity: high\n"
+                "    status: ci_verified\n"
+                "closed_findings: []\n",
             )
             write(
                 assurance / "09-gate-catalog.yaml",
@@ -75,6 +79,92 @@ class CpasVerifySelfTests(unittest.TestCase):
             self.assertEqual(status["production_status"]["value"], "BLOCKED")
             checks = {item["name"]: item for item in status["checks"]}
             self.assertEqual(checks["ort_sboms_present"]["status"], "BLOCKED")
+            self.assertEqual(checks["risk_register_gate"]["status"], "BLOCKED")
+            self.assertIn("PROD-009", status["blocking_findings"])
+
+    def test_open_critical_and_high_risks_block_production(self) -> None:
+        """Critical/high findings remain blockers until explicitly closed with evidence."""
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("cpas_verify", VERIFY)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+
+        findings = [
+            {"id": "PROD-008", "severity": "high", "status": "open"},
+            {"id": "PROD-009", "severity": "high", "status": "ci_verified"},
+            {"id": "PROD-010", "severity": "high", "status": "open"},
+            {"id": "PROD-011", "severity": "critical", "status": "triaged"},
+            {"id": "PROD-012", "severity": "high", "status": "closed"},
+        ]
+        blockers = mod.blocking_risks(findings)
+        self.assertEqual(
+            [item["id"] for item in blockers],
+            ["PROD-008", "PROD-009", "PROD-010", "PROD-011"],
+        )
+
+
+    def test_malformed_risk_register_entries_fail_closed(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("cpas_verify", VERIFY)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            risk_path = Path(tmp) / "08-risk-register.yaml"
+            risk_path.write_text(
+                "open_findings:\n"
+                "  - id: PROD-008\n"
+                "    status: open\n"
+                "  - title: Missing identifier\n"
+                "    severity: high\n"
+                "    status: open\n"
+                "    notes: >\n"
+                "      - descriptive note, not a risk record\n"
+                "closed_findings:\n"
+                "  - id: PROD-009\n"
+                "    severity: high\n"
+                "    status: closed\n"
+                "    closed_at: \"2026-99-99\"\n",
+                encoding="utf-8",
+            )
+            findings = mod.parse_risks(risk_path)
+            problems = mod.validate_risk_register(findings)
+
+        self.assertEqual(
+            [item["id"] for item in findings],
+            ["PROD-008", "<missing-id>", "PROD-009"],
+            "nested bullets in folded notes must not be parsed as risk records",
+        )
+        self.assertTrue(any("PROD-008: missing or invalid severity" in item for item in problems))
+        self.assertTrue(any("<missing-id>: missing or invalid risk ID" in item for item in problems))
+        self.assertTrue(any("PROD-009: closed entry is missing a valid closed_at date" in item for item in problems))
+        self.assertTrue(any("PROD-009: closed entry is missing valid closure_evidence IDs" in item for item in problems))
+        self.assertTrue(mod.validate_risk_register([]))
+
+    def test_open_status_is_valid_and_closed_entries_require_real_dates(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("cpas_verify", VERIFY)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+
+        valid_findings = [
+            {"id": "PROD-008", "severity": "high", "status": "open", "section": "open_findings"},
+            {"id": "PROD-001", "severity": "high", "status": "closed",
+             "section": "closed_findings", "closed_at": "2026-09-03", "closure_evidence": "EVID-001"},
+        ]
+        self.assertEqual(mod.validate_risk_register(valid_findings), [])
+        self.assertEqual([item["id"] for item in mod.blocking_risks(valid_findings)], ["PROD-008"])
+        self.assertEqual(
+            mod.validate_risk_closure_evidence(valid_findings, {"EVID-001"}), []
+        )
+        self.assertTrue(mod.validate_risk_closure_evidence(valid_findings, set()))
+
 
     def test_invalid_risk_id_fails_grammar_check(self) -> None:
         self.assertTrue(VERIFY.is_file())
@@ -89,6 +179,51 @@ class CpasVerifySelfTests(unittest.TestCase):
         self.assertFalse(mod.RISK_ID_RE.fullmatch("RISK-002"))
         self.assertTrue(mod.GATE_ID_RE.fullmatch("GATE-LICENSE-001"))
         self.assertFalse(mod.GATE_ID_RE.fullmatch("LICENSE-001"))
+
+    def test_instrumented_stage_requires_exact_sha_run_job_artifact_digest_and_reports(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("cpas_verify_stage", VERIFY)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+
+        valid = {
+            "status": "PASS",
+            "candidate_sha": "a" * 40,
+            "event": "push",
+            "run_id": "12345",
+            "job_id": "67890",
+            "artifact_id": 222,
+            "artifact_name": "sqlcipher-instrumented-" + "a" * 40,
+            "artifact_digest": "sha256:" + "b" * 64,
+            "modules": {
+                "app": {"tests": 4, "failures": 0, "errors": 0, "skipped": 0},
+                "core/database": {"tests": 3, "failures": 0, "errors": 0, "skipped": 0},
+                "core/database-compat": {"tests": 3, "failures": 0, "errors": 0, "skipped": 0},
+            },
+        }
+        self.assertEqual([], mod.validate_instrumented_stage_status(valid, "a" * 40, "push"))
+        self.assertTrue(any("candidate SHA" in item for item in mod.validate_instrumented_stage_status(valid, "c" * 40, "push")))
+        self.assertTrue(any("event" in item for item in mod.validate_instrumented_stage_status(valid, "a" * 40, "pull_request")))
+        self.assertTrue(any("digest" in item for item in mod.validate_instrumented_stage_status(
+            {**valid, "artifact_digest": "missing"}, "a" * 40, "push"
+        )))
+
+    def test_instrumented_api_error_is_not_rewritten_as_missing_freshness(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("cpas_verify_stage_error", VERIFY)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+
+        problems = mod.validate_instrumented_stage_status(
+            {"status": "EVIDENCE_API_ERROR", "candidate_sha": "a" * 40, "event": "push", "detail": "HTTP 502 after retries"},
+            "a" * 40,
+            "push",
+        )
+        self.assertTrue(any("EVIDENCE_API_ERROR" in item and "HTTP 502" in item for item in problems))
 
 
 if __name__ == "__main__":

@@ -89,7 +89,7 @@ open class OcrEnginePlugin(
             val file = temporaryInput ?: File(fileItem.path)
             if (!file.exists() || !file.canRead()) {
                 return@withContext Result.failure(
-                    IllegalArgumentException("File not found or unreadable: ${fileItem.path}")
+                    IllegalArgumentException("File not found or unreadable")
                 )
             }
 
@@ -104,7 +104,7 @@ open class OcrEnginePlugin(
             onProgress?.invoke(OcrProgress(currentStep = "Scan Cancelled", isCancelled = true))
             Result.failure(ce)
         } catch (e: Exception) {
-            Log.e(TAG, "OCR processing failed for ${fileItem.path}", e)
+            Log.e(TAG, "OCR processing failed (${e.javaClass.simpleName})")
             Result.failure(e)
         } finally {
             temporaryInput?.delete()
@@ -145,7 +145,7 @@ open class OcrEnginePlugin(
             try {
                 Tasks.await(latin.process(inputImage)).text.trim()
             } catch (e: Exception) {
-                Log.w(TAG, "Latin OCR failed", e)
+                Log.w(TAG, "Latin OCR failed (${e.javaClass.simpleName})")
                 ""
             }
         }
@@ -153,7 +153,7 @@ open class OcrEnginePlugin(
             try {
                 Tasks.await(devanagari.process(inputImage)).text.trim()
             } catch (e: Exception) {
-                Log.w(TAG, "Devanagari OCR failed", e)
+                Log.w(TAG, "Devanagari OCR failed (${e.javaClass.simpleName})")
                 ""
             }
         }

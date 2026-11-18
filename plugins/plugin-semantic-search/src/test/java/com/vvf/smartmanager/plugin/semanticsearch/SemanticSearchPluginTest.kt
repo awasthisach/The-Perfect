@@ -11,6 +11,18 @@ import org.junit.Test
 class SemanticSearchPluginTest {
 
     @Test
+    fun legacyDownloadHookDoesNotPretendToFetchANeuralModel() = runBlocking {
+        val plugin = SemanticSearchPluginImpl()
+        val progress = mutableListOf<Float>()
+
+        assertTrue(plugin.isModelReady())
+        assertTrue(plugin.downloadModel { progress += it })
+        assertEquals(listOf(1f), progress)
+        assertEquals("plugin.semantic.hashed-text-similarity", plugin.pluginId)
+        assertEquals("On-Device Hashed Text Similarity", plugin.displayName)
+    }
+
+    @Test
     fun testGenerateEmbeddingDimensionAndNormalization() = runBlocking {
         val plugin = SemanticSearchPluginImpl()
         val embedding = plugin.generateEmbedding("Tax Invoice March 2026")

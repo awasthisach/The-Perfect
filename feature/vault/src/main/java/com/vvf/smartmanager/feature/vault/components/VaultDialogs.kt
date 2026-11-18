@@ -53,6 +53,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -841,4 +844,52 @@ fun VaultChangePinDialog(
             }
         }
     }
+}
+
+
+@Composable
+fun VaultBiometricEnrollmentDialog(
+    isVerifying: Boolean,
+    errorMessage: String?,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var pin by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Confirm Master PIN") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Enter your real Vault Master PIN to enable biometric unlock.")
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = { value ->
+                        pin = value.filter(Char::isDigit).take(6)
+                    },
+                    label = { Text("Master PIN") },
+                    singleLine = true,
+                    enabled = !isVerifying,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    isError = errorMessage != null,
+                    modifier = Modifier.fillMaxWidth().testTag("vault_biometric_enrollment_pin")
+                )
+                if (errorMessage != null) {
+                    Text(errorMessage, color = MaterialTheme.colorScheme.error)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(pin) },
+                enabled = !isVerifying && pin.length in 4..6
+            ) {
+                if (isVerifying) CircularProgressIndicator()
+                else Text("Verify & Enable")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isVerifying) { Text("Cancel") }
+        }
+    )
 }

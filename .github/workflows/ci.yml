@@ -13,7 +13,8 @@ permissions:
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   # CI is per-ref and only the newest revision needs a build. Nightly ORT has its own non-cancelling concurrency group.
-  cancel-in-progress: true
+  # Keep an in-flight candidate build; newer pending revisions may supersede pending work.
+  cancel-in-progress: false
 
 env:
   UPLOAD_ARTIFACT_ACTION: b7c566a772e6b6bfb58ed0dc250532a479d7789f
@@ -40,14 +41,67 @@ jobs:
           packages: ""
           accept-android-sdk-licenses: true
       - name: Install required Android SDK components
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"; then
+              exit 0
+            fi
+            echo "::warning::Android SDK installation attempt ${attempt}/3 failed."
+          done
+          echo "::error::Android SDK installation failed after 3 attempts."
+          exit 1
       - name: Create local.properties
         run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
       - name: Generate SQLCipher 4.5.4 compatibility fixture
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y build-essential libssl-dev tcl-dev zlib1g-dev
+
+          # SQLCipher fixture generation needs a compiler, OpenSSL and zlib.
+          # Tcl headers are only needed for SQLite's optional Tcl regression tests,
+          # which this fixture-generation step does not run.
+          missing_packages=()
+          if ! command -v cc >/dev/null 2>&1 || ! command -v make >/dev/null 2>&1; then
+            missing_packages+=(build-essential)
+          fi
+          if [ ! -f /usr/include/openssl/evp.h ]; then
+            missing_packages+=(libssl-dev)
+          fi
+          if ! command -v tclsh >/dev/null 2>&1; then
+            missing_packages+=(tcl)
+          fi
+          if [ ! -f /usr/include/zlib.h ]; then
+            missing_packages+=(zlib1g-dev)
+          fi
+
+          if [ "${#missing_packages[@]}" -gt 0 ]; then
+            dependencies_ready=false
+            for attempt in 1 2 3; do
+              echo "Installing missing SQLCipher build dependencies (attempt ${attempt}/3): ${missing_packages[*]}"
+              if sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 update \
+                && sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 install -y --no-install-recommends "${missing_packages[@]}"; then
+                dependencies_ready=true
+                break
+              fi
+              if [ "$attempt" -lt 3 ]; then
+                sleep "$((attempt * 20))"
+              fi
+            done
+            if [ "$dependencies_ready" != true ]; then
+              echo "::error::Unable to install required SQLCipher build dependencies after 3 attempts."
+              exit 1
+            fi
+          else
+            echo "All SQLCipher build dependencies are already available; skipping apt."
+          fi
+
+          # Do not allow a partial package install to masquerade as a successful setup.
+          command -v cc >/dev/null
+          command -v make >/dev/null
+          command -v tclsh >/dev/null
+          test -f /usr/include/openssl/evp.h
+          test -f /usr/include/zlib.h
+
           mkdir -p core/database-compat/src/androidTest/assets
           curl -fsSL https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz -o /tmp/sqlcipher-4.5.4.tar.gz
           tar -xzf /tmp/sqlcipher-4.5.4.tar.gz -C /tmp
@@ -84,7 +138,7 @@ jobs:
         if: success()
         run: |
           set -euo pipefail
-          python3 tools/audit/generate_evidence.py --commit-sha "${{ github.sha }}" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --environment "github-actions-${{ runner.os }}-unit" --output docs/assurance/cpas-evidence-run.json
+          python3 tools/audit/generate_evidence.py --commit-sha "$(git rev-parse HEAD)" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --environment "github-actions-${{ runner.os }}-unit" --output docs/assurance/cpas-evidence-run.json
       - name: Upload CPAS unit evidence
         if: success()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -143,7 +197,7 @@ jobs:
         if: ${{ steps.emulator.outputs.booted == 'true' && steps.sqlcipher_instrumented.outcome == 'success' }}
         run: |
           set -euo pipefail
-          python3 tools/audit/generate_evidence.py --commit-sha "${{ github.sha }}" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --include-db --environment "github-actions-API35-emulator" --output docs/assurance/cpas-evidence-full.json
+          python3 tools/audit/generate_evidence.py --commit-sha "$(git rev-parse HEAD)" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --include-db --environment "github-actions-API35-emulator" --output docs/assurance/cpas-evidence-full.json
       - name: Publish gate summary
         if: always()
         run: |

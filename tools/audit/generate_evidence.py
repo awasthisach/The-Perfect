@@ -45,6 +45,11 @@ def parse_args() -> argparse.Namespace:
         help="Include DB-INV-001 (use after SQLCipher instrumented tests PASS)",
     )
     parser.add_argument(
+        "--db-only",
+        action="store_true",
+        help="Emit only DB-INV-001; use when the run did not execute the unit-test controls",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         default=None,
@@ -68,6 +73,18 @@ UNIT_TEST_CONTROLS = [
 DB_CONTROL = ("DB-INV-001", "DB-TEST-001")
 
 
+
+def selected_controls(include_db: bool, db_only: bool) -> list[tuple[str, str]]:
+    """Select only controls actually exercised by the generating workflow."""
+    if db_only:
+        if not include_db:
+            raise ValueError("--db-only requires --include-db")
+        return [DB_CONTROL]
+    controls = list(UNIT_TEST_CONTROLS)
+    if include_db:
+        controls.append(DB_CONTROL)
+    return controls
+
 def main() -> int:
     args = parse_args()
     root = args.root.resolve()
@@ -80,9 +97,10 @@ def main() -> int:
     run_id = str(args.run_id)
     job_id = str(args.job_id)
 
-    controls = list(UNIT_TEST_CONTROLS)
-    if args.include_db:
-        controls.append(DB_CONTROL)
+    try:
+        controls = selected_controls(args.include_db, args.db_only)
+    except ValueError as exc:
+        raise SystemExit(str(exc))
 
     entries = []
     for index, (control_id, test_id) in enumerate(controls, start=1):

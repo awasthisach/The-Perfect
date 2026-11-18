@@ -12,7 +12,7 @@
 | File index metadata | Room/SQLCipher | High | Excluded | Paths, hashes, favorites |
 | OAuth tokens (Drive) | App-private | Critical | Excluded | Never log |
 | PIN / decoy vault state | Keystore-backed | Critical | Excluded | Lockout policy |
-| OCR/semantic embeddings | On-device only | Medium | Excluded | No mandatory network |
+| Search similarity vectors | On-device only | Medium | Excluded | Deterministic token/category hashing; not learned embeddings or TFLite; no remote embedding requests from the Android client |
 
 ## Platform controls
 

@@ -83,7 +83,7 @@ class PluginManagerTest {
 
         assertEquals(3, manager.pluginsState.value.size)
         assertTrue(manager.pluginsState.value.first { it.id == "plugin.ocr.mlkit" }.isInstalled)
-        assertTrue(manager.pluginsState.value.first { it.id == "plugin.semantic.tflite" }.isInstalled)
+        assertTrue(manager.pluginsState.value.first { it.id == "plugin.semantic.hashed-text-similarity" }.isInstalled)
 
         manager.setPluginEnabled("plugin.ocr.mlkit", false)
         assertFalse(manager.pluginsState.value.first { it.id == "plugin.ocr.mlkit" }.isEnabled)

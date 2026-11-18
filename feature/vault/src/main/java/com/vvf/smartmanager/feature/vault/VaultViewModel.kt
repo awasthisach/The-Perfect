@@ -662,7 +662,50 @@ class VaultViewModel(
     }
 
     fun setBiometricEnabled(enabled: Boolean) {
-        vaultAuthUseCase.setBiometricEnabled(enabled)
+        // Disabling is safe without additional proof. Enabling must go through the
+        // fresh Master-PIN verification flow below.
+        if (enabled) return
+        vaultAuthUseCase.setBiometricEnabled(false)
+        _uiState.update { it.copy(isBiometricEnabled = false) }
+    }
+
+    suspend fun canEnableBiometric(): Boolean = withContext(Dispatchers.Default) {
+        vaultAuthUseCase.createVaultBiometricCipher() != null
+    }
+
+    suspend fun enableBiometricAfterPinVerification(pin: String): Boolean {
+        val before = _uiState.value
+        if (!before.isUnlocked || before.sessionMode != VaultSessionMode.REAL ||
+            before.isLockedOut || !vaultAuthUseCase.isVaultConfigured()
+        ) return false
+
+        val result = withContext(Dispatchers.Default) {
+            vaultAuthUseCase.verifyPinWithResult(pin)
+        }
+        if (result !is com.vvf.smartmanager.core.security.CryptoSecurityManager.VaultAuthResult.SUCCESS_REAL) {
+            if (result is com.vvf.smartmanager.core.security.CryptoSecurityManager.VaultAuthResult.LOCKED_OUT) {
+                startLockoutTimer(result.remainingSeconds)
+            } else if (result is com.vvf.smartmanager.core.security.CryptoSecurityManager.VaultAuthResult.INVALID_PIN) {
+                _uiState.update { it.copy(failedAttempts = result.failedAttempts) }
+                if (result.lockoutSeconds > 0) startLockoutTimer(result.lockoutSeconds)
+            }
+            return false
+        }
+
+        val current = _uiState.value
+        if (!current.isUnlocked || current.sessionMode != VaultSessionMode.REAL) return false
+        vaultAuthUseCase.setBiometricEnabled(true)
+        _uiState.update { it.copy(isBiometricEnabled = true, errorMessage = null) }
+        return true
+    }
+
+    /**
+     * Refresh the persisted biometric preference when returning from app settings.
+     * The settings destination writes through VaultAuthUseCase, so the vault UI must
+     * re-read that source of truth instead of relying on a stale ViewModel snapshot.
+     */
+    fun refreshBiometricSetting() {
+        val enabled = vaultAuthUseCase.isBiometricEnabled()
         _uiState.update { it.copy(isBiometricEnabled = enabled) }
     }
 

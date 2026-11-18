@@ -90,7 +90,7 @@ object VaultBiometricCryptoHelper {
 
     fun isAutoIndexOcrEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getBoolean("auto_index_ocr_enabled", true)
+            .getBoolean("auto_index_ocr_enabled", false)
 
     fun setAutoIndexOcrEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

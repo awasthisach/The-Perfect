@@ -198,7 +198,7 @@ fun PluginsScreen(
                 )
             }
 
-            // Phase 9: AI Semantic Search Plugin (Upcoming Preview)
+            // Deterministic on-device hashed text-similarity plugin.
             item {
                 SemanticSearchPluginCard()
             }
@@ -293,7 +293,7 @@ private fun PluginArchitectureNoticeCard() {
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "Heavy AI models and cloud drivers remain isolated modules. Core APK stays lightweight, fast, and battery friendly.",
+                    text = "The built-in search uses deterministic token/category hashing, not a downloaded neural model. OCR and cloud-driver integrations remain separate modules.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -479,13 +479,13 @@ private fun SemanticSearchPluginCard() {
 
                     Column {
                         Text(
-                            text = "AI Semantic Search (Hashed Embeddings)",
+                            text = "On-Device Hashed Text Similarity",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = CosmicBlue
                         )
                         Text(
-                            text = "v1.0.0 • Phase 9 Plugin",
+                            text = "v1.0.0 • Heuristic search",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -498,7 +498,7 @@ private fun SemanticSearchPluginCard() {
             Spacer(modifier = Modifier.height(10.dp))
 
             Text(
-                text = "On-device lightweight embedding vectors for concept & meaning-based document discovery.",
+                text = "Ranks files using deterministic token and category hashing. This is a lightweight text-similarity heuristic, not learned embeddings or neural semantic understanding.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

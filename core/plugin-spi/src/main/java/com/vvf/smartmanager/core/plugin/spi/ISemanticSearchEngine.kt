@@ -8,28 +8,30 @@ import com.vvf.smartmanager.core.model.SemanticSearchOptions
 import com.vvf.smartmanager.core.model.SemanticSearchResult
 
 /**
- * Standard SPI contract for On-Device AI Semantic Search Engine plugin.
- * Guarantees zero cloud telemetry, 100% on-device vector embedding and similarity scoring.
+ * Compatibility SPI for on-device deterministic hashed text-similarity ranking.
+ * Implementations must not describe token/category hashing as learned or neural embeddings.
  */
 interface ISemanticSearchEngine {
-    val pluginId: String get() = "plugin.semantic.tflite"
-    val displayName: String get() = "On-Device Hashed-Embedding Semantic Search"
+    val pluginId: String get() = "plugin.semantic.hashed-text-similarity"
+    val displayName: String get() = "On-Device Hashed Text Similarity"
     val version: String get() = "1.0.0"
     val isEnabled: Boolean get() = true
 
     /**
-     * Checks if the hashed-embedding index is downloaded and initialized.
+     * Checks whether the built-in deterministic hashing engine is ready. No model download is required.
      */
     fun isModelReady(): Boolean
 
     /**
-     * Downloads/initializes the lightweight embedding model.
-     * @param progressCallback Progress report from 0.0f to 1.0f.
+     * Legacy compatibility hook. The built-in deterministic hashing engine ships in the app;
+     * this method performs no model download and makes no network request.
+     * @param progressCallback Reports initialization completion (1.0f).
      */
     suspend fun downloadModel(progressCallback: (Float) -> Unit = {}): Boolean
 
     /**
-     * Generates a normalized high-dimensional semantic vector embedding for the given text.
+     * Generates a normalized deterministic token/category hash vector for text-similarity ranking.
+     * This is not a learned embedding or neural model.
      */
     suspend fun generateEmbedding(text: String): FloatArray
 
@@ -53,7 +55,7 @@ interface ISemanticSearchEngine {
     ): List<NearDuplicateCluster>
 
     /**
-     * Suggests conceptual tags and categories for a candidate based on on-device semantic projection.
+     * Suggests tags from deterministic on-device keyword/category rules.
      */
     suspend fun suggestTags(candidate: SemanticCandidate): List<AiSuggestedTag>
 

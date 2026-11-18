@@ -1,5 +1,7 @@
 package com.vvf.smartmanager.feature.vault
 
+import androidx.biometric.BiometricManager
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -40,10 +42,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -65,9 +69,11 @@ import com.vvf.smartmanager.feature.vault.components.VaultItemDetailDialog
 import com.vvf.smartmanager.feature.vault.components.VaultItemGridCard
 import com.vvf.smartmanager.feature.vault.components.VaultProcessingDialog
 import com.vvf.smartmanager.feature.vault.components.VaultSettingsDialog
+import com.vvf.smartmanager.feature.vault.components.VaultBiometricEnrollmentDialog
 import com.vvf.smartmanager.feature.vault.components.VaultSetupDecoyDialog
 import android.os.SystemClock
 import java.io.File
+import kotlinx.coroutines.launch
 
 /**
  * Throttled activity reporter so continuous scroll / rapid typing does not spam the ViewModel.
@@ -100,6 +106,10 @@ fun VaultUnlockedContent(
 ) {
     val context = LocalContext.current
     val reportActivity = rememberThrottledActivityReporter(viewModel)
+    val coroutineScope = rememberCoroutineScope()
+    var showBiometricEnrollmentDialog by remember { mutableStateOf(false) }
+    var biometricEnrollmentVerifying by remember { mutableStateOf(false) }
+    var biometricEnrollmentError by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
         modifier = modifier
@@ -348,9 +358,31 @@ fun VaultUnlockedContent(
         if (uiState.showSettingsDialog) {
             VaultSettingsDialog(
                 isBiometricEnabled = uiState.isBiometricEnabled,
-                onToggleBiometric = {
+                onToggleBiometric = { enabled ->
                     reportActivity()
-                    viewModel.setBiometricEnabled(it)
+                    if (enabled) {
+                        biometricEnrollmentError = null
+                        coroutineScope.launch {
+                            val availability = BiometricManager.from(context).canAuthenticate(
+                                BiometricManager.Authenticators.BIOMETRIC_STRONG
+                            )
+                            if (availability != BiometricManager.BIOMETRIC_SUCCESS) {
+                                val reason = when (availability) {
+                                    BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> "This device has no strong biometric hardware."
+                                    BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> "Enroll a strong fingerprint or face in Android settings first."
+                                    BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> "Biometric hardware is temporarily unavailable."
+                                    else -> "Strong biometric authentication is unavailable (code=$availability)."
+                                }
+                                snackbarHostState.showSnackbar(reason)
+                            } else if (!viewModel.canEnableBiometric()) {
+                                snackbarHostState.showSnackbar("The hardware-backed biometric key could not be initialized. Biometric unlock remains disabled.")
+                            } else {
+                                showBiometricEnrollmentDialog = true
+                            }
+                        }
+                    } else {
+                        viewModel.setBiometricEnabled(false)
+                    }
                 },
                 autoLockSeconds = uiState.autoLockSeconds,
                 onAutoLockChange = {
@@ -377,6 +409,32 @@ fun VaultUnlockedContent(
                     viewModel.populateSampleDecoyData(context.filesDir)
                 },
                 onDismiss = { viewModel.dismissSettingsDialog() }
+            )
+        }
+
+        if (showBiometricEnrollmentDialog) {
+            VaultBiometricEnrollmentDialog(
+                isVerifying = biometricEnrollmentVerifying,
+                errorMessage = biometricEnrollmentError,
+                onConfirm = { pin ->
+                    coroutineScope.launch {
+                        biometricEnrollmentVerifying = true
+                        val enabled = viewModel.enableBiometricAfterPinVerification(pin)
+                        biometricEnrollmentVerifying = false
+                        if (enabled) {
+                            showBiometricEnrollmentDialog = false
+                            biometricEnrollmentError = null
+                        } else {
+                            biometricEnrollmentError = "Master PIN verification failed. Biometric unlock remains disabled."
+                        }
+                    }
+                },
+                onDismiss = {
+                    if (!biometricEnrollmentVerifying) {
+                        showBiometricEnrollmentDialog = false
+                        biometricEnrollmentError = null
+                    }
+                }
             )
         }
 

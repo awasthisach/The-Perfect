@@ -32,7 +32,7 @@ dependencies {
   implementation(libs.androidx.credentials)
   implementation(libs.androidx.credentials.play.services)
   implementation(libs.googleid)
-  implementation(libs.play.services.auth)
+  api(libs.play.services.auth)
   implementation(libs.retrofit)
   implementation(libs.converter.moshi)
   implementation(libs.moshi.kotlin)

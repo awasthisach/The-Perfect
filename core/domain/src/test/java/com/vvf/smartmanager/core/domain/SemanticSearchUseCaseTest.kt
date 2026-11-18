@@ -18,12 +18,15 @@ import com.vvf.smartmanager.core.model.SemanticSearchOptions
 import com.vvf.smartmanager.core.model.SemanticSearchResult
 import com.vvf.smartmanager.core.model.StorageBreakdown
 import com.vvf.smartmanager.core.plugin.spi.ISemanticSearchEngine
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertSame
+import org.junit.Assert.fail
 import org.junit.Test
 
 class SemanticSearchUseCaseTest {
@@ -103,7 +106,9 @@ class SemanticSearchUseCaseTest {
         override suspend fun cleanJunkItems(selectedDuplicatePaths: List<String>, selectedJunkPaths: List<String>): Result<Long> = Result.success(0L)
     }
 
-    private class FakeSearchRepo : SearchRepository {
+    private class FakeSearchRepo(
+        var recentFilesFailure: Exception? = null
+    ) : SearchRepository {
         override fun searchFiles(query: String, filter: SearchFilter): Flow<List<SearchResultItem>> = flowOf()
         override fun getSearchHistory(): Flow<List<String>> = flowOf()
         override suspend fun saveSearchQuery(query: String) {}
@@ -114,7 +119,10 @@ class SemanticSearchUseCaseTest {
         override suspend fun removeTagFromFile(path: String, tag: String): Result<Boolean> = Result.success(true)
         override fun getTotalIndexedCount(): Flow<Int> = flowOf(2)
         override suspend fun rebuildFtsIndex() {}
-        override suspend fun getRecentIndexedFiles(limit: Int) = emptyList<FileItem>()
+        override suspend fun getRecentIndexedFiles(limit: Int): List<FileItem> {
+            recentFilesFailure?.let { throw it }
+            return emptyList()
+        }
     }
 
     @Test
@@ -129,6 +137,26 @@ class SemanticSearchUseCaseTest {
         val results = useCase.searchSemantically("taxes and billing")
         // Bounded semantic uses getRecentIndexedFiles which returns empty in fake → empty results OK
         assertTrue(results.isEmpty() || results.size <= 2)
+    }
+
+    @Test
+    fun cancellationFromRecentIndexRepositoryPropagates() = runBlocking {
+        val cancellation = CancellationException("semantic search cancelled")
+        val searchRepo = FakeSearchRepo(recentFilesFailure = cancellation)
+        val useCase = SemanticSearchUseCase(
+            FakeSemanticEngine(),
+            searchRepo,
+            FakeFileManagerRepo()
+        )
+
+        val thrown = try {
+            useCase.searchSemantically("taxes")
+            fail("Cancellation must propagate")
+            null
+        } catch (actual: CancellationException) {
+            actual
+        }
+        assertSame(cancellation, thrown)
     }
 
     @Test
