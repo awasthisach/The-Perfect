@@ -123,7 +123,7 @@ class GoogleDriveServiceImpl(
                                 path = "gdrive://${dto.id.orEmpty()}",
                                 name = dto.name.orEmpty(),
                                 sizeBytes = dto.size?.toLongOrNull() ?: 0L,
-                                lastModified = parseDriveTime(dto.modifiedTime),
+                                lastModified = parseDriveTimeMillis(dto.modifiedTime),
                                 isDirectory = dto.mimeType == "application/vnd.google-apps.folder",
                                 mimeType = dto.mimeType
                             )
