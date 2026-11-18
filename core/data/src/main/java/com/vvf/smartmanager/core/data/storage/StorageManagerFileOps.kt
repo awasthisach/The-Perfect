@@ -24,7 +24,8 @@ open class StorageManagerFileOps(
     suspend fun createDirectory(parentPath: String, directoryName: String): Result<FileItem> = withContext(Dispatchers.IO) {
         try {
             val parent = requireAllowedPhysicalPath(parentPath)
-            if (!parent.exists()) parent.mkdirs()
+            if (!parent.exists()) require(parent.mkdirs()) { "Unable to create parent directory" }
+            require(parent.isDirectory) { "Parent path is not a directory" }
             val newDir = requireAllowedPhysicalPath(File(parent, directoryName).absolutePath)
             if (newDir.exists()) return@withContext Result.failure(IllegalArgumentException("Folder already exists with name '$directoryName'"))
             if (!(newDir.mkdirs() || newDir.exists())) return@withContext Result.failure(IllegalStateException("Failed to create folder"))
@@ -37,9 +38,16 @@ open class StorageManagerFileOps(
     suspend fun createFile(parentPath: String, fileName: String, content: ByteArray): Result<FileItem> = withContext(Dispatchers.IO) {
         try {
             val parent = requireAllowedPhysicalPath(parentPath)
-            if (!parent.exists()) parent.mkdirs()
+            if (!parent.exists()) require(parent.mkdirs()) { "Unable to create parent directory" }
+            require(parent.isDirectory) { "Parent path is not a directory" }
             val newFile = requireAllowedPhysicalPath(File(parent, fileName).absolutePath)
-            FileOutputStream(newFile).use { it.write(content) }
+            require(newFile.createNewFile()) { "A file with this name already exists" }
+            try {
+                FileOutputStream(newFile).use { it.write(content) }
+            } catch (error: Exception) {
+                if (newFile.exists()) newFile.delete()
+                throw error
+            }
             val item = FileItem(path = newFile.absolutePath, name = newFile.name, sizeBytes = newFile.length(), lastModified = newFile.lastModified(), isDirectory = false, mimeType = getMimeType(newFile.name))
             fileDao.insertOrUpdate(FileMetadataEntity(path = item.path, name = item.name, parentPath = parent.absolutePath, sizeBytes = item.sizeBytes, mimeType = item.mimeType ?: "application/octet-stream", isDirectory = false, modifiedDate = item.lastModified))
             Result.success(item)
@@ -72,8 +80,7 @@ open class StorageManagerFileOps(
                 if (!src.exists()) continue
                 val dest = getUniqueDestinationFile(destDir, src.name)
                 onProgress?.invoke(FileOperationProgress(operation = FileOperationType.COPY, currentFileName = src.name, processedCount = index, totalCount = total, progressPercentage = if (total > 0) index.toFloat() / total else 0f))
-                if (src.isDirectory) src.copyRecursively(dest, overwrite = true)
-                else FileInputStream(src).use { input -> FileOutputStream(dest).use { output -> input.copyTo(output, bufferSize = 64 * 1024) } }
+                require(copyPhysical(src, dest)) { "Copy failed; source was preserved" }
                 fileDao.insertOrUpdate(FileMetadataEntity(path = dest.absolutePath, name = dest.name, parentPath = destDir.absolutePath, sizeBytes = dest.length(), mimeType = getMimeType(dest.name), isDirectory = dest.isDirectory, modifiedDate = dest.lastModified()))
                 count++
             }
@@ -96,11 +103,7 @@ open class StorageManagerFileOps(
                 if (!src.exists()) continue
                 val dest = getUniqueDestinationFile(destDir, src.name)
                 onProgress?.invoke(FileOperationProgress(operation = FileOperationType.MOVE, currentFileName = src.name, processedCount = index, totalCount = total, progressPercentage = if (total > 0) index.toFloat() / total else 0f))
-                val renamed = src.renameTo(dest)
-                if (!renamed) {
-                    if (src.isDirectory) { src.copyRecursively(dest, overwrite = true); src.deleteRecursively() }
-                    else { FileInputStream(src).use { input -> FileOutputStream(dest).use { output -> input.copyTo(output, bufferSize = 64 * 1024) } }; src.delete() }
-                }
+                if (!renamePhysical(src, dest)) moveWithVerifiedCopy(src, dest)
                 fileDao.deleteByPath(srcPath)
                 fileDao.insertOrUpdate(FileMetadataEntity(path = dest.absolutePath, name = dest.name, parentPath = destDir.absolutePath, sizeBytes = dest.length(), mimeType = getMimeType(dest.name), isDirectory = dest.isDirectory, modifiedDate = dest.lastModified()))
                 count++
@@ -116,6 +119,39 @@ open class StorageManagerFileOps(
     /** Physical deletion seam so failures can be injected in regression tests. */
     protected open fun deletePhysical(file: File): Boolean =
         if (file.isDirectory) file.deleteRecursively() else file.delete()
+
+    /** Injectable filesystem seams keep cross-volume fallback behavior regression-testable. */
+    protected open fun renamePhysical(source: File, destination: File): Boolean =
+        source.renameTo(destination)
+
+    protected open fun copyPhysical(source: File, destination: File): Boolean = try {
+        if (source.isDirectory) {
+            source.copyRecursively(destination, overwrite = false)
+        } else {
+            FileInputStream(source).use { input ->
+                FileOutputStream(destination).use { output ->
+                    input.copyTo(output, bufferSize = 64 * 1024)
+                    output.fd.sync()
+                }
+            }
+            destination.isFile && destination.length() == source.length()
+        }
+    } catch (_: Exception) {
+        false
+    }
+
+    /** Never remove the original until the fallback copy is complete and verified. */
+    private fun moveWithVerifiedCopy(source: File, destination: File) {
+        if (!copyPhysical(source, destination)) {
+            if (destination.exists()) deletePhysical(destination)
+            throw java.io.IOException("Copy failed; original file was preserved")
+        }
+        if (!deletePhysical(source)) {
+            // Best-effort rollback; if it also fails, both copies remain rather than losing data.
+            if (destination.exists()) deletePhysical(destination)
+            throw java.io.IOException("Original could not be removed after copy; source was preserved")
+        }
+    }
 
     fun deleteSafely(path: String): Result<Boolean> = try {
         val f = requireAllowedPhysicalPath(path)
@@ -150,11 +186,8 @@ open class StorageManagerFileOps(
                 if (!src.exists()) continue
                 val trashId = UUID.randomUUID().toString().take(8)
                 val trashFile = File(trashDirectory, "${trashId}_${src.name}")
-                val moved = src.renameTo(trashFile)
-                if (!moved) {
-                    if (src.isDirectory) { src.copyRecursively(trashFile, overwrite = true); src.deleteRecursively() }
-                    else { FileInputStream(src).use { input -> FileOutputStream(trashFile).use { output -> input.copyTo(output) } }; src.delete() }
-                }
+                val moved = renamePhysical(src, trashFile)
+                if (!moved) moveWithVerifiedCopy(src, trashFile)
                 fileDao.deleteByPath(path)
                 fileDao.insertOrUpdate(FileMetadataEntity(path = trashFile.absolutePath, name = src.name, parentPath = trashDirectory.absolutePath, sizeBytes = trashFile.length(), mimeType = getMimeType(src.name), isDirectory = trashFile.isDirectory, modifiedDate = timestamp, isTrash = true, originalPath = path, deletedTimestamp = timestamp))
                 count++
@@ -174,11 +207,8 @@ open class StorageManagerFileOps(
                 val parent = targetFile.parentFile
                 if (parent != null && !parent.exists()) parent.mkdirs()
                 val restoreTarget = getUniqueDestinationFile(parent ?: File(getPrimaryStoragePath()), targetFile.name)
-                val restored = trashFile.renameTo(restoreTarget)
-                if (!restored) {
-                    if (trashFile.isDirectory) { trashFile.copyRecursively(restoreTarget, overwrite = true); trashFile.deleteRecursively() }
-                    else { FileInputStream(trashFile).use { input -> FileOutputStream(restoreTarget).use { output -> input.copyTo(output) } }; trashFile.delete() }
-                }
+                val restored = renamePhysical(trashFile, restoreTarget)
+                if (!restored) moveWithVerifiedCopy(trashFile, restoreTarget)
                 fileDao.deleteByPath(trashPath)
                 fileDao.insertOrUpdate(FileMetadataEntity(path = restoreTarget.absolutePath, name = restoreTarget.name, parentPath = restoreTarget.parentFile?.absolutePath ?: "", sizeBytes = restoreTarget.length(), mimeType = getMimeType(restoreTarget.name), isDirectory = restoreTarget.isDirectory, modifiedDate = restoreTarget.lastModified(), isTrash = false, originalPath = null, deletedTimestamp = null))
                 count++

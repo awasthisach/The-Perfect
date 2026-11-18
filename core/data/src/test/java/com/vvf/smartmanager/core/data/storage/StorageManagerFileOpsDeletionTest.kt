@@ -32,6 +32,35 @@ class StorageManagerFileOpsDeletionTest {
     }
 
     @Test
+    fun moveFallbackCopyFailurePreservesOriginalAndMetadata() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val daoCalls = mutableListOf<String>()
+        val ops = FailingCopyStorageManager(context, recordingDao(daoCalls))
+        val source = File(context.filesDir, "move-fallback-source.txt").apply { writeText("keep-me") }
+        val destination = File(context.filesDir, "move-fallback-destination").apply { mkdirs() }
+
+        val result = ops.moveFiles(listOf(source.absolutePath), destination.absolutePath)
+
+        assertTrue(result.isFailure)
+        assertTrue(source.exists())
+        assertFalse(daoCalls.contains("deleteByPath"))
+    }
+
+    @Test
+    fun trashFallbackCopyFailurePreservesOriginalAndMetadata() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val daoCalls = mutableListOf<String>()
+        val ops = FailingCopyStorageManager(context, recordingDao(daoCalls))
+        val source = File(context.filesDir, "trash-fallback-source.txt").apply { writeText("keep-me") }
+
+        val result = ops.moveToRecycleBin(listOf(source.absolutePath))
+
+        assertTrue(result.isFailure)
+        assertTrue(source.exists())
+        assertFalse(daoCalls.contains("deleteByPath"))
+    }
+
+    @Test
     fun emptyRecycleBinFailureDoesNotClearTrashMetadata() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val daoCalls = mutableListOf<String>()
@@ -61,6 +90,14 @@ class StorageManagerFileOpsDeletionTest {
                 else -> null
             }
         } as FileDao
+
+    private class FailingCopyStorageManager(
+        context: Context,
+        dao: FileDao
+    ) : StorageManagerFileOps(context, dao) {
+        override fun renamePhysical(source: File, destination: File): Boolean = false
+        override fun copyPhysical(source: File, destination: File): Boolean = false
+    }
 
     private class FailingDeleteStorageManager(
         context: Context,
