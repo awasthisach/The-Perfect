@@ -546,9 +546,11 @@ class SecureVaultRepository(
     private fun createSiblingTempFile(target: File): File {
         val parent = target.parentFile ?: throw IOException("Target file has no parent directory")
         require(parent.exists() || parent.mkdirs()) { "Unable to create target directory: ${parent.absolutePath}" }
-        return File(parent, ".${target.name}.${UUID.randomUUID()}.tmp").also {
-            require(!it.exists()) { "Temporary restore file unexpectedly exists" }
-        }
+        // createTempFile creates the file atomically. A UUID name plus exists() check
+        // left a race in which another process could pre-create or replace the path
+        // before FileOutputStream opened it during authenticated decryption.
+        val prefix = ".${target.name}."
+        return File.createTempFile(prefix, ".tmp", parent)
     }
 
     private fun VaultItemEntity.toDomainModel(): VaultItem {
