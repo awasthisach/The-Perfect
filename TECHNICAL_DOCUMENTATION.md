@@ -1,91 +1,116 @@
-# VVF Smart Manager — Master Architecture Blueprint & Technical Documentation
+# VVF Smart Manager — Technical Architecture and Delivery Plan
 
-**Package Name:** `com.vvf.smartmanager`  
-**Target Platform:** Android (API 26+)  
-**Technology Stack:** Kotlin, Jetpack Compose, Material 3, Android KeyStore, Room + SQLCipher, WorkManager, ML Kit OCR, TFLite Vector Embeddings, Google Drive REST API.
+**Package:** `com.vvf.smartmanager`  
+**Platform:** Android (minimum SDK configured in Gradle; verify current build files before changing)  
+**Document status:** Architecture plan grounded in source inspection of `audit/fixes-2026-11` at `8eb0b5f2e083aca1a508c5e2199c1e02d29d5d32`. Recheck source before treating this as current after later commits.
 
----
+## 1. Product architecture
 
-## 1. System Architecture Overview
+The primary capabilities are:
+- Local semantic search over document content.
+- Exact and near-duplicate detection across phone storage, authorized SD-card folders, Google Drive My Drive, and Shared with me.
+- User-controlled file review and actions; no automatic deletion or movement.
 
-VVF Smart Manager is designed as an **Offline-First, Plugin-Extensible, Enterprise-Grade Smart File Manager & Secure Vault**.
+The local-only invariant is strict: user document text, OCR text, chunks, fingerprints, and embeddings do not leave the device.
 
-```
-+-----------------------------------------------------------------------+
-|                              App Core                                 |
-|  +---------------------+  +--------------------+  +----------------+  |
-|  | File Explorer       |  | Duplicate Cleaner  |  | Secure Vault   |  |
-|  | (Level 1-2 Cleaning)|  | (Level 1, 2 & 3)   |  | (Fake Vault)   |  |
-|  +---------------------+  +--------------------+  +----------------+  |
-|  +---------------------+  +--------------------+  +----------------+  |
-|  | Core Search Engine  |  | Cloud Driver Core  |  | Settings & Sync|  |
-|  | (FTS4 SQLite Core)  |  | (Google Drive)     |  | System         |  |
-|  +---------------------+  +--------------------+  +----------------+  |
-+-----------------------------------------------------------------------+
-                                   |
-                  Plugin Service Provider Interface (SPI)
-                                   |
-+-----------------------------------------------------------------------+
-|                         On-Demand Plugins                             |
-|  +-------------------+   +--------------------+   +----------------+  |
-|  | ML Kit OCR        |   | AI Semantic Search |   | Cloud Plugins  |  |
-|  | Plugin (12MB)     |   | TFLite Model (18MB)|   | (OneDrive, S3) |  |
-|  +-------------------+   +--------------------+   +----------------+  |
-+-----------------------------------------------------------------------+
-```
+## 2. Current implementation versus target
 
----
+| Capability | Current source evidence at inspected SHA | Required target |
+|---|---|---|
+| Semantic similarity | Deterministic 128-dimensional hash projection in `SemanticSearchPluginImpl` | On-device neural embeddings with local tokenizer/model |
+| Search input | Filename/tags and a limited indexed candidate set in `SemanticSearchUseCase` | Extracted document text, chunks, lexical index, and vectors |
+| OCR indexing | `IndexOcrTextUseCase` stores a small keyword set as tags | Persist encrypted full extracted text/chunks with lifecycle controls |
+| FTS | `FileFtsEntity` contains name, path, tags, MIME type | Full-text content index plus metadata |
+| Drive authorization | `GoogleDriveAuth` requests `drive.file` | OAuth scope and verification plan that supports all intended My Drive and Shared-with-me files |
+| Drive listing | `GoogleDriveServiceImpl` lists direct folder children | Complete, paginated, recursive/appropriate corpus indexing and incremental Changes API sync |
+| Phone source | File explorer and storage-related code exist; unified source indexing is not established | Source adapter using Android-supported permissions |
+| SD-card source | Complete SAF source adapter not established | SAF tree grant, persisted permission, recursive authorized scan, removal/reinsert recovery |
+| Duplicate pipeline | Hash fields and duplicate-level model definitions exist | One source-aware exact/near-duplicate engine across every enabled source |
+| Remote embedding | Legacy `EmbeddingWorkerClient` exists | No remote document embedding path; remove or make unreachable and test network boundary |
 
-## 2. Core Modules Specification
+These gaps are implementation work, not optional polish.
 
-### Core Modules (`:core`)
-1. **`:core:database`**:
-   - Encrypted Room Database backed by **SQLCipher**.
-   - FTS4 Virtual Tables for full-text indexed searches across file names, tags, and extracted OCR text.
-2. **`:core:security`**:
-   - AES-256-GCM hardware-backed encryption via `AndroidKeyStore`.
-   - PBKDF2 with HMAC-SHA256 key derivation for PIN/Password validation.
-   - Dual-PIN architecture (Real Vault PIN & Decoy/Fake Vault PIN).
-3. **`:core:background`**:
-   - WorkManager orchestration for periodic junk scanning, storage indexing, and battery-safe background cloud backups.
-4. **`:core:plugin-spi`**:
-   - Central SPI interfaces (`IOcrEngine`, `ISemanticSearchEngine`, `CloudDriverSPI`) isolating core features from downloadable modules.
+## 3. Source-aware unified index
 
-### On-Demand Downloadable Plugins (`:plugins`)
-- **`plugin-ocr`**: ML Kit Text Recognition plugin for extracting text from PDFs and images on-demand.
-- **`plugin-semantic-search`**: Local TFLite 384-dimensional vector embedding model for natural language conceptual file search.
-- **`plugin-cloud-drivers`**: Modular cloud sync drivers for OneDrive, Dropbox, NextCloud, S3, and local NAS storage.
+Every indexed item must have a stable source identity, independent of its display path:
 
----
+- `sourceType`: `INTERNAL`, `SD_CARD`, or `GOOGLE_DRIVE`.
+- `sourceInstanceId`: app storage volume identity, removable volume identity, or Drive account identity.
+- `sourceFileId`: canonical SAF document URI or Drive file ID.
+- `displayName`, `mimeType`, `size`, `modifiedAt`, `accessState`.
+- `contentHashSha256`, extraction status, and last indexed version.
 
-## 3. Security Architecture & Threat Model
+A path is mutable and must not be the sole primary key. Duplicate groups reference source-aware file IDs, not only paths or names.
 
-- **Database Encryption**: All SQLite databases are encrypted at rest using 256-bit AES keys managed through SQLCipher.
-- **Vault File Storage**: Vault files are stored in app-private storage (`context.filesDir/vault/`) with filenames SHA-256 hashed and payload content encrypted with AES-GCM.
-- **Fake Vault Mechanism**: Inputting the Decoy PIN opens an isolated secondary vault with mock/decoy items to protect against physical coercion.
+Candidate logical tables (schema must be designed against the actual Room migrations before implementation):
+- `indexed_files` — source identity and metadata.
+- `document_content` — encrypted extracted text or content references.
+- `document_chunks` — chunk boundaries and normalized text references.
+- `document_embeddings` — model/version, dimensions, vector payload, source chunk.
+- `source_sync_state` — page/change token, permission state, last successful checkpoint.
+- `duplicate_groups` — classification, evidence, score, and members.
 
----
+Do not create these tables blindly; first inspect the current database schema, migration chain, SQLCipher configuration, and backup/restore behaviour.
 
-## 4. Architectural Decision Log (ADR)
+## 4. Source adapters
 
-1. **ADR-001: Strict Core vs Plugin Separation**
-   - *Decision*: Core APK contains zero heavy ML models or third-party cloud SDKs.
-   - *Rationale*: Guarantees initial cold start < 10 seconds and keeps base APK download size minimal (< 15 MB).
-2. **ADR-002: Offline-First AI Processing**
-   - *Decision*: All OCR scanning and TFLite semantic embeddings execute 100% locally on-device without sending user document data to external cloud AI servers.
-   - *Rationale*: Absolute privacy compliance and zero server maintenance costs.
-3. **ADR-003: Core Search Primacy**
-   - *Decision*: FTS4 SQL search remains the primary search engine; AI Semantic Search works as an additive, non-blocking enhancement.
-   - *Rationale*: Ensures instant, accurate search results even if AI models are disabled or downloading.
+### Google Drive
+- My Drive and Shared with me are in scope.
+- Shared Drives are out of scope until separately approved.
+- Reassess OAuth scopes against Google's current official documentation. Full read-only access is a restricted scope and can require OAuth verification and additional security assessment.
+- Support list pagination, folder traversal, shortcuts, trashed files, export/download formats, rate limits, expired tokens, revoked access, and incremental Changes API sync.
+- Never use a Drive access token as a Firebase identity token.
 
----
+### Internal storage
+- Respect Android scoped storage and the app's actual permission model.
+- Use MediaStore for supported shared media and SAF for user-selected document trees where required.
+- Report scan coverage honestly; never claim access to protected app-private/system locations.
 
-## 5. Brand Guidelines Compliance
+### SD card
+- Use SAF document-tree grants and persist URI permissions.
+- Traverse only the granted tree.
+- Persist scan checkpoints and handle unavailable volumes and revoked grants safely.
 
-- **Launcher Icon**: Custom golden leaf adaptive launcher icon with VVF brand logo motif.
-- **Color Palette**:
-  - Bhagwa Orange: `#F47B20` (Primary Action & Highlights)
-  - Cosmic Blue: `#102B52` (Surface Canvas & Header Contrast)
-  - Emerald Green: `#3FA34D` (Success & Verified Indicators)
-  - Sky Cyan: `#5BC0EB` (Interactive Accents)
-  - Soft Gold: `#D4A95A` (Vault & Security Badges)
+## 5. Local document intelligence
+
+Required pipeline:
+1. Read supported local/Drive document bytes using source-specific adapters.
+2. Extract text locally (including OCR for scanned images/PDF pages where supported).
+3. Normalize and split text into bounded chunks.
+4. Persist content securely and build lexical/full-text index.
+5. Generate embeddings using a fully on-device runtime and local model/tokenizer.
+6. Store model ID/version and vector dimension with every embedding.
+7. Perform local vector similarity and hybrid ranking.
+
+The model/runtime choice must be benchmarked on supported low-memory Android devices for model size, RAM, CPU latency, battery, language coverage, and license. Do not choose a model solely because its benchmark score is high.
+
+## 6. Duplicate engine
+
+- Exact duplicate: SHA-256 equality after reading the full bytes.
+- Near duplicate: normalized text/content fingerprints with explainable similarity.
+- Semantically related: separate discovery category; never automatically label as duplicate.
+- Cross-source matching must compare all enabled source adapters.
+- Same name or size is only a candidate filter, never final proof.
+- No background job may delete or move source files.
+
+## 7. Security, consent, and lifecycle
+
+- SQLCipher/Room and Android Keystore remain part of the security boundary; review the actual key lifecycle and recovery path.
+- No document content or embedding network requests. Add tests with a fake HTTP stack and device-level network inspection.
+- Cancel and pause indexing safely; bound concurrency and memory.
+- Handle process death, card removal, permission revocation, account disconnect, and partial extraction.
+- Preserve fail-closed behaviour for backup and release paths until tested restore/recovery exists.
+
+## 8. Delivery gates
+
+Each phase requires code, tests, and evidence:
+1. Source-aware index and migration design.
+2. Internal/SD source adapters.
+3. Drive scope and complete listing.
+4. Local extraction, encrypted content store, and FTS.
+5. Local neural embedding runtime and hybrid search.
+6. Cross-source exact/near duplicate engine.
+7. Incremental sync and recovery.
+8. Device performance, privacy/network-boundary, security, CI, ORT, CPAS, OAuth, and Play acceptance.
+
+See [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md) for product acceptance tests. No production claim should be made until the exact release candidate passes all applicable gates.

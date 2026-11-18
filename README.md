@@ -1,90 +1,90 @@
 # VVF Smart Manager
 
-Offline-first Android file manager with an encrypted vault, local search/indexing,
-optional Google Drive backup, and a gated path for remote embedding via a Cloudflare
-Worker. Application ID: `com.vvf.smartmanager`.
+**VVF Smart Manager** is an Android project whose primary product goals are:
 
-This README is derived from repository source and build files. It does **not** claim
-production readiness. Open release blockers are tracked in `docs/assurance/08-risk-register.yaml`
-(PROD-008, PROD-009, PROD-010) and GitHub issues #136, #140, #141.
+1. **Private Semantic Search** — search the contents and meaning of documents, not only their filenames.
+2. **Cross-source Duplicate Finder** — identify exact and near-duplicate files across Google Drive, phone storage, and user-authorized SD-card folders.
 
----
+The intended design is **on-device first**: document text, OCR output, fingerprints, and embeddings must stay on the device. The app must never automatically delete or move files. File management, the encrypted vault, and storage utilities are supporting features—not the product's primary purpose.
 
-## Stack (from Gradle and source)
+> **Development status:** These are product goals, not a claim that every feature is implemented. The current code still has material gaps described below. This repository is not certified production-ready.
 
-| Area | Implementation |
-|------|----------------|
-| Language | Kotlin 2.2, Coroutines/Flow |
-| UI | Jetpack Compose + Material 3 |
-| Architecture | Modular Clean Architecture (feature / core / plugins) |
-| DI | Hilt (app module) + application composition root |
-| Persistence | Room + SQLCipher (`net.zetetic:sqlcipher-android`) |
-| Security | Android Keystore, AES-GCM vault paths, protected DB passphrase |
-| Background | WorkManager |
-| Auth / integrity | Firebase Auth, Firebase App Check (Play Integrity + reCAPTCHA) |
-| Network | OkHttp, Retrofit, Moshi |
-| OCR | ML Kit text recognition (Latin + Devanagari plugins) |
-| Local search | Deterministic on-device token/category hash projection — **not** a neural/TFLite model |
-| Cloud | Google Drive (user-initiated); optional Cloudflare embedding Worker |
-| Build | Gradle Kotlin DSL + version catalog; compile/target SDK 36, min SDK 24 |
+Application ID: `com.vvf.smartmanager`
 
----
+## Product scope
 
-## Modules (`settings.gradle.kts`)
+| Area | Intended behaviour | Current verified status in this candidate |
+|---|---|---|
+| Google Drive | Index the user's My Drive and **Shared with me** files, with complete pagination and incremental sync | **Incomplete.** Current authorization uses `drive.file`; this does not provide blanket access to all existing Drive files. Full-drive and Shared-with-me indexing are not verified. |
+| Phone storage | Index files the user has granted the app permission to access | **Not verified end-to-end** as part of one unified index. Android scoped-storage limits apply. |
+| SD / Memory Card | Let the user choose folders through Android Storage Access Framework (SAF); persist permission and resume safely after card removal/reinsert | **Not implemented/verified** as a complete source in this candidate. |
+| Exact duplicates | SHA-256 content match across all enabled sources | Existing models contain hash fields, but unified cross-source grouping is **not verified**. |
+| Near duplicates | Compare normalized content/fingerprints and show a score with evidence | **Not verified** end-to-end. |
+| Semantic search | Local multilingual document embeddings and hybrid full-text/vector retrieval | **Not implemented.** Current semantic plugin uses deterministic hash projection, not a learned neural embedding model. |
+| Privacy | No document text or embeddings sent to a cloud embedding API | **Not yet certified.** A legacy remote Worker client exists in the codebase; it must be removed from or technically blocked from the product search/indexing path before this requirement can be claimed. |
+| File actions | Review first; require explicit user confirmation for every move/delete | Product requirement. Automatic deletion is prohibited. |
 
-```text
-app/                      Application entry, navigation, EmbeddingWorkerClient
-core/common/              Shared utilities
-core/model/               Shared models and contracts
-core/security/            Keystore / crypto services
-core/database/            Room + SQLCipher
-core/database-compat/     SQLCipher compatibility fixtures and instrumented tests
-core/data/                Repository implementations
-core/domain/              Use cases and backup orchestration
-core/background/          WorkManager workers
-core/cloud-gdrive/        Google Drive integration
-core/plugin-spi/          Plugin contracts
-feature/explorer/         File browser
-feature/vault/            Encrypted vault
-feature/cleaner/          Storage cleaner
-feature/search/           Local search UI
-feature/cloud/            Cloud backup/restore UI
-feature/settings/         Settings (offline-only, consent, identity)
-feature/plugins/          Plugin host UI
-plugins/plugin-ocr/       OCR provider
-plugins/plugin-semantic-search/  Local hash-projection similarity
-plugins/plugin-cloud-drivers/    Cloud driver SPI implementations
-cloudflare/drive-semantic-embed/  Worker v4 source (TypeScript)
-docs/assurance/           CPAS constitution, risk register, evidence ledger, ORT pins
-```
+Shared Drives are a separate Google Drive feature from My Drive and “Shared with me”; they are not included in the initial scope unless explicitly added later.
 
----
+See [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md) for the binding product definition and [TECHNICAL_DOCUMENTATION.md](TECHNICAL_DOCUMENTATION.md) for the current-versus-target architecture.
 
-## Embedding path (code contract)
+## Duplicate classification
 
-**Worker** (`cloudflare/drive-semantic-embed/src/index.ts`):
+The app must keep these results separate:
 
-- `POST /embed` requires:
-  - `Authorization: Bearer <Firebase Auth ID token>`
-  - `X-Firebase-AppCheck: <App Check token>`
-  - Body: `{ "texts": string[], "mode": "query"|"document", "version"?: "2"|"3"|"4" }`
-- Fail-closed when `GEMINI_PRODUCTION_APPROVED !== "true"`, missing tokens, bad origin,
-  rate limit, or invalid body.
-- Dimension fixed at 768; model configurable via env (default `gemini-embedding-2`).
+- **Exact duplicate:** identical file bytes, confirmed by SHA-256.
+- **Near duplicate:** highly similar content or structure, supported by a transparent comparison score.
+- **Semantically related:** similar meaning or topic, but not necessarily a duplicate. Never present this category as safe to delete.
 
-**Android client** (`app/.../embedding/EmbeddingWorkerClient.kt`):
+No file is deleted or moved automatically. Results are recommendations; every destructive or relocating action requires a separate user confirmation.
 
-- Fail-closed: no network I/O when offline-only is on, remote-AI consent is missing,
-  base URL is blank, or either Firebase Auth ID token or App Check token cannot be obtained.
-- Does not treat a Google / Credential Manager ID token as a Firebase Auth ID token.
-- Matches Worker limits (max 32 texts, 8000 chars each, version 2/3/4, dimension 768).
+## Privacy and storage-access rules
 
-PROD-009 remains **open** until physical-device acceptance with real Firebase Auth +
-App Check and Console evidence exists. Source wiring alone is not acceptance evidence.
+- Neural embeddings and document-content analysis must run locally on the Android device.
+- Do not send document text, OCR text, fingerprints, or embeddings to Gemini, Cloudflare, or another remote embedding service.
+- Google Drive access must be least-privilege, transparent, and compatible with Google's OAuth verification requirements.
+- Internal storage access is limited by Android scoped storage and granted permissions.
+- Removable SD-card scanning must use SAF folder grants. The app can scan only folders the user authorizes; it cannot promise unrestricted access to protected/system directories.
+- A removed SD card must pause its scan and resume only after the same source is safely re-authorized or reattached.
+- Encrypted local persistence and explicit user control are required.
 
----
+## Current implementation snapshot
 
-## Build
+The following statements describe source code inspected on branch `audit/fixes-2026-11` at commit `8eb0b5f2e083aca1a508c5e2199c1e02d29d5d32`; they are not a claim about later commits:
+
+- `SemanticSearchUseCase.kt` documents deterministic on-device hash-based similarity and limits candidates to indexed metadata; this is not neural document-content search.
+- `SemanticSearchPluginImpl.kt` uses a 128-dimensional deterministic hash projection.
+- `FileFtsEntity.kt` indexes name, path, tags, and MIME type; it does not contain full document text.
+- `IndexOcrTextUseCase.kt` stores a small set of extracted keywords as tags, not the complete OCR text for semantic indexing.
+- `GoogleDriveAuth.kt` requests `drive.file`, not full read-only Drive access.
+- `GoogleDriveServiceImpl.kt` lists direct children of a folder; complete recursive indexing and Shared-with-me coverage are not established.
+- `EmbeddingWorkerClient.kt` is a legacy remote embedding client and conflicts with the final local-only product requirement until its use is technically excluded.
+
+Source references:
+- [SemanticSearchUseCase.kt](core/domain/src/main/java/com/vvf/smartmanager/core/domain/SemanticSearchUseCase.kt)
+- [SemanticSearchPluginImpl.kt](plugins/plugin-semantic-search/src/main/java/com/vvf/smartmanager/plugin/semanticsearch/SemanticSearchPluginImpl.kt)
+- [FileFtsEntity.kt](core/database/src/main/java/com/vvf/smartmanager/core/database/model/FileFtsEntity.kt)
+- [OcrUseCases.kt](core/domain/src/main/java/com/vvf/smartmanager/core/domain/OcrUseCases.kt)
+- [GoogleDriveAuth.kt](core/cloud-gdrive/src/main/java/com/vvf/smartmanager/core/cloud/gdrive/GoogleDriveAuth.kt)
+- [GoogleDriveServiceImpl.kt](core/cloud-gdrive/src/main/java/com/vvf/smartmanager/core/cloud/gdrive/GoogleDriveServiceImpl.kt)
+- [EmbeddingWorkerClient.kt](app/src/main/java/com/vvf/smartmanager/embedding/EmbeddingWorkerClient.kt)
+
+## Technology currently present
+
+| Area | Repository evidence |
+|---|---|
+| Language / UI | Kotlin, Jetpack Compose, Material 3 |
+| Persistence | Room and SQLCipher |
+| Security | Android Keystore and encrypted vault/database support |
+| Background work | WorkManager |
+| OCR | ML Kit-based plugin |
+| Drive | Google Drive API integration |
+| Search | Local metadata search and deterministic hash-based similarity; neural content embeddings remain future work |
+| Build | Gradle Kotlin DSL and version catalog |
+
+Do not infer feature completion from a module, interface, plugin stub, or dependency being present.
+
+## Build and local checks
 
 Use the Gradle wrapper:
 
@@ -94,62 +94,19 @@ Use the Gradle wrapper:
 ./gradlew lintDebug
 ```
 
-### Release signing
+A successful debug build or unit-test run does not prove OAuth approval, complete Drive access, SD-card access, local neural inference, production signing, Play compliance, or release readiness.
 
-Release tasks refuse the debug keystore. Required environment variables:
+## Release and assurance status
 
-```text
-KEYSTORE_PATH
-STORE_PASSWORD
-KEY_ALIAS
-KEY_PASSWORD
-```
+The project has open production/assurance work. PR [#225](https://github.com/awasthisach/The-Perfect/pull/225) is deliberately **Draft / Open / Unmerged / NO-SHIP**. Do not merge it as a shortcut around exact-SHA CI, ORT/SBOM, CPAS, OAuth, signing, and physical-device acceptance.
 
-`google-services.json` is required for production release builds. The supported CI
-path is `.github/workflows/release.yml` (secrets must be configured in the repository).
+The risk register and evidence ledger are under [docs/assurance](docs/assurance/). A CI pass applies only to the exact commit and workflow run that produced it.
 
-Secrets for local development: copy `.env.example` → `.env` (handled by the secrets
-Gradle plugin; `FIREBASE_APPCHECK_DEBUG_TOKEN` is ignored by default).
+## Documentation map
 
----
-
-## CI and assurance gates
-
-| Workflow | Role |
-|----------|------|
-| `ci.yml` | Build, unit tests, lint, quality |
-| `nightly-ort.yml` | ORT analyzer / scanner / evaluator / advisor / SBOM (exact candidate SHA) |
-| `weekly-instrumented.yml` | Hard SQLCipher instrumented gate (emulator) |
-| `cpas-gate.yml` | CPAS fail-closed verification + evidence staging |
-| `worker-validation.yml` | Worker unit tests and dry-run bundle |
-| `release.yml` | Signed release path |
-
-Heavy candidate workflows cancel superseded **pull_request** runs only
-(`cancel-in-progress: ${{ github.event_name == 'pull_request' }}`). Scheduled and
-main-branch evidence runs are not cancelled mid-flight.
-
-CPAS artifacts and the risk register live under `docs/assurance/`. Production status
-is computed by `tools/audit/cpas_verify.py` and is intentionally **BLOCKED** while
-PROD-008 / PROD-009 / PROD-010 remain open.
-
----
-
-## Known limitations (evidence-based)
-
-- Local “semantic” search is a deterministic hash projection, not a learned embedding model.
-- Google Drive access tokens expire (~55 minutes); refresh-token rotation is not implemented.
-- Remote embedding requires explicit remote-AI consent, Firebase identity, App Check,
-  and a deployed Worker with `GEMINI_PRODUCTION_APPROVED=true`.
-- Open release blockers: license/SBOM evidence (PROD-008 / #136), native Worker + App Check
-  device acceptance (PROD-009 / #140), real-account OAuth / privacy / signing / device
-  acceptance (PROD-010 / #141).
-- Do not treat README, CI green on unit tests, or static configuration as production approval.
-
----
-
-## Further reading
-
-- `docs/assurance/` — CPAS constitution, risk register, evidence ledger, technology pins
-- `SECURITY.md` / `SECURITY_STATUS.md` — security posture notes
-- `TECHNICAL_DOCUMENTATION.md` — additional technical notes
-- Issue tracker — blockers #136, #140, #141
+- [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md) — canonical product goals, boundaries, and acceptance criteria
+- [TECHNICAL_DOCUMENTATION.md](TECHNICAL_DOCUMENTATION.md) — current architecture gaps and target design
+- [BEGINNER_GUIDE_HINDI.md](BEGINNER_GUIDE_HINDI.md) — project status in simple Hindi
+- [RELEASE_NOTES.md](RELEASE_NOTES.md) — verified release status
+- [SECURITY.md](SECURITY.md) and [SECURITY_STATUS.md](SECURITY_STATUS.md) — security reporting and posture
+- [docs/assurance](docs/assurance/) — assurance evidence and risk tracking
