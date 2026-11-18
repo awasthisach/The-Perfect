@@ -7,9 +7,11 @@ import com.vvf.smartmanager.core.data.storage.PrimaryStorageMutationLock
 import com.vvf.smartmanager.core.data.storage.PrimaryStorageScanResult
 import com.vvf.smartmanager.core.database.VVFDatabase
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
+import com.vvf.smartmanager.core.database.model.SourceFileRecordEntity
 import com.vvf.smartmanager.core.model.FileItem
 import com.vvf.smartmanager.core.model.FileSourceType
 import com.vvf.smartmanager.core.model.IndexedSourceAccessState
+import com.vvf.smartmanager.core.model.IndexedSourceFile
 import com.vvf.smartmanager.core.model.SourceFileIdentity
 import java.io.File
 import java.util.UUID
@@ -76,6 +78,20 @@ class PrimaryStorageIndexReconcilerTest {
         val stalePath = "/primary/stale.txt"
         val currentPath = "/primary/current.txt"
         database.fileDao().insertOrUpdate(entity(stalePath))
+        val staleIdentity = SourceFileIdentity(
+            FileSourceType.INTERNAL_STORAGE, "primary", stalePath
+        )
+        database.sourceFileRecordDao().upsert(
+            SourceFileRecordEntity.from(
+                IndexedSourceFile(
+                    identity = staleIdentity,
+                    displayName = File(stalePath).name,
+                    sizeBytes = 10L,
+                    mimeType = "text/plain",
+                    modifiedAtEpochMillis = 1L
+                )
+            )
+        )
 
         val result = reconcilePrimaryStorageIndex(
             scan = PrimaryStorageScanResult(listOf(item(currentPath)), isComplete = true),
