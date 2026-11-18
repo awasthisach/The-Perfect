@@ -38,7 +38,12 @@ object VaultBiometricCryptoHelper {
             }
             synchronized(issuedCiphers) { issuedCiphers[cipher] = Unit }
             cipher
-        } catch (_: Exception) {
+        } catch (e: android.security.keystore.KeyPermanentlyInvalidatedException) {
+            try { java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(BIOMETRIC_AUTH_KEY_ALIAS) } catch (_: Exception) {}
+            android.util.Log.w("VaultBiometric", "Biometric key invalidated. Re-enrollment required.")
+            null
+        } catch (e: Exception) {
+            android.util.Log.e("VaultBiometric", "Unexpected cipher creation failure", e)
             null
         }
     }
@@ -54,7 +59,12 @@ object VaultBiometricCryptoHelper {
             } finally {
                 proof.fill(0)
             }
-        } catch (_: Exception) {
+        } catch (e: android.security.keystore.KeyPermanentlyInvalidatedException) {
+            try { java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(BIOMETRIC_AUTH_KEY_ALIAS) } catch (_: Exception) {}
+            android.util.Log.w("VaultBiometric", "Biometric key invalidated. Re-enrollment required.")
+            null
+        } catch (e: Exception) {
+            android.util.Log.e("VaultBiometric", "Unexpected cipher creation failure", e)
             null
         }
     }

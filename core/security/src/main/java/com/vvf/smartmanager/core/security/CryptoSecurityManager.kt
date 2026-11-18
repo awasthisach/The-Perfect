@@ -519,7 +519,13 @@ class CryptoSecurityManager(
             val expectedHash = decryptBytes(Base64.decode(hash, Base64.NO_WRAP), Base64.decode(hashIv, Base64.NO_WRAP), VAULT_META_KEY_ALIAS)
             val decodedSalt = decryptBytes(Base64.decode(salt, Base64.NO_WRAP), Base64.decode(saltIv, Base64.NO_WRAP), VAULT_META_KEY_ALIAS)
             MessageDigest.isEqual(expectedHash, hashPin(pin, decodedSalt))
-        } catch (_: Exception) { false }
+        } catch (e: android.security.InvalidKeyException) {
+            android.util.Log.e("CryptoSecurity", "Vault metadata corrupted or key missing", e)
+            false
+        } catch (e: Exception) {
+            android.util.Log.e("CryptoSecurity", "Unexpected pin verification error", e)
+            false
+        }
     }
 
     fun changeVaultPin(oldPin: String, newPin: String): Boolean {
