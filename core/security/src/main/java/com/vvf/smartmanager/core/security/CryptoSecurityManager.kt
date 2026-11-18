@@ -598,12 +598,17 @@ class CryptoSecurityManager(
         saltIvKey: String,
         credentialLabel: String
     ): PinMatch {
-        val encodedValues = listOf(
-            prefs.getString(hashKey, null),
-            prefs.getString(hashIvKey, null),
-            prefs.getString(saltKey, null),
-            prefs.getString(saltIvKey, null)
-        )
+        val encodedValues = try {
+            listOf(
+                prefs.getString(hashKey, null),
+                prefs.getString(hashIvKey, null),
+                prefs.getString(saltKey, null),
+                prefs.getString(saltIvKey, null)
+            )
+        } catch (error: Exception) {
+            Log.e(TAG, "Stored $credentialLabel PIN preferences are unreadable; unlock is blocked", error)
+            return PinMatch.CORRUPTED
+        }
         if (encodedValues.all { it == null }) return PinMatch.NO_MATCH
         if (encodedValues.any { it.isNullOrBlank() }) {
             Log.e(TAG, "Stored $credentialLabel PIN metadata is incomplete; unlock is blocked")

@@ -196,6 +196,20 @@ class CryptoSecurityManagerTest {
     }
 
     @Test
+    fun wrongSharedPreferenceTypeIsCorruptedStateNotAnIncorrectPin() {
+        val isolated = isolatedContext()
+        val manager = CryptoSecurityManager(isolated, "Robolectric")
+        assertTrue(manager.setupVaultPin("482951"))
+        isolated.getSharedPreferences("vvf_secure_vault_prefs", Context.MODE_PRIVATE)
+            .edit().putInt("vault_pin_hash", 12345).commit()
+
+        val result = manager.verifyVaultPinWithResult("000000")
+
+        assertEquals(CryptoSecurityManager.VaultAuthResult.CORRUPTED_STATE, result)
+        assertEquals(0, manager.getFailedAttemptsCount())
+    }
+
+    @Test
     fun incompleteDecoyPinMetadataBlocksUnlockWithoutIncreasingFailedAttempts() {
         val isolated = isolatedContext()
         val manager = CryptoSecurityManager(isolated, "Robolectric")
