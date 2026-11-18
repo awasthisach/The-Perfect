@@ -468,8 +468,9 @@ class GoogleDriveServiceImpl(
  * Missing or malformed timestamps fail the listing instead of masquerading as 1970-01-01.
  */
 internal fun parseDriveTimeMillis(value: String?): Long {
-    require(!value.isNullOrBlank()) { "Google Drive modifiedTime is missing" }
-    val match = DRIVE_RFC3339_PATTERN.matchEntire(value)
+    val timestamp = value?.takeIf { it.isNotBlank() }
+        ?: throw IllegalArgumentException("Google Drive modifiedTime is missing")
+    val match = DRIVE_RFC3339_PATTERN.matchEntire(timestamp)
         ?: throw IllegalArgumentException("Google Drive modifiedTime is not RFC 3339")
     val fraction = match.groupValues[2].padEnd(3, '0').take(3)
     val normalized = "${match.groupValues[1]}.${fraction}${match.groupValues[3]}"
@@ -478,9 +479,8 @@ internal fun parseDriveTimeMillis(value: String?): Long {
     }
     val position = ParsePosition(0)
     val parsed = formatter.parse(normalized, position)
-    require(parsed != null && position.index == normalized.length) {
-        "Google Drive modifiedTime is invalid"
-    }
+        ?: throw IllegalArgumentException("Google Drive modifiedTime is invalid")
+    require(position.index == normalized.length) { "Google Drive modifiedTime is invalid" }
     return parsed.time
 }
 

@@ -629,13 +629,16 @@ class CryptoSecurityManager(
             require(encryptedHash.size >= 16 && encryptedSalt.size >= 16) {
                 "Stored PIN metadata ciphertext is truncated"
             }
-            expectedHash = decryptBytes(encryptedHash, hashIv, VAULT_META_KEY_ALIAS)
-            decodedSalt = decryptBytes(encryptedSalt, saltIv, VAULT_META_KEY_ALIAS)
-            require(expectedHash.size == 32 && decodedSalt.size == 16) {
+            val decryptedHash = decryptBytes(encryptedHash, hashIv, VAULT_META_KEY_ALIAS)
+            expectedHash = decryptedHash
+            val decryptedSalt = decryptBytes(encryptedSalt, saltIv, VAULT_META_KEY_ALIAS)
+            decodedSalt = decryptedSalt
+            require(decryptedHash.size == 32 && decryptedSalt.size == 16) {
                 "Stored PIN metadata has an invalid plaintext length"
             }
-            computedHash = hashPin(pin, decodedSalt)
-            if (MessageDigest.isEqual(expectedHash, computedHash)) PinMatch.MATCH else PinMatch.NO_MATCH
+            val derivedHash = hashPin(pin, decryptedSalt)
+            computedHash = derivedHash
+            if (MessageDigest.isEqual(decryptedHash, derivedHash)) PinMatch.MATCH else PinMatch.NO_MATCH
         } catch (error: Exception) {
             Log.e(TAG, "Stored $credentialLabel PIN metadata failed decoding or authentication; unlock is blocked", error)
             PinMatch.CORRUPTED

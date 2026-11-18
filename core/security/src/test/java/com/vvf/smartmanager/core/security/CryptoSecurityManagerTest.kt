@@ -2,6 +2,7 @@ package com.vvf.smartmanager.core.security
 
 import androidx.test.core.app.ApplicationProvider
 import android.content.Context
+import android.util.Base64
 import android.content.ContextWrapper
 import java.io.File
 import java.util.UUID
@@ -188,6 +189,25 @@ class CryptoSecurityManagerTest {
         assertTrue(manager.setupVaultPin("482951"))
         isolated.getSharedPreferences("vvf_secure_vault_prefs", Context.MODE_PRIVATE)
             .edit().putString("vault_pin_hash", "%%%").commit()
+
+        val result = manager.verifyVaultPinWithResult("000000")
+
+        assertEquals(CryptoSecurityManager.VaultAuthResult.CORRUPTED_STATE, result)
+        assertEquals(0, manager.getFailedAttemptsCount())
+    }
+
+    @Test
+    fun tamperedPinMetadataGcmTagIsCorruptedStateNotAnIncorrectPin() {
+        val isolated = isolatedContext()
+        val manager = CryptoSecurityManager(isolated, "Robolectric")
+        assertTrue(manager.setupVaultPin("482951"))
+        val prefs = isolated.getSharedPreferences("vvf_secure_vault_prefs", Context.MODE_PRIVATE)
+        val encryptedHash = Base64.decode(prefs.getString("vault_pin_hash", null), Base64.NO_WRAP)
+        encryptedHash[encryptedHash.lastIndex] = (encryptedHash.last().toInt() xor 0x01).toByte()
+        prefs.edit().putString(
+            "vault_pin_hash",
+            Base64.encodeToString(encryptedHash, Base64.NO_WRAP)
+        ).commit()
 
         val result = manager.verifyVaultPinWithResult("000000")
 
