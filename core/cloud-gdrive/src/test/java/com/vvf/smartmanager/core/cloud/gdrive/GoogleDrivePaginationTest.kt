@@ -72,11 +72,11 @@ class GoogleDrivePaginationTest {
         val api = FakeDriveApi(
             pages = listOf(
                 DriveFileListResponse(
-                    files = listOf(DriveFileDto(id = "file-1", name = "one.pdf")),
+                    files = listOf(DriveFileDto(id = "file-1", name = "one.pdf", modifiedTime = "2026-11-18T12:34:56Z")),
                     nextPageToken = "page-2"
                 ),
                 DriveFileListResponse(
-                    files = listOf(DriveFileDto(id = "file-2", name = "two.pdf"))
+                    files = listOf(DriveFileDto(id = "file-2", name = "two.pdf", modifiedTime = "2026-11-18T12:34:56Z"))
                 )
             )
         )

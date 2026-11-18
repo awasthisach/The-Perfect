@@ -432,7 +432,8 @@ class GoogleDriveServiceImplTest {
         id = name,
         name = name,
         mimeType = "text/plain",
-        size = "1"
+        size = "1",
+        modifiedTime = "2026-11-18T12:34:56Z"
     )
 
     private fun httpError(code: Int, body: String) = HttpException(
