@@ -8,6 +8,9 @@ import com.vvf.smartmanager.core.data.storage.PrimaryStorageScanResult
 import com.vvf.smartmanager.core.database.VVFDatabase
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
 import com.vvf.smartmanager.core.model.FileItem
+import com.vvf.smartmanager.core.model.FileSourceType
+import com.vvf.smartmanager.core.model.IndexedSourceAccessState
+import com.vvf.smartmanager.core.model.SourceFileIdentity
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
@@ -57,6 +60,7 @@ class PrimaryStorageIndexReconcilerTest {
             scan = PrimaryStorageScanResult(cappedItems, isComplete = true),
             fileDao = database.fileDao(),
             searchFtsDao = database.searchFtsDao(),
+            sourceFileRecordDao = database.sourceFileRecordDao(),
             isCurrentFile = { false },
             onWarning = { warning = it },
             onInfo = {}
@@ -77,6 +81,7 @@ class PrimaryStorageIndexReconcilerTest {
             scan = PrimaryStorageScanResult(listOf(item(currentPath)), isComplete = true),
             fileDao = database.fileDao(),
             searchFtsDao = database.searchFtsDao(),
+            sourceFileRecordDao = database.sourceFileRecordDao(),
             isCurrentFile = { true },
             onWarning = {},
             onInfo = {}
@@ -85,6 +90,20 @@ class PrimaryStorageIndexReconcilerTest {
         assertEquals(FileIndexingOutcome.Completed(1), result)
         assertNull(database.fileDao().getByPath(stalePath))
         assertNotNull(database.fileDao().getByPath(currentPath))
+        val currentIdentity = SourceFileIdentity(
+            FileSourceType.INTERNAL_STORAGE, "primary", currentPath
+        )
+        assertEquals(
+            IndexedSourceAccessState.AVAILABLE.name,
+            database.sourceFileRecordDao().getByIdentityKey(currentIdentity.stableKey)?.accessState
+        )
+        val staleIdentity = SourceFileIdentity(
+            FileSourceType.INTERNAL_STORAGE, "primary", stalePath
+        )
+        assertEquals(
+            IndexedSourceAccessState.SOURCE_REMOVED.name,
+            database.sourceFileRecordDao().getByIdentityKey(staleIdentity.stableKey)?.accessState
+        )
     }
 
     @Test
@@ -103,6 +122,7 @@ class PrimaryStorageIndexReconcilerTest {
             scan = PrimaryStorageScanResult(listOf(item(source.absolutePath)), isComplete = true),
             fileDao = database.fileDao(),
             searchFtsDao = database.searchFtsDao(),
+            sourceFileRecordDao = database.sourceFileRecordDao(),
             isCurrentFile = { File(it).exists() },
             onWarning = {},
             onInfo = {}
@@ -125,6 +145,7 @@ class PrimaryStorageIndexReconcilerTest {
                 scan = scan,
                 fileDao = database.fileDao(),
                 searchFtsDao = database.searchFtsDao(),
+                sourceFileRecordDao = database.sourceFileRecordDao(),
                 isCurrentFile = {
                     started.countDown()
                     check(continueReconcile.await(10, TimeUnit.SECONDS))

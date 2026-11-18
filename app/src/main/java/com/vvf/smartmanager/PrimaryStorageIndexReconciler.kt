@@ -4,7 +4,13 @@ import com.vvf.smartmanager.core.background.workers.FileIndexingOutcome
 import com.vvf.smartmanager.core.data.storage.PrimaryStorageMutationLock
 import com.vvf.smartmanager.core.database.dao.FileDao
 import com.vvf.smartmanager.core.database.dao.SearchFtsDao
+import com.vvf.smartmanager.core.database.dao.SourceFileRecordDao
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
+import com.vvf.smartmanager.core.database.model.SourceFileRecordEntity
+import com.vvf.smartmanager.core.model.FileSourceType
+import com.vvf.smartmanager.core.model.IndexedSourceAccessState
+import com.vvf.smartmanager.core.model.IndexedSourceFile
+import com.vvf.smartmanager.core.model.SourceFileIdentity
 import com.vvf.smartmanager.core.data.storage.PrimaryStorageScanResult
 import java.io.File
 import kotlinx.coroutines.sync.withLock
@@ -18,6 +24,7 @@ internal suspend fun reconcilePrimaryStorageIndex(
     scan: PrimaryStorageScanResult,
     fileDao: FileDao,
     searchFtsDao: SearchFtsDao,
+    sourceFileRecordDao: SourceFileRecordDao,
     isCurrentFile: (String) -> Boolean = { path -> File(path).exists() && File(path).isFile },
     onWarning: (String) -> Unit,
     onInfo: (String) -> Unit
@@ -25,6 +32,22 @@ internal suspend fun reconcilePrimaryStorageIndex(
     val scannedItems = scan.items.filter { item -> isCurrentFile(item.path) }
     val existingByPath = fileDao.getIndexedPathSnapshot().associateBy { it.path }
     val scannedPaths = scannedItems.map { it.path }.toHashSet()
+    val sourceRecords = scannedItems.map { item ->
+        SourceFileRecordEntity.from(
+            IndexedSourceFile(
+                identity = SourceFileIdentity(
+                    sourceType = FileSourceType.INTERNAL_STORAGE,
+                    sourceInstanceId = "primary",
+                    sourceFileId = item.path
+                ),
+                displayName = item.name,
+                sizeBytes = item.sizeBytes,
+                mimeType = item.mimeType,
+                modifiedAtEpochMillis = item.lastModified.coerceAtLeast(0L),
+                accessState = IndexedSourceAccessState.AVAILABLE
+            )
+        )
+    }
     val metadata = scannedItems.map { item ->
         val existing = existingByPath[item.path]
         FileMetadataEntity(
@@ -70,6 +93,21 @@ internal suspend fun reconcilePrimaryStorageIndex(
     }
     if (metadata.isNotEmpty()) {
         metadata.chunked(400).forEach { chunk -> fileDao.insertAllPreservingLatestMetadata(chunk) }
+    }
+    if (sourceRecords.isNotEmpty()) {
+        sourceRecords.chunked(400).forEach { chunk -> sourceFileRecordDao.upsertAll(chunk) }
+    }
+    // Only a complete, uncapped inventory may mark previously indexed source records missing.
+    // Preserve their metadata and identity so a temporarily unavailable source can be recovered.
+    if (shouldPruneStalePrimaryIndexRows(scan.items.size, scan.isComplete)) {
+        val currentIdentityKeys = sourceRecords.map { it.identityKey }.toHashSet()
+        sourceFileRecordDao.getBySourceInstance(
+            FileSourceType.INTERNAL_STORAGE.name, "primary"
+        ).filter { it.identityKey !in currentIdentityKeys }.forEach { stale ->
+            sourceFileRecordDao.updateAccessState(
+                stale.identityKey, IndexedSourceAccessState.SOURCE_REMOVED.name
+            )
+        }
     }
     if (metadata.isNotEmpty() || staleRemoved > 0) {
         searchFtsDao.rebuildFtsIndex()

@@ -442,6 +442,7 @@ class VVFApplication : Application(), Configuration.Provider {
                 scan = scan,
                 fileDao = database.fileDao(),
                 searchFtsDao = database.searchFtsDao(),
+                sourceFileRecordDao = database.sourceFileRecordDao(),
                 onWarning = { Log.w(TAG, it) },
                 onInfo = { Log.i(TAG, it) }
             )
