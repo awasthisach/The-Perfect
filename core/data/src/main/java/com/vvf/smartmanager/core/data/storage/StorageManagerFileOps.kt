@@ -127,6 +127,7 @@ open class StorageManagerFileOps(
     protected open fun copyPhysical(source: File, destination: File): Boolean = try {
         if (source.isDirectory) {
             source.copyRecursively(destination, overwrite = false)
+            destination.isDirectory
         } else {
             FileInputStream(source).use { input ->
                 FileOutputStream(destination).use { output ->
