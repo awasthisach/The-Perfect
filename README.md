@@ -1,6 +1,16 @@
 # VVF Smart Manager
 
-**VVF Smart Manager** is an Android project whose primary product goals are:
+**English — Product identity**
+
+VVF Smart Manager is a private, on-device **semantic search and cross-source duplicate finder** for Google Drive, phone storage, and user-authorized SD cards. It uses local AI, privacy-first indexing, and never deletes files automatically. **Under active development; not production-ready.**
+
+**हिंदी — उत्पाद परिचय**
+
+VVF Smart Manager, Google Drive, फोन स्टोरेज और उपयोगकर्ता द्वारा अधिकृत SD कार्ड के लिए निजी, डिवाइस पर चलने वाली **अर्थ-आधारित खोज और सभी स्रोतों में डुप्लिकेट पहचानने वाला ऐप** है। इसमें स्थानीय AI और गोपनीयता-प्रथम इंडेक्सिंग होगी। यह किसी फाइल को अपने-आप डिलीट नहीं करेगा। **विकास जारी है; अभी उत्पादन के लिए तैयार नहीं।**
+
+Application ID: `com.vvf.smartmanager`
+
+## Primary product goals
 
 1. **Private Semantic Search** — search the contents and meaning of documents, not only their filenames.
 2. **Cross-source Duplicate Finder** — identify exact and near-duplicate files across Google Drive, phone storage, and user-authorized SD-card folders.
@@ -8,8 +18,6 @@
 The intended design is **on-device first**: document text, OCR output, fingerprints, and embeddings must stay on the device. The app must never automatically delete or move files. File management, the encrypted vault, and storage utilities are supporting features—not the product's primary purpose.
 
 > **Development status:** These are product goals, not a claim that every feature is implemented. The current code still has material gaps described below. This repository is not certified production-ready.
-
-Application ID: `com.vvf.smartmanager`
 
 ## Product scope
 
