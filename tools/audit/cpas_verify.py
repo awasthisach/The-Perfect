@@ -174,9 +174,62 @@ def blocking_risks(findings: list[dict[str, str]]) -> list[dict[str, str]]:
     ]
 
 
+def validate_instrumented_stage_status(
+    status: object, candidate_sha: str | None, candidate_event: str | None
+) -> list[str]:
+    """Validate this run's downloaded, exact-SHA artifact provenance before CPAS can PASS."""
+    if not isinstance(status, dict):
+        return ["instrumented stage status is missing or malformed"]
+    problems: list[str] = []
+    if status.get("status") != "PASS":
+        code = str(status.get("status") or "UNKNOWN")
+        detail = str(status.get("detail") or "no staging detail")
+        problems.append(f"current instrumented stage is {code}: {detail}")
+    if not candidate_sha or not SHA_RE.fullmatch(candidate_sha):
+        problems.append("candidate SHA was not supplied as a full commit SHA")
+    elif status.get("candidate_sha") != candidate_sha:
+        problems.append("instrumented artifact candidate SHA does not match CPAS target SHA")
+    if not candidate_event or status.get("event") != candidate_event:
+        problems.append("instrumented artifact event does not match CPAS trigger event")
+    run_id = str(status.get("run_id") or "")
+    if not run_id.isdigit() or int(run_id) <= 0:
+        problems.append("instrumented artifact has no valid producer run ID")
+    job_id = str(status.get("job_id") or "")
+    if not job_id.isdigit() or int(job_id) <= 0:
+        problems.append("instrumented artifact has no valid producer job ID")
+    try:
+        artifact_id = int(status.get("artifact_id"))
+    except (TypeError, ValueError):
+        artifact_id = 0
+    if artifact_id <= 0:
+        problems.append("instrumented artifact has no valid artifact ID")
+    expected_name = f"sqlcipher-instrumented-{candidate_sha}" if candidate_sha else ""
+    if status.get("artifact_name") != expected_name:
+        problems.append("instrumented artifact name does not bind the exact candidate SHA")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(status.get("artifact_digest") or "")):
+        problems.append("instrumented artifact digest is missing or invalid")
+    modules = status.get("modules")
+    if not isinstance(modules, dict):
+        problems.append("instrumented report module counts are missing")
+    else:
+        for module in ("app", "core/database", "core/database-compat"):
+            counts = modules.get(module)
+            if not isinstance(counts, dict):
+                problems.append(f"instrumented report counts are missing for {module}")
+                continue
+            if not isinstance(counts.get("tests"), int) or counts["tests"] <= 0:
+                problems.append(f"instrumented report has no tests for {module}")
+            for field in ("failures", "errors", "skipped"):
+                if counts.get(field) != 0:
+                    problems.append(f"instrumented report {module} has {field}={counts.get(field)!r}")
+    return problems
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Verify CPAS assurance contracts")
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument("--candidate-sha")
+    parser.add_argument("--candidate-event")
     return parser.parse_args()
 
 
@@ -200,7 +253,8 @@ def parse_waivers(path: Path) -> list[dict[str, str]]:
 
 
 def main() -> int:
-    root = parse_args().root.resolve()
+    args = parse_args()
+    root = args.root.resolve()
     assurance = root / "docs" / "assurance"
     sheet = assurance / "FINAL_CPAS_SHEET.md"
     risk_path = assurance / "08-risk-register.yaml"
@@ -209,6 +263,7 @@ def main() -> int:
     gate_path = assurance / "09-gate-catalog.yaml"
     tech_path = assurance / "04-technology-registry.yaml"
     ledger_path = assurance / "evidence-ledger.json"
+    instrumented_stage_path = root / "instrumented-stage-status.json"
     output_path = root / "cpas-status.json"
 
     required = [
@@ -322,6 +377,23 @@ def main() -> int:
         except (json.JSONDecodeError, OSError) as exc:
             ledger_detail = f"invalid JSON: {exc}"
     checks.append(check("evidence_ledger_integrity", ledger_ok, ledger_detail))
+
+    stage_status_data: object = None
+    if instrumented_stage_path.is_file():
+        try:
+            stage_status_data = json.loads(instrumented_stage_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            stage_status_data = None
+    stage_problems = validate_instrumented_stage_status(
+        stage_status_data, args.candidate_sha, args.candidate_event
+    )
+    checks.append(check(
+        "instrumented_stage_provenance",
+        not stage_problems,
+        "current exact-SHA artifact, digest, run, job and test reports are verified"
+        if not stage_problems
+        else "; ".join(stage_problems),
+    ))
 
     valid_evidence_ids = {
         str(entry.get("id"))
@@ -446,7 +518,14 @@ def main() -> int:
             checks.append(check("ort_sboms_present", False, f"invalid ort-status.json: {exc}"))
 
     instr_stale = True
-    if isinstance(entries, list) and entries:
+    if stage_problems:
+        stage_code = "missing"
+        if isinstance(stage_status_data, dict):
+            stage_code = str(stage_status_data.get("status") or "UNKNOWN")
+        instr_freshness_detail = (
+            f"current exact-SHA stage is {stage_code}; ledger freshness is not used as a substitute"
+        )
+    elif isinstance(entries, list) and entries:
         instr = [
             e for e in entries
             if isinstance(e, dict) and "emulator" in str(e.get("environment", "")).lower()
@@ -462,12 +541,19 @@ def main() -> int:
                 except (KeyError, ValueError):
                     ages.append(999.0)
             instr_stale = all(a > 14.0 for a in ages)
+            instr_freshness_detail = (
+                "instrumented DB evidence within 14 days"
+                if not instr_stale
+                else "no instrumented evidence in 14 days — run weekly hard gate"
+            )
+        else:
+            instr_freshness_detail = "evidence ledger has no emulator record; current exact-SHA artifact is not a ledger substitute"
+    else:
+        instr_freshness_detail = "instrumented evidence ledger is empty; current artifact stage is verified"
     checks.append(check(
         "instrumented_evidence_freshness",
         not instr_stale,
-        "instrumented DB evidence within 14 days"
-        if not instr_stale
-        else "no instrumented evidence in 14 days — run weekly hard gate",
+        instr_freshness_detail,
     ))
 
     build_gradle = root / "app" / "build.gradle.kts"

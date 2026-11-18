@@ -136,6 +136,15 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertIn("Enforce fail-closed result after preserving status artifact", workflow)
         self.assertIn('if [ "$ORT_STAGE_OUTCOME" != "success" ]; then', workflow)
 
+    def test_cpas_stages_exact_sha_instrumented_artifact_and_preserves_status(self):
+        workflow = (ROOT / ".github/workflows/cpas-gate.yml").read_text(encoding="utf-8")
+        self.assertIn("actions: read", workflow)
+        self.assertIn("tools/audit/stage_instrumented_evidence.py", workflow)
+        self.assertIn('--candidate-sha "$CANDIDATE_SHA"', workflow)
+        self.assertIn('--candidate-event "$CANDIDATE_EVENT"', workflow)
+        self.assertIn("instrumented-stage-status.json", workflow)
+        self.assertIn("--candidate-event", workflow)
+
     def test_branch_cleanup_workflow_is_read_only_and_never_deletes(self):
         workflow = (ROOT / ".github/workflows/cleanup-stale-branches.yml").read_text(encoding="utf-8")
         self.assertIn("contents: read", workflow)

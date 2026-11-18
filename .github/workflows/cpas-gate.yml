@@ -168,35 +168,16 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          run_id=""
-          run_status=""
-          run_conclusion=""
+          python3 tools/audit/stage_instrumented_evidence.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --event "$EVENT_NAME" \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --output-dir instrumented-evidence \
+            --status-file instrumented-stage-status.json \
+            --timeout-seconds 2400 \
+            --poll-interval 60
 
-          for attempt in $(seq 1 60); do
-            runs_json="$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/actions/workflows/weekly-instrumented.yml/runs?event=${EVENT_NAME}&per_page=100")"
-            run_id="$(printf '%s' "$runs_json" | jq -r --arg sha "$CANDIDATE_SHA" '[.[] | .workflow_runs[]? | select(.head_sha == $sha or any(.pull_requests[]?; .head.sha == $sha))] | sort_by(.created_at) | last | .id // empty')"
-            if [ -n "$run_id" ]; then
-              run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}")"
-              run_status="$(printf '%s' "$run_json" | jq -r '.status')"
-              run_conclusion="$(printf '%s' "$run_json" | jq -r '.conclusion // empty')"
-              if [ "$run_status" = "completed" ]; then break; fi
-            fi
-            sleep 60
-          done
-
-          if [ -z "$run_id" ] || [ "$run_status" != "completed" ] || [ "$run_conclusion" != "success" ]; then
-            echo "::error::No successful weekly SQLCipher hard-gate run found for exact candidate SHA $CANDIDATE_SHA; run=${run_id:-missing}, conclusion=${run_conclusion:-pending}."
-            exit 1
-          fi
-
-          jobs_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100")"
-          job_id="$(printf '%s' "$jobs_json" | jq -r '[.jobs[] | select(.name == "SQLCipher Instrumented (hard)" and .conclusion == "success")] | last | .id // empty')"
-          if [ -z "$job_id" ]; then
-            echo "::error::Weekly run $run_id has no successful SQLCipher Instrumented (hard) job."
-            exit 1
-          fi
-
-          echo "Weekly instrumented run id: $run_id; job id: $job_id"
+          run_id="$(python3 -c 'import json; print(json.load(open("instrumented-stage-status.json", encoding="utf-8"))["run_id"])')"
           python3 tools/audit/generate_evidence.py \
             --commit-sha "$CANDIDATE_SHA" \
             --run-id "$run_id" \
@@ -211,9 +192,12 @@ jobs:
       - name: Run semantic CPAS verification
         id: cpas
         if: always()
+        env:
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          CANDIDATE_EVENT: ${{ github.event_name }}
         run: |
           set +e
-          python3 tools/audit/cpas_verify.py --root .
+          python3 tools/audit/cpas_verify.py --root . --candidate-sha "$CANDIDATE_SHA" --candidate-event "$CANDIDATE_EVENT"
           code=$?
           set -e
 
@@ -249,7 +233,9 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: cpas-status-${{ github.event.pull_request.head.sha || github.sha }}
-          path: cpas-status.json
+          path: |
+            cpas-status.json
+            instrumented-stage-status.json
           if-no-files-found: error
           retention-days: 14
 

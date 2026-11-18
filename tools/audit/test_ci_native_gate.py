@@ -34,6 +34,10 @@ class NativeGatePermissionsTest(unittest.TestCase):
         self.assertIn("--db-only", self.publisher)
         self.assertIn('--commit-sha "$(git rev-parse HEAD)"', self.publisher)
 
+    def test_instrumented_reports_are_bound_to_the_producing_run_id(self):
+        self.assertIn("WORKFLOW_RUN_ID: ${{ github.run_id }}", self.native)
+        self.assertIn('--expected-run-id "$WORKFLOW_RUN_ID"', self.native)
+
     def test_evidence_update_does_not_claim_production_pass(self):
         self.assertNotIn("CPAS gate should PASS after merge", self.publisher)
         self.assertIn("open risks still determine release readiness", self.publisher)

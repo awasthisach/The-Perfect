@@ -180,6 +180,51 @@ class CpasVerifySelfTests(unittest.TestCase):
         self.assertTrue(mod.GATE_ID_RE.fullmatch("GATE-LICENSE-001"))
         self.assertFalse(mod.GATE_ID_RE.fullmatch("LICENSE-001"))
 
+    def test_instrumented_stage_requires_exact_sha_run_job_artifact_digest_and_reports(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("cpas_verify_stage", VERIFY)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+
+        valid = {
+            "status": "PASS",
+            "candidate_sha": "a" * 40,
+            "event": "push",
+            "run_id": "12345",
+            "job_id": "67890",
+            "artifact_id": 222,
+            "artifact_name": "sqlcipher-instrumented-" + "a" * 40,
+            "artifact_digest": "sha256:" + "b" * 64,
+            "modules": {
+                "app": {"tests": 4, "failures": 0, "errors": 0, "skipped": 0},
+                "core/database": {"tests": 3, "failures": 0, "errors": 0, "skipped": 0},
+                "core/database-compat": {"tests": 3, "failures": 0, "errors": 0, "skipped": 0},
+            },
+        }
+        self.assertEqual([], mod.validate_instrumented_stage_status(valid, "a" * 40, "push"))
+        self.assertTrue(any("candidate SHA" in item for item in mod.validate_instrumented_stage_status(valid, "c" * 40, "push")))
+        self.assertTrue(any("event" in item for item in mod.validate_instrumented_stage_status(valid, "a" * 40, "pull_request")))
+        self.assertTrue(any("digest" in item for item in mod.validate_instrumented_stage_status(
+            {**valid, "artifact_digest": "missing"}, "a" * 40, "push"
+        )))
+
+    def test_instrumented_api_error_is_not_rewritten_as_missing_freshness(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("cpas_verify_stage_error", VERIFY)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+
+        problems = mod.validate_instrumented_stage_status(
+            {"status": "EVIDENCE_API_ERROR", "candidate_sha": "a" * 40, "event": "push", "detail": "HTTP 502 after retries"},
+            "a" * 40,
+            "push",
+        )
+        self.assertTrue(any("EVIDENCE_API_ERROR" in item and "HTTP 502" in item for item in problems))
+
 
 if __name__ == "__main__":
     unittest.main()

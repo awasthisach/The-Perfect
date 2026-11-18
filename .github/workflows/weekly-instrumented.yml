@@ -164,10 +164,13 @@ jobs:
           PY
 
       - name: Validate SQLCipher JUnit reports (hard)
+        env:
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
         run: |
           python3 tools/audit/validate_instrumented_reports.py \
             --reports-dir . \
-            --expected-sha "$(git rev-parse HEAD)"
+            --expected-sha "$(git rev-parse HEAD)" \
+            --expected-run-id "$WORKFLOW_RUN_ID"
 
       - name: Upload SQLCipher JUnit reports bound to exact SHA
         if: always()
