@@ -169,6 +169,11 @@ class SqlCipherRoomInstrumentedTest {
             ).use { cursor ->
                 assertTrue("Migration 1->2 must create vault_journal", cursor.moveToFirst())
             }
+            migrated.openHelper.writableDatabase.query(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'source_file_records'"
+            ).use { cursor ->
+                assertTrue("Migration 3->4 must create the source-aware catalog", cursor.moveToFirst())
+            }
         } finally {
             migrated.close()
         }

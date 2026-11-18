@@ -10,11 +10,13 @@ import androidx.sqlite.db.SupportSQLiteOpenHelper
 import com.vvf.smartmanager.core.database.dao.CloudSyncDao
 import com.vvf.smartmanager.core.database.dao.FileDao
 import com.vvf.smartmanager.core.database.dao.SearchFtsDao
+import com.vvf.smartmanager.core.database.dao.SourceFileRecordDao
 import com.vvf.smartmanager.core.database.dao.VaultDao
 import com.vvf.smartmanager.core.database.dao.VaultJournalDao
 import com.vvf.smartmanager.core.database.model.CloudSyncEntity
 import com.vvf.smartmanager.core.database.model.FileFtsEntity
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
+import com.vvf.smartmanager.core.database.model.SourceFileRecordEntity
 import com.vvf.smartmanager.core.database.model.VaultItemEntity
 import com.vvf.smartmanager.core.database.model.VaultJournalEntity
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
@@ -28,9 +30,10 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         FileFtsEntity::class,
         VaultItemEntity::class,
         VaultJournalEntity::class,
-        CloudSyncEntity::class
+        CloudSyncEntity::class,
+        SourceFileRecordEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 abstract class VVFDatabase : RoomDatabase() {
@@ -40,6 +43,7 @@ abstract class VVFDatabase : RoomDatabase() {
     abstract fun vaultDao(): VaultDao
     abstract fun vaultJournalDao(): VaultJournalDao
     abstract fun cloudSyncDao(): CloudSyncDao
+    abstract fun sourceFileRecordDao(): SourceFileRecordDao
 
     companion object {
         const val DATABASE_NAME = "vvf_smart_manager_enc.db"
@@ -102,6 +106,44 @@ abstract class VVFDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Adds a source-neutral catalog without rewriting legacy path-keyed file_metadata rows.
+         * Existing indexed files remain intact; source adapters can populate this table gradually.
+         */
+        val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `source_file_records` (
+                        `identityKey` TEXT NOT NULL,
+                        `sourceType` TEXT NOT NULL,
+                        `sourceInstanceId` TEXT NOT NULL,
+                        `sourceFileId` TEXT NOT NULL,
+                        `displayName` TEXT NOT NULL,
+                        `sizeBytes` INTEGER NOT NULL,
+                        `mimeType` TEXT,
+                        `modifiedAtEpochMillis` INTEGER NOT NULL,
+                        `accessState` TEXT NOT NULL,
+                        `sha256` TEXT,
+                        PRIMARY KEY(`identityKey`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_source_file_records_sourceType_sourceInstanceId` " +
+                        "ON `source_file_records` (`sourceType`, `sourceInstanceId`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_source_file_records_accessState` " +
+                        "ON `source_file_records` (`accessState`)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_source_file_records_sourceType_sourceInstanceId_sourceFileId` " +
+                        "ON `source_file_records` (`sourceType`, `sourceInstanceId`, `sourceFileId`)"
+                )
+            }
+        }
+
         /** Builds an encrypted SQLCipher Room database using the decrypted Keystore passphrase. */
         fun buildEncryptedDatabase(context: Context, passphrase: ByteArray): VVFDatabase {
             require(passphrase.size == 32) { "SQLCipher database passphrase must be exactly 32 bytes" }
@@ -116,7 +158,7 @@ abstract class VVFDatabase : RoomDatabase() {
                 DATABASE_NAME
             )
                 .openHelperFactory(openHelperFactory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
         }
 

@@ -4,9 +4,15 @@ import androidx.test.core.app.ApplicationProvider
 import com.vvf.smartmanager.core.database.dao.CloudSyncDao
 import com.vvf.smartmanager.core.database.dao.FileDao
 import com.vvf.smartmanager.core.database.dao.SearchFtsDao
+import com.vvf.smartmanager.core.database.dao.SourceFileRecordDao
 import com.vvf.smartmanager.core.database.dao.VaultDao
 import com.vvf.smartmanager.core.database.model.CloudSyncEntity
 import com.vvf.smartmanager.core.database.model.FileMetadataEntity
+import com.vvf.smartmanager.core.database.model.SourceFileRecordEntity
+import com.vvf.smartmanager.core.model.FileSourceType
+import com.vvf.smartmanager.core.model.IndexedSourceAccessState
+import com.vvf.smartmanager.core.model.IndexedSourceFile
+import com.vvf.smartmanager.core.model.SourceFileIdentity
 import com.vvf.smartmanager.core.database.model.VaultItemEntity
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -30,6 +36,7 @@ class VVFDatabaseDaoTest {
     private lateinit var searchFtsDao: SearchFtsDao
     private lateinit var vaultDao: VaultDao
     private lateinit var cloudSyncDao: CloudSyncDao
+    private lateinit var sourceFileRecordDao: SourceFileRecordDao
 
     @Before
     fun setup() {
@@ -38,6 +45,7 @@ class VVFDatabaseDaoTest {
         searchFtsDao = database.searchFtsDao()
         vaultDao = database.vaultDao()
         cloudSyncDao = database.cloudSyncDao()
+        sourceFileRecordDao = database.sourceFileRecordDao()
     }
 
     @After
@@ -102,6 +110,74 @@ class VVFDatabaseDaoTest {
         assertEquals(1, duplicates.size)
         assertEquals(50000L, duplicates[0].sizeBytes)
         assertEquals(2, duplicates[0].count)
+    }
+
+    @Test
+    fun sourceCatalogKeepsSameProviderIdSeparateAcrossSourcesAndCardInstances() = runBlocking {
+        val phoneFile = IndexedSourceFile(
+            identity = SourceFileIdentity(
+                FileSourceType.INTERNAL_STORAGE, "primary", "document-42"
+            ),
+            displayName = "report.pdf",
+            sizeBytes = 128L,
+            mimeType = "application/pdf",
+            modifiedAtEpochMillis = 10L
+        )
+        val sdCardFile = IndexedSourceFile(
+            identity = SourceFileIdentity(
+                FileSourceType.REMOVABLE_STORAGE, "sd-card-volume-a", "document-42"
+            ),
+            displayName = "report.pdf",
+            sizeBytes = 128L,
+            mimeType = "application/pdf",
+            modifiedAtEpochMillis = 10L
+        )
+        val secondCardFile = sdCardFile.copy(
+            identity = sdCardFile.identity.copy(sourceInstanceId = "sd-card-volume-b")
+        )
+
+        sourceFileRecordDao.upsertAll(
+            listOf(phoneFile, sdCardFile, secondCardFile).map(SourceFileRecordEntity::from)
+        )
+
+        val records = sourceFileRecordDao.getAll()
+        assertEquals(3, records.size)
+        assertEquals(
+            setOf("primary", "sd-card-volume-a", "sd-card-volume-b"),
+            records.map { it.sourceInstanceId }.toSet()
+        )
+        assertEquals(
+            1,
+            sourceFileRecordDao.getBySourceInstance(
+                FileSourceType.REMOVABLE_STORAGE.name, "sd-card-volume-a"
+            ).size
+        )
+    }
+
+    @Test
+    fun sourceAccessRevocationRetainsCatalogRecord() = runBlocking {
+        val record = SourceFileRecordEntity.from(
+            IndexedSourceFile(
+                identity = SourceFileIdentity(
+                    FileSourceType.GOOGLE_DRIVE, "google-account-1", "drive-file-9"
+                ),
+                displayName = "notes.txt",
+                sizeBytes = 32L,
+                mimeType = "text/plain",
+                modifiedAtEpochMillis = 20L
+            )
+        )
+        sourceFileRecordDao.upsert(record)
+
+        val updated = sourceFileRecordDao.updateAccessState(
+            record.identityKey, IndexedSourceAccessState.ACCESS_REVOKED.name
+        )
+
+        assertEquals(1, updated)
+        assertEquals(
+            IndexedSourceAccessState.ACCESS_REVOKED.name,
+            sourceFileRecordDao.getByIdentityKey(record.identityKey)?.accessState
+        )
     }
 
     @Test
