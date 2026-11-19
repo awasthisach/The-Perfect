@@ -11,6 +11,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.security.MessageDigest
 import java.util.UUID
 
 /**
@@ -150,7 +151,9 @@ open class StorageManagerFileOps(
     protected open fun copyPhysical(source: File, destination: File): Boolean {
         val copied = try {
             if (source.isDirectory) {
-                source.copyRecursively(destination, overwrite = false) && destination.isDirectory
+                source.copyRecursively(destination, overwrite = false) &&
+                    destination.isDirectory &&
+                    hasIdenticalContents(source, destination)
             } else {
                 FileInputStream(source).use { input ->
                     FileOutputStream(destination).use { output ->
@@ -158,7 +161,9 @@ open class StorageManagerFileOps(
                         output.fd.sync()
                     }
                 }
-                destination.isFile && destination.length() == source.length()
+                destination.isFile &&
+                    destination.length() == source.length() &&
+                    filesHaveIdenticalContents(source, destination)
             }
         } catch (_: Exception) {
             false
@@ -170,6 +175,42 @@ open class StorageManagerFileOps(
             }
         }
         return copied
+    }
+
+    private fun hasIdenticalContents(source: File, destination: File): Boolean {
+        val sourceEntries = source.walkTopDown().drop(1).associateBy {
+            it.relativeTo(source).invariantSeparatorsPath
+        }
+        val destinationEntries = destination.walkTopDown().drop(1).associateBy {
+            it.relativeTo(destination).invariantSeparatorsPath
+        }
+        if (sourceEntries.keys != destinationEntries.keys) return false
+        return sourceEntries.all { (relativePath, sourceEntry) ->
+            val destinationEntry = destinationEntries[relativePath] ?: return@all false
+            when {
+                sourceEntry.isDirectory -> destinationEntry.isDirectory
+                sourceEntry.isFile -> destinationEntry.isFile &&
+                    sourceEntry.length() == destinationEntry.length() &&
+                    filesHaveIdenticalContents(sourceEntry, destinationEntry)
+                else -> false
+            }
+        }
+    }
+
+    private fun filesHaveIdenticalContents(first: File, second: File): Boolean {
+        fun digest(file: File): ByteArray {
+            val messageDigest = MessageDigest.getInstance("SHA-256")
+            FileInputStream(file).use { input ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    messageDigest.update(buffer, 0, count)
+                }
+            }
+            return messageDigest.digest()
+        }
+        return MessageDigest.isEqual(digest(first), digest(second))
     }
 
     /** Never remove the original until the fallback copy is complete and verified. */

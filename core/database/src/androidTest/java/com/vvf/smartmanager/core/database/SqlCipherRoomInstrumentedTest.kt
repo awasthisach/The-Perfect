@@ -154,6 +154,20 @@ class SqlCipherRoomInstrumentedTest {
             legacy.openHelper.writableDatabase.execSQL(
                 "ALTER TABLE file_metadata DROP COLUMN ocrRetryAttempt"
             )
+
+            // The current Kotlin entity also adds OCR text to the v1 fixture. A genuine v1
+            // database predates this column, so remove the generated FTS sync triggers first.
+            listOf(
+                "room_fts_content_sync_file_metadata_BEFORE_UPDATE",
+                "room_fts_content_sync_file_metadata_AFTER_UPDATE",
+                "room_fts_content_sync_file_metadata_BEFORE_DELETE",
+                "room_fts_content_sync_file_metadata_AFTER_INSERT"
+            ).forEach { trigger ->
+                legacy.openHelper.writableDatabase.execSQL("DROP TRIGGER IF EXISTS `$trigger`")
+            }
+            legacy.openHelper.writableDatabase.execSQL(
+                "ALTER TABLE file_metadata DROP COLUMN ocrText"
+            )
         } finally {
             legacy.close()
         }
