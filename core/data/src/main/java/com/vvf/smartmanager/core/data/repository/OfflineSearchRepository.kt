@@ -143,6 +143,21 @@ class OfflineSearchRepository(
         emitAll(searchFtsDao.getTotalIndexedCount().flowOn(Dispatchers.IO))
     }
 
+    override suspend fun saveOcrText(path: String, text: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        awaitStartupReady()
+        try {
+            require(path.isNotBlank())
+            require(text.length <= 1000000)
+            fileDao.updateOcrTextByPath(path, text)
+            val stored = fileDao.getByPath(path)
+            Result.success(stored != null && stored.ocrText == text)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
     override suspend fun rebuildFtsIndex() = withContext(Dispatchers.IO) {
         awaitStartupReady()
         searchFtsDao.rebuildFtsIndex()

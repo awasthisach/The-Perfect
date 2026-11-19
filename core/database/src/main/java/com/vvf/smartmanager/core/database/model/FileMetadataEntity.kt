@@ -40,5 +40,6 @@ data class FileMetadataEntity(
     val md5Hash: String? = null, // For Level 2 duplicate detection
     val operationState: String = "IDLE", // To support DurableOperationState tests
     val ocrRetryAfterEpochMillis: Long? = null,
-    @ColumnInfo(defaultValue = "0") val ocrRetryAttempt: Int = 0
+    @ColumnInfo(defaultValue = "0") val ocrRetryAttempt: Int = 0,
+    @ColumnInfo(defaultValue = "") val ocrText: String = ""
 )

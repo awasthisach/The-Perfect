@@ -109,6 +109,8 @@ interface SearchRepository {
 
     suspend fun rebuildFtsIndex()
 
+    suspend fun saveOcrText(path: String, text: String): Result<Boolean>
+
     /** Bounded recent indexed files for semantic search (avoids loading entire library). */
     suspend fun getRecentIndexedFiles(limit: Int = 400): List<FileItem>
 }

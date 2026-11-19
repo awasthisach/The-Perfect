@@ -42,6 +42,7 @@ class OcrUseCasesTest {
 
     private class FakeSearchRepository : SearchRepository {
         val addedTags = mutableMapOf<String, MutableList<String>>()
+        val savedOcrText = mutableMapOf<String, String>()
 
         override fun searchFiles(query: String, filter: SearchFilter): Flow<List<SearchResultItem>> = emptyFlow()
         override fun getSearchHistory(): Flow<List<String>> = flowOf(emptyList())
@@ -55,6 +56,7 @@ class OcrUseCasesTest {
         }
         override suspend fun removeTagFromFile(path: String, tag: String): Result<Boolean> = Result.success(true)
         override fun getTotalIndexedCount(): Flow<Int> = flowOf(10)
+        override suspend fun saveOcrText(path: String, text: String): Result<Boolean> { savedOcrText[path] = text; return Result.success(true) }
         override suspend fun rebuildFtsIndex() {}
         override suspend fun getRecentIndexedFiles(limit: Int) = emptyList<com.vvf.smartmanager.core.model.FileItem>()
     }
@@ -100,5 +102,6 @@ class OcrUseCasesTest {
 
         val result = indexUseCase(testFile, ocrResult)
         assertTrue(result.isSuccess)
+        assertEquals(ocrResult.fullText, fakeRepo.savedOcrText[testFile.path])
     }
 }

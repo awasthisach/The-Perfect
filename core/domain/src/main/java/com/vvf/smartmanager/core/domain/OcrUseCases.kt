@@ -48,6 +48,7 @@ class IndexOcrTextUseCase(
             return searchRepository.addTagToFile(fileItem.path, "ocr")
         }
         return try {
+            searchRepository.saveOcrText(fileItem.path, ocrResult.fullText).getOrThrow()
             // Keep the completion marker last. If any keyword/FTS write fails, the
             // worker can retry this file instead of filtering it out as already indexed.
             val stopwords = setOf(

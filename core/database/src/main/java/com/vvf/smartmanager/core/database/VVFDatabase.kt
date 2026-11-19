@@ -33,7 +33,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         CloudSyncEntity::class,
         SourceFileRecordEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 abstract class VVFDatabase : RoomDatabase() {
@@ -110,6 +110,23 @@ abstract class VVFDatabase : RoomDatabase() {
          * Adds a source-neutral catalog without rewriting legacy path-keyed file_metadata rows.
          * Existing indexed files remain intact; source adapters can populate this table gradually.
          */
+        val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE file_metadata ADD COLUMN ocrText TEXT NOT NULL DEFAULT ''")
+                db.execSQL("DROP TRIGGER IF EXISTS room_fts_content_sync_file_fts_BEFORE_UPDATE")
+                db.execSQL("DROP TRIGGER IF EXISTS room_fts_content_sync_file_fts_BEFORE_DELETE")
+                db.execSQL("DROP TRIGGER IF EXISTS room_fts_content_sync_file_fts_AFTER_UPDATE")
+                db.execSQL("DROP TRIGGER IF EXISTS room_fts_content_sync_file_fts_AFTER_INSERT")
+                db.execSQL("DROP TABLE IF EXISTS file_fts")
+                db.execSQL("CREATE VIRTUAL TABLE file_fts USING FTS4(name TEXT NOT NULL, path TEXT NOT NULL, tags TEXT NOT NULL, mimeType TEXT NOT NULL, ocrText TEXT NOT NULL, content=file_metadata)")
+                db.execSQL("CREATE TRIGGER room_fts_content_sync_file_fts_BEFORE_UPDATE BEFORE UPDATE ON file_metadata BEGIN DELETE FROM file_fts WHERE docid=OLD.rowid; END")
+                db.execSQL("CREATE TRIGGER room_fts_content_sync_file_fts_BEFORE_DELETE BEFORE DELETE ON file_metadata BEGIN DELETE FROM file_fts WHERE docid=OLD.rowid; END")
+                db.execSQL("CREATE TRIGGER room_fts_content_sync_file_fts_AFTER_UPDATE AFTER UPDATE ON file_metadata BEGIN INSERT INTO file_fts(docid,name,path,tags,mimeType,ocrText) VALUES(NEW.rowid,NEW.name,NEW.path,NEW.tags,NEW.mimeType,NEW.ocrText); END")
+                db.execSQL("CREATE TRIGGER room_fts_content_sync_file_fts_AFTER_INSERT AFTER INSERT ON file_metadata BEGIN INSERT INTO file_fts(docid,name,path,tags,mimeType,ocrText) VALUES(NEW.rowid,NEW.name,NEW.path,NEW.tags,NEW.mimeType,NEW.ocrText); END")
+                db.execSQL("INSERT INTO file_fts(file_fts) VALUES('rebuild')")
+            }
+        }
+
         val MIGRATION_3_4: Migration = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
@@ -158,7 +175,7 @@ abstract class VVFDatabase : RoomDatabase() {
                 DATABASE_NAME
             )
                 .openHelperFactory(openHelperFactory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build()
         }
 

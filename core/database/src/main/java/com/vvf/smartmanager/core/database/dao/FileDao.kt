@@ -91,6 +91,9 @@ interface FileDao {
     """)
     fun getOcrCandidates(limit: Int, nowEpochMillis: Long): Flow<List<FileMetadataEntity>>
 
+    @Query("UPDATE file_metadata SET ocrText = :ocrText WHERE path = :path")
+    suspend fun updateOcrTextByPath(path: String, ocrText: String)
+
     @Query("UPDATE file_metadata SET tags = :tags WHERE path = :path")
     suspend fun updateTagsByPath(path: String, tags: String)
 
@@ -157,7 +160,8 @@ interface FileDao {
                     md5Hash = it.md5Hash,
                     operationState = it.operationState,
                     ocrRetryAfterEpochMillis = it.ocrRetryAfterEpochMillis,
-                    ocrRetryAttempt = it.ocrRetryAttempt
+                    ocrRetryAttempt = it.ocrRetryAttempt,
+                    ocrText = it.ocrText
                 )
             } ?: incoming
             insertOrUpdate(merged)
