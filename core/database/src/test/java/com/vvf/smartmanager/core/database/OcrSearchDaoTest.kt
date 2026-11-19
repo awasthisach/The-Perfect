@@ -44,6 +44,36 @@ class OcrSearchDaoTest {
     }
 
     @Test
+    fun hindiOcrTextIsSearchableThroughFtsAndLikeFallback() = runBlocking {
+        val database = VVFDatabase.buildInMemoryDatabase(RuntimeEnvironment.getApplication())
+        try {
+            val path = "/documents/hindi-scan.pdf"
+            database.fileDao().insertOrUpdate(
+                FileMetadataEntity(
+                    path = path,
+                    name = "hindi-scan.pdf",
+                    parentPath = "/documents",
+                    sizeBytes = 512L,
+                    mimeType = "application/pdf",
+                    isDirectory = false,
+                    modifiedDate = 3L
+                )
+            )
+            val hindiText = "भारत की प्राचीन पांडुलिपि और देवनागरी लिपि का पाठ"
+            database.fileDao().updateOcrTextByPath(path, hindiText)
+
+            val ftsMatches = database.searchFtsDao().searchFilesFts("प्राचीन*").first()
+            val likeMatches = database.searchFtsDao().searchFilesFallback("पांडुलिपि").first()
+
+            assertEquals(listOf(path), ftsMatches.map { it.path })
+            assertEquals(listOf(path), likeMatches.map { it.path })
+            assertEquals(hindiText, database.fileDao().getByPath(path)?.ocrText)
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
     fun updatingAndDeletingOcrTextKeepsFtsIndexInSync() = runBlocking {
         val database = VVFDatabase.buildInMemoryDatabase(RuntimeEnvironment.getApplication())
         try {

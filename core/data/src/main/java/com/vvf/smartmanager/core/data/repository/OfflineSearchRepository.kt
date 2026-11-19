@@ -241,11 +241,7 @@ class OfflineSearchRepository(
                 )
                 if (!filter.includeHidden && fileItem.isHidden) return@mapNotNull null
                 if (!matchesCategory(fileItem, filter.category)) return@mapNotNull null
-                if (filter.sizeFilter != SizeFilter.ANY) {
-                    if (fileItem.sizeBytes < filter.sizeFilter.minBytes || fileItem.sizeBytes > filter.sizeFilter.maxBytes) {
-                        return@mapNotNull null
-                    }
-                }
+                if (!filter.sizeFilter.contains(fileItem.sizeBytes)) return@mapNotNull null
                 if (filter.dateFilter != DateFilter.ANY) {
                     val cutoff = when (filter.dateFilter) {
                         DateFilter.TODAY -> now - dayMillis
