@@ -337,7 +337,9 @@ class SecureVaultIndexIntegrationTest {
         assertEquals("sensitive source content", restored.readText())
         assertFalse(File(vaultDirectory, locked.encryptedFileName).exists())
         assertNull(database.vaultDao().getVaultItemById(locked.id))
-        assertEquals(1, database.vaultJournalDao().getPendingJournals("COMPLETED").size)
+        val completedJournals = database.vaultJournalDao().getPendingJournals("COMPLETED")
+        assertEquals(2, completedJournals.size)
+        assertEquals(setOf("ENCRYPT", "DECRYPT"), completedJournals.map { it.operationType }.toSet())
         assertTrue(database.vaultJournalDao().getPendingJournals("PENDING").isEmpty())
     }
 
