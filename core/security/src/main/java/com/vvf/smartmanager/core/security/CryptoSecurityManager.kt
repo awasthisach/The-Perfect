@@ -255,6 +255,7 @@ class CryptoSecurityManager(
         require(snapshot.isDirectory && marker.isFile) { "Database key-state rollback snapshot is missing" }
         val allowed = setOf(DB_PASSPHRASE_V2_FILE, ENCRYPTED_DB_PASSPHRASE_FILE, DB_PASSPHRASE_IV_FILE)
         val present = marker.readLines().filter { it.isNotBlank() }
+        require(present.isNotEmpty()) { "Database key-state snapshot contains no database passphrase recovery material" }
         require(present.size == present.toSet().size) { "Database key-state snapshot contains duplicate entries" }
         require(present.all { it in allowed }) { "Database key-state snapshot contains unexpected entries" }
         require(present.all { File(snapshot, it).isFile }) { "Database key-state snapshot is incomplete" }

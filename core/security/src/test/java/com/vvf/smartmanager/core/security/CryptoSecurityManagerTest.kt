@@ -107,6 +107,32 @@ class CryptoSecurityManagerTest {
     }
 
     @Test
+    fun emptyDatabaseKeySnapshotIsRejectedWithoutDestroyingLiveKey() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val original = cryptoSecurityManager.getOrCreateDatabasePassphrase()
+        val snapshot = File(context.cacheDir, "empty-db-key-snapshot").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        try {
+            File(snapshot, "present-files.txt").writeText("")
+            try {
+                cryptoSecurityManager.restoreDatabasePassphraseState(snapshot)
+                throw AssertionError("Empty rollback snapshot must be rejected")
+            } catch (expected: IllegalArgumentException) {
+                assertTrue(expected.message.orEmpty().contains("no database passphrase recovery material"))
+            }
+
+            val stillLive = cryptoSecurityManager.getOrCreateDatabasePassphrase()
+            assertArrayEquals(original, stillLive)
+            stillLive.fill(0)
+        } finally {
+            original.fill(0)
+            snapshot.deleteRecursively()
+        }
+    }
+
+    @Test
     fun testByteEncryptionDecryptionRoundtrip() {
         val originalBytes = "VVF Smart Manager Ultra Confidential Note #12345".toByteArray(Charsets.UTF_8)
 
