@@ -110,4 +110,71 @@ class OcrSearchDaoTest {
             database.close()
         }
     }
+    @Test
+    fun trashSearchIsAvailableOnlyWhenTrashCategoryIsExplicitlyRequested() = runBlocking {
+        val database = VVFDatabase.buildInMemoryDatabase(RuntimeEnvironment.getApplication())
+        try {
+            val activePath = "/documents/active-record.pdf"
+            val trashPath = "/documents/trashed-record.pdf"
+            database.fileDao().insertAll(
+                listOf(
+                    FileMetadataEntity(
+                        path = activePath,
+                        name = "active-record.pdf",
+                        parentPath = "/documents",
+                        sizeBytes = 100L,
+                        mimeType = "application/pdf",
+                        isDirectory = false,
+                        modifiedDate = 2L,
+                        tags = "audittrashmarker",
+                        ocrText = "audittrashmarker searchable body"
+                    ),
+                    FileMetadataEntity(
+                        path = trashPath,
+                        name = "trashed-record.pdf",
+                        parentPath = "/documents",
+                        sizeBytes = 100L,
+                        mimeType = "application/pdf",
+                        isDirectory = false,
+                        modifiedDate = 1L,
+                        isTrash = true,
+                        tags = "audittrashmarker",
+                        ocrText = "audittrashmarker searchable body"
+                    )
+                )
+            )
+
+            assertEquals(
+                setOf(activePath),
+                database.searchFtsDao().searchFilesFts("audittrashmarker*").first().map { it.path }.toSet()
+            )
+            assertEquals(
+                setOf(activePath, trashPath),
+                database.searchFtsDao().searchFilesFts("audittrashmarker*", includeTrash = true).first().map { it.path }.toSet()
+            )
+            assertEquals(
+                setOf(activePath),
+                database.searchFtsDao().searchFilesFallback("audittrashmarker").first().map { it.path }.toSet()
+            )
+            assertEquals(
+                setOf(activePath, trashPath),
+                database.searchFtsDao().searchFilesFallback("audittrashmarker", includeTrash = true).first().map { it.path }.toSet()
+            )
+            assertEquals(
+                setOf(activePath),
+                database.searchFtsDao().searchByTag("audittrashmarker").first().map { it.path }.toSet()
+            )
+            assertEquals(
+                setOf(activePath, trashPath),
+                database.searchFtsDao().searchByTag("audittrashmarker", includeTrash = true).first().map { it.path }.toSet()
+            )
+            assertEquals(
+                listOf(trashPath),
+                database.fileDao().getTrashFiles().first().map { it.path }
+            )
+        } finally {
+            database.close()
+        }
+    }
+
 }

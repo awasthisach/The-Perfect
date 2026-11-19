@@ -14,10 +14,10 @@ interface SearchFtsDao {
     @Query("""
         SELECT m.* FROM file_metadata m
         JOIN file_fts f ON m.id = f.rowid
-        WHERE file_fts MATCH :searchQuery AND m.isTrash = 0
+        WHERE file_fts MATCH :searchQuery AND (:includeTrash = 1 OR m.isTrash = 0)
         ORDER BY m.modifiedDate DESC
     """)
-    fun searchFilesFts(searchQuery: String): Flow<List<FileMetadataEntity>>
+    fun searchFilesFts(searchQuery: String, includeTrash: Boolean = false): Flow<List<FileMetadataEntity>>
 
     /**
      * Standard LIKE fallback query for partial substring matches.
@@ -25,20 +25,20 @@ interface SearchFtsDao {
     @Query("""
         SELECT * FROM file_metadata 
         WHERE (name LIKE '%' || :query || '%' OR tags LIKE '%' || :query || '%' OR ocrText LIKE '%' || :query || '%') 
-        AND isTrash = 0 
+        AND (:includeTrash = 1 OR isTrash = 0) 
         ORDER BY isDirectory DESC, name ASC
     """)
-    fun searchFilesFallback(query: String): Flow<List<FileMetadataEntity>>
+    fun searchFilesFallback(query: String, includeTrash: Boolean = false): Flow<List<FileMetadataEntity>>
 
     /**
      * Tag-based filtering query.
      */
     @Query("""
         SELECT * FROM file_metadata 
-        WHERE tags LIKE '%' || :tag || '%' AND isTrash = 0 
+        WHERE tags LIKE '%' || :tag || '%' AND (:includeTrash = 1 OR isTrash = 0) 
         ORDER BY modifiedDate DESC
     """)
-    fun searchByTag(tag: String): Flow<List<FileMetadataEntity>>
+    fun searchByTag(tag: String, includeTrash: Boolean = false): Flow<List<FileMetadataEntity>>
 
     /**
      * Retrieve all unique tag strings.

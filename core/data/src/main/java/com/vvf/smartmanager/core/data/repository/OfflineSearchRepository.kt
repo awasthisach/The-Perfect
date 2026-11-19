@@ -192,16 +192,16 @@ class OfflineSearchRepository(
             trimmedQuery.isNotEmpty() -> {
                 val sanitizedFtsQuery = sanitizeFtsQuery(trimmedQuery)
                 val ftsFlow = if (sanitizedFtsQuery.isNotEmpty()) {
-                    searchFtsDao.searchFilesFts(sanitizedFtsQuery)
+                    searchFtsDao.searchFilesFts(sanitizedFtsQuery, includeTrash = filter.category == FileCategory.TRASH)
                 } else {
-                    searchFtsDao.searchFilesFallback(trimmedQuery)
+                    searchFtsDao.searchFilesFallback(trimmedQuery, includeTrash = filter.category == FileCategory.TRASH)
                 }
                 val fallbackFlow = searchFtsDao.searchFilesFallback(trimmedQuery)
                 ftsFlow.combine(fallbackFlow) { ftsList, fallbackList ->
                     (ftsList + fallbackList).distinctBy { it.path }
                 }
             }
-            filter.selectedTags.isNotEmpty() -> searchFtsDao.searchByTag(filter.selectedTags.first())
+            filter.selectedTags.isNotEmpty() -> searchFtsDao.searchByTag(filter.selectedTags.first(), includeTrash = filter.category == FileCategory.TRASH)
             filter.category != FileCategory.ALL -> {
                 val mimePrefix = when (filter.category) {
                     FileCategory.IMAGES -> "image/"
@@ -211,7 +211,7 @@ class OfflineSearchRepository(
                     FileCategory.APKS -> "application/vnd.android.package-archive"
                     else -> ""
                 }
-                if (mimePrefix.isNotEmpty()) fileDao.getFilesByType(mimePrefix) else fileDao.getRecentFiles(500)
+                if (mimePrefix.isNotEmpty()) fileDao.getFilesByType(mimePrefix) else if (filter.category == FileCategory.TRASH) fileDao.getTrashFiles() else fileDao.getRecentFiles(500)
             }
             else -> fileDao.getRecentFiles(300)
         }
