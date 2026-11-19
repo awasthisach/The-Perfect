@@ -187,7 +187,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           VERSION_NAME: ${{ inputs.version_name }}
           VERSION_CODE: ${{ inputs.version_code }}
-        run: ./gradlew --no-daemon assembleRelease --stacktrace
+        run: ./gradlew --no-daemon assembleRelease bundleRelease --stacktrace
 
       - name: Verify signed APK + fingerprint + SHA-256
         id: apk
@@ -212,6 +212,28 @@ jobs:
           echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
           cat release-meta/apk-manifest.txt
 
+      - name: Verify signed Play App Bundle + fingerprint + SHA-256
+        id: aab
+        run: |
+          set -euo pipefail
+          AAB="$(find . -path '*/build/outputs/bundle/release/*.aab' -type f | head -n 1)"
+          test -n "$AAB" || { echo "::error::Signed release AAB not found"; exit 1; }
+          jarsigner -verify -strict -verbose -certs "$AAB"
+          CERT_FP="$(keytool -printcert -jarfile "$AAB" | awk -F': ' '/SHA256:/{print $2; exit}')"
+          SHA="$(sha256sum "$AAB" | awk '{print $1}')"
+          {
+            echo "aab_path=$AAB"
+            echo "aab_sha256=$SHA"
+            echo "aab_cert_fingerprint=$CERT_FP"
+            echo "version_name=${{ inputs.version_name }}"
+            echo "version_code=${{ inputs.version_code }}"
+            echo "git_sha=${{ github.sha }}"
+            echo "run_id=${{ github.run_id }}"
+          } >> release-meta/apk-manifest.txt
+          echo "path=$AAB" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          cat release-meta/apk-manifest.txt
+
       - name: Generate SBOM with Syft
         uses: anchore/sbom-action@2ed2d2006fea5d582c257dbad4532b1e4cbc8b83 # verified upstream commit
         with:
@@ -233,16 +255,22 @@ jobs:
           name: vvf-smartmanager-release-${{ inputs.version_name }}-${{ inputs.version_code }}
           path: |
             **/build/outputs/apk/release/*.apk
+            **/build/outputs/bundle/release/*.aab
             release-meta/**
             cpas-status.json
             ort-status.json
           if-no-files-found: error
           retention-days: 30
 
-      - name: Attest release artifact (SLSA provenance)
+      - name: Attest signed APK (SLSA provenance)
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
         with:
           subject-path: "**/build/outputs/apk/release/*.apk"
+
+      - name: Attest signed Play App Bundle (SLSA provenance)
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: "**/build/outputs/bundle/release/*.aab"
 
       - name: Remove signing and Firebase material
         if: always()
