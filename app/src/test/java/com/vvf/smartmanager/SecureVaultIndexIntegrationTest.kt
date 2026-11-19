@@ -362,7 +362,8 @@ class SecureVaultIndexIntegrationTest {
         assertFalse(encrypted.exists())
         assertNull(database.vaultDao().getVaultItemById(locked.id))
         assertTrue(database.vaultJournalDao().getPendingJournals("PENDING").isEmpty())
-        assertEquals(1, database.vaultJournalDao().getPendingJournals("COMPLETED").size)
+        // Recovery purges completed journal rows after reconciling the operation.
+        assertTrue(database.vaultJournalDao().getPendingJournals("COMPLETED").isEmpty())
     }
 
     @Test
