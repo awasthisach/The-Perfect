@@ -118,7 +118,7 @@ abstract class VVFDatabase : RoomDatabase() {
                 db.execSQL("DROP TRIGGER IF EXISTS room_fts_content_sync_file_fts_AFTER_UPDATE")
                 db.execSQL("DROP TRIGGER IF EXISTS room_fts_content_sync_file_fts_AFTER_INSERT")
                 db.execSQL("DROP TABLE IF EXISTS file_fts")
-                db.execSQL("CREATE VIRTUAL TABLE file_fts USING FTS4(name TEXT NOT NULL, path TEXT NOT NULL, tags TEXT NOT NULL, mimeType TEXT NOT NULL, ocrText TEXT NOT NULL, content=file_metadata)")
+                db.execSQL("CREATE VIRTUAL TABLE file_fts USING FTS4(name TEXT NOT NULL, path TEXT NOT NULL, tags TEXT NOT NULL, mimeType TEXT NOT NULL, ocrText TEXT NOT NULL, content=`file_metadata`)")
                 db.execSQL("CREATE TRIGGER room_fts_content_sync_file_fts_BEFORE_UPDATE BEFORE UPDATE ON file_metadata BEGIN DELETE FROM file_fts WHERE docid=OLD.rowid; END")
                 db.execSQL("CREATE TRIGGER room_fts_content_sync_file_fts_BEFORE_DELETE BEFORE DELETE ON file_metadata BEGIN DELETE FROM file_fts WHERE docid=OLD.rowid; END")
                 db.execSQL("CREATE TRIGGER room_fts_content_sync_file_fts_AFTER_UPDATE AFTER UPDATE ON file_metadata BEGIN INSERT INTO file_fts(docid,name,path,tags,mimeType,ocrText) VALUES(NEW.rowid,NEW.name,NEW.path,NEW.tags,NEW.mimeType,NEW.ocrText); END")
