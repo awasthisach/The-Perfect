@@ -163,8 +163,45 @@ class SecureVaultRepository(
                         }
                     }
                     "DECRYPT" -> {
-                        vaultJournalDao.updateJournal(journal.copy(status = "FAILED"))
-                        recoveredCount++
+                        val encryptedFile = File(journal.vaultPath).canonicalFile
+                        if (!isInsideDirectory(encryptedFile, canonicalVault)) {
+                            Log.e(TAG, "Vault decrypt journal ${journal.id} points outside the vault directory")
+                            continue
+                        }
+                        val restoredFile = File(journal.originalPath).canonicalFile
+                        if (isInsideDirectory(restoredFile, canonicalVault)) {
+                            Log.e(TAG, "Vault decrypt journal ${journal.id} targets the isolated vault directory")
+                            continue
+                        }
+                        val vaultItem = vaultDao.getVaultItemByEncryptedName(encryptedFile.name)
+                        when {
+                            restoredFile.exists() && !encryptedFile.exists() -> {
+                                // Restore was published and encrypted cleanup completed before a crash.
+                                vaultItem?.let { vaultDao.deleteById(it.id) }
+                                vaultJournalDao.updateJournal(journal.copy(status = "COMPLETED"))
+                                recoveredCount++
+                            }
+                            restoredFile.exists() && encryptedFile.exists() -> {
+                                // Publication completed, but encrypted cleanup may have been interrupted.
+                                if (secureShredFile(encryptedFile)) {
+                                    vaultItem?.let { vaultDao.deleteById(it.id) }
+                                    vaultJournalDao.updateJournal(journal.copy(status = "COMPLETED"))
+                                    recoveredCount++
+                                } else {
+                                    vaultJournalDao.updateJournal(journal.copy(status = "FAILED_SHRED"))
+                                    recoveredCount++
+                                }
+                            }
+                            !restoredFile.exists() && encryptedFile.exists() -> {
+                                // Decryption never published plaintext; keep the encrypted vault item.
+                                vaultJournalDao.updateJournal(journal.copy(status = "FAILED"))
+                                recoveredCount++
+                            }
+                            else -> {
+                                // Neither copy exists. Keep the pending journal and fail closed below.
+                                Log.e(TAG, "Vault decrypt journal ${journal.id} has no plaintext or encrypted copy")
+                            }
+                        }
                     }
                 }
             } catch (cancelled: CancellationException) {
@@ -415,23 +452,63 @@ class SecureVaultRepository(
             "Restore destination already exists; refusing to overwrite plaintext: ${targetCanonical.absolutePath}"
         }
 
-        // GCM authentication is only known after EOF. Decrypt to a same-directory temporary file
-        // and publish it only after authenticated decryption succeeds.
+        val journalId = vaultJournalDao.insertJournal(
+            VaultJournalEntity(
+                operationType = "DECRYPT",
+                originalPath = targetCanonical.absolutePath,
+                vaultPath = encryptedFile.absolutePath,
+                status = "PENDING"
+            )
+        )
+        var published = false
         val tempFile = createSiblingTempFile(targetCanonical)
         try {
+            // GCM authentication is only known after EOF. Publish only authenticated plaintext.
             cryptoManager.decryptFile(encryptedFile, tempFile)
             require(tempFile.renameTo(targetCanonical)) {
                 "Unable to atomically publish restored file: ${targetCanonical.absolutePath}"
             }
-        } catch (e: Exception) {
+            published = true
+        } catch (error: Throwable) {
             tempFile.delete()
-            throw e
+            if (!published) {
+                withContext(NonCancellable) {
+                    vaultJournalDao.updateJournal(
+                        VaultJournalEntity(
+                            id = journalId,
+                            operationType = "DECRYPT",
+                            originalPath = targetCanonical.absolutePath,
+                            vaultPath = encryptedFile.absolutePath,
+                            status = "FAILED"
+                        )
+                    )
+                }
+            }
+            throw error
         }
 
-        // Plaintext is now successfully restored. If secure shredding fails, retain the encrypted
-        // source and DB record rather than creating a false state in which the item disappears.
-        if (cryptoManager.secureShredFile(encryptedFile)) {
+        // Keep the journal PENDING until both encrypted cleanup and the vault-row deletion finish.
+        if (secureShredFile(encryptedFile)) {
             vaultDao.deleteById(vaultItemId)
+            vaultJournalDao.updateJournal(
+                VaultJournalEntity(
+                    id = journalId,
+                    operationType = "DECRYPT",
+                    originalPath = targetCanonical.absolutePath,
+                    vaultPath = encryptedFile.absolutePath,
+                    status = "COMPLETED"
+                )
+            )
+        } else {
+            vaultJournalDao.updateJournal(
+                VaultJournalEntity(
+                    id = journalId,
+                    operationType = "DECRYPT",
+                    originalPath = targetCanonical.absolutePath,
+                    vaultPath = encryptedFile.absolutePath,
+                    status = "FAILED_SHRED"
+                )
+            )
         }
 
         targetCanonical
