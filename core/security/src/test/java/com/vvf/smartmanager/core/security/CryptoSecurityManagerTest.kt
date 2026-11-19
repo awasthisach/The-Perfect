@@ -71,6 +71,41 @@ class CryptoSecurityManagerTest {
     }
 
     @Test
+    fun corruptedDatabaseKeySnapshotIsRejectedWithoutDestroyingLiveKey() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val original = cryptoSecurityManager.getOrCreateDatabasePassphrase()
+        val snapshot = File(context.cacheDir, "corrupt-db-key-snapshot").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        try {
+            cryptoSecurityManager.snapshotDatabasePassphraseState(snapshot)
+            val snapshotKey = File(snapshot, "vvf_db_passphrase_v2.bin")
+            val bytes = snapshotKey.readBytes()
+            bytes[bytes.lastIndex] = (bytes.last().toInt() xor 0x01).toByte()
+            snapshotKey.writeBytes(bytes)
+
+            try {
+                cryptoSecurityManager.restoreDatabasePassphraseState(snapshot)
+                throw AssertionError("Corrupted rollback snapshot must be rejected")
+            } catch (expected: Throwable) {
+                assertTrue(
+                    expected is SecurityException ||
+                        expected is IllegalArgumentException ||
+                        expected.cause is javax.crypto.AEADBadTagException
+                )
+            }
+
+            val stillLive = cryptoSecurityManager.getOrCreateDatabasePassphrase()
+            assertArrayEquals(original, stillLive)
+            stillLive.fill(0)
+        } finally {
+            original.fill(0)
+            snapshot.deleteRecursively()
+        }
+    }
+
+    @Test
     fun testByteEncryptionDecryptionRoundtrip() {
         val originalBytes = "VVF Smart Manager Ultra Confidential Note #12345".toByteArray(Charsets.UTF_8)
 

@@ -258,6 +258,23 @@ class CryptoSecurityManager(
         require(present.size == present.toSet().size) { "Database key-state snapshot contains duplicate entries" }
         require(present.all { it in allowed }) { "Database key-state snapshot contains unexpected entries" }
         require(present.all { File(snapshot, it).isFile }) { "Database key-state snapshot is incomplete" }
+
+        // Authenticate rollback material before restore is allowed to remove any live key files.
+        if (DB_PASSPHRASE_V2_FILE in present) {
+            readV2DatabasePassphrase(File(snapshot, DB_PASSPHRASE_V2_FILE)).fill(0)
+        }
+        val hasLegacyEncrypted = ENCRYPTED_DB_PASSPHRASE_FILE in present
+        val hasLegacyIv = DB_PASSPHRASE_IV_FILE in present
+        require(hasLegacyEncrypted == hasLegacyIv) {
+            "Database key-state snapshot contains an incomplete legacy passphrase pair"
+        }
+        if (hasLegacyEncrypted) {
+            decryptWithKeystore(
+                File(snapshot, ENCRYPTED_DB_PASSPHRASE_FILE).readBytes(),
+                File(snapshot, DB_PASSPHRASE_IV_FILE).readBytes(),
+                DB_KEY_ALIAS
+            ).fill(0)
+        }
     }
 
     @Synchronized
