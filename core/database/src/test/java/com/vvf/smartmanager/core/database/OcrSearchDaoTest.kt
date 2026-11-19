@@ -42,4 +42,42 @@ class OcrSearchDaoTest {
             database.close()
         }
     }
+
+    @Test
+    fun updatingAndDeletingOcrTextKeepsFtsIndexInSync() = runBlocking {
+        val database = VVFDatabase.buildInMemoryDatabase(RuntimeEnvironment.getApplication())
+        try {
+            val path = "/documents/revised-scan.pdf"
+            database.fileDao().insertOrUpdate(
+                FileMetadataEntity(
+                    path = path,
+                    name = "revised-scan.pdf",
+                    parentPath = "/documents",
+                    sizeBytes = 256L,
+                    mimeType = "application/pdf",
+                    isDirectory = false,
+                    modifiedDate = 2L
+                )
+            )
+
+            database.fileDao().updateOcrTextByPath(path, "oldmarkerquartz")
+            assertEquals(
+                listOf(path),
+                database.searchFtsDao().searchFilesFts("oldmarkerquartz*").first().map { it.path }
+            )
+
+            database.fileDao().updateOcrTextByPath(path, "newmarkerjasper")
+            assertTrue(database.searchFtsDao().searchFilesFts("oldmarkerquartz*").first().isEmpty())
+            assertEquals(
+                listOf(path),
+                database.searchFtsDao().searchFilesFts("newmarkerjasper*").first().map { it.path }
+            )
+
+            database.fileDao().deleteByPath(path)
+            assertTrue(database.searchFtsDao().searchFilesFts("newmarkerjasper*").first().isEmpty())
+            assertTrue(database.searchFtsDao().searchFilesFallback("newmarkerjasper").first().isEmpty())
+        } finally {
+            database.close()
+        }
+    }
 }
