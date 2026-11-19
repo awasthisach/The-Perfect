@@ -326,6 +326,38 @@ class SecureVaultIndexIntegrationTest {
         assertTrue(database.vaultJournalDao().getPendingJournals("PENDING").isEmpty())
     }
 
+    @Test
+    fun restorePublishesAuthenticatedPlaintextAndRemovesVaultCopy() = runBlocking {
+        val repository = repository()
+        val locked = repository.lockFileInVault(source, deleteOriginal = false).getOrThrow()
+        val restoreDirectory = File(root, "restore").apply { mkdirs() }
+
+        val restored = repository.restoreFileFromVault(locked.id, restoreDirectory).getOrThrow()
+
+        assertEquals("sensitive source content", restored.readText())
+        assertFalse(File(vaultDirectory, locked.encryptedFileName).exists())
+        assertNull(database.vaultDao().getVaultItemById(locked.id))
+    }
+
+    @Test
+    fun tamperedVaultCiphertextIsNotPublishedAndEncryptedSourceIsRetained() = runBlocking {
+        val repository = repository()
+        val locked = repository.lockFileInVault(source, deleteOriginal = false).getOrThrow()
+        val encrypted = File(vaultDirectory, locked.encryptedFileName)
+        val bytes = encrypted.readBytes()
+        assertTrue("Encrypted payload must include IV and GCM tag", bytes.size > 28)
+        bytes[bytes.lastIndex] = (bytes.last().toInt() xor 0x01).toByte()
+        encrypted.writeBytes(bytes)
+        val restoreDirectory = File(root, "tampered-restore").apply { mkdirs() }
+
+        val result = repository.restoreFileFromVault(locked.id, restoreDirectory)
+
+        assertTrue(result.isFailure)
+        assertTrue("Tampered encrypted source must remain available for recovery", encrypted.exists())
+        assertNotNull(database.vaultDao().getVaultItemById(locked.id))
+        assertTrue("Unauthenticated plaintext must not be published", restoreDirectory.listFiles().orEmpty().isEmpty())
+    }
+
     private fun repository(
         vaultDao: VaultDao = database.vaultDao(),
         secureShredFile: (File) -> Boolean = crypto::secureShredFile
