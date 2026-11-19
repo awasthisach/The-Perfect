@@ -2,6 +2,7 @@ package com.vvf.smartmanager.core.data.storage
 
 import android.content.Context
 import com.vvf.smartmanager.core.database.dao.FileDao
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -58,6 +59,22 @@ class StorageManagerFileOpsDeletionTest {
         assertTrue(result.isFailure)
         assertTrue(source.exists())
         assertFalse(daoCalls.contains("deleteByPath"))
+    }
+
+    @Test
+    fun copyFilesCopiesDirectoryContents() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val ops = FailingDeleteStorageManager(context, recordingDao(mutableListOf()))
+        val source = File(context.filesDir, "copy-directory-source").apply {
+            mkdirs()
+            File(this, "nested.txt").writeText("verified-content")
+        }
+        val destination = File(context.filesDir, "copy-directory-destination").apply { mkdirs() }
+
+        val result = ops.copyFiles(listOf(source.absolutePath), destination.absolutePath)
+
+        assertTrue(result.isSuccess)
+        assertEquals("verified-content", File(destination, "copy-directory-source/nested.txt").readText())
     }
 
     @Test

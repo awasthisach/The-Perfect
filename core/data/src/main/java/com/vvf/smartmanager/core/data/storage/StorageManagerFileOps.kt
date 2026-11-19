@@ -124,21 +124,29 @@ open class StorageManagerFileOps(
     protected open fun renamePhysical(source: File, destination: File): Boolean =
         source.renameTo(destination)
 
-    protected open fun copyPhysical(source: File, destination: File): Boolean = try {
-        if (source.isDirectory) {
-            source.copyRecursively(destination, overwrite = false)
-            destination.isDirectory
-        } else {
-            FileInputStream(source).use { input ->
-                FileOutputStream(destination).use { output ->
-                    input.copyTo(output, bufferSize = 64 * 1024)
-                    output.fd.sync()
+    protected open fun copyPhysical(source: File, destination: File): Boolean {
+        val copied = try {
+            if (source.isDirectory) {
+                source.copyRecursively(destination, overwrite = false) && destination.isDirectory
+            } else {
+                FileInputStream(source).use { input ->
+                    FileOutputStream(destination).use { output ->
+                        input.copyTo(output, bufferSize = 64 * 1024)
+                        output.fd.sync()
+                    }
                 }
+                destination.isFile && destination.length() == source.length()
             }
-            destination.isFile && destination.length() == source.length()
+        } catch (_: Exception) {
+            false
         }
-    } catch (_: Exception) {
-        false
+        if (!copied && destination.exists()) {
+            // Remove incomplete output so a later retry cannot mistake it for a valid copy.
+            runCatching {
+                if (destination.isDirectory) destination.deleteRecursively() else destination.delete()
+            }
+        }
+        return copied
     }
 
     /** Never remove the original until the fallback copy is complete and verified. */
