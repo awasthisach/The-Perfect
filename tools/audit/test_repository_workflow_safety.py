@@ -34,8 +34,14 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
             with self.subTest(workflow=relative_path):
                 workflow = (ROOT / relative_path).read_text(encoding="utf-8")
                 self.assertIn(f"group: {group}", workflow)
-                # Heavy gates cancel only superseded PR runs; scheduled/main must not be cancelled.
-                if relative_path == ".github/workflows/worker-validation.yml":
+                # ORT and CPAS are long-running evidence gates: preserve active exact-SHA
+                # runs when a newer PR commit arrives. Other heavy gates may cancel stale PR runs.
+                if relative_path in {
+                    ".github/workflows/nightly-ort.yml",
+                    ".github/workflows/cpas-gate.yml",
+                }:
+                    self.assertIn("cancel-in-progress: false", workflow)
+                elif relative_path == ".github/workflows/worker-validation.yml":
                     self.assertIn("cancel-in-progress: true", workflow)
                 else:
                     self.assertIn(
