@@ -86,6 +86,8 @@ class OcrCleanupCancellationTest {
         override suspend fun clearSearchHistory() {}
         override fun getAvailableTags(): Flow<List<String>> = flowOf(emptyList())
         override suspend fun addTagToFile(path: String, tag: String): Result<Boolean> = error("Unexpected tag addition")
+        override suspend fun saveOcrText(path: String, text: String): Result<Boolean> =
+            error("Unexpected OCR text save")
         override fun getTotalIndexedCount(): Flow<Int> = flowOf(0)
         override suspend fun rebuildFtsIndex() {}
         override suspend fun getRecentIndexedFiles(limit: Int): List<FileItem> = emptyList()

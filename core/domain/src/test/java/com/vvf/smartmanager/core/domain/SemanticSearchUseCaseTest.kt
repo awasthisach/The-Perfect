@@ -119,6 +119,8 @@ class SemanticSearchUseCaseTest {
         override suspend fun removeTagFromFile(path: String, tag: String): Result<Boolean> = Result.success(true)
         override fun getTotalIndexedCount(): Flow<Int> = flowOf(2)
         override suspend fun rebuildFtsIndex() {}
+        override suspend fun saveOcrText(path: String, text: String): Result<Boolean> =
+            error("Unexpected OCR text save")
         override suspend fun getRecentIndexedFiles(limit: Int): List<FileItem> {
             recentFilesFailure?.let { throw it }
             return emptyList()
