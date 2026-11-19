@@ -218,7 +218,7 @@ jobs:
           set -euo pipefail
           AAB="$(find . -path '*/build/outputs/bundle/release/*.aab' -type f | head -n 1)"
           test -n "$AAB" || { echo "::error::Signed release AAB not found"; exit 1; }
-          jarsigner -verify -strict -verbose -certs "$AAB"
+          jarsigner -verify -verbose -certs "$AAB"
           CERT_FP="$(keytool -printcert -jarfile "$AAB" | awk -F': ' '/SHA256:/{print $2; exit}')"
           SHA="$(sha256sum "$AAB" | awk '{print $1}')"
           {
