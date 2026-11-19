@@ -92,6 +92,7 @@ class CryptoSecurityManagerTest {
                 assertTrue(
                     expected is SecurityException ||
                         expected is IllegalArgumentException ||
+                        expected is javax.crypto.AEADBadTagException ||
                         expected.cause is javax.crypto.AEADBadTagException
                 )
             }
