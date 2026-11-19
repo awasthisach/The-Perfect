@@ -1,0 +1,45 @@
+package com.vvf.smartmanager.core.database
+
+import com.vvf.smartmanager.core.database.model.FileMetadataEntity
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+
+@RunWith(RobolectricTestRunner::class)
+class OcrSearchDaoTest {
+
+    @Test
+    fun fullOcrTextIsSearchableThroughFtsAndLikeFallback() = runBlocking {
+        val database = VVFDatabase.buildInMemoryDatabase(RuntimeEnvironment.getApplication())
+        try {
+            val path = "/documents/scan.pdf"
+            database.fileDao().insertOrUpdate(
+                FileMetadataEntity(
+                    path = path,
+                    name = "scan.pdf",
+                    parentPath = "/documents",
+                    sizeBytes = 128L,
+                    mimeType = "application/pdf",
+                    isDirectory = false,
+                    modifiedDate = 1L
+                )
+            )
+            val fullText = "Patient discharge summary contains rarewordxylophone and prescription details."
+            database.fileDao().updateOcrTextByPath(path, fullText)
+
+            val ftsMatches = database.searchFtsDao().searchFilesFts("rarewordxylophone*").first()
+            val likeMatches = database.searchFtsDao().searchFilesFallback("xylophone").first()
+
+            assertEquals(listOf(path), ftsMatches.map { it.path })
+            assertEquals(listOf(path), likeMatches.map { it.path })
+            assertTrue(database.fileDao().getByPath(path)?.ocrText == fullText)
+        } finally {
+            database.close()
+        }
+    }
+}
