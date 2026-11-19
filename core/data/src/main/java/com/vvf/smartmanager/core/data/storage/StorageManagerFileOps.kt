@@ -72,7 +72,9 @@ open class StorageManagerFileOps(
     suspend fun copyFiles(sourcePaths: List<String>, destinationDirectory: String, onProgress: ((FileOperationProgress) -> Unit)? = null): Result<Int> = withContext(Dispatchers.IO) {
         try {
             val destDir = requireAllowedPhysicalPath(destinationDirectory)
-            if (!destDir.exists()) destDir.mkdirs()
+            requireSourcesCanTargetDirectory(sourcePaths, destDir)
+            require(destDir.exists() || destDir.mkdirs()) { "Unable to create destination directory" }
+            require(destDir.isDirectory) { "Destination path is not a directory" }
             var count = 0
             val total = sourcePaths.size
             for ((index, srcPath) in sourcePaths.withIndex()) {
@@ -95,7 +97,9 @@ open class StorageManagerFileOps(
     suspend fun moveFiles(sourcePaths: List<String>, destinationDirectory: String, onProgress: ((FileOperationProgress) -> Unit)? = null): Result<Int> = withContext(Dispatchers.IO) {
         try {
             val destDir = requireAllowedPhysicalPath(destinationDirectory)
-            if (!destDir.exists()) destDir.mkdirs()
+            requireSourcesCanTargetDirectory(sourcePaths, destDir)
+            require(destDir.exists() || destDir.mkdirs()) { "Unable to create destination directory" }
+            require(destDir.isDirectory) { "Destination path is not a directory" }
             var count = 0
             val total = sourcePaths.size
             for ((index, srcPath) in sourcePaths.withIndex()) {
@@ -113,6 +117,25 @@ open class StorageManagerFileOps(
         } catch (e: Exception) {
             onProgress?.invoke(FileOperationProgress(operation = FileOperationType.MOVE, isCompleted = true, errorMessage = e.localizedMessage))
             Result.failure(e)
+        }
+    }
+
+    /**
+     * Prevent recursive self-copy and self-move (for example, moving a folder into its own
+     * child). Canonical paths also catch aliases created through symbolic links.
+     */
+    private fun requireSourcesCanTargetDirectory(sourcePaths: List<String>, destination: File) {
+        val destinationPath = destination.canonicalPath
+        for (sourcePath in sourcePaths) {
+            val source = requireAllowedPhysicalPath(sourcePath)
+            if (!source.exists() || !source.isDirectory) continue
+            val sourceCanonicalPath = source.canonicalPath
+            require(
+                destinationPath != sourceCanonicalPath &&
+                    !destinationPath.startsWith(sourceCanonicalPath + File.separator)
+            ) {
+                "A directory cannot be copied or moved into itself or one of its descendants"
+            }
         }
     }
 

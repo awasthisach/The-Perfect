@@ -78,6 +78,44 @@ class StorageManagerFileOpsDeletionTest {
     }
 
     @Test
+    fun copyDirectoryIntoItsOwnDescendantIsRejectedWithoutCreatingDestination() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val ops = FailingDeleteStorageManager(context, recordingDao(mutableListOf()))
+        val source = File(context.filesDir, "copy-self-source").apply {
+            mkdirs()
+            File(this, "nested.txt").writeText("keep-me")
+        }
+        val destination = File(source, "nested-destination")
+
+        val result = ops.copyFiles(listOf(source.absolutePath), destination.absolutePath)
+
+        assertTrue(result.isFailure)
+        assertTrue(source.exists())
+        assertEquals("keep-me", File(source, "nested.txt").readText())
+        assertFalse(destination.exists())
+    }
+
+    @Test
+    fun moveDirectoryIntoItsOwnDescendantIsRejectedWithoutChangingSource() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val daoCalls = mutableListOf<String>()
+        val ops = FailingDeleteStorageManager(context, recordingDao(daoCalls))
+        val source = File(context.filesDir, "move-self-source").apply {
+            mkdirs()
+            File(this, "nested.txt").writeText("keep-me")
+        }
+        val destination = File(source, "nested-destination")
+
+        val result = ops.moveFiles(listOf(source.absolutePath), destination.absolutePath)
+
+        assertTrue(result.isFailure)
+        assertTrue(source.exists())
+        assertEquals("keep-me", File(source, "nested.txt").readText())
+        assertFalse(destination.exists())
+        assertFalse(daoCalls.contains("deleteByPath"))
+    }
+
+    @Test
     fun emptyRecycleBinFailureDoesNotClearTrashMetadata() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val daoCalls = mutableListOf<String>()
