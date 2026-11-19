@@ -337,6 +337,56 @@ class SecureVaultIndexIntegrationTest {
         assertEquals("sensitive source content", restored.readText())
         assertFalse(File(vaultDirectory, locked.encryptedFileName).exists())
         assertNull(database.vaultDao().getVaultItemById(locked.id))
+        assertEquals(1, database.vaultJournalDao().getPendingJournals("COMPLETED").size)
+        assertTrue(database.vaultJournalDao().getPendingJournals("PENDING").isEmpty())
+    }
+
+    @Test
+    fun decryptRecoveryFinishesCleanupAfterPlaintextWasPublished() = runBlocking {
+        val locked = repository().lockFileInVault(source, deleteOriginal = false).getOrThrow()
+        val encrypted = File(vaultDirectory, locked.encryptedFileName)
+        val restored = File(root, "recovered-restore.txt").apply { writeText("sensitive source content") }
+        database.vaultJournalDao().insertJournal(
+            VaultJournalEntity(
+                operationType = "DECRYPT",
+                originalPath = restored.absolutePath,
+                vaultPath = encrypted.absolutePath,
+                status = "PENDING"
+            )
+        )
+
+        val recovered = repository().recoverOrphanedJournals()
+
+        assertEquals(1, recovered)
+        assertTrue(restored.exists())
+        assertFalse(encrypted.exists())
+        assertNull(database.vaultDao().getVaultItemById(locked.id))
+        assertTrue(database.vaultJournalDao().getPendingJournals("PENDING").isEmpty())
+        assertEquals(1, database.vaultJournalDao().getPendingJournals("COMPLETED").size)
+    }
+
+    @Test
+    fun decryptRecoveryKeepsEncryptedItemWhenPlaintextWasNotPublished() = runBlocking {
+        val locked = repository().lockFileInVault(source, deleteOriginal = false).getOrThrow()
+        val encrypted = File(vaultDirectory, locked.encryptedFileName)
+        val missingRestore = File(root, "not-yet-restored.txt")
+        database.vaultJournalDao().insertJournal(
+            VaultJournalEntity(
+                operationType = "DECRYPT",
+                originalPath = missingRestore.absolutePath,
+                vaultPath = encrypted.absolutePath,
+                status = "PENDING"
+            )
+        )
+
+        val recovered = repository().recoverOrphanedJournals()
+
+        assertEquals(1, recovered)
+        assertFalse(missingRestore.exists())
+        assertTrue(encrypted.exists())
+        assertNotNull(database.vaultDao().getVaultItemById(locked.id))
+        assertTrue(database.vaultJournalDao().getPendingJournals("PENDING").isEmpty())
+        assertEquals(1, database.vaultJournalDao().getPendingJournals("FAILED").size)
     }
 
     @Test
