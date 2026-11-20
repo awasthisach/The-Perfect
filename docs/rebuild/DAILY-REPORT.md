@@ -68,3 +68,18 @@ Serena project activation के बाद local `git status` में untracke
 - ORT [run 44667847521](https://github.com/awasthisach/The-Perfect/actions/runs/44667847521) and CPAS [run 44667847137](https://github.com/awasthisach/The-Perfect/actions/runs/44667847137) remain pending at capture.
 - Phase 2: **COMPLETE**. Overall release: **NO-SHIP** until ORT/SBOM/CPAS and owner/device acceptance pass.
 - Deletions: 0. No main change, no force push, no new branch.
+
+
+## Phase 3 — Supply-chain evidence review (20 नवंबर 2026)
+
+- Evidence SHA: `9d3f0914cff72e1a83a9a40395ef924250b2df3e`.
+- SBOM Alternative Trial push [44675907899](https://github.com/awasthisach/The-Perfect/actions/runs/44675907899) और PR [44675911810](https://github.com/awasthisach/The-Perfect/actions/runs/44675911810): **SUCCESS**; artifact [14602655106](https://github.com/awasthisach/The-Perfect/actions/runs/44675907899/artifacts/14602655106) डाउनलोड और JSON inspection हुआ।
+- CycloneDX 771 components; SPDX 771 packages; package URL parity PASS; CycloneDX license metadata 746, SPDX declared licenses 701. 45 external license metadata mappings SPDX conversion में खो गए; 25 project components के पास source license metadata नहीं।
+- OSV-Scanner: 21 affected packages, 94 package-level entries, 51 unique advisory IDs (3 critical, 19 high, 26 moderate, 3 low). Exit codes 1; इसे compliance PASS नहीं माना।
+- Vulnerable versions के dependency paths test/build tooling की ओर संकेत करते हैं, पर release runtime boundary अभी **सत्यापित नहीं**।
+- OSV license summary 771 UNKNOWN देता है, जबकि CycloneDX में 746 license metadata है; इस scanner output को license clearance नहीं माना।
+- `net.zetetic:sqlcipher-android:4.20.0` का SBOM license metadata खाली है। Zetetic official documentation Maven Central package को Community Edition बताती है; BSD-style license और attribution/reproduction requirements लागू हैं।
+- SBOM workflow में dual scope (all-configurations + releaseRuntimeClasspath), Android testConfigs labeling और separate OSV scans जोड़े गए। इस नए workflow run का परिणाम अभी pending है।
+- Build/Test/Lint/Debug APK: **PASS**, [44675911766](https://github.com/awasthisach/The-Perfect/actions/runs/44675911766); SQLCipher hard gate **PASS**, [44675911776](https://github.com/awasthisach/The-Perfect/actions/runs/44675911776); Worker validation **PASS**, [44675911803](https://github.com/awasthisach/The-Perfect/actions/runs/44675911803).
+- ORT [44675911761] और CPAS [44675911771] अभी pending/queued; completion प्रमाण **सत्यापित नहीं**।
+- Phase 3 **IN PROGRESS**; app dependency changes/deletions: 0; release: NO-SHIP.

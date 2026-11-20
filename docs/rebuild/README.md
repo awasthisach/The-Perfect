@@ -1,6 +1,6 @@
 # VVF Smart Manager — सुरक्षित Rebuild योजना
 
-**वर्तमान चरण: 2 — Build स्थिर करना (IN PROGRESS)**
+**वर्तमान चरण: 3 — Dependency और Supply-chain सफाई (IN PROGRESS)**
 **रिलीज़ स्थिति: NO-SHIP** — यह source map build, runtime, security या release readiness प्रमाणित नहीं करता।
 **कार्य-शाखा:** `audit/fixes-2026-11`
 **Phase 1 निरीक्षण SHA:** `fd6a35ca49622217c876bdb3758aeafab978adbf`
@@ -30,9 +30,13 @@
 
 1. **चरण 0 — Baseline:** पूरा। विवरण [BASELINE.md](BASELINE.md) में है।
 2. **चरण 1 — Project Map:** पूरा। स्रोत-आधारित map ऊपर के architecture/data-flow दस्तावेज़ों में है।
-3. **चरण 2 — Build स्थिर करना:** जारी; 20 नवंबर के exact-SHA Build और SQLCipher hard gate सफल हुए। Primary CI emulator command में `-accel off` defect मिला; KVM-aware `-accel on` correction के बाद नए SHA पर rerun आवश्यक। विवरण [PHASE-2-BUILD-STABILITY.md](PHASE-2-BUILD-STABILITY.md) में।
-4. **चरण 3 — Dependency/code सफाई:** शुरू नहीं; कोई deletion/rewrite नहीं। हर हटाने से पहले references + dependency graph + tests चाहिए।
-5. इसके बाद ही DI, database/encryption, OAuth/Drive, OCR, local semantic search, privacy, CI/SBOM/ORT, device test और release वाले चरण।
+3. **चरण 2 — Build स्थिर करना:** पूरा; exact SHA `9d3f0914cff72e1a83a9a40395ef924250b2df3e` पर Main CI, SQLCipher Hard Gate और Worker Validation PASS। विवरण [PHASE-2-BUILD-STABILITY.md](PHASE-2-BUILD-STABILITY.md) में।
+4. **चरण 3 — Dependency और Supply-chain सफाई:** जारी; SBOM generation और SPDX package parity पास, लेकिन vulnerability/license interpretation में gaps हैं। विवरण [PHASE-3-SUPPLY-CHAIN-REVIEW.md](PHASE-3-SUPPLY-CHAIN-REVIEW.md) में।
+5. इसके बाद DI, database/encryption, OAuth/Drive, OCR, local semantic search, privacy, ORT/CPAS और device/release acceptance।
+
+## Phase 3 — Supply-chain review
+
+[PHASE-3-SUPPLY-CHAIN-REVIEW.md](PHASE-3-SUPPLY-CHAIN-REVIEW.md) में SBOM/OSV artifact की जाँच, SPDX license metadata loss, SQLCipher Community Edition attribution और runtime-vs-test dependency boundary दर्ज है। नया workflow full inventory और release runtime inventory अलग-अलग बनाएगा; rerun अभी pending है।
 
 ## मूल गोपनीयता नियम
 

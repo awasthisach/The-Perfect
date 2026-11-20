@@ -83,6 +83,9 @@ jobs:
                       // their task-backed class providers on this AGP/Gradle combination. They are
                       // not packaged app dependencies. Keep all other resolvable project configs.
                       skipConfigs = listOf("(?i)hiltCompileOnly.*")
+                      // Android test configurations include androidTest/debugUnitTest prefixes,
+                      // not only names beginning with "test". Mark them as test-only components.
+                      testConfigs = listOf("(?i).*test.*")
                       includeLicenseText = true
                   }
               }
@@ -94,6 +97,9 @@ jobs:
             cyclonedxBom
 
           test -s build/reports/cyclonedx/bom.json
+          mkdir -p build/reports/sbom-trial
+          cp build/reports/cyclonedx/bom.json build/reports/sbom-trial/all-configs-cyclonedx.json
+          cp build/reports/cyclonedx/bom.xml build/reports/sbom-trial/all-configs-cyclonedx.xml
 
       - name: Install and verify CycloneDX CLI
         run: |
@@ -111,16 +117,72 @@ jobs:
           set -euo pipefail
           mkdir -p build/reports/sbom-trial
           "$RUNNER_TEMP/cyclonedx" convert \
-            --input-file build/reports/cyclonedx/bom.json \
-            --output-file build/reports/sbom-trial/bom.spdx.json \
+            --input-file build/reports/sbom-trial/all-configs-cyclonedx.json \
+            --output-file build/reports/sbom-trial/all-configs-spdx.json \
             --input-format json \
             --output-format spdxjson
-          test -s build/reports/sbom-trial/bom.spdx.json
+          test -s build/reports/sbom-trial/all-configs-spdx.json
           python3 tools/audit/verify_sbom_trial.py \
-            --cyclonedx build/reports/cyclonedx/bom.json \
-            --spdx build/reports/sbom-trial/bom.spdx.json \
+            --cyclonedx build/reports/sbom-trial/all-configs-cyclonedx.json \
+            --spdx build/reports/sbom-trial/all-configs-spdx.json \
             --revision "${{ github.event.pull_request.head.sha || github.sha }}" \
             --output build/reports/sbom-trial/sbom-validation.json
+
+      - name: Generate release-runtime-only CycloneDX SBOM
+        id: runtime_sbom
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/cyclonedx-runtime.init.gradle.kts" <<'INIT_SCRIPT'
+          import org.cyclonedx.gradle.CyclonedxPlugin
+          import org.cyclonedx.gradle.CyclonedxDirectTask
+
+          initscript {
+              repositories {
+                  gradlePluginPortal()
+              }
+              dependencies {
+                  classpath("org.cyclonedx.bom:org.cyclonedx.bom.gradle.plugin:3.6.1")
+              }
+          }
+
+          rootProject {
+              apply<CyclonedxPlugin>()
+              allprojects {
+                  tasks.named<CyclonedxDirectTask>("cyclonedxDirectBom") {
+                      failOnUnresolvedDependencies = true
+                      includeBuildEnvironment = false
+                      includeConfigs = listOf("(?i).*releaseRuntimeClasspath")
+                      skipConfigs = listOf("(?i)hiltCompileOnly.*")
+                      testConfigs = emptyList()
+                      includeLicenseText = true
+                  }
+              }
+          }
+          INIT_SCRIPT
+
+          ./gradlew --no-daemon --stacktrace \
+            --init-script "$RUNNER_TEMP/cyclonedx-runtime.init.gradle.kts" \
+            cyclonedxBom
+
+          test -s build/reports/cyclonedx/bom.json
+          cp build/reports/cyclonedx/bom.json build/reports/sbom-trial/release-runtime-cyclonedx.json
+          cp build/reports/cyclonedx/bom.xml build/reports/sbom-trial/release-runtime-cyclonedx.xml
+
+      - name: Convert release-runtime SBOM to SPDX 2.3 and verify package parity
+        id: verify_runtime_sbom
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/cyclonedx" convert \
+            --input-file build/reports/sbom-trial/release-runtime-cyclonedx.json \
+            --output-file build/reports/sbom-trial/release-runtime-spdx.json \
+            --input-format json \
+            --output-format spdxjson
+          test -s build/reports/sbom-trial/release-runtime-spdx.json
+          python3 tools/audit/verify_sbom_trial.py \
+            --cyclonedx build/reports/sbom-trial/release-runtime-cyclonedx.json \
+            --spdx build/reports/sbom-trial/release-runtime-spdx.json \
+            --revision "${{ github.event.pull_request.head.sha || github.sha }}" \
+            --output build/reports/sbom-trial/release-runtime-validation.json
 
       - name: Install and verify OSV-Scanner
         run: |
@@ -132,47 +194,83 @@ jobs:
           chmod +x "$RUNNER_TEMP/osv-scanner"
           "$RUNNER_TEMP/osv-scanner" --version
 
-      - name: Scan both SBOM formats for vulnerabilities and license metadata
+      - name: Scan full and release-runtime SBOMs with OSV-Scanner
         id: osv
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/osv-cdx" "$RUNNER_TEMP/osv-spdx"
-          cp build/reports/cyclonedx/bom.json "$RUNNER_TEMP/osv-cdx/bom.json"
-          cp build/reports/sbom-trial/bom.spdx.json "$RUNNER_TEMP/osv-spdx/bom.spdx.json"
+          mkdir -p "$RUNNER_TEMP/osv-full-cdx" "$RUNNER_TEMP/osv-full-spdx" \
+            "$RUNNER_TEMP/osv-runtime-cdx" "$RUNNER_TEMP/osv-runtime-spdx"
+          cp build/reports/sbom-trial/all-configs-cyclonedx.json "$RUNNER_TEMP/osv-full-cdx/bom.json"
+          cp build/reports/sbom-trial/all-configs-spdx.json "$RUNNER_TEMP/osv-full-spdx/bom.spdx.json"
+          cp build/reports/sbom-trial/release-runtime-cyclonedx.json "$RUNNER_TEMP/osv-runtime-cdx/bom.json"
+          cp build/reports/sbom-trial/release-runtime-spdx.json "$RUNNER_TEMP/osv-runtime-spdx/bom.spdx.json"
 
           set +e
-          "$RUNNER_TEMP/osv-scanner" scan source --licenses --all-packages --format=json "$RUNNER_TEMP/osv-cdx" > build/reports/sbom-trial/osv-cyclonedx.json
-          cdx_exit=$?
-          "$RUNNER_TEMP/osv-scanner" scan source --licenses --all-packages --format=json "$RUNNER_TEMP/osv-spdx" > build/reports/sbom-trial/osv-spdx.json
-          spdx_exit=$?
+          "$RUNNER_TEMP/osv-scanner" scan source --licenses --all-packages --format=json "$RUNNER_TEMP/osv-full-cdx" > build/reports/sbom-trial/osv-full-cyclonedx.json
+          full_cdx_exit=$?
+          "$RUNNER_TEMP/osv-scanner" scan source --licenses --all-packages --format=json "$RUNNER_TEMP/osv-full-spdx" > build/reports/sbom-trial/osv-full-spdx.json
+          full_spdx_exit=$?
+          "$RUNNER_TEMP/osv-scanner" scan source --licenses --all-packages --format=json "$RUNNER_TEMP/osv-runtime-cdx" > build/reports/sbom-trial/osv-runtime-cyclonedx.json
+          runtime_cdx_exit=$?
+          "$RUNNER_TEMP/osv-scanner" scan source --licenses --all-packages --format=json "$RUNNER_TEMP/osv-runtime-spdx" > build/reports/sbom-trial/osv-runtime-spdx.json
+          runtime_spdx_exit=$?
           set -e
 
-          test -s build/reports/sbom-trial/osv-cyclonedx.json
-          test -s build/reports/sbom-trial/osv-spdx.json
-          python3 - "$cdx_exit" "$spdx_exit" <<'PY'
+          python3 - "$full_cdx_exit" "$full_spdx_exit" "$runtime_cdx_exit" "$runtime_spdx_exit" <<'PY'
+          import collections
           import json
           import sys
           from pathlib import Path
 
           root = Path("build/reports/sbom-trial")
+          names = (
+              "osv-full-cyclonedx.json",
+              "osv-full-spdx.json",
+              "osv-runtime-cyclonedx.json",
+              "osv-runtime-spdx.json",
+          )
           reports = {}
-          for name in ("osv-cyclonedx.json", "osv-spdx.json"):
+          for name in names:
               data = json.loads((root / name).read_text(encoding="utf-8"))
               if not isinstance(data, dict) or not data:
                   raise SystemExit(f"{name}: expected non-empty JSON object")
-              reports[name] = {"json_valid": True, "top_level_keys": sorted(data)}
+              packages = [p for result in data.get("results", []) for p in result.get("packages", [])]
+              advisories = {}
+              vulnerability_entries = 0
+              packages_with_vulnerabilities = 0
+              for package in packages:
+                  vulnerabilities = package.get("vulnerabilities", [])
+                  if vulnerabilities:
+                      packages_with_vulnerabilities += 1
+                  for vulnerability in vulnerabilities:
+                      vulnerability_entries += 1
+                      advisories[vulnerability.get("id", "UNKNOWN")] = (
+                          vulnerability.get("database_specific", {}).get("severity", "UNKNOWN")
+                      )
+              reports[name] = {
+                  "json_valid": True,
+                  "package_count": len(packages),
+                  "packages_with_vulnerabilities": packages_with_vulnerabilities,
+                  "vulnerability_package_entries": vulnerability_entries,
+                  "unique_advisory_ids": len(advisories),
+                  "unique_advisories_by_severity": dict(collections.Counter(advisories.values())),
+                  "license_summary": data.get("license_summary", []),
+              }
           status = {
               "schema_version": 1,
               "candidate_sha": "${{ github.event.pull_request.head.sha || github.sha }}",
               "tool": "OSV-Scanner v2.7.1",
               "scan_exit_codes": {
-                  "cyclonedx": int(sys.argv[1]),
-                  "spdx": int(sys.argv[2]),
+                  "full_cyclonedx": int(sys.argv[1]),
+                  "full_spdx": int(sys.argv[2]),
+                  "release_runtime_cyclonedx": int(sys.argv[3]),
+                  "release_runtime_spdx": int(sys.argv[4]),
               },
               "reports": reports,
               "interpretation": (
-                  "Non-zero scanner exit codes are retained for review; they may represent findings. "
-                  "This trial does not convert vulnerability findings into a compliance PASS."
+                  "The full inventory includes test/build configurations; the release-runtime inventory "
+                  "uses only releaseRuntimeClasspath. Non-zero scanner exit codes are retained as findings, "
+                  "not converted into compliance PASS. Compare runtime results before assigning product exposure."
               ),
           }
           (root / "osv-trial-status.json").write_text(json.dumps(status, indent=2) + "\n", encoding="utf-8")
