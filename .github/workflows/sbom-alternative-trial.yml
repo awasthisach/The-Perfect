@@ -1,0 +1,184 @@
+name: SBOM Alternative Trial (CycloneDX + OSV)
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sbom-alternative-trial-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sbom-trial:
+    name: Gradle SBOM + vulnerability and license metadata trial
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        with:
+          packages: ""
+          accept-android-sdk-licenses: true
+
+      - name: Install Android SDK components
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"; then
+              exit 0
+            fi
+            echo "::warning::Android SDK installation attempt ${attempt}/3 failed."
+            sleep "$((attempt * 10))"
+          done
+          echo "::error::Android SDK components could not be installed."
+          exit 1
+
+      - name: Create local.properties
+        run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
+
+      - name: Generate strict multi-module CycloneDX SBOM
+        id: cyclonedx
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/cyclonedx.init.gradle.kts" <<'INIT_SCRIPT'
+          import org.cyclonedx.gradle.CyclonedxPlugin
+          import org.cyclonedx.gradle.CyclonedxDirectTask
+
+          initscript {
+              repositories {
+                  gradlePluginPortal()
+              }
+              dependencies {
+                  classpath("org.cyclonedx.bom:org.cyclonedx.bom.gradle.plugin:3.6.1")
+              }
+          }
+
+          rootProject {
+              apply<CyclonedxPlugin>()
+              allprojects {
+                  tasks.named<CyclonedxDirectTask>("cyclonedxDirectBom") {
+                      failOnUnresolvedDependencies = true
+                      includeBuildEnvironment = true
+                      includeLicenseText = true
+                  }
+              }
+          }
+          INIT_SCRIPT
+
+          ./gradlew --no-daemon --stacktrace \
+            --init-script "$RUNNER_TEMP/cyclonedx.init.gradle.kts" \
+            cyclonedxBom
+
+          test -s build/reports/cyclonedx/bom.json
+
+      - name: Install and verify CycloneDX CLI
+        run: |
+          set -euo pipefail
+          curl --retry 3 --retry-all-errors --connect-timeout 20 -fsSL \
+            https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/cyclonedx-linux-x64 \
+            -o "$RUNNER_TEMP/cyclonedx"
+          echo "bfc8b2538da86fe239bc53658bbb63c1c8c510a293c1e6891aa5bea5d3c58746  $RUNNER_TEMP/cyclonedx" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/cyclonedx"
+          "$RUNNER_TEMP/cyclonedx" --version
+
+      - name: Convert CycloneDX to SPDX 2.3 and verify package parity
+        id: verify_sbom
+        run: |
+          set -euo pipefail
+          mkdir -p build/reports/sbom-trial
+          "$RUNNER_TEMP/cyclonedx" convert \
+            --input-file build/reports/cyclonedx/bom.json \
+            --output-file build/reports/sbom-trial/bom.spdx.json \
+            --input-format json \
+            --output-format spdxjson
+          test -s build/reports/sbom-trial/bom.spdx.json
+          python3 tools/audit/verify_sbom_trial.py \
+            --cyclonedx build/reports/cyclonedx/bom.json \
+            --spdx build/reports/sbom-trial/bom.spdx.json \
+            --revision "${{ github.event.pull_request.head.sha || github.sha }}" \
+            --output build/reports/sbom-trial/sbom-validation.json
+
+      - name: Install and verify OSV-Scanner
+        run: |
+          set -euo pipefail
+          curl --retry 3 --retry-all-errors --connect-timeout 20 -fsSL \
+            https://github.com/google/osv-scanner/releases/download/v2.7.1/osv-scanner_linux_amd64 \
+            -o "$RUNNER_TEMP/osv-scanner"
+          echo "fb7dab19a8bd9bbe5c3189f09d4b7ee1820c9553a23bac202648a56efd2f6ee8  $RUNNER_TEMP/osv-scanner" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/osv-scanner"
+          "$RUNNER_TEMP/osv-scanner" --version
+
+      - name: Scan both SBOM formats for vulnerabilities and license metadata
+        id: osv
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/osv-cdx" "$RUNNER_TEMP/osv-spdx"
+          cp build/reports/cyclonedx/bom.json "$RUNNER_TEMP/osv-cdx/bom.json"
+          cp build/reports/sbom-trial/bom.spdx.json "$RUNNER_TEMP/osv-spdx/bom.spdx.json"
+
+          set +e
+          "$RUNNER_TEMP/osv-scanner" scan source --licenses --all-packages --format=json "$RUNNER_TEMP/osv-cdx" > build/reports/sbom-trial/osv-cyclonedx.json
+          cdx_exit=$?
+          "$RUNNER_TEMP/osv-scanner" scan source --licenses --all-packages --format=json "$RUNNER_TEMP/osv-spdx" > build/reports/sbom-trial/osv-spdx.json
+          spdx_exit=$?
+          set -e
+
+          test -s build/reports/sbom-trial/osv-cyclonedx.json
+          test -s build/reports/sbom-trial/osv-spdx.json
+          python3 - "$cdx_exit" "$spdx_exit" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          root = Path("build/reports/sbom-trial")
+          reports = {}
+          for name in ("osv-cyclonedx.json", "osv-spdx.json"):
+              data = json.loads((root / name).read_text(encoding="utf-8"))
+              if not isinstance(data, dict) or not data:
+                  raise SystemExit(f"{name}: expected non-empty JSON object")
+              reports[name] = {"json_valid": True, "top_level_keys": sorted(data)}
+          status = {
+              "schema_version": 1,
+              "candidate_sha": "${{ github.event.pull_request.head.sha || github.sha }}",
+              "tool": "OSV-Scanner v2.7.1",
+              "scan_exit_codes": {
+                  "cyclonedx": int(sys.argv[1]),
+                  "spdx": int(sys.argv[2]),
+              },
+              "reports": reports,
+              "interpretation": (
+                  "Non-zero scanner exit codes are retained for review; they may represent findings. "
+                  "This trial does not convert vulnerability findings into a compliance PASS."
+              ),
+          }
+          (root / "osv-trial-status.json").write_text(json.dumps(status, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps(status, indent=2))
+          PY
+
+      - name: Upload alternative SBOM trial evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: sbom-alternative-trial-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            build/reports/cyclonedx/
+            build/reports/sbom-trial/
+          if-no-files-found: warn
+          retention-days: 30
