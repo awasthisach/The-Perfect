@@ -77,7 +77,8 @@ jobs:
               allprojects {
                   tasks.named<CyclonedxDirectTask>("cyclonedxDirectBom") {
                       failOnUnresolvedDependencies = true
-                      includeBuildEnvironment = true
+                      // Avoid resolving Android/Hilt compile task output providers as build-environment inputs.
+                      includeBuildEnvironment = false
                       includeLicenseText = true
                   }
               }
