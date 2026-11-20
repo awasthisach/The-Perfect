@@ -1,9 +1,10 @@
 # Phase 2 — Build स्थिरता रिपोर्ट
 
-**स्थिति: IN PROGRESS — मूल Android build gate और SQLCipher hard gate सफल; optional emulator soft-gate में एक निश्चित configuration defect मिला और सुधारा गया। नया exact-SHA rerun आवश्यक है।**  
+**स्थिति: COMPLETE — exact candidate SHA `43dc4a868f3353e11ecaa9722b447127626910ed` पर मुख्य Build/Test/Lint/Debug APK और SQLCipher Instrumented Hard Gate दोनों PASS।**  
 **Repository:** `awasthisach/The-Perfect`  
 **Branch:** `audit/fixes-2026-11`  
-**निरीक्षण आधार SHA:** `8ea352753dda545105c6fc0411cb55e33b7bf792`  
+**प्रारंभिक निरीक्षण SHA:** `8ea352753dda545105c6fc0411cb55e33b7bf792`  
+**अंतिम सत्यापित SHA:** `43dc4a868f3353e11ecaa9722b447127626910ed`  
 **तारीख:** 20 नवंबर 2026  
 **रिलीज़ स्थिति:** **NO-SHIP** — Build पास होना product/security/release readiness नहीं है।
 
@@ -59,7 +60,7 @@ Build को ऐसा बनाना कि एक ही source revision प�
 5. Unit tests, lint और debug APK build की hard requirements को नहीं बदलेगा।
 6. Weekly Instrumented Hard Gate को नहीं बदलेगा; वह अलग hard gate ही रहेगा।
 
-यह workflow सुधार है, अभी सफल rerun का प्रमाण नहीं। नए commit पर GitHub Actions का परिणाम आने के बाद ही इसे verified माना जाएगा।
+यह सुधार commit `43dc4a868f3353e11ecaa9722b447127626910ed` पर सत्यापित हुआ: मुख्य CI में KVM check सफल, emulator `emulator-5554` boot हुआ और SQLCipher instrumentation के दोनों batches सफल रहे।
 
 ## 4. Build configuration का निरीक्षण
 
@@ -86,12 +87,12 @@ Build को ऐसा बनाना कि एक ही source revision प�
 
 | Workflow | Run | स्थिति | अर्थ |
 |---|---:|---|---|
-| SBOM Alternative Trial | [44664981565](https://github.com/awasthisach/The-Perfect/actions/runs/44664981565) | **FAIL** | CycloneDX task Hilt configurations पढ़ते समय Gradle provider error; Build gate से अलग |
-| Nightly ORT | [44664981434](https://github.com/awasthisach/The-Perfect/actions/runs/44664981434) | **PENDING** | कोई completed result नहीं |
-| CPAS Production Gate | [44664981409](https://github.com/awasthisach/The-Perfect/actions/runs/44664981409) | **PENDING** | कोई completed result नहीं |
+| SBOM Alternative Trial | [44667847167](https://github.com/awasthisach/The-Perfect/actions/runs/44667847167) | **FAIL** | CycloneDX task Hilt configurations पढ़ते समय Gradle provider error; Build gate से अलग |
+| Nightly ORT | [44667847521](https://github.com/awasthisach/The-Perfect/actions/runs/44667847521) | **PENDING** | कोई completed result नहीं |
+| CPAS Production Gate | [44667847137](https://github.com/awasthisach/The-Perfect/actions/runs/44667847137) | **PENDING** | कोई completed result नहीं |
 | Worker Validation | [44664981301](https://github.com/awasthisach/The-Perfect/actions/runs/44664981301) | **SUCCESS** | Worker tests/bundle; Android Build का विकल्प नहीं |
 
-SBOM failure का exact संकेत `hiltCompileOnlyDebug` और `hiltCompileOnlyRelease` configurations के task provider query error हैं। इस चरण में Hilt, Gradle dependencies या ORT rules को नहीं बदला गया। SBOM समस्या को Build failure में नहीं मिलाना है।
+SBOM failure का exact संकेत `:app:hiltCollectClassesDebug`, `DebugAndroidTest`, `DebugUnitTest` और `Release` task properties (`classesJars`/`classesDirectories`) द्वारा `hiltCompileOnly*` configurations query करते समय आया। यह Android app build failure नहीं है। CycloneDX plugin docs के अनुसार `skipConfigs` full-match regex से उन configurations को छोड़ सकता है जो scan के लिए अभिप्रेत नहीं हैं; `hiltCompileOnly.*` को सीमित रूप से छोड़ने का patch अगले commit में जोड़ा गया है। उस patch का rerun अभी सत्यापित नहीं, इसलिए SBOM trial अभी FAIL ही माना जाएगा।
 
 ## 6. इस चरण में क्या नहीं किया गया
 
@@ -118,6 +119,23 @@ SBOM failure का exact संकेत `hiltCompileOnlyDebug` और `hiltCom
 
 ORT/SBOM/CPAS Phase 2 के build pass criteria नहीं हैं, लेकिन release gate बने रहेंगे। उनका अलग समाधान आवश्यक है।
 
-## 8. अगला कदम
+## 8. अंतिम exact-SHA सत्यापन
 
-इस रिपोर्ट के साथ `.github/workflows/ci.yml` का सीमित emulator correction commit किया गया है। अगला काम उसी नए SHA के workflow results देखना है। जब तक नए SHA पर Build और Weekly Hard Gate दोनों सत्यापित न हों, Phase 2 **IN PROGRESS** रहेगा।
+[मुख्य CI — Run 44667847110](https://github.com/awasthisach/The-Perfect/actions/runs/44667847110)
+
+- Tested SHA: `43dc4a868f3353e11ecaa9722b447127626910ed`; job **SUCCESS**।
+- Unit tests, Room schema export/upload, Android lint, Debug APK, CPAS evidence generation/upload सफल।
+- KVM check सफल; emulator boot हुआ; logs में `emulator-5554 device`, instrumentation के 2 batches शुरू/समाप्त, `BUILD SUCCESSFUL` और summary `Emulator booted: true`, `Instrumented outcome: success`।
+- Artifacts: Debug APK 51,184,441 bytes; unit-test reports, Room schema export, lint reports, Android test reports और emulator diagnostics उपलब्ध।
+
+[SQLCipher Instrumented Hard Gate — Run 44667847130](https://github.com/awasthisach/The-Perfect/actions/runs/44667847130)
+
+- Tested SHA वही exact SHA; job **SUCCESS**।
+- App 4 + core/database 3 + core/database-compat 3 = 10 tests; हर module में 0 failures और 0 errors।
+- Exact-SHA report validator सफल; artifact `sqlcipher-instrumented-43dc4a868f3353e11ecaa9722b447127626910ed` अपलोड।
+
+इसलिए Phase 2 के build criteria पूरे हैं। ORT, CPAS और SBOM release assurance अलग हैं और अभी Phase 2 completion में शामिल नहीं किए गए।
+
+## 9. अगला कदम
+
+SBOM trial में CycloneDX द्वारा Hilt के generated `hiltCompileOnly*` configurations query करने की विफलता मिली। एक narrowly scoped `skipConfigs = listOf("(?i)hiltCompileOnly.*")` correction जोड़ा जा रहा है; इससे बाकी resolvable project configurations और `failOnUnresolvedDependencies = true` बने रहेंगे। नए exact-SHA SBOM rerun के बिना इसे PASS नहीं माना जाएगा।

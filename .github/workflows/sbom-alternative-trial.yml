@@ -79,6 +79,10 @@ jobs:
                       failOnUnresolvedDependencies = true
                       // Avoid resolving Android/Hilt compile task output providers as build-environment inputs.
                       includeBuildEnvironment = false
+                      // Hilt generates internal compile-only configurations; CycloneDX cannot query
+                      // their task-backed class providers on this AGP/Gradle combination. They are
+                      // not packaged app dependencies. Keep all other resolvable project configs.
+                      skipConfigs = listOf("(?i)hiltCompileOnly.*")
                       includeLicenseText = true
                   }
               }

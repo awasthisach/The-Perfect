@@ -53,3 +53,18 @@ Serena project activation के बाद local `git status` में untracke
 - Build config निरीक्षण: Gradle 9.3.1, JDK17, AGP 9.1.1, Kotlin 2.4.21, KSP 2.3.14, compile/target SDK 36, min SDK 24। कोई version/dependency deletion या update नहीं।
 - बदली/जोड़ी फाइलें: `.github/workflows/ci.yml`, `docs/rebuild/README.md`, `docs/rebuild/DAILY-REPORT.md`, नया `docs/rebuild/PHASE-2-BUILD-STABILITY.md`।
 - Tests after workflow correction: नए commit पर rerun अभी बाकी; इसलिए Phase 2 **IN PROGRESS**। Deletions: 0. Release: NO-SHIP.
+
+
+## Phase 2 exact-SHA recheck — 20 नवंबर 2026
+
+- सत्यापित candidate SHA: `43dc4a868f3353e11ecaa9722b447127626910ed`.
+- PR #225: Draft=true, Open, Unmerged; base `main` SHA `cc49da286430810c322a5969cc189a8de0cb6ad0`.
+- मुख्य Build/Test/Lint/Debug APK: **PASS**, [run 44667847110](https://github.com/awasthisach/The-Perfect/actions/runs/44667847110). JDK/SDK, fixture, unit tests, Room schema export, lint, APK और evidence upload सफल।
+- मुख्य CI emulator: KVM check और boot सफल; logs में `emulator-5554 device`, 2 instrumentation batches completed, summary `Emulator booted: true`, `Instrumented outcome: success`. पहले रिपोर्ट में इसे skipped बताना गलत था; केवल skip-annotation step skipped था।
+- SQLCipher hard gate: **PASS**, [run 44667847130](https://github.com/awasthisach/The-Perfect/actions/runs/44667847130); 10 tests, 0 failures, 0 errors; exact-SHA report validator PASS.
+- Artifacts verified: Debug APK (51,184,441 bytes), Room schema, unit tests, lint, Android test reports, emulator diagnostics; SQLCipher exact-SHA report artifact.
+- SBOM Alternative Trial: **FAIL**, [run 44667847167](https://github.com/awasthisach/The-Perfect/actions/runs/44667847167). CycloneDX `:app:cyclonedxDirectBom` failed when Hilt `hiltCollectClasses*` providers queried `hiltCompileOnly*` configurations. This is isolated from the Android Build gate.
+- Narrow correction prepared: exclude only Hilt-generated `hiltCompileOnly.*` configurations from CycloneDX scan; no dependency, Hilt, ORT policy, or CPAS gate removal. Rerun required.
+- ORT [run 44667847521](https://github.com/awasthisach/The-Perfect/actions/runs/44667847521) and CPAS [run 44667847137](https://github.com/awasthisach/The-Perfect/actions/runs/44667847137) remain pending at capture.
+- Phase 2: **COMPLETE**. Overall release: **NO-SHIP** until ORT/SBOM/CPAS and owner/device acceptance pass.
+- Deletions: 0. No main change, no force push, no new branch.
