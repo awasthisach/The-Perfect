@@ -34,20 +34,19 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
             with self.subTest(workflow=relative_path):
                 workflow = (ROOT / relative_path).read_text(encoding="utf-8")
                 self.assertIn(f"group: {group}", workflow)
-                # ORT and CPAS are long-running evidence gates: preserve active exact-SHA
-                # runs when a newer PR commit arrives. Other heavy gates may cancel stale PR runs.
+                # Candidate-SHA gates cancel stale PR work so a newer exact-SHA
+                # scan is not held behind an obsolete revision. Non-PR scans remain intact.
                 if relative_path in {
                     ".github/workflows/nightly-ort.yml",
                     ".github/workflows/cpas-gate.yml",
+                    ".github/workflows/weekly-instrumented.yml",
                 }:
-                    self.assertIn("cancel-in-progress: false", workflow)
-                elif relative_path == ".github/workflows/worker-validation.yml":
-                    self.assertIn("cancel-in-progress: true", workflow)
-                else:
                     self.assertIn(
                         "cancel-in-progress: ${{ github.event_name == 'pull_request' }}",
                         workflow,
                     )
+                elif relative_path == ".github/workflows/worker-validation.yml":
+                    self.assertIn("cancel-in-progress: true", workflow)
 
     def test_sqlcipher_fixture_installs_only_missing_dependencies_with_bounded_retries(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
