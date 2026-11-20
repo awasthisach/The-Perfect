@@ -13,9 +13,9 @@ permissions:
 
 concurrency:
   group: cpas-gate-${{ github.ref }}
-  # PR gates are candidate-SHA evidence: cancel obsolete work when a newer
-  # commit arrives on the same PR. Main/scheduled/manual runs are never cancelled.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Preserve long-running exact-SHA evidence scans when a newer PR commit arrives.
+  # GitHub may replace an older pending run, but an active ORT/CPAS run is not cancelled.
+  cancel-in-progress: false
 
 jobs:
   cpas-verify:

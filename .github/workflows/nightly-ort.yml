@@ -15,9 +15,9 @@ permissions:
 
 concurrency:
   group: nightly-ort-${{ github.ref }}
-  # PR scans are candidate-SHA evidence: cancel an obsolete scan when a newer
-  # commit arrives on the same PR. Scheduled/manual runs are never cancelled.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Preserve long-running exact-SHA evidence scans when a newer PR commit arrives.
+  # GitHub may replace an older pending run, but an active ORT/CPAS run is not cancelled.
+  cancel-in-progress: false
 
 jobs:
   ort-scan:
