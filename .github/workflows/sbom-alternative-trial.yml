@@ -1,6 +1,8 @@
 name: SBOM Alternative Trial (CycloneDX + OSV)
 
 on:
+  push:
+    branches: [audit/fixes-2026-11]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
