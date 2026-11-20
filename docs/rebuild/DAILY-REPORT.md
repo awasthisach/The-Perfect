@@ -40,3 +40,16 @@
 ## Workspace note
 
 Serena project activation के बाद local `git status` में untracked `.serena/` दिखी; origin/contents स्वतंत्र रूप से सत्यापित नहीं किए गए। Serena onboarding calls दो बार timeout हुए और onboarding completion दर्ज नहीं हुई। `.serena/` को intact, unstaged रखा गया।
+
+
+## Phase 2 — Build स्थिर करना (20 नवंबर 2026)
+
+- आधार SHA: `8ea352753dda545105c6fc0411cb55e33b7bf792`; branch: `audit/fixes-2026-11`.
+- मुख्य Build/Test/Lint/Debug APK: PASS — [run 44664981314](https://github.com/awasthisach/The-Perfect/actions/runs/44664981314).
+- SQLCipher hard instrumentation: PASS — [run 44664981370](https://github.com/awasthisach/The-Perfect/actions/runs/44664981370); app 4 + database 3 + database-compat 3 = 10 tests, 0 failures/errors/skips; exact-SHA validator PASS.
+- मुख्य CI के optional emulator ने `-accel off` के कारण boot नहीं किया; log में software CPU emulation unsupported। Weekly hard workflow ने KVM + `-accel on` से उसी SHA पर सफल boot/test किया।
+- सीमित workflow सुधार: `.github/workflows/ci.yml` अब KVM availability/accessibility check के बाद `-accel on` उपयोग करता है; KVM न हो तो explicit soft skip।
+- SBOM Trial [44664981565](https://github.com/awasthisach/The-Perfect/actions/runs/44664981565) FAIL — CycloneDX/Hilt `hiltCompileOnlyDebug/Release` provider query error। ORT [44664981434] और CPAS [44664981409] capture समय पर PENDING।
+- Build config निरीक्षण: Gradle 9.3.1, JDK17, AGP 9.1.1, Kotlin 2.4.21, KSP 2.3.14, compile/target SDK 36, min SDK 24। कोई version/dependency deletion या update नहीं।
+- बदली/जोड़ी फाइलें: `.github/workflows/ci.yml`, `docs/rebuild/README.md`, `docs/rebuild/DAILY-REPORT.md`, नया `docs/rebuild/PHASE-2-BUILD-STABILITY.md`।
+- Tests after workflow correction: नए commit पर rerun अभी बाकी; इसलिए Phase 2 **IN PROGRESS**। Deletions: 0. Release: NO-SHIP.

@@ -1,6 +1,6 @@
 # VVF Smart Manager — सुरक्षित Rebuild योजना
 
-**वर्तमान चरण: 1 — Project Map (पूरा)**
+**वर्तमान चरण: 2 — Build स्थिर करना (IN PROGRESS)**
 **रिलीज़ स्थिति: NO-SHIP** — यह source map build, runtime, security या release readiness प्रमाणित नहीं करता।
 **कार्य-शाखा:** `audit/fixes-2026-11`
 **Phase 1 निरीक्षण SHA:** `fd6a35ca49622217c876bdb3758aeafab978adbf`
@@ -30,7 +30,7 @@
 
 1. **चरण 0 — Baseline:** पूरा। विवरण [BASELINE.md](BASELINE.md) में है।
 2. **चरण 1 — Project Map:** पूरा। स्रोत-आधारित map ऊपर के architecture/data-flow दस्तावेज़ों में है।
-3. **चरण 2 — Build स्थिर करना:** शुरू नहीं; wrapper/JDK/SDK/dependency resolution/build/tests/lint अभी इस चरण में नहीं चलाए गए।
+3. **चरण 2 — Build स्थिर करना:** जारी; 20 नवंबर के exact-SHA Build और SQLCipher hard gate सफल हुए। Primary CI emulator command में `-accel off` defect मिला; KVM-aware `-accel on` correction के बाद नए SHA पर rerun आवश्यक। विवरण [PHASE-2-BUILD-STABILITY.md](PHASE-2-BUILD-STABILITY.md) में।
 4. **चरण 3 — Dependency/code सफाई:** शुरू नहीं; कोई deletion/rewrite नहीं। हर हटाने से पहले references + dependency graph + tests चाहिए।
 5. इसके बाद ही DI, database/encryption, OAuth/Drive, OCR, local semantic search, privacy, CI/SBOM/ORT, device test और release वाले चरण।
 
