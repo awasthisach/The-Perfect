@@ -34,6 +34,26 @@ jobs:
           repository: ${{ github.repository }}
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
+      - name: Set up JDK 17 and restore the shared Gradle dependency cache
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: gradle
+
+      - name: Set up Android SDK for Gradle inspection
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        with:
+          packages: ""
+          accept-android-sdk-licenses: true
+
+      - name: Prewarm Gradle plugin and Android project model cache
+        run: |
+          set -euo pipefail
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+          echo "sdk.dir=${ANDROID_HOME}" > local.properties
+          ./gradlew --no-daemon help
+
       - name: Verify checked-out candidate SHA
         id: verify_checkout
         env:
