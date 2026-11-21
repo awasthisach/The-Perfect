@@ -83,3 +83,14 @@ Serena project activation के बाद local `git status` में untracke
 - Build/Test/Lint/Debug APK: **PASS**, [44675911766](https://github.com/awasthisach/The-Perfect/actions/runs/44675911766); SQLCipher hard gate **PASS**, [44675911776](https://github.com/awasthisach/The-Perfect/actions/runs/44675911776); Worker validation **PASS**, [44675911803](https://github.com/awasthisach/The-Perfect/actions/runs/44675911803).
 - ORT [44675911761] और CPAS [44675911771] अभी pending/queued; completion प्रमाण **सत्यापित नहीं**।
 - Phase 3 **IN PROGRESS**; app dependency changes/deletions: 0; release: NO-SHIP.
+
+
+## Cross-check और ORT cache root-cause correction — 21 नवंबर 2026
+
+- Live GitHub API recheck: PR #225 Draft/Open/Unmerged; branch `audit/fixes-2026-11` और PR head दोनों `b8c00a21a4a515807006fe4d5277db02d162d417` थे। Base `cc49da286430810c322a5969cc189a8de0cb6ad0`। GitHub compare: 344 commits, 199 files, +13,763/-1,502।
+- पुराने Phase 2 section में प्रारंभिक “IN PROGRESS” लाइन ऐतिहासिक थी; बाद का exact-SHA recheck section Phase 2 **COMPLETE** दर्ज करता है। वर्तमान Phase 2 स्थिति COMPLETE है; उस शुरुआती लाइन को वर्तमान स्थिति न माना जाए।
+- ORT run [44700427117](https://github.com/awasthisach/The-Perfect/actions/runs/44700427117), SHA `b8c00a21a4a515807006fe4d5277db02d162d417`: Analyzer PASS; Scanner छह घंटे पर CANCELLED; CPAS [44700427691](https://github.com/awasthisach/The-Perfect/actions/runs/44700427691) BLOCKED। Build [44700427213](https://github.com/awasthisach/The-Perfect/actions/runs/44700427213), SQLCipher hard gate [44700427287](https://github.com/awasthisach/The-Perfect/actions/runs/44700427287), Worker [44700427239](https://github.com/awasthisach/The-Perfect/actions/runs/44700427239), supplementary SBOM [44700427174](https://github.com/awasthisach/The-Perfect/actions/runs/44700427174): PASS।
+- Exact ORT cache logs: Gradle caches hit (लगभग 844 MB + 130 MB), लेकिन ORT scan-result cache key `Linux-ort-scan-results-cfbe09394cac630f25725138fd4f0f56586ab5b1c9f6ca64e660d177da447ef6` और restore prefix दोनों **CACHE MISS**। यह पहले “cache restored” मानने की गलती को सुधारता है; restored caches Gradle के थे, ORT scan-result cache का नहीं।
+- Scanner ने ClearlyDefined पर कई timeout/HTTP 502 दिए। छह घंटे के cancellation के बाद ORT cache post-step skipped हुआ; इस कारण partial scan results अगली कोशिश के लिए persist नहीं हुए।
+- लक्षित सुधार: ORT cache restore और save अलग किए गए; cache key में run ID/attempt शामिल होगा और save step `always()` पर verified checkout के बाद चलकर partial scanner results भी persist करने की कोशिश करेगा। अगली exact-SHA run में cache restore/save परिणाम और scanner progress से इसे validate करना आवश्यक है। यह अभी source-level सुधार है, PASS नहीं।
+- No dependencies, licenses, ORT policy, shipped scopes, or fail-closed gates removed. PR remains Draft/Open/Unmerged; release NO-SHIP.

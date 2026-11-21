@@ -118,6 +118,13 @@ jobs:
             reporter,
             upload-results
 
+      - name: Save ORT scan-result cache (including partial scan results)
+        if: ${{ always() && steps.verify_checkout.outcome == 'success' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.ort/scanner/
+          key: ${{ runner.os }}-ort-scan-results-${{ hashFiles('**/*.gradle', '**/*.gradle.kts', '**/gradle.lockfile', 'gradle/libs.versions.toml', '.ort.yml', 'ort-curations.yml', '.github/workflows/nightly-ort.yml', '.github/actions/ort/action.yml') }}-${{ github.run_id }}-${{ github.run_attempt }}
+
       - name: Verify required ORT reports and SBOMs
         id: verify_ort_reports
         if: always()
