@@ -3,47 +3,68 @@ package com.vvf.smartmanager.core.security
 import android.content.Context
 import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
+import android.util.Log
 import java.security.KeyStore
 import java.util.WeakHashMap
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 
+internal interface VaultBiometricKeyStore {
+    fun getKey(alias: String): SecretKey?
+    fun deleteEntry(alias: String)
+}
+
+private object AndroidVaultBiometricKeyStore : VaultBiometricKeyStore {
+    override fun getKey(alias: String): SecretKey? =
+        KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            .getKey(alias, null) as? SecretKey
+
+    override fun deleteEntry(alias: String) {
+        KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(alias)
+    }
+}
+
 /**
  * Hardware-backed biometric authorization cipher for BiometricPrompt.CryptoObject.
- *
- * The biometric authorization key is deliberately separate from the vault data key:
- * the vault data key must remain usable through the application's PIN fallback.
- * The auth-per-use key is used for a real cryptographic proof operation inside the
- * BiometricPrompt flow, so a successful callback cannot be produced by merely
- * checking that a CryptoObject exists.
+ * The authorization key is separate from the vault data key so PIN fallback remains available.
  */
 object VaultBiometricCryptoHelper {
+    private const val TAG = "VaultBiometric"
     private const val BIOMETRIC_AUTH_KEY_ALIAS = "vvf_vault_biometric_auth_key_v1"
     private const val AES_GCM_TRANSFORMATION = "AES/GCM/NoPadding"
     private const val PREFS_NAME = "vvf_secure_vault_prefs"
     private val BIOMETRIC_PROOF = "VVF_VAULT_BIOMETRIC_PROOF_V1".toByteArray(Charsets.UTF_8)
-    // Only cipher instances minted by this helper can issue a proof. Weak keys avoid retaining
-    // abandoned prompt ciphers if the user cancels authentication.
     private val issuedCiphers = WeakHashMap<Cipher, Unit>()
 
-    fun createVaultBiometricCipher(): Cipher? {
+    fun createVaultBiometricCipher(): Cipher? =
+        createVaultBiometricCipher(AndroidVaultBiometricKeyStore)
+
+    internal fun createVaultBiometricCipher(keyStore: VaultBiometricKeyStore): Cipher? {
         return try {
-            val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-            val key = (keyStore.getKey(BIOMETRIC_AUTH_KEY_ALIAS, null) as? SecretKey)
-                ?: generateBiometricAuthKey()
+            val key = keyStore.getKey(BIOMETRIC_AUTH_KEY_ALIAS) ?: generateBiometricAuthKey()
             val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION).apply {
                 init(Cipher.ENCRYPT_MODE, key)
             }
             synchronized(issuedCiphers) { issuedCiphers[cipher] = Unit }
             cipher
-        } catch (_: Exception) {
+        } catch (error: KeyPermanentlyInvalidatedException) {
+            // Delete only the biometric authorization alias, never the vault data/master key.
+            try {
+                keyStore.deleteEntry(BIOMETRIC_AUTH_KEY_ALIAS)
+            } catch (cleanupError: Exception) {
+                Log.e(TAG, "Unable to delete invalidated biometric authorization key", cleanupError)
+            }
+            Log.w(TAG, "Biometric key invalidated; PIN authentication is required.")
+            null
+        } catch (error: Exception) {
+            Log.e(TAG, "Biometric cipher initialization failed; PIN fallback remains available.", error)
             null
         }
     }
 
-    /** Performs a real operation with the authenticated CryptoObject key and issues one-use proof. */
     fun proveAuthenticatedCipher(cipher: Cipher): VaultBiometricProof? {
         val wasIssuedHere = synchronized(issuedCiphers) { issuedCiphers.remove(cipher) != null }
         if (!wasIssuedHere) return null
@@ -75,22 +96,18 @@ object VaultBiometricCryptoHelper {
             .setUserAuthenticationRequired(true)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            builder.setUserAuthenticationParameters(
-                0,
-                KeyProperties.AUTH_BIOMETRIC_STRONG
-            )
+            builder.setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG)
         } else {
             @Suppress("DEPRECATION")
             builder.setUserAuthenticationValidityDurationSeconds(-1)
         }
-
         keyGenerator.init(builder.build())
         return keyGenerator.generateKey()
     }
 
     fun isAutoIndexOcrEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getBoolean("auto_index_ocr_enabled", true)
+            .getBoolean("auto_index_ocr_enabled", false)
 
     fun setAutoIndexOcrEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -107,11 +124,6 @@ object VaultBiometricCryptoHelper {
     }
 }
 
-
-/**
- * Unforgeable, one-use capability issued only after a cryptographic operation succeeds with
- * the authenticated BiometricPrompt cipher. ViewModel callers must consume it before unlocking.
- */
 class VaultBiometricProof private constructor() {
     private var available = true
 

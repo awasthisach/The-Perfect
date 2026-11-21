@@ -20,6 +20,11 @@ import java.io.FileInputStream
 import java.security.MessageDigest
 import java.util.ArrayDeque
 
+data class PrimaryStorageScanResult(
+    val items: List<FileItem>,
+    val isComplete: Boolean
+)
+
 open class StorageManagerImpl(
     protected val context: Context,
     protected val fileDao: FileDao
@@ -104,7 +109,7 @@ open class StorageManagerImpl(
         false
     }
 
-    fun getPrimaryStoragePath(): String = try {
+    open fun getPrimaryStoragePath(): String = try {
         Environment.getExternalStorageDirectory().absolutePath
     } catch (_: Exception) {
         context.getExternalFilesDir(null)?.absolutePath ?: context.filesDir.absolutePath
@@ -157,6 +162,129 @@ open class StorageManagerImpl(
                 lastModified = file.lastModified()
             )
         }
+    }
+
+    /**
+     * A bounded inventory scan that reports whether every eligible directory was enumerated.
+     * A partial or inaccessible traversal must never be used as evidence that missing rows are stale.
+     */
+    protected open fun pathExists(file: File): Boolean = file.exists()
+
+    protected open fun isDirectory(file: File): Boolean = file.isDirectory
+
+    protected open fun canReadPath(file: File): Boolean = file.canRead()
+
+    protected open fun canonicalPath(file: File): String = file.canonicalPath
+
+    protected open fun listDirectoryChildren(directory: File): Array<File>? = directory.listFiles()
+
+    fun collectPrimaryStorageScan(maxItems: Int = 10_000): PrimaryStorageScanResult {
+        require(maxItems > 0) { "maxItems must be positive" }
+        val root = File(getPrimaryStoragePath())
+        val files = mutableListOf<File>()
+        val rootAccessible = pathExists(root) && isDirectory(root) && canReadPath(root)
+        var complete = rootAccessible
+        val rootCanonicalPath = try {
+            canonicalPath(root)
+        } catch (_: Exception) {
+            complete = false
+            ""
+        }
+        val visitedDirectories = HashSet<String>()
+
+        fun isWithinRoot(canonicalPath: String): Boolean =
+            canonicalPath == rootCanonicalPath ||
+                canonicalPath.startsWith(rootCanonicalPath + File.separator)
+
+        fun visit(directory: File) {
+            // Completeness controls stale-row pruning, not whether other accessible folders
+            // should still be indexed after one folder cannot be enumerated.
+            if (files.size >= maxItems) {
+                complete = false
+                return
+            }
+            val canonicalPath = try {
+                canonicalPath(directory)
+            } catch (_: Exception) {
+                complete = false
+                return
+            }
+            // Out-of-root symlinks are intentionally excluded, not evidence of an incomplete
+            // inventory of the eligible primary-storage tree.
+            if (!isWithinRoot(canonicalPath)) return
+            if (!visitedDirectories.add(canonicalPath)) {
+                // A second in-root path to the same directory is an alias or cycle. We cannot
+                // claim a complete path-based inventory without enumerating that alias.
+                complete = false
+                return
+            }
+
+            val children = try {
+                listDirectoryChildren(directory)
+            } catch (_: SecurityException) {
+                null
+            }
+            if (children == null) {
+                complete = false
+                return
+            }
+
+            for (child in children) {
+                if (files.size >= maxItems) {
+                    complete = false
+                    return
+                }
+                // Entries that disappeared during enumeration and dangling symlinks are skipped.
+                // Their paths were observed; they do not prevent traversal of later siblings.
+                if (!pathExists(child)) continue
+
+                if (isDirectory(child)) {
+                    // These roots are intentionally excluded from the app's primary inventory.
+                    if (child.name == "Android" || child.name.startsWith(".")) continue
+                    val childCanonicalPath = try {
+                        canonicalPath(child)
+                    } catch (_: Exception) {
+                        complete = false
+                        continue
+                    }
+                    if (!isWithinRoot(childCanonicalPath)) continue
+                    if (!canReadPath(child)) {
+                        // This directory's contents could not be enumerated, but keep scanning
+                        // other accessible siblings.
+                        complete = false
+                        continue
+                    }
+                    visit(child)
+                } else {
+                    val childCanonicalPath = try {
+                        canonicalPath(child)
+                    } catch (_: Exception) {
+                        // The path was enumerated but cannot be verified as within the root.
+                        // Preserve existing metadata because this scan cannot prove the path stale.
+                        complete = false
+                        continue
+                    }
+                    if (!isWithinRoot(childCanonicalPath)) continue
+                    // File readability does not affect whether the path was enumerated. Metadata
+                    // can still be indexed without opening the file contents.
+                    files += child
+                }
+            }
+        }
+
+        if (rootAccessible && rootCanonicalPath.isNotEmpty()) visit(root)
+        if (files.size >= maxItems) complete = false
+        val items = files.map { file ->
+            FileItem(
+                path = file.absolutePath,
+                name = file.name,
+                sizeBytes = file.length(),
+                mimeType = getMimeType(file.name),
+                isDirectory = false,
+                lastModified = file.lastModified()
+            )
+        }
+        return PrimaryStorageScanResult(items = items, isComplete = complete)
     }
 
     fun listCategorizedFiles(category: FileCategory, sortOption: FileSortOption): List<FileItem> {

@@ -120,6 +120,7 @@ class AiIntelligenceUseCaseTest {
         override suspend fun saveSearchQuery(query: String) {}
         override suspend fun deleteSearchHistoryItem(query: String) {}
         override suspend fun clearSearchHistory() {}
+        override suspend fun saveOcrText(path: String, text: String): Result<Boolean> = Result.success(true)
         override fun getAvailableTags(): Flow<List<String>> = flowOf()
         override suspend fun addTagToFile(path: String, tag: String): Result<Boolean> {
             assignedTags.getOrPut(path) { mutableListOf() }.add(tag)

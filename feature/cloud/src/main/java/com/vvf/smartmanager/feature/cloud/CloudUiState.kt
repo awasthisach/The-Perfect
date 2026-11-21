@@ -22,5 +22,6 @@ data class CloudUiState(
     val backupPassphrase: String = "",
     val vaultPin: String = "",
     val backupHistory: List<CloudBackupInfo> = emptyList(),
+    val legacyBackupCount: Int = 0,
     val statusMessage: String? = null
 )

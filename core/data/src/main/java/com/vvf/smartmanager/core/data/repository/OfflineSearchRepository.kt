@@ -16,6 +16,7 @@ import com.vvf.smartmanager.core.model.SearchMatchType
 import com.vvf.smartmanager.core.model.SearchResultItem
 import com.vvf.smartmanager.core.model.SizeFilter
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -33,7 +35,8 @@ class OfflineSearchRepository(
     private val searchFtsDao: SearchFtsDao,
     private val fileDao: FileDao,
     private val storageManager: StorageManager,
-    cryptoSecurityManager: CryptoSecurityManager? = null
+    cryptoSecurityManager: CryptoSecurityManager? = null,
+    private val awaitStartupReady: suspend () -> Unit = {}
 ) : SearchRepository {
 
     private val historyStore: EncryptedSearchHistoryStore? =
@@ -58,9 +61,10 @@ class OfflineSearchRepository(
         _historyFlow.value = history
     }
 
-    override fun getSearchHistory(): Flow<List<String>> = _historyFlow.asStateFlow()
+    override fun getSearchHistory(): Flow<List<String>> = flow { awaitStartupReady(); emitAll(_historyFlow.asStateFlow()) }
 
     override suspend fun saveSearchQuery(query: String) = withContext(Dispatchers.IO) {
+        awaitStartupReady()
         val clean = query.trim().take(500)
         if (clean.isBlank()) return@withContext
         val current = _historyFlow.value.toMutableList()
@@ -70,85 +74,100 @@ class OfflineSearchRepository(
     }
 
     override suspend fun deleteSearchHistoryItem(query: String) = withContext(Dispatchers.IO) {
+        awaitStartupReady()
         val current = _historyFlow.value.toMutableList()
         current.remove(query.trim())
         saveHistory(current)
     }
 
     override suspend fun clearSearchHistory() = withContext(Dispatchers.IO) {
+        awaitStartupReady()
         saveHistory(emptyList())
     }
 
-    override fun getAvailableTags(): Flow<List<String>> {
-        return searchFtsDao.getAllTags().map { rawTagList ->
+    override fun getAvailableTags(): Flow<List<String>> = flow {
+        awaitStartupReady()
+        emitAll(searchFtsDao.getAllTags().map { rawTagList ->
             rawTagList.flatMap { raw ->
-                raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                raw.split(",").map { it.trim() }
+                    .filter { it.isNotEmpty() }
             }.distinct().sorted()
-        }.flowOn(Dispatchers.IO)
+        }.flowOn(Dispatchers.IO))
     }
 
     override suspend fun addTagToFile(path: String, tag: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        awaitStartupReady()
         try {
             val cleanTag = tag.trim().lowercase()
             if (cleanTag.isEmpty()) return@withContext Result.success(true)
-            val entity = fileDao.getByPath(path)
-            if (entity != null) {
-                val existingTags = entity.tags.split(",").map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toMutableSet()
-                existingTags.add(cleanTag)
-                searchFtsDao.updateTagsByPath(path, existingTags.joinToString(","))
-            } else {
-                val name = path.substringAfterLast('/').ifEmpty { "document" }
-                val parent = when {
-                    path.startsWith("content://") -> "content://"
-                    path.contains('/') -> path.substringBeforeLast('/')
-                    else -> ""
-                }
-                val newEntity = FileMetadataEntity(
-                    path = path,
-                    name = name,
-                    parentPath = parent,
-                    sizeBytes = 0L,
-                    mimeType = "application/octet-stream",
-                    isDirectory = false,
-                    modifiedDate = System.currentTimeMillis(),
-                    tags = cleanTag
-                )
-                fileDao.insertOrUpdate(newEntity)
-                searchFtsDao.rebuildFtsIndex()
+            val name = path.substringAfterLast('/').ifEmpty { "document" }
+            val parent = when {
+                path.startsWith("content://") -> "content://"
+                path.contains('/') -> path.substringBeforeLast('/')
+                else -> ""
             }
+            val fallbackFile = FileMetadataEntity(
+                path = path,
+                name = name,
+                parentPath = parent,
+                sizeBytes = 0L,
+                mimeType = "application/octet-stream",
+                isDirectory = false,
+                modifiedDate = System.currentTimeMillis(),
+                tags = cleanTag
+            )
+            val created = fileDao.addTagPreservingLatestMetadata(fallbackFile, cleanTag)
+            if (created) searchFtsDao.rebuildFtsIndex()
             Result.success(true)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
     override suspend fun removeTagFromFile(path: String, tag: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        awaitStartupReady()
         try {
-            val cleanTag = tag.trim().lowercase()
-            val entity = fileDao.getByPath(path)
-            if (entity != null) {
-                val existingTags = entity.tags.split(",").map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toMutableSet()
-                existingTags.remove(cleanTag)
-                searchFtsDao.updateTagsByPath(path, existingTags.joinToString(","))
-            }
+            fileDao.removeTagPreservingLatestMetadata(path, tag)
             Result.success(true)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    override fun getTotalIndexedCount(): Flow<Int> {
-        return searchFtsDao.getTotalIndexedCount().flowOn(Dispatchers.IO)
+    override fun getTotalIndexedCount(): Flow<Int> = flow {
+        awaitStartupReady()
+        emitAll(searchFtsDao.getTotalIndexedCount().flowOn(Dispatchers.IO))
+    }
+
+    override suspend fun saveOcrText(path: String, text: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        awaitStartupReady()
+        try {
+            require(path.isNotBlank())
+            require(text.length <= 1000000)
+            fileDao.updateOcrTextByPath(path, text)
+            val stored = fileDao.getByPath(path)
+            Result.success(stored != null && stored.ocrText == text)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
     }
 
     override suspend fun rebuildFtsIndex() = withContext(Dispatchers.IO) {
+        awaitStartupReady()
         searchFtsDao.rebuildFtsIndex()
     }
 
     override suspend fun getRecentIndexedFiles(limit: Int): List<FileItem> = withContext(Dispatchers.IO) {
+        awaitStartupReady()
         val entities = fileDao.getRecentFiles(limit.coerceIn(1, 2_000)).first()
         entities.map { entity ->
-            val tagList = entity.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            val tagList = parseVisibleTags(entity.tags)
             FileItem(
                 path = entity.path,
                 name = entity.name,
@@ -167,21 +186,22 @@ class OfflineSearchRepository(
     }
 
     override fun searchFiles(query: String, filter: SearchFilter): Flow<List<SearchResultItem>> = flow {
+        awaitStartupReady()
         val trimmedQuery = query.trim().take(500)
         val entitiesFlow = when {
             trimmedQuery.isNotEmpty() -> {
                 val sanitizedFtsQuery = sanitizeFtsQuery(trimmedQuery)
                 val ftsFlow = if (sanitizedFtsQuery.isNotEmpty()) {
-                    searchFtsDao.searchFilesFts(sanitizedFtsQuery)
+                    searchFtsDao.searchFilesFts(sanitizedFtsQuery, includeTrash = filter.category == FileCategory.TRASH)
                 } else {
-                    searchFtsDao.searchFilesFallback(trimmedQuery)
+                    searchFtsDao.searchFilesFallback(trimmedQuery, includeTrash = filter.category == FileCategory.TRASH)
                 }
                 val fallbackFlow = searchFtsDao.searchFilesFallback(trimmedQuery)
                 ftsFlow.combine(fallbackFlow) { ftsList, fallbackList ->
                     (ftsList + fallbackList).distinctBy { it.path }
                 }
             }
-            filter.selectedTags.isNotEmpty() -> searchFtsDao.searchByTag(filter.selectedTags.first())
+            filter.selectedTags.isNotEmpty() -> searchFtsDao.searchByTag(filter.selectedTags.first(), includeTrash = filter.category == FileCategory.TRASH)
             filter.category != FileCategory.ALL -> {
                 val mimePrefix = when (filter.category) {
                     FileCategory.IMAGES -> "image/"
@@ -191,7 +211,7 @@ class OfflineSearchRepository(
                     FileCategory.APKS -> "application/vnd.android.package-archive"
                     else -> ""
                 }
-                if (mimePrefix.isNotEmpty()) fileDao.getFilesByType(mimePrefix) else fileDao.getRecentFiles(500)
+                if (mimePrefix.isNotEmpty()) fileDao.getFilesByType(mimePrefix) else if (filter.category == FileCategory.TRASH) fileDao.getTrashFiles() else fileDao.getRecentFiles(500)
             }
             else -> fileDao.getRecentFiles(300)
         }
@@ -204,7 +224,7 @@ class OfflineSearchRepository(
                 val exists = file.exists()
                 val sizeBytes = if (exists && !entity.isDirectory) file.length() else entity.sizeBytes
                 val lastModified = if (exists) file.lastModified() else entity.modifiedDate
-                val tagList = entity.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                val tagList = parseVisibleTags(entity.tags)
                 val fileItem = FileItem(
                     path = entity.path,
                     name = entity.name,
@@ -221,11 +241,7 @@ class OfflineSearchRepository(
                 )
                 if (!filter.includeHidden && fileItem.isHidden) return@mapNotNull null
                 if (!matchesCategory(fileItem, filter.category)) return@mapNotNull null
-                if (filter.sizeFilter != SizeFilter.ANY) {
-                    if (fileItem.sizeBytes < filter.sizeFilter.minBytes || fileItem.sizeBytes > filter.sizeFilter.maxBytes) {
-                        return@mapNotNull null
-                    }
-                }
+                if (!filter.sizeFilter.contains(fileItem.sizeBytes)) return@mapNotNull null
                 if (filter.dateFilter != DateFilter.ANY) {
                     val cutoff = when (filter.dateFilter) {
                         DateFilter.TODAY -> now - dayMillis
@@ -251,6 +267,11 @@ class OfflineSearchRepository(
             emit(sortSearchResults(results, filter.sortOption))
         }
     }.flowOn(Dispatchers.IO)
+
+    /** Hide internal worker retry bookkeeping from file/tag UI and search matching. */
+    private fun parseVisibleTags(rawTags: String): List<String> =
+        rawTags.split(",").map { it.trim() }
+            .filter { it.isNotEmpty() }
 
     private fun sanitizeFtsQuery(query: String): String {
         val clean = query.replace(Regex("[^\\p{L}\\p{Nd}_\\s]"), " ").trim()
@@ -296,7 +317,7 @@ class OfflineSearchRepository(
             SearchMatchType.TAG -> "Tagged with: ${item.tags.joinToString(", ")}"
             SearchMatchType.METADATA -> "Metadata/Type: ${item.mimeType ?: item.extension}"
             SearchMatchType.FTS -> "Matched in indexed content"
-            SearchMatchType.SEMANTIC -> "Semantic AI match"
+            SearchMatchType.SEMANTIC -> "Heuristic similarity match"
         }
     }
 

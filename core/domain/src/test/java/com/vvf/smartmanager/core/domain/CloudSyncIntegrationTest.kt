@@ -70,6 +70,7 @@ class CloudSyncIntegrationTest {
         assertEquals("/upload", request?.path)
         assertTrue(request?.body?.readUtf8()?.contains("encrypted-content") == true)
         assertEquals("VVF_Backups", drive.lastRemoteFolder)
+        assertEquals("a".repeat(64), drive.lastChecksumSha256)
         assertEquals(CloudSyncStatus.SUCCESS, useCase.syncState.value)
     }
 
@@ -154,7 +155,7 @@ class CloudSyncIntegrationTest {
             includesDatabase = true,
             includesPreferences = false
         ),
-        checksumSha256 = "checksum"
+        checksumSha256 = "a".repeat(64)
     )
 
     private class HttpFakeDriveService(
@@ -166,6 +167,8 @@ class CloudSyncIntegrationTest {
         var lastRemoteFolder: String? = null
             private set
         var lastUploadedItem: FileItem? = null
+            private set
+        var lastChecksumSha256: String? = null
             private set
 
         override suspend fun authenticate() = Result.success(true)
@@ -186,7 +189,17 @@ class CloudSyncIntegrationTest {
                 }
             }
         }
+        override suspend fun uploadBackup(
+            localFile: FileItem,
+            remoteFolderId: String,
+            checksumSha256: String
+        ): Result<String> {
+            lastChecksumSha256 = checksumSha256
+            return uploadFile(localFile, remoteFolderId)
+        }
+
         override suspend fun downloadFile(fileId: String, destinationPath: String) = Result.success(true)
+        override suspend fun disconnect(): Result<Unit> = Result.success(Unit)
         override suspend fun getStorageQuota() = Result.success(0L to 1L)
 
         private fun FileItem.asFile(): File = File(path)

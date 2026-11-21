@@ -12,7 +12,8 @@ pluginManagement {
   }
 }
 
-plugins { id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0" }
+// This project sets Java source/target compatibility to 17 and does not declare Gradle Java toolchains.
+// CI and Android Studio provide the JDK; no resolver plugin is needed during dependency analysis.
 
 dependencyResolutionManagement {
   repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)

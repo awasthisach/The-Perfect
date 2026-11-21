@@ -145,6 +145,29 @@ class SqlCipherRoomInstrumentedTest {
                     modifiedDate = 2L
                 )
             )
+            // The legacy Room helper shares the current Kotlin entity for row insertion,
+            // but a real v1/v2 database predates these dedicated OCR retry columns.
+            // Drop them from the fixture before opening the production v1->v2->v3 path.
+            legacy.openHelper.writableDatabase.execSQL(
+                "ALTER TABLE file_metadata DROP COLUMN ocrRetryAfterEpochMillis"
+            )
+            legacy.openHelper.writableDatabase.execSQL(
+                "ALTER TABLE file_metadata DROP COLUMN ocrRetryAttempt"
+            )
+
+            // The current Kotlin entity also adds OCR text to the v1 fixture. A genuine v1
+            // database predates this column, so remove the generated FTS sync triggers first.
+            listOf(
+                "room_fts_content_sync_file_fts_BEFORE_UPDATE",
+                "room_fts_content_sync_file_fts_BEFORE_DELETE",
+                "room_fts_content_sync_file_fts_AFTER_UPDATE",
+                "room_fts_content_sync_file_fts_AFTER_INSERT"
+            ).forEach { trigger ->
+                legacy.openHelper.writableDatabase.execSQL("DROP TRIGGER IF EXISTS `$trigger`")
+            }
+            legacy.openHelper.writableDatabase.execSQL(
+                "ALTER TABLE file_metadata DROP COLUMN ocrText"
+            )
         } finally {
             legacy.close()
         }
@@ -159,6 +182,11 @@ class SqlCipherRoomInstrumentedTest {
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'vault_journal'"
             ).use { cursor ->
                 assertTrue("Migration 1->2 must create vault_journal", cursor.moveToFirst())
+            }
+            migrated.openHelper.writableDatabase.query(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'source_file_records'"
+            ).use { cursor ->
+                assertTrue("Migration 3->4 must create the source-aware catalog", cursor.moveToFirst())
             }
         } finally {
             migrated.close()

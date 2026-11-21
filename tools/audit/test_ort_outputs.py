@@ -21,11 +21,16 @@ class OrtOutputValidationTest(unittest.TestCase):
         reports = {
             "analyzer-result.json": {
                 "repository": repository,
-                "analyzer": {"result": {"projects": [], "packages": []}},
+                "analyzer": {
+                    "result": {
+                        "projects": [{"id": "Gradle:com.vvf:app:1.0"}],
+                        "packages": [{"id": "Maven:example:library:1.2.3"}],
+                    }
+                },
             },
             "scan-result.json": {
                 "repository": repository,
-                "scanner": {"scanResults": []},
+                "scanner": {"scanResults": [{"id": "Maven:example:library:1.2.3"}]},
             },
             "evaluation-result.json": {
                 "repository": repository,
@@ -39,7 +44,9 @@ class OrtOutputValidationTest(unittest.TestCase):
                 "bomFormat": "CycloneDX",
                 "specVersion": "1.6",
                 "version": 1,
-                "components": [],
+                "components": [
+                    {"type": "library", "name": "example-library", "version": "1.2.3"}
+                ],
             },
             "bom.spdx.json": {
                 "spdxVersion": "SPDX-2.3",
@@ -47,17 +54,28 @@ class OrtOutputValidationTest(unittest.TestCase):
                 "SPDXID": "SPDXRef-DOCUMENT",
                 "name": "The-Perfect test SBOM",
                 "documentNamespace": "https://example.invalid/sbom/test",
-                "packages": [],
+                "packages": [
+                    {"SPDXID": "SPDXRef-Package-library", "name": "example-library"}
+                ],
             },
         }
         for name, report in reports.items():
             (root / name).write_text(json.dumps(report), encoding="utf-8")
         (root / "bom.cyclonedx.xml").write_text(
-            '<bom xmlns="http://cyclonedx.org/schema/bom/1.6" version="1"><components /></bom>',
+            '<bom xmlns="http://cyclonedx.org/schema/bom/1.6" version="1">'
+            '<components><component type="library" bom-ref="pkg:generic/example-library@1.2.3">'
+            '<name>example-library</name><version>1.2.3</version>'
+            '</component></components></bom>',
             encoding="utf-8",
         )
         (root / "bom.spdx.yml").write_text(
-            "spdxVersion: SPDX-2.3\nSPDXID: SPDXRef-DOCUMENT\nname: Test SBOM\ndocumentNamespace: https://example.invalid/sbom/test\npackages: []\n",
+            "spdxVersion: SPDX-2.3\n"
+            "SPDXID: SPDXRef-DOCUMENT\n"
+            "name: Test SBOM\n"
+            "documentNamespace: https://example.invalid/sbom/test\n"
+            "packages:\n"
+            "  - SPDXID: SPDXRef-Package-library\n"
+            "    name: example-library\n",
             encoding="utf-8",
         )
 

@@ -13,6 +13,7 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.Properties
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -75,6 +76,8 @@ class LocalRestoreApplier(
             )
             writeJournal(snapshot)
             Result.success(snapshot)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (error: Throwable) {
             Result.failure(RestoreException("Restore snapshot prepare failed", error))
         }
@@ -250,6 +253,8 @@ class LocalRestoreApplier(
                     message = "Restore applied (files=$fileCount, vault=$vaultCount)"
                 )
             )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (error: Throwable) {
             Result.failure(RestoreException("Restore apply failed", error))
         } finally {
@@ -351,6 +356,8 @@ class LocalRestoreApplier(
             cleanupInterruptedSwapArtifacts()
             clearJournal(snapshot.token)
             Result.success(Unit)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (error: Throwable) {
             Result.failure(RestoreException("Restore rollback failed", error))
         }
@@ -395,6 +402,8 @@ class LocalRestoreApplier(
                 output.fd.sync()
             }
             check(temporary.renameTo(journal)) { "Unable to publish restore recovery journal" }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (error: Throwable) {
             temporary.delete()
             throw error

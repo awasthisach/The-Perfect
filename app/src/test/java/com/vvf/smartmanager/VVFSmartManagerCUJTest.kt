@@ -9,6 +9,7 @@ import com.vvf.smartmanager.core.model.SemanticIndexRecord
 import com.vvf.smartmanager.core.security.CryptoSecurityManager
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -22,10 +23,10 @@ import org.robolectric.annotation.Config
 
 /**
  * Comprehensive Critical User Journey (CUJ) & Security Test Suite for VVF Smart Manager.
- * Robolectric SDK pinned to 34 (compileSdk 36 is not yet fully supported by Robolectric).
+ * Robolectric SDK 33 matches the database test suite's supported native SQLite runtime.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], manifest = Config.NONE)
+@Config(sdk = [33], manifest = Config.NONE)
 class VVFSmartManagerCUJTest {
 
     private lateinit var context: Context
@@ -184,8 +185,9 @@ class VVFSmartManagerCUJTest {
     }
 
     @Test
-    fun cuj5_applicationContextAndComponentsSanity() {
+    fun cuj5_applicationContextAndComponentsSanity() = runBlocking {
         val app = ApplicationProvider.getApplicationContext<VVFApplication>()
+        withTimeout(60_000) { app.startupReadiness.awaitReady() }
         assertNotNull("VVF Application context must be initialized", app)
         assertNotNull("Database must be reachable", app.database)
         assertNotNull("Crypto Security Manager must be active", app.cryptoSecurityManager)
@@ -204,8 +206,9 @@ class VVFSmartManagerCUJTest {
     }
 
     @Test
-    fun cuj7_databaseEncryptionPassphraseWiring() {
+    fun cuj7_databaseEncryptionPassphraseWiring() = runBlocking {
         val app = ApplicationProvider.getApplicationContext<VVFApplication>()
+        withTimeout(60_000) { app.startupReadiness.awaitReady() }
         assertNotNull(app.cloudSyncUseCase)
         assertNotNull(app.googleDriveService)
     }

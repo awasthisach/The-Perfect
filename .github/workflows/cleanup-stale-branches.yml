@@ -1,26 +1,25 @@
-# Safe branch cleanup: never delete every non-main branch on ordinary pushes.
-name: Cleanup Stale Branches
+# Read-only eligibility audit. Deletion is a separate owner-approved action.
+name: Branch Cleanup Eligibility Audit
 
 on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: read
 
 jobs:
-  delete-out-of-scope-branches:
-    name: Remove confirmed out-of-scope Drive migration branches
+  audit:
+    name: Prove exact branch tips before any owner-approved cleanup
     runs-on: ubuntu-24.04
     steps:
-      - name: Delete only the four reviewed, out-of-scope branches
+      - name: Audit fixed historical cleanup candidates (never delete)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          # These branches were created for the out-of-scope Drive Semantic Search migration.
-          # Never delete a branch that still backs an open PR.
+          main_sha="$(gh api "repos/${REPOSITORY}/branches/main" --jq '.commit.sha')"
           targets=(
             "feat/drive-semantic-search-production"
             "feat/drive-semantic-search-production-final"
@@ -29,16 +28,34 @@ jobs:
           )
           for branch in "${targets[@]}"; do
             encoded="$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$branch")"
-            open_prs="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&per_page=100" --jq "[.[] | select(.head.ref == \"$branch\")] | length")"
-            if [ "$open_prs" != "0" ]; then
-              echo "Preserving $branch because it still backs an open PR."
+            if ! branch_json="$(gh api "repos/${REPOSITORY}/branches/$encoded" 2>/dev/null)"; then
+              echo "ABSENT: $branch"
               continue
             fi
-            if gh api "repos/${REPOSITORY}/branches/$encoded" >/dev/null 2>&1; then
-              echo "Deleting confirmed out-of-scope branch: $branch"
-              gh api --method DELETE "repos/${REPOSITORY}/git/refs/heads/$encoded"
+            head_sha="$(printf '%s' "$branch_json" | jq -r '.commit.sha')"
+            open_prs="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&per_page=100" --jq "[.[] | select(.head.ref == \"$branch\")] | length" | awk '{sum += $1} END {print sum+0}')"
+            if [ "$open_prs" -ne 0 ]; then
+              echo "PRESERVE: branch=$branch head=$head_sha reason=open_prs=$open_prs"
+              continue
+            fi
+
+            behind_main="$(gh api "repos/${REPOSITORY}/compare/$head_sha...$main_sha" --jq '.behind_by')"
+            if [ "$behind_main" = "0" ]; then
+              echo "ELIGIBLE_BY_ANCESTRY: branch=$branch head=$head_sha main=$main_sha"
+              continue
+            fi
+
+            merged="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=closed&per_page=100" --jq ".[] | select(.head.ref == \"$branch\" and .head.sha == \"$head_sha\" and .merged_at != null) | [.number, .merge_commit_sha, .merged_at] | @tsv" | tail -n 1)"
+            if [ -z "$merged" ]; then
+              echo "PRESERVE: branch=$branch head=$head_sha reason=no_exact_merged_pr_or_main_ancestry"
+              continue
+            fi
+            read -r pr_number merge_sha merged_at <<< "$merged"
+            merge_behind="$(gh api "repos/${REPOSITORY}/compare/$merge_sha...$main_sha" --jq '.behind_by')"
+            if [ "$merge_behind" = "0" ]; then
+              echo "ELIGIBLE_BY_EXACT_MERGED_PR: branch=$branch head=$head_sha pr=$pr_number merge_commit=$merge_sha merged_at=$merged_at"
             else
-              echo "Already absent: $branch"
+              echo "PRESERVE: branch=$branch head=$head_sha pr=$pr_number reason=merge_commit_not_in_main"
             fi
           done
-          echo "Cleanup finished. main and all non-target branches were preserved."
+          echo "READ_ONLY_AUDIT_COMPLETE: no branches were deleted. Owner approval with exact branch/head SHA is still required."

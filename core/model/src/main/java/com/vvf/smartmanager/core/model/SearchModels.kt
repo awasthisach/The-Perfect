@@ -1,15 +1,18 @@
 package com.vvf.smartmanager.core.model
 
 /**
- * Filter by file size bracket.
+ * Filter by file size bracket. All bounds are inclusive and adjacent brackets do not overlap.
  */
 enum class SizeFilter(val displayName: String, val minBytes: Long, val maxBytes: Long) {
     ANY("Any Size", 0L, Long.MAX_VALUE),
-    TINY("< 1 MB", 0L, 1024L * 1024L),
-    SMALL("1 MB - 10 MB", 1024L * 1024L, 10L * 1024L * 1024L),
-    MEDIUM("10 MB - 100 MB", 10L * 1024L * 1024L, 100L * 1024L * 1024L),
-    LARGE("100 MB - 1 GB", 100L * 1024L * 1024L, 1024L * 1024L * 1024L),
-    HUGE("> 1 GB", 1024L * 1024L * 1024L, Long.MAX_VALUE)
+    TINY("< 1 MB", 0L, 1024L * 1024L - 1L),
+    SMALL("1 MB - 10 MB", 1024L * 1024L, 10L * 1024L * 1024L - 1L),
+    MEDIUM("10 MB - 100 MB", 10L * 1024L * 1024L, 100L * 1024L * 1024L - 1L),
+    LARGE("100 MB - 1 GB", 100L * 1024L * 1024L, 1024L * 1024L * 1024L - 1L),
+    HUGE("> 1 GB", 1024L * 1024L * 1024L, Long.MAX_VALUE);
+
+    fun contains(sizeBytes: Long): Boolean =
+        sizeBytes >= minBytes && sizeBytes <= maxBytes
 }
 
 /**

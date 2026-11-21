@@ -1,0 +1,9 @@
+---
+# Keep dependency metadata complete, but do not source-scan Gradle test-only configurations.
+# This matches Android Gradle's AndroidTest, UnitTest and internal test-platform scopes.
+# Production compile/runtime scopes remain included and scanned.
+excludes:
+  scopes:
+    - pattern: "(?i).*test.*"
+      reason: "TEST_DEPENDENCY_OF"
+      comment: "Gradle test-only configurations (including AndroidTest, UnitTest and internal test-platform dependencies) are not shipped in the production app. They remain visible in analyzer metadata; scanner skipExcluded avoids spending license-scan time on them."

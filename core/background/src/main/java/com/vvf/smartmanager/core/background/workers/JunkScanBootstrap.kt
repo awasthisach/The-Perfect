@@ -1,13 +1,15 @@
 package com.vvf.smartmanager.core.background.workers
 
 import com.vvf.smartmanager.core.domain.JunkCleanerUseCase
+import kotlinx.coroutines.CancellationException
 
 /**
  * Wires [JunkCleanerUseCase] into [JunkScanRuntime] for WorkManager workers.
  */
 object JunkScanBootstrap {
-    fun wire(junkCleanerUseCase: JunkCleanerUseCase) {
+    fun wire(junkCleanerUseCase: JunkCleanerUseCase, awaitReady: suspend () -> Unit = {}) {
         JunkScanRuntime.configure {
+            awaitReady()
             try {
                 var last = com.vvf.smartmanager.core.model.CleanerScanResult(isScanning = true)
                 junkCleanerUseCase.scanJunkFiles().collect { result ->
@@ -21,6 +23,8 @@ object JunkScanBootstrap {
                     wastedBytes = last.wastedBytes,
                     junkItemCount = junkCount
                 )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: SecurityException) {
                 JunkScanOutcome.PermanentFailure(e.message ?: "storage access denied for junk scan")
             } catch (e: java.io.IOException) {
