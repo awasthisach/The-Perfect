@@ -85,7 +85,7 @@ jobs:
           sw-name: The-Perfect
           sw-version: ${{ github.event.pull_request.head.sha || github.sha }}
           # Fixed reviewed release instead of the floating :latest image.
-          image: ghcr.io/oss-review-toolkit/ort:13.0.0
+          image: ghcr.io/oss-review-toolkit/ort:99.1.0
           # Info logging exposes package/scanner progress if a scan stalls.
           log-level: info
           fail-on: "issues,violations"
@@ -110,7 +110,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.ort/scanner/
-          key: ${{ runner.os }}-ort-scan-results-13.0.0-${{ hashFiles('**/*.gradle', '**/*.gradle.kts', '**/gradle.lockfile', 'gradle/libs.versions.toml', '.ort.yml', 'ort-curations.yml', 'ort-scanner-config.yml') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ${{ runner.os }}-ort-scan-results-99.1.0-${{ hashFiles('**/*.gradle', '**/*.gradle.kts', '**/gradle.lockfile', 'gradle/libs.versions.toml', '.ort.yml', 'ort-curations.yml', 'ort-scanner-config.yml') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Verify persisted ORT scan-result cache and record manifest
         id: verify_ort_cache

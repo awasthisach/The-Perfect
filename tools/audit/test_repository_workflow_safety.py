@@ -76,14 +76,14 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertIn("timeout-minutes: 360", workflow)
         self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
         self.assertIn("sw-version: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
-        self.assertIn("ghcr.io/oss-review-toolkit/ort:13.0.0", workflow)
+        self.assertIn("ghcr.io/oss-review-toolkit/ort:99.1.0", workflow)
         self.assertIn("log-level: info", workflow)
 
     def test_ort_cache_key_is_stable_for_workflow_only_edits(self):
         workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
         key_lines = [line for line in workflow.splitlines() if "key: ${{ runner.os }}-ort-scan-results-" in line]
         self.assertEqual(1, len(key_lines))
-        self.assertIn("ort-13.0.0-", key_lines[0])
+        self.assertIn("ort-99.1.0-", key_lines[0])
         self.assertIn("ort-scanner-config.yml", key_lines[0])
         self.assertNotIn("nightly-ort.yml", key_lines[0])
         self.assertNotIn("action.yml", key_lines[0])
@@ -141,6 +141,7 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertIn("timeout-minutes: 10", workflow)
         self.assertIn('elif [ "$attempt" -ge 3 ]; then', workflow)
         self.assertIn("after 3 minutes", workflow)
+        self.assertIn("seq 1 4", workflow)
         self.assertIn('"$run_conclusion" != "success"', workflow)
         self.assertNotRegex(workflow, r"(?m)^  pull_request:")
         self.assertIn("CPAS will not wait for the six-hour scan", workflow)
