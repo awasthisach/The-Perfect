@@ -139,7 +139,7 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/cpas-gate.yml").read_text(encoding="utf-8")
         self.assertIn("tools/audit/select_ort_run.py --candidate-sha", workflow)
         self.assertIn("timeout-minutes: 10", workflow)
-        self.assertIn('elif [ "$attempt" -ge 3 ]; then', workflow)
+        self.assertIn('elif [ "$attempt" -ge 4 ]; then', workflow)
         self.assertIn("after 3 minutes", workflow)
         self.assertIn("seq 1 4", workflow)
         self.assertIn('"$run_conclusion" != "success"', workflow)
