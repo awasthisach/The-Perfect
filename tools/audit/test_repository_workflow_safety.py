@@ -87,7 +87,7 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertIn("ort-scanner-config.yml", key_lines[0])
         self.assertNotIn("nightly-ort.yml", key_lines[0])
         self.assertNotIn("action.yml", key_lines[0])
-        self.assertIn("cache_scan_result_file_count > 0", workflow)
+        self.assertIn("cache_scan_result_count > 0", workflow)
         self.assertIn("tools/audit/verify_ort_cache.py", workflow)
 
     def test_ort_manual_dispatch_checks_selected_ref_checkout_and_scan_revision(self):
