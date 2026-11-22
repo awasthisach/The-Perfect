@@ -77,5 +77,14 @@ class OrtScannerSocketTest(unittest.TestCase):
         self.assertNotIn("${{ env.HOME}}/${{ env.ORT_HOME_PATH }}", action)
 
 
+    def test_scan_cache_key_tracks_scanner_inputs_and_fixed_ort_release(self):
+        action = ACTION_FILE.read_text(encoding="utf-8")
+        self.assertIn("ort-scan-results-13.0.0-", action)
+        self.assertIn("ort-scanner-config.yml", action)
+        key = action.split("key:", 1)[1].split("restore-keys:", 1)[0]
+        self.assertNotIn(".github/workflows/nightly-ort.yml", key)
+        self.assertNotIn(".github/actions/ort/action.yml", key)
+        self.assertIn("Linux-ort-scan-results-", action.split("restore-keys:", 1)[1])
+
 if __name__ == "__main__":
     unittest.main()

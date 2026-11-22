@@ -1,13 +1,10 @@
 name: Nightly ORT Compliance Scan
 
 on:
-  # Run nightly on the default branch and on candidate PR revisions so CPAS can
-  # consume evidence for the exact PR head SHA. Manual dispatch supports frozen candidates.
+  # Run nightly on main. Dispatch a full candidate scan manually after the PR SHA is frozen;
+  # synchronize events must not start another six-hour scan for every commit.
   schedule:
     - cron: "0 2 * * *"
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 permissions:
@@ -15,9 +12,8 @@ permissions:
 
 concurrency:
   group: nightly-ort-${{ github.ref }}
-  # PR scans are candidate-SHA evidence: cancel an obsolete scan when a newer
-  # commit arrives on the same PR. Scheduled/manual runs are never cancelled.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Do not cancel an in-flight frozen candidate scan.
+  cancel-in-progress: false
 
 jobs:
   ort-scan:
@@ -78,23 +74,9 @@ jobs:
           git -C "$config_dir" checkout --detach FETCH_HEAD
           install -m 0644 ort-curations.yml "$config_dir/curations.yml"
 
-          # Reuse compatible public scan results before running expensive source scans.
-          # ClearlyDefined is read-only; new results are persisted in the local cache,
-          # which the ORT action already stores under $HOME/.ort/scanner/.
-          cat > "$config_dir/config.yml" <<'ORT_CONFIG'
-          ort:
-            scanner:
-              storages:
-                local:
-                  backend:
-                    localFileStorage:
-                      directory: ~/.ort/scanner/results
-                      compression: false
-                clearlyDefined:
-                  serverUrl: https://api.clearlydefined.io
-              storageReaders: [local, clearlyDefined]
-              storageWriters: [local]
-          ORT_CONFIG
+          # Keep scanner configuration separate so workflow-only edits do not
+          # invalidate the reusable scan-result cache.
+          install -m 0644 ort-scanner-config.yml "$config_dir/config.yml"
 
       - name: Run ORT compliance pipeline
         id: ort
@@ -102,6 +84,10 @@ jobs:
         with:
           sw-name: The-Perfect
           sw-version: ${{ github.event.pull_request.head.sha || github.sha }}
+          # Fixed reviewed release instead of the floating :latest image.
+          image: ghcr.io/oss-review-toolkit/ort:13.0.0
+          # Info logging exposes package/scanner progress if a scan stalls.
+          log-level: info
           fail-on: "issues,violations"
           # Retain excluded test dependencies in analyzer/SBOM metadata, but do not
           # run expensive source scans on dependencies that are not shipped.
@@ -124,44 +110,16 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.ort/scanner/
-          key: ${{ runner.os }}-ort-scan-results-${{ hashFiles('**/*.gradle', '**/*.gradle.kts', '**/gradle.lockfile', 'gradle/libs.versions.toml', '.ort.yml', 'ort-curations.yml', '.github/workflows/nightly-ort.yml', '.github/actions/ort/action.yml') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ${{ runner.os }}-ort-scan-results-13.0.0-${{ hashFiles('**/*.gradle', '**/*.gradle.kts', '**/gradle.lockfile', 'gradle/libs.versions.toml', '.ort.yml', 'ort-curations.yml', 'ort-scanner-config.yml') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
-      - name: Verify ORT cache save and record cache manifest
+      - name: Verify persisted ORT scan-result cache and record manifest
         id: verify_ort_cache
         if: ${{ always() && steps.verify_checkout.outcome == 'success' }}
         env:
           CACHE_SAVE_OUTCOME: ${{ steps.save_ort_cache.outcome }}
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          cache_dir = Path.home() / ".ort" / "scanner"
-          files = sorted(path for path in cache_dir.rglob("*") if path.is_file()) if cache_dir.is_dir() else []
-          total_bytes = sum(path.stat().st_size for path in files)
-          status = "PASS" if os.environ.get("CACHE_SAVE_OUTCOME") == "success" and files else "BLOCKED"
-          manifest = {
-              "gate_id": "GATE-ORT-CACHE-001",
-              "status": status,
-              "cache_save_step_outcome": os.environ.get("CACHE_SAVE_OUTCOME", "unknown"),
-              "cache_directory": str(cache_dir),
-              "file_count": len(files),
-              "total_bytes": total_bytes,
-              "file_inventory": [
-                  {"path": str(path.relative_to(cache_dir)), "size_bytes": path.stat().st_size}
-                  for path in files
-              ],
-          }
-          Path("ort-cache-manifest.json").write_text(json.dumps(manifest, indent=2) + chr(10), encoding="utf-8")
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write(f"cache_status={status}" + chr(10))
-              output.write(f"cache_file_count={len(files)}" + chr(10))
-          print(json.dumps(manifest))
-          if status != "PASS":
-              raise SystemExit("ORT scan-result cache save or non-empty cache validation failed")
-          PY
+          python3 tools/audit/verify_ort_cache.py --cache-dir "$HOME/.ort/scanner" --cache-save-outcome "$CACHE_SAVE_OUTCOME" --manifest ort-cache-manifest.json --github-output "$GITHUB_OUTPUT"
 
       - name: Verify required ORT reports and SBOMs
         id: verify_ort_reports
@@ -186,6 +144,7 @@ jobs:
           CACHE_OUTCOME: ${{ steps.verify_ort_cache.outcome }}
           CACHE_STATUS: ${{ steps.verify_ort_cache.outputs.cache_status }}
           CACHE_FILE_COUNT: ${{ steps.verify_ort_cache.outputs.cache_file_count }}
+          CACHE_SCAN_RESULT_COUNT: ${{ steps.verify_ort_cache.outputs.cache_scan_result_file_count }}
           ORT_SCAN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           WORKFLOW_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           CHECKOUT_SHA: ${{ steps.verify_checkout.outputs.checkout_sha }}
@@ -205,7 +164,12 @@ jobs:
           provenance_matches = checkout_sha == expected_sha == scan_sha
           cache_status = os.environ.get("CACHE_STATUS", "unknown")
           cache_file_count = int(os.environ.get("CACHE_FILE_COUNT", "0") or "0")
-          cache_verified = os.environ.get("CACHE_OUTCOME") == "success" and cache_status == "PASS" and cache_file_count > 0
+          cache_scan_result_count = int(os.environ.get("CACHE_SCAN_RESULT_COUNT", "0") or "0")
+          cache_verified = (
+              os.environ.get("CACHE_OUTCOME") == "success"
+              and cache_status == "PASS"
+              and cache_scan_result_count > 0
+          )
           status = "PASS" if outcome == "success" and verified == "success" and provenance_matches and cache_verified else "BLOCKED"
           result = {
               "gate_id": "GATE-LICENSE-001",
@@ -221,7 +185,8 @@ jobs:
               "cache_save_step_outcome": os.environ.get("CACHE_OUTCOME", "unknown"),
               "cache_validation_status": cache_status,
               "cache_file_count": cache_file_count,
-              "reason": "ORT stages, checkout provenance, required reports and non-empty scan-result cache save passed" if status == "PASS" else "ORT failed, SHA provenance mismatched, cache save/validation failed, findings exceeded policy thresholds, or required reports were invalid/missing"
+              "cache_scan_result_file_count": cache_scan_result_count,
+              "reason": "ORT stages, checkout provenance, required reports and persisted ScanCode results passed" if status == "PASS" else "ORT failed, SHA provenance mismatched, required reports were invalid/missing, findings exceeded policy thresholds, or no valid ScanCode result was persisted"
           }
           Path("ort-status.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
           print(json.dumps(result))

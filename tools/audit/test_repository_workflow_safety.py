@@ -23,7 +23,7 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertIn("POSTGRES_PASSWORD: ${{ inputs.db-password }}", scanner)
         self.assertIn("POSTGRES_PASSWORD: ${{ inputs.db-password }}", reporter)
 
-    def test_heavy_candidate_workflows_cancel_stale_same_ref_runs(self):
+    def test_heavy_candidate_workflows_preserve_manual_ort_and_cpas_runs(self):
         expected = {
             ".github/workflows/nightly-ort.yml": "nightly-ort-${{ github.ref }}",
             ".github/workflows/cpas-gate.yml": "cpas-gate-${{ github.ref }}",
@@ -34,17 +34,13 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
             with self.subTest(workflow=relative_path):
                 workflow = (ROOT / relative_path).read_text(encoding="utf-8")
                 self.assertIn(f"group: {group}", workflow)
-                # Candidate-SHA gates cancel stale PR work so a newer exact-SHA
-                # scan is not held behind an obsolete revision. Non-PR scans remain intact.
                 if relative_path in {
                     ".github/workflows/nightly-ort.yml",
                     ".github/workflows/cpas-gate.yml",
-                    ".github/workflows/weekly-instrumented.yml",
                 }:
-                    self.assertIn(
-                        "cancel-in-progress: ${{ github.event_name == 'pull_request' }}",
-                        workflow,
-                    )
+                    self.assertIn("cancel-in-progress: false", workflow)
+                elif relative_path == ".github/workflows/weekly-instrumented.yml":
+                    self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", workflow)
                 elif relative_path == ".github/workflows/worker-validation.yml":
                     self.assertIn("cancel-in-progress: true", workflow)
 
@@ -70,17 +66,29 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertIn("test -f /usr/include/zlib.h", fixture_step)
         self.assertIn("curl -fsSL https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz", fixture_step)
 
-    def test_ort_runs_nightly_and_for_exact_candidate_pull_request_heads(self):
+    def test_ort_nightly_and_manual_frozen_candidate_scans(self):
         workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
         self.assertIn("  schedule:", workflow)
-        self.assertIn("  pull_request:", workflow)
-        self.assertIn("branches: [main]", workflow)
-        self.assertIn("types: [opened, synchronize, reopened, ready_for_review]", workflow)
+        self.assertNotRegex(workflow, r"(?m)^  pull_request:")
         self.assertIn("  workflow_dispatch:", workflow)
+        self.assertIn("frozen candidate", workflow.lower())
         self.assertNotRegex(workflow, r"(?m)^  push:")
         self.assertIn("timeout-minutes: 360", workflow)
         self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
         self.assertIn("sw-version: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
+        self.assertIn("ghcr.io/oss-review-toolkit/ort:13.0.0", workflow)
+        self.assertIn("log-level: info", workflow)
+
+    def test_ort_cache_key_is_stable_for_workflow_only_edits(self):
+        workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
+        key_lines = [line for line in workflow.splitlines() if "key: ${{ runner.os }}-ort-scan-results-" in line]
+        self.assertEqual(1, len(key_lines))
+        self.assertIn("ort-13.0.0-", key_lines[0])
+        self.assertIn("ort-scanner-config.yml", key_lines[0])
+        self.assertNotIn("nightly-ort.yml", key_lines[0])
+        self.assertNotIn("action.yml", key_lines[0])
+        self.assertIn("cache_scan_result_file_count > 0", workflow)
+        self.assertIn("tools/audit/verify_ort_cache.py", workflow)
 
     def test_ort_manual_dispatch_checks_selected_ref_checkout_and_scan_revision(self):
         workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
@@ -130,10 +138,12 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
     def test_cpas_selects_exact_sha_and_fails_closed_on_bad_ort_provenance(self):
         workflow = (ROOT / ".github/workflows/cpas-gate.yml").read_text(encoding="utf-8")
         self.assertIn("tools/audit/select_ort_run.py --candidate-sha", workflow)
-        self.assertIn("timeout-minutes: 350", workflow)
-        self.assertIn('elif [ "$attempt" -ge 15 ]; then', workflow)
-        self.assertIn("after 15 minutes", workflow)
+        self.assertIn("timeout-minutes: 10", workflow)
+        self.assertIn('elif [ "$attempt" -ge 3 ]; then', workflow)
+        self.assertIn("after 3 minutes", workflow)
         self.assertIn('"$run_conclusion" != "success"', workflow)
+        self.assertNotRegex(workflow, r"(?m)^  pull_request:")
+        self.assertIn("CPAS will not wait for the six-hour scan", workflow)
         self.assertIn('status.get("workflow_run_id")', workflow)
         self.assertIn('"checkout_revision": expected_sha', workflow)
         self.assertIn('"scan_revision": expected_sha', workflow)
