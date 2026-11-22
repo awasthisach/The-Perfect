@@ -154,10 +154,10 @@ jobs:
                   for path in files
               ],
           }
-          Path("ort-cache-manifest.json").write_text(json.dumps(manifest, indent=2) + "\\n", encoding="utf-8")
+          Path("ort-cache-manifest.json").write_text(json.dumps(manifest, indent=2) + chr(10), encoding="utf-8")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write(f"cache_status={status}\\n")
-              output.write(f"cache_file_count={len(files)}\\n")
+              output.write(f"cache_status={status}" + chr(10))
+              output.write(f"cache_file_count={len(files)}" + chr(10))
           print(json.dumps(manifest))
           if status != "PASS":
               raise SystemExit("ORT scan-result cache save or non-empty cache validation failed")
