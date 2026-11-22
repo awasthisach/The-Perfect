@@ -1,0 +1,14 @@
+# ORT scanner storage configuration. Compatible ScanCode results are reused
+# from local storage first; ClearlyDefined remains a read-only fallback.
+ort:
+  scanner:
+    storages:
+      local:
+        backend:
+          localFileStorage:
+            directory: ~/.ort/scanner/results
+            compression: false
+      clearlyDefined:
+        serverUrl: https://api.clearlydefined.io
+    storageReaders: [local, clearlyDefined]
+    storageWriters: [local]
