@@ -119,11 +119,49 @@ jobs:
             upload-results
 
       - name: Save ORT scan-result cache (including partial scan results)
+        id: save_ort_cache
         if: ${{ always() && steps.verify_checkout.outcome == 'success' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.ort/scanner/
           key: ${{ runner.os }}-ort-scan-results-${{ hashFiles('**/*.gradle', '**/*.gradle.kts', '**/gradle.lockfile', 'gradle/libs.versions.toml', '.ort.yml', 'ort-curations.yml', '.github/workflows/nightly-ort.yml', '.github/actions/ort/action.yml') }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Verify ORT cache save and record cache manifest
+        id: verify_ort_cache
+        if: ${{ always() && steps.verify_checkout.outcome == 'success' }}
+        env:
+          CACHE_SAVE_OUTCOME: ${{ steps.save_ort_cache.outcome }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          cache_dir = Path.home() / ".ort" / "scanner"
+          files = sorted(path for path in cache_dir.rglob("*") if path.is_file()) if cache_dir.is_dir() else []
+          total_bytes = sum(path.stat().st_size for path in files)
+          status = "PASS" if os.environ.get("CACHE_SAVE_OUTCOME") == "success" and files else "BLOCKED"
+          manifest = {
+              "gate_id": "GATE-ORT-CACHE-001",
+              "status": status,
+              "cache_save_step_outcome": os.environ.get("CACHE_SAVE_OUTCOME", "unknown"),
+              "cache_directory": str(cache_dir),
+              "file_count": len(files),
+              "total_bytes": total_bytes,
+              "file_inventory": [
+                  {"path": str(path.relative_to(cache_dir)), "size_bytes": path.stat().st_size}
+                  for path in files
+              ],
+          }
+          Path("ort-cache-manifest.json").write_text(json.dumps(manifest, indent=2) + "\\n", encoding="utf-8")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"cache_status={status}\\n")
+              output.write(f"cache_file_count={len(files)}\\n")
+          print(json.dumps(manifest))
+          if status != "PASS":
+              raise SystemExit("ORT scan-result cache save or non-empty cache validation failed")
+          PY
 
       - name: Verify required ORT reports and SBOMs
         id: verify_ort_reports
@@ -145,6 +183,9 @@ jobs:
         env:
           ORT_OUTCOME: ${{ steps.ort.outcome }}
           VERIFY_OUTCOME: ${{ steps.verify_ort_reports.outcome }}
+          CACHE_OUTCOME: ${{ steps.verify_ort_cache.outcome }}
+          CACHE_STATUS: ${{ steps.verify_ort_cache.outputs.cache_status }}
+          CACHE_FILE_COUNT: ${{ steps.verify_ort_cache.outputs.cache_file_count }}
           ORT_SCAN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           WORKFLOW_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           CHECKOUT_SHA: ${{ steps.verify_checkout.outputs.checkout_sha }}
@@ -162,7 +203,10 @@ jobs:
           checkout_sha = os.environ.get("CHECKOUT_SHA", "")
           scan_sha = os.environ["ORT_SCAN_SHA"]
           provenance_matches = checkout_sha == expected_sha == scan_sha
-          status = "PASS" if outcome == "success" and verified == "success" and provenance_matches else "BLOCKED"
+          cache_status = os.environ.get("CACHE_STATUS", "unknown")
+          cache_file_count = int(os.environ.get("CACHE_FILE_COUNT", "0") or "0")
+          cache_verified = os.environ.get("CACHE_OUTCOME") == "success" and cache_status == "PASS" and cache_file_count > 0
+          status = "PASS" if outcome == "success" and verified == "success" and provenance_matches and cache_verified else "BLOCKED"
           result = {
               "gate_id": "GATE-LICENSE-001",
               "scanner": "OSS Review Toolkit (ORT)",
@@ -174,7 +218,10 @@ jobs:
               "scan_revision": scan_sha,
               "ort_action_outcome": outcome,
               "report_validation_outcome": verified,
-              "reason": "ORT stages, checkout provenance and all required reports passed" if status == "PASS" else "ORT failed, SHA provenance mismatched, findings exceeded policy thresholds, or required reports were invalid/missing"
+              "cache_save_step_outcome": os.environ.get("CACHE_OUTCOME", "unknown"),
+              "cache_validation_status": cache_status,
+              "cache_file_count": cache_file_count,
+              "reason": "ORT stages, checkout provenance, required reports and non-empty scan-result cache save passed" if status == "PASS" else "ORT failed, SHA provenance mismatched, cache save/validation failed, findings exceeded policy thresholds, or required reports were invalid/missing"
           }
           Path("ort-status.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
           print(json.dumps(result))
@@ -189,6 +236,9 @@ jobs:
           mkdir -p ort-evidence/results
           if [ -d "$HOME/.ort/ort-results" ]; then
             cp -a "$HOME/.ort/ort-results/." ort-evidence/results/
+          fi
+          if [ -s ort-cache-manifest.json ]; then
+            cp ort-cache-manifest.json ort-evidence/ort-cache-manifest.json
           fi
           if [ -s ort-status.json ]; then
             cp ort-status.json ort-evidence/ort-status.json
