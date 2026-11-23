@@ -83,7 +83,7 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
         key_lines = [line for line in workflow.splitlines() if "key: ${{ runner.os }}-ort-scan-results-" in line]
         self.assertEqual(1, len(key_lines))
-        self.assertIn("ort-99.1.0-", key_lines[0])
+        self.assertIn("ort-scan-results-99.1.0-", key_lines[0])
         self.assertIn("ort-scanner-config.yml", key_lines[0])
         self.assertNotIn("nightly-ort.yml", key_lines[0])
         self.assertNotIn("action.yml", key_lines[0])

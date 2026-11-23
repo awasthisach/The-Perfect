@@ -84,7 +84,7 @@ class OrtScannerSocketTest(unittest.TestCase):
         key = action.split("key:", 1)[1].split("restore-keys:", 1)[0]
         self.assertNotIn(".github/workflows/nightly-ort.yml", key)
         self.assertNotIn(".github/actions/ort/action.yml", key)
-        self.assertIn("Linux-ort-scan-results-", action.split("restore-keys:", 1)[1])
+        self.assertIn("${{ runner.os }}-ort-scan-results-", action.split("restore-keys:", 1)[1])
 
 if __name__ == "__main__":
     unittest.main()
