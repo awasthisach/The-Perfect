@@ -115,8 +115,34 @@ jobs:
         run: python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
       - name: Verify Gradle wrapper
         run: ./gradlew --no-daemon --version
-      - name: Run unit tests
-        run: ./gradlew --no-daemon testDebugUnitTest --stacktrace
+      - name: Run unit tests (bounded retry for transient Robolectric artifact fetch)
+        run: |
+          set -uo pipefail
+          for attempt in 1 2 3; do
+            log_file="$RUNNER_TEMP/unit-tests-attempt-${attempt}.log"
+            echo "Running unit tests (attempt ${attempt}/3)."
+            if ./gradlew --no-daemon testDebugUnitTest --stacktrace 2>&1 | tee "$log_file"; then
+              exit 0
+            else
+              gradle_status=$?
+            fi
+
+            # Robolectric downloads Android SDK jars at test runtime. Retry only
+            # when that external artifact fetch failed; never retry/ignore test
+            # assertions, compilation errors, or unrelated Gradle failures.
+            if grep -Eq "Failed to fetch maven artifact org\\.robolectric:" "$log_file"; then
+              if [ "$attempt" -lt 3 ]; then
+                delay="$((attempt * 20))"
+                echo "::warning::Robolectric artifact fetch failed; retrying in ${delay}s (attempt ${attempt}/3)."
+                sleep "$delay"
+                continue
+              fi
+              echo "::error::Robolectric artifact fetch failed after 3 attempts."
+            fi
+            exit "$gradle_status"
+          done
+          echo "::error::Unit tests exhausted retry loop."
+          exit 1
       - name: Generate Room schema export
         run: |
           set -euo pipefail
