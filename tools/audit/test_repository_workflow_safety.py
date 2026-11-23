@@ -87,17 +87,27 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertIn("ort-scanner-config.yml", key_lines[0])
         self.assertNotIn("nightly-ort.yml", key_lines[0])
         self.assertNotIn("action.yml", key_lines[0])
-        self.assertIn("cache_scan_result_count > 0", workflow)
+        status_recorder = (ROOT / "tools/audit/record_ort_status.py").read_text(encoding="utf-8")
+        self.assertIn("cache_scan_result_count <= 0", status_recorder)
+        self.assertIn("tools/audit/record_ort_status.py --output ort-status.json", workflow)
         self.assertIn("tools/audit/verify_ort_cache.py", workflow)
 
+    def test_ort_status_separates_cache_save_and_validation_outcomes(self):
+        workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
+        self.assertIn("CACHE_SAVE_OUTCOME: ${{ steps.save_ort_cache.outcome }}", workflow)
+        self.assertIn("CACHE_VALIDATION_OUTCOME: ${{ steps.verify_ort_cache.outcome }}", workflow)
+        self.assertIn("printf \'%s\\n\'", workflow)
     def test_ort_manual_dispatch_checks_selected_ref_checkout_and_scan_revision(self):
         workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
         self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
         self.assertIn('actual_sha="$(git rev-parse HEAD)"', workflow)
         self.assertIn('CHECKOUT_SHA: ${{ steps.verify_checkout.outputs.checkout_sha }}', workflow)
-        self.assertIn('"checkout_revision": checkout_sha', workflow)
-        self.assertIn('"scan_revision": scan_sha', workflow)
-        self.assertIn('"workflow_run_id": int(os.environ["WORKFLOW_RUN_ID"])', workflow)
+        status_recorder = (ROOT / "tools/audit/record_ort_status.py").read_text(encoding="utf-8")
+        self.assertIn('"checkout_revision": checkout_sha', status_recorder)
+        self.assertIn('"scan_revision": scan_sha', status_recorder)
+        self.assertIn('"workflow_run_id": workflow_run_id', status_recorder)
+        self.assertIn("CACHE_SAVE_OUTCOME: ${{ steps.save_ort_cache.outcome }}", workflow)
+        self.assertIn("CACHE_VALIDATION_OUTCOME: ${{ steps.verify_ort_cache.outcome }}", workflow)
 
     def test_ort_excludes_only_test_scopes_from_source_scanning(self):
         project_config = (ROOT / ".ort.yml").read_text(encoding="utf-8")

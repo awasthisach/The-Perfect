@@ -136,12 +136,13 @@ jobs:
           RESULTS_DIR="$HOME/.ort/ort-results"
           python3 tools/audit/verify_ort_outputs.py --results-dir "$RESULTS_DIR" --revision "$ORT_SCAN_SHA" --curations-file ort-curations.yml
 
-      - name: Record ORT status
+      - name: Record ORT status with exact gate reasons
         if: always()
         env:
           ORT_OUTCOME: ${{ steps.ort.outcome }}
           VERIFY_OUTCOME: ${{ steps.verify_ort_reports.outcome }}
-          CACHE_OUTCOME: ${{ steps.verify_ort_cache.outcome }}
+          CACHE_SAVE_OUTCOME: ${{ steps.save_ort_cache.outcome }}
+          CACHE_VALIDATION_OUTCOME: ${{ steps.verify_ort_cache.outcome }}
           CACHE_STATUS: ${{ steps.verify_ort_cache.outputs.cache_status }}
           CACHE_FILE_COUNT: ${{ steps.verify_ort_cache.outputs.cache_file_count }}
           CACHE_SCAN_RESULT_COUNT: ${{ steps.verify_ort_cache.outputs.cache_scan_result_file_count }}
@@ -152,48 +153,7 @@ jobs:
           WORKFLOW_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-          outcome = os.environ.get("ORT_OUTCOME", "unknown")
-          verified = os.environ.get("VERIFY_OUTCOME", "unknown")
-          expected_sha = os.environ["WORKFLOW_SHA"]
-          checkout_sha = os.environ.get("CHECKOUT_SHA", "")
-          scan_sha = os.environ["ORT_SCAN_SHA"]
-          provenance_matches = checkout_sha == expected_sha == scan_sha
-          cache_status = os.environ.get("CACHE_STATUS", "unknown")
-          cache_file_count = int(os.environ.get("CACHE_FILE_COUNT", "0") or "0")
-          cache_scan_result_count = int(os.environ.get("CACHE_SCAN_RESULT_COUNT", "0") or "0")
-          cache_verified = (
-              os.environ.get("CACHE_OUTCOME") == "success"
-              and cache_status == "PASS"
-              and cache_scan_result_count > 0
-          )
-          status = "PASS" if outcome == "success" and verified == "success" and provenance_matches and cache_verified else "BLOCKED"
-          result = {
-              "gate_id": "GATE-LICENSE-001",
-              "scanner": "OSS Review Toolkit (ORT)",
-              "status": status,
-              "workflow_run_id": int(os.environ["WORKFLOW_RUN_ID"]),
-              "workflow_ref": os.environ["WORKFLOW_REF"],
-              "workflow_sha": expected_sha,
-              "checkout_revision": checkout_sha,
-              "scan_revision": scan_sha,
-              "ort_action_outcome": outcome,
-              "report_validation_outcome": verified,
-              "cache_save_step_outcome": os.environ.get("CACHE_OUTCOME", "unknown"),
-              "cache_validation_status": cache_status,
-              "cache_file_count": cache_file_count,
-              "cache_scan_result_file_count": cache_scan_result_count,
-              "reason": "ORT stages, checkout provenance, required reports and persisted ScanCode results passed" if status == "PASS" else "ORT failed, SHA provenance mismatched, required reports were invalid/missing, findings exceeded policy thresholds, or no valid ScanCode result was persisted"
-          }
-          Path("ort-status.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
-          print(json.dumps(result))
-          if status != "PASS":
-              raise SystemExit(1)
-          PY
-
+          python3 tools/audit/record_ort_status.py --output ort-status.json
       - name: Package ORT evidence
         if: always()
         run: |
@@ -208,7 +168,7 @@ jobs:
           if [ -s ort-status.json ]; then
             cp ort-status.json ort-evidence/ort-status.json
           else
-            printf '%s\\n' '{"gate_id":"GATE-LICENSE-001","scanner":"OSS Review Toolkit (ORT)","status":"BLOCKED","workflow_run_id":${{ github.run_id }},"workflow_ref":"${{ github.ref }}","workflow_sha":"${{ github.event.pull_request.head.sha || github.sha }}","checkout_revision":"","scan_revision":"${{ github.event.pull_request.head.sha || github.sha }}","reason":"ORT status was not generated"}' > ort-evidence/ort-status.json
+            printf '%s\n' '{"gate_id":"GATE-LICENSE-001","scanner":"OSS Review Toolkit (ORT)","status":"BLOCKED","workflow_run_id":${{ github.run_id }},"workflow_ref":"${{ github.ref }}","workflow_sha":"${{ github.event.pull_request.head.sha || github.sha }}","checkout_revision":"","scan_revision":"${{ github.event.pull_request.head.sha || github.sha }}","reason":"ORT status was not generated"}' > ort-evidence/ort-status.json
           fi
 
       - name: Upload ORT evidence artifact
