@@ -36,6 +36,25 @@ Caused by: {HTTP_429}</failure></testcase></testsuite>"""
         log = f"{ROBOLECTRIC_FAILURE}\n{HTTP_429}"
         self.assertTrue(is_transient_robolectric_fetch(log, [])[0])
 
+    def test_detects_actual_maven_central_429_log_shape(self):
+        log = (
+            "Could not GET "
+            "'https://repo.maven.apache.org/maven2/org/robolectric/"
+            "nativeruntime-dist-compat/1.0.19/nativeruntime-dist-compat-1.0.19.jar'. "
+            "Received status code: 429 from server: Too Many Requests"
+        )
+        matched, source = is_transient_robolectric_fetch(log, [])
+        self.assertTrue(matched)
+        self.assertEqual("Gradle log", source)
+
+    def test_detects_robolectric_maven_503_log_shape(self):
+        log = (
+            "Could not GET "
+            "'https://repo.maven.apache.org/maven2/org/robolectric/"
+            "android-all-instrumented.jar'. Received status code: 503"
+        )
+        self.assertTrue(is_transient_robolectric_fetch(log, [])[0])
+
     def test_does_not_retry_permanent_http_404(self):
         report = f"{ROBOLECTRIC_FAILURE}\nHTTP response code: 404"
         self.assertFalse(is_transient_robolectric_fetch("", [("JUnit XML", report)])[0])
