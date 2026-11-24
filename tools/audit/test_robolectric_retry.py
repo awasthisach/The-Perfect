@@ -65,6 +65,14 @@ Caused by: {HTTP_429}</failure></testcase></testsuite>"""
             )[0]
         )
 
+    def test_ci_workflow_clears_stale_reports_and_uses_classifier(self):
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn("tools/audit/robolectric_retry.py --log", workflow)
+        self.assertIn("test-results/testDebugUnitTest", workflow)
+        self.assertIn("build/reports/tests/testDebugUnitTest", workflow)
+        self.assertIn("**/build/test-results/testDebugUnitTest/*.xml", workflow)
+
     def test_report_file_discovery_includes_xml_and_html(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
