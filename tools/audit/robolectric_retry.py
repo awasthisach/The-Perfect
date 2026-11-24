@@ -12,13 +12,13 @@ import re
 import sys
 
 ROBOLECTRIC_FETCH = re.compile(
-    r"Failed to fetch maven artifact org\\.robolectric:", re.IGNORECASE
+    r"Failed to fetch maven artifact org\.robolectric:", re.IGNORECASE
 )
 TRANSIENT_FAILURE = re.compile(
-    r"(?:HTTP response code:\\s*(?:429|5\\d\\d)"
-    r"|\\b(?:SocketTimeoutException|ConnectException|UnknownHostException)\\b"
-    r"|\\bConnection reset\\b"
-    r"|\\b(?:Read|Connect) timed out\\b"
+    r"(?:HTTP response code:\s*(?:429|5\d\d)"
+    r"|\b(?:SocketTimeoutException|ConnectException|UnknownHostException)\b"
+    r"|\bConnection reset\b"
+    r"|\b(?:Read|Connect) timed out\b"
     r"|Temporary failure in name resolution)",
     re.IGNORECASE,
 )
