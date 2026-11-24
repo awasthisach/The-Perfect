@@ -127,17 +127,24 @@ jobs:
               gradle_status=$?
             fi
 
-            # Robolectric downloads Android SDK jars at test runtime. Retry only
-            # when that external artifact fetch failed; never retry/ignore test
-            # assertions, compilation errors, or unrelated Gradle failures.
-            if grep -Eq "Failed to fetch maven artifact org\\.robolectric:" "$log_file"; then
+            # Gradle's live log may only say "There were failing tests".
+            # Inspect the generated JUnit XML and HTML reports as well; retry
+            # only when Robolectric's artifact-fetch signature and a transient
+            # HTTP/transport failure occur in the same evidence file.
+            if python3 tools/audit/robolectric_retry.py --log "$log_file" --root "$GITHUB_WORKSPACE"; then
               if [ "$attempt" -lt 3 ]; then
                 delay="$((attempt * 20))"
-                echo "::warning::Robolectric artifact fetch failed; retrying in ${delay}s (attempt ${attempt}/3)."
+                echo "::warning::Transient Robolectric artifact fetch failed; retrying in ${delay}s (attempt ${attempt}/3)."
                 sleep "$delay"
                 continue
               fi
-              echo "::error::Robolectric artifact fetch failed after 3 attempts."
+              echo "::error::Transient Robolectric artifact fetch failed after 3 attempts."
+              exit "$gradle_status"
+            else
+              classifier_status=$?
+              if [ "$classifier_status" -ne 1 ]; then
+                echo "::error::Robolectric retry classifier failed with status ${classifier_status}; failing closed."
+              fi
             fi
             exit "$gradle_status"
           done
@@ -267,7 +274,10 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: unit-test-reports
-          path: "**/build/reports/tests/**"
+          path: |
+            **/build/reports/tests/**
+            **/build/test-results/testDebugUnitTest/*.xml
+            **/build/test-results/testDebugUnitTest/**/*.xml
           if-no-files-found: ignore
           retention-days: 7
       - name: Upload Android test reports
