@@ -69,6 +69,7 @@ Caused by: {HTTP_429}</failure></testcase></testsuite>"""
         root = Path(__file__).resolve().parents[2]
         workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn("tools/audit/robolectric_retry.py --log", workflow)
+        self.assertIn("Unable to clear prior unit-test reports", workflow)
         self.assertIn("test-results/testDebugUnitTest", workflow)
         self.assertIn("build/reports/tests/testDebugUnitTest", workflow)
         self.assertIn("**/build/test-results/testDebugUnitTest/*.xml", workflow)
