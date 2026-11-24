@@ -121,7 +121,10 @@ jobs:
           for attempt in 1 2 3; do
             # Remove only this task's prior reports so a previous transient
             # failure cannot cause the next attempt to retry for stale evidence.
-            find . -type d \( -path '*/build/test-results/testDebugUnitTest' -o -path '*/build/reports/tests/testDebugUnitTest' \) -prune -exec rm -rf {} +
+            if ! find . -type d \( -path '*/build/test-results/testDebugUnitTest' -o -path '*/build/reports/tests/testDebugUnitTest' \) -prune -exec rm -rf {} +; then
+              echo "::error::Unable to clear prior unit-test reports; refusing to classify stale evidence."
+              exit 1
+            fi
             log_file="$RUNNER_TEMP/unit-tests-attempt-${attempt}.log"
             echo "Running unit tests (attempt ${attempt}/3)."
             if ./gradlew --no-daemon testDebugUnitTest --stacktrace 2>&1 | tee "$log_file"; then
