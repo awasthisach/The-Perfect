@@ -30,7 +30,7 @@ class OrtOutputValidationTest(unittest.TestCase):
             },
             "scan-result.json": {
                 "repository": repository,
-                "scanner": {"scanResults": [{"id": "Maven:example:library:1.2.3"}]},
+                "scanner": {"scan_results": [{"id": "Maven:example:library:1.2.3"}]},
             },
             "evaluation-result.json": {
                 "repository": repository,
@@ -138,6 +138,35 @@ class OrtOutputValidationTest(unittest.TestCase):
             root = Path(directory)
             self.write_valid_reports(root)
             self.assertEqual([], validate_outputs(root, expected_revision))
+
+
+    def test_spdx_uri_namespace_is_accepted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            yaml_path = root / "bom.spdx.yml"
+            yaml_text = yaml_path.read_text(encoding="utf-8").replace(
+                "documentNamespace: https://example.invalid/sbom/test",
+                "documentNamespace: spdx://c0022b89-0000-4000-8000-000000000000",
+            )
+            yaml_path.write_text(yaml_text, encoding="utf-8")
+            self.assertEqual([], validate_outputs(root))
+
+    def test_missing_spdx_uri_namespace_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            yaml_path = root / "bom.spdx.yml"
+            yaml_text = yaml_path.read_text(encoding="utf-8").replace(
+                "documentNamespace: https://example.invalid/sbom/test",
+                "documentNamespace: ",
+            )
+            yaml_path.write_text(yaml_text, encoding="utf-8")
+            problems = validate_outputs(root)
+            self.assertTrue(
+                any("bom.spdx.yml: missing or invalid documentNamespace field" in item
+                    for item in problems)
+            )
 
     def test_malformed_json_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
