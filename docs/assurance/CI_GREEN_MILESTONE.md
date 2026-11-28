@@ -32,3 +32,5 @@
 3. **Release secrets** — keystore + `GOOGLE_SERVICES_JSON_BASE64` for signed release
 
 CPAS production_status remains **BLOCKED** until critical findings close — intentional fail-closed.
+
+> **Historical status note (2026-11-28):** This milestone records the FOSSA blocker as it stood on 2026-09-03. The current compliance implementation uses ORT and `ort-status.json`; use `docs/assurance/09-gate-catalog.yaml` and `docs/PRODUCTION_CHECKLIST.md` for the current gate definition. The historical FOSSA statement is retained as past evidence, not current release instructions.
