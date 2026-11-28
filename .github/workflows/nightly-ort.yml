@@ -89,6 +89,7 @@ jobs:
           # Info logging exposes package/scanner progress if a scan stalls.
           log-level: info
           fail-on: "issues,violations"
+          # Explicit provider selection: an empty OSV finding set is not a skipped Advisor stage.
           advisors: OSV
           # Retain excluded test dependencies in analyzer/SBOM metadata, but do not
           # run expensive source scans on dependencies that are not shipped.
