@@ -55,6 +55,15 @@ class RecordOrtStatusTests(unittest.TestCase):
         self.assertEqual("BLOCKED", result["status"])
         self.assertTrue(any("No non-empty" in reason for reason in result["blocking_reasons"]))
 
+    def test_verifier_findings_are_preserved_in_status(self):
+        result = status(validation_problems=["Gradle projects found but no Maven packages"])
+        self.assertEqual("BLOCKED", result["status"])
+        self.assertEqual(["Gradle projects found but no Maven packages"], result["validation_problems"])
+        self.assertTrue(
+            any("ORT output validation: Gradle projects found but no Maven packages" in reason
+                for reason in result["blocking_reasons"])
+        )
+
     def test_unknown_outcomes_fail_closed(self):
         result = status(ort_outcome="unknown", cache_status="unknown")
         self.assertEqual("BLOCKED", result["status"])
