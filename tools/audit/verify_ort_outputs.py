@@ -330,7 +330,7 @@ def main() -> int:
         "validation_problems": problems,
         "status": "PASS" if not problems else "BLOCKED",
     }
-    report_json = json.dumps(report, indent=2) + "\\n"
+    report_json = json.dumps(report, indent=2) + "\n"
     if args.report_file is not None:
         args.report_file.write_text(report_json, encoding="utf-8")
     print(report_json, end="")
