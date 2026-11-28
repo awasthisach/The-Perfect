@@ -38,14 +38,15 @@ class OrtOutputValidationTest(unittest.TestCase):
             },
             "advisor-result.json": {
                 "repository": repository,
-                "advisor": {"results": {}},
+                "advisor": {"results": {"Maven:example:library:1.2.3": [{"vulnerabilities": []}]}},
             },
             "bom.cyclonedx.json": {
                 "bomFormat": "CycloneDX",
                 "specVersion": "1.6",
                 "version": 1,
                 "components": [
-                    {"type": "library", "name": "example-library", "version": "1.2.3"}
+                    {"type": "library", "name": "example-library", "version": "1.2.3",
+                     "licenses": [{"license": {"id": "MIT"}}]}
                 ],
             },
             "bom.spdx.json": {
@@ -55,7 +56,8 @@ class OrtOutputValidationTest(unittest.TestCase):
                 "name": "The-Perfect test SBOM",
                 "documentNamespace": "https://example.invalid/sbom/test",
                 "packages": [
-                    {"SPDXID": "SPDXRef-Package-library", "name": "example-library"}
+                    {"SPDXID": "SPDXRef-Package-library", "name": "example-library",
+                     "licenseDeclared": "MIT", "licenseConcluded": "MIT"}
                 ],
             },
         }
@@ -75,7 +77,9 @@ class OrtOutputValidationTest(unittest.TestCase):
             "documentNamespace: https://example.invalid/sbom/test\n"
             "packages:\n"
             "  - SPDXID: SPDXRef-Package-library\n"
-            "    name: example-library\n",
+            "    name: example-library\n"
+            "    licenseDeclared: MIT\n"
+            "    licenseConcluded: MIT\n",
             encoding="utf-8",
         )
 
@@ -167,6 +171,81 @@ class OrtOutputValidationTest(unittest.TestCase):
                 any("bom.spdx.yml: missing or invalid documentNamespace field" in item
                     for item in problems)
             )
+
+    def test_generic_uri_namespace_is_accepted_in_json_and_yaml(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            namespace = "urn:uuid:123e4567-e89b-12d3-a456-426614174000"
+            spdx_path = root / "bom.spdx.json"
+            spdx = json.loads(spdx_path.read_text(encoding="utf-8"))
+            spdx["documentNamespace"] = namespace
+            spdx_path.write_text(json.dumps(spdx), encoding="utf-8")
+            yaml_path = root / "bom.spdx.yml"
+            yaml_path.write_text(
+                yaml_path.read_text(encoding="utf-8").replace(
+                    "https://example.invalid/sbom/test", namespace
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual([], validate_outputs(root))
+
+    def test_malformed_json_spdx_namespace_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            spdx_path = root / "bom.spdx.json"
+            spdx = json.loads(spdx_path.read_text(encoding="utf-8"))
+            spdx["documentNamespace"] = "not a uri"
+            spdx_path.write_text(json.dumps(spdx), encoding="utf-8")
+            problems = validate_outputs(root)
+            self.assertTrue(any("documentNamespace is not a valid URI" in item for item in problems))
+
+    def test_advisor_without_package_results_is_blocked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            advisor_path = root / "advisor-result.json"
+            advisor = json.loads(advisor_path.read_text(encoding="utf-8"))
+            advisor["advisor"]["results"] = {}
+            advisor_path.write_text(json.dumps(advisor), encoding="utf-8")
+            problems = validate_outputs(root)
+            self.assertTrue(any("advisor has no package analysis results" in item for item in problems))
+
+    def test_sbom_license_coverage_over_twenty_percent_is_blocked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            spdx_path = root / "bom.spdx.json"
+            spdx = json.loads(spdx_path.read_text(encoding="utf-8"))
+            spdx["packages"] = [
+                {"SPDXID": f"SPDXRef-Package-{index}", "name": f"pkg-{index}",
+                 "licenseDeclared": "MIT", "licenseConcluded": "MIT"}
+                for index in range(5)
+            ]
+            spdx["packages"][0]["licenseDeclared"] = "NOASSERTION"
+            spdx["packages"][0]["licenseConcluded"] = "NOASSERTION"
+            spdx_path.write_text(json.dumps(spdx), encoding="utf-8")
+            cyclonedx_path = root / "bom.cyclonedx.json"
+            cyclonedx = json.loads(cyclonedx_path.read_text(encoding="utf-8"))
+            cyclonedx["components"] = [
+                {"type": "library", "name": f"pkg-{index}", "licenses": [{"license": {"id": "MIT"}}]}
+                for index in range(5)
+            ]
+            cyclonedx["components"][0].pop("licenses")
+            cyclonedx_path.write_text(json.dumps(cyclonedx), encoding="utf-8")
+            problems = validate_outputs(root)
+            self.assertFalse(any("have no declared or concluded license" in item for item in problems))
+            self.assertFalse(any("lack license data" in item for item in problems))
+
+            cyclonedx["components"][1]["licenses"] = [{}]
+            cyclonedx_path.write_text(json.dumps(cyclonedx), encoding="utf-8")
+            spdx["packages"][1]["licenseDeclared"] = "NOASSERTION"
+            spdx["packages"][1]["licenseConcluded"] = "NOASSERTION"
+            spdx_path.write_text(json.dumps(spdx), encoding="utf-8")
+            problems = validate_outputs(root)
+            self.assertTrue(any("2/5 package(s) (40.0%)" in item for item in problems))
+            self.assertTrue(any("2/5 component(s) (40.0%)" in item for item in problems))
 
     def test_gradle_projects_without_maven_packages_are_blocked(self):
         with tempfile.TemporaryDirectory() as directory:

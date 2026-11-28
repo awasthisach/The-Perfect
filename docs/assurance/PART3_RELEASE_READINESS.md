@@ -1,35 +1,26 @@
 # Part 3 — Release excellence
 
-## What shipped
+## Current compliance gate
 
-1. **Evidence pipeline**
-   - `generate_evidence.py` path resolution fixed for CI.
-   - `evidence-ledger.json` updated with real CI run `33714903184` for STORAGE / RESTORE / WORK controls.
-   - `DB-INV-001` still carries local-pre-ci until SQLCipher instrumentation completes on emulator.
+`GATE-LICENSE-001` is implemented with OSS Review Toolkit (ORT), not FOSSA. A candidate must have a successful **Nightly ORT Compliance Scan** on the exact release SHA. The run publishes `ort-status.json` and the `ort-results-evidence` artifact. The release workflow verifies the status and `scan_revision` before staging ORT SBOMs.
 
-2. **Release workflow** (`.github/workflows/release.yml`)
-   - Hard-fail CPAS verifier before signing.
-   - FOSSA secret required for release (fail-closed).
-   - Signed APK verify via `apksigner`.
-   - SHA-256 + cert fingerprint manifest (`release-meta/apk-manifest.txt`).
-   - Syft SPDX SBOM (`release-meta/sbom.spdx.json`).
-   - `release_gate.py` requires CPAS PASS + FOSSA PASS + non-empty APK.
-   - GitHub Actions attestation (SLSA-oriented provenance).
+The release gate requires CPAS PASS, ORT PASS for the exact commit, and a non-empty signed APK with its SBOM and provenance retained. A successful workflow alone is not license approval: review all evaluator findings and vulnerabilities, and keep unresolved copyleft findings visible.
 
-3. **Residual blockers (intentional fail-closed)**
-   - **PROD-002 / PROD-003** remain `tested` until integration + clean-device evidence.
-   - Production CPAS status remains **BLOCKED** while those critical findings are open.
-   - Configure secrets before a real ship:
-     - `FOSSA_API_KEY`
-     - `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`
-     - `GOOGLE_SERVICES_JSON_BASE64`
+## Remaining blockers
+
+- **PROD-002 / PROD-003** remain open until integration and clean-device evidence is attached.
+- PROD-008 still requires owner review of ORT findings, precise evidence-backed curations, and a decision on the root project's license. No root `LICENSE` or `NOTICE` has been added because the project owner has not selected a license.
+- CI/GitHub Actions dependencies must remain identifiable as CI tooling. Do not suppress GPL/LGPL findings in bundled action code; review them separately from APK policy.
+- The ORT scan must meet the SBOM license-coverage threshold and include analyzer, scanner, evaluator, Advisor, and reporter evidence before promotion.
+- Configure release secrets before a real ship: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, and `GOOGLE_SERVICES_JSON_BASE64`.
 
 ## Promotion rule
 
-Do **not** treat a build as production-assured until:
+Do not treat a build as production-assured until:
 
-```
+```text
 cpas-status.production_status == PASS
-foss-status.status == PASS
+ort-status.status == PASS
+ort-status.scan_revision == release commit SHA
 signed APK verified + SBOM + attestation retained
 ```

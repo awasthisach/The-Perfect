@@ -2,6 +2,12 @@
 # Keep dependency metadata complete, but do not source-scan Gradle test-only configurations.
 # This matches Android Gradle's AndroidTest, UnitTest and internal test-platform scopes.
 # Production compile/runtime scopes remain included and scanned.
+analyzer:
+  package_managers:
+    GradleInspector:
+      options:
+        # Use the same JDK as CI and the project's Gradle support baseline.
+        javaVersion: "17"
 excludes:
   scopes:
     - pattern: "(?i).*test.*"

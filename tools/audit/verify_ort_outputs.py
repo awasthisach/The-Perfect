@@ -20,8 +20,10 @@ REQUIRED_OUTPUTS = RESULT_JSON_FILES + (
     "bom.spdx.json",
     "bom.spdx.yml",
 )
-
-
+# Provisional implementation choice: the remediation plan suggested a threshold
+# but did not specify its value; owner approval is still required.
+MAX_UNASSERTED_LICENSE_PERCENT = 20.0
+DOCUMENT_NAMESPACE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:[^\s]+$")
 
 CURATION_BLOCK_RE = re.compile(
     r'(?ms)^\s*-\s+id:\s*"(?P<package_id>[^"]+)"\s*\n'
@@ -55,6 +57,39 @@ def _iter_issue_records(value: object):
     elif isinstance(value, list):
         for child in value:
             yield from _iter_issue_records(child)
+
+
+def _license_is_asserted(value: object) -> bool:
+    """Treat SPDX NONE as explicit, but not NOASSERTION or missing license data."""
+    return isinstance(value, str) and bool(value.strip()) and value.strip().upper() != "NOASSERTION"
+
+
+def _cyclonedx_license_is_asserted(component: object) -> bool:
+    """Return whether a CycloneDX component has a non-empty license choice."""
+    if not isinstance(component, dict) or not isinstance(component.get("licenses"), list):
+        return False
+    for entry in component["licenses"]:
+        if not isinstance(entry, dict):
+            continue
+        if _license_is_asserted(entry.get("expression")):
+            return True
+        license_data = entry.get("license")
+        if isinstance(license_data, dict) and any(
+            _license_is_asserted(license_data.get(field))
+            for field in ("id", "name", "url", "text")
+        ):
+            return True
+    return False
+
+
+def _license_coverage(items: list[object], license_fields: tuple[str, ...]) -> tuple[int, int]:
+    """Return (items without any asserted license, total items)."""
+    unasserted = 0
+    for item in items:
+        fields = item if isinstance(item, dict) else {}
+        if not any(_license_is_asserted(fields.get(field)) for field in license_fields):
+            unasserted += 1
+    return unasserted, len(items)
 
 
 
@@ -121,6 +156,7 @@ def validate_outputs(
 ) -> list[str]:
     """Return missing, empty, malformed, or wrong-format ORT outputs."""
     problems: list[str] = []
+    analyzer_package_count = 0
     for name in REQUIRED_OUTPUTS:
         path = results_dir / name
         if not path.is_file():
@@ -190,6 +226,7 @@ def validate_outputs(
                 if not isinstance(projects, list) or not isinstance(packages, list):
                     problems.append(f"{name}: analyzer result must include projects and packages lists")
                 else:
+                    analyzer_package_count = len(packages)
                     if not projects:
                         problems.append(f"{name}: analyzer result contains no projects")
                     if not packages:
@@ -233,6 +270,11 @@ def validate_outputs(
                         problems.extend(validate_source_artifact_pins(data, curations_file))
             elif name == "scan-result.json" and not section[result_name]:
                 problems.append(f"{name}: scanner result contains no package scan results")
+            elif name == "advisor-result.json" and analyzer_package_count and not section[result_name]:
+                problems.append(
+                    f"{name}: advisor has no package analysis results for {analyzer_package_count} analyzed package(s); "
+                    "an empty result is not evidence of no vulnerabilities"
+                )
         elif name == "bom.cyclonedx.json":
             if data.get("bomFormat") != "CycloneDX":
                 problems.append(f"{name}: bomFormat is not CycloneDX")
@@ -243,6 +285,17 @@ def validate_outputs(
             components = data.get("components")
             if not isinstance(components, list) or not components:
                 problems.append(f"{name}: components list is missing or empty")
+            else:
+                unasserted = sum(
+                    not _cyclonedx_license_is_asserted(component)
+                    for component in components
+                )
+                percent = 100.0 * unasserted / len(components)
+                if percent > MAX_UNASSERTED_LICENSE_PERCENT:
+                    problems.append(
+                        f"{name}: {unasserted}/{len(components)} component(s) ({percent:.1f}%) lack license data; "
+                        f"maximum allowed is {MAX_UNASSERTED_LICENSE_PERCENT:.1f}%"
+                    )
         elif name == "bom.spdx.json":
             required_spdx_strings = ("spdxVersion", "dataLicense", "SPDXID", "name", "documentNamespace")
             missing_fields = [
@@ -255,10 +308,23 @@ def validate_outputs(
                 problems.append(f"{name}: missing valid spdxVersion")
             if data.get("SPDXID") != "SPDXRef-DOCUMENT":
                 problems.append(f"{name}: SPDXID must be SPDXRef-DOCUMENT")
+            namespace = data.get("documentNamespace")
+            if isinstance(namespace, str) and namespace.strip() and not DOCUMENT_NAMESPACE_RE.fullmatch(namespace.strip()):
+                problems.append(f"{name}: documentNamespace is not a valid URI with a scheme")
             if not isinstance(data.get("packages"), list):
                 problems.append(f"{name}: packages must be a list")
             elif not data["packages"]:
                 problems.append(f"{name}: packages list is empty")
+            else:
+                unasserted, total = _license_coverage(
+                    data["packages"], ("licenseDeclared", "licenseConcluded")
+                )
+                percent = 100.0 * unasserted / total
+                if percent > MAX_UNASSERTED_LICENSE_PERCENT:
+                    problems.append(
+                        f"{name}: {unasserted}/{total} package(s) ({percent:.1f}%) have no declared or concluded license; "
+                        f"maximum allowed is {MAX_UNASSERTED_LICENSE_PERCENT:.1f}%"
+                    )
 
     xml_path = results_dir / "bom.cyclonedx.xml"
     if xml_path.is_file() and xml_path.stat().st_size:
@@ -283,7 +349,7 @@ def validate_outputs(
                 "spdxVersion": r"(?m)^spdxVersion:\s*['\"]?SPDX-\d+\.\d+['\"]?\s*$",
                 "SPDXID": r"(?m)^SPDXID:\s*['\"]?SPDXRef-DOCUMENT['\"]?\s*$",
                 "name": r"(?m)^name:\s*\S",
-                "documentNamespace": r'''(?m)^documentNamespace:\s*[\"']?(?:https?://|spdx://)\S+[\"']?\s*$''',
+                "documentNamespace": r'''(?m)^documentNamespace:\s*[\"']?[A-Za-z][A-Za-z0-9+.-]*:[^\"'\s]+[\"']?\s*$''',
             }
             for field, pattern in required_yaml_patterns.items():
                 if not re.search(pattern, yaml_text):

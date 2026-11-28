@@ -48,7 +48,7 @@ jobs:
           set -euo pipefail
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
           echo "sdk.dir=${ANDROID_HOME}" > local.properties
-          ./gradlew --no-daemon help
+          ./gradlew help --no-daemon --refresh-dependencies --info --stacktrace 2>&1 | tee "$RUNNER_TEMP/gradle-help.log"
 
       - name: Verify checked-out candidate SHA
         id: verify_checkout
@@ -154,6 +154,8 @@ jobs:
           CHECKOUT_SHA: ${{ steps.verify_checkout.outputs.checkout_sha }}
           WORKFLOW_RUN_ID: ${{ github.run_id }}
           WORKFLOW_REF: ${{ github.ref }}
+          ORT_RESULTS_DIR: /home/runner/.ort/ort-results
+          ORT_ADVISOR_PROVIDER: OSV
         run: |
           set -euo pipefail
           python3 tools/audit/record_ort_status.py --output ort-status.json
@@ -175,6 +177,9 @@ jobs:
             cp ort-status.json ort-evidence/ort-status.json
           else
             printf '%s\n' '{"gate_id":"GATE-LICENSE-001","scanner":"OSS Review Toolkit (ORT)","status":"BLOCKED","workflow_run_id":${{ github.run_id }},"workflow_ref":"${{ github.ref }}","workflow_sha":"${{ github.event.pull_request.head.sha || github.sha }}","checkout_revision":"","scan_revision":"${{ github.event.pull_request.head.sha || github.sha }}","reason":"ORT status was not generated"}' > ort-evidence/ort-status.json
+          fi
+          if [ -s "$RUNNER_TEMP/gradle-help.log" ]; then
+            cp "$RUNNER_TEMP/gradle-help.log" ort-evidence/gradle-help.log
           fi
 
       - name: Upload ORT evidence artifact

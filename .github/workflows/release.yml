@@ -62,7 +62,10 @@ jobs:
           if status.get("scan_revision") != os.environ["GITHUB_SHA"]:
               raise SystemExit("ORT evidence SHA does not match this release commit")
           PY
-          python3 tools/audit/verify_ort_outputs.py --results-dir ort-evidence/results --revision "$GITHUB_SHA"
+          python3 tools/audit/verify_ort_outputs.py \
+            --results-dir ort-evidence/results \
+            --revision "$GITHUB_SHA" \
+            --curations-file ort-curations.yml
           mkdir -p docs/assurance
           cp ort-evidence/results/bom.cyclonedx.json docs/assurance/ort-bom.cyclonedx.json
           cp ort-evidence/results/bom.spdx.json docs/assurance/ort-bom.spdx.json

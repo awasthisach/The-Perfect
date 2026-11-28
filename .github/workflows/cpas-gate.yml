@@ -107,7 +107,6 @@ jobs:
           print(f"Accepted ORT artifact provenance for run {expected_run_id} and SHA {expected_sha}")
           PY
 
-          mkdir -p docs/assurance
           for report in analyzer-result.json scan-result.json evaluation-result.json advisor-result.json bom.cyclonedx.json bom.cyclonedx.xml bom.spdx.json bom.spdx.yml; do
             test -s "ort-evidence/results/$report" || {
               echo "::error::ORT report missing or empty: $report"
@@ -115,50 +114,52 @@ jobs:
             }
           done
 
-          cp ort-evidence/results/bom.cyclonedx.json docs/assurance/ort-bom.cyclonedx.json
-          cp ort-evidence/results/bom.spdx.json docs/assurance/ort-bom.spdx.json
-          cp ort-evidence/ort-status.json docs/assurance/ort-status.json
-
+          set +e
+          python3 tools/audit/verify_ort_outputs.py \
+            --results-dir ort-evidence/results \
+            --revision "$CANDIDATE_SHA" \
+            --curations-file ort-curations.yml \
+            --report-file ort-evidence/ort-validation.json
+          validation_code=$?
+          set -e
           export ORT_RUN_CONCLUSION="$run_conclusion"
+          export ORT_VALIDATION_CODE="$validation_code"
           python3 - <<'PY'
           import json
           import os
           from pathlib import Path
 
-          path = Path("docs/assurance/ort-status.json")
+          path = Path("ort-evidence/ort-status.json")
           status = json.loads(path.read_text(encoding="utf-8"))
+          validation = json.loads(Path("ort-evidence/ort-validation.json").read_text(encoding="utf-8"))
           expected_sha = os.environ["CANDIDATE_SHA"]
-          problems = []
+          problems = list(validation.get("validation_problems", []))
           if status.get("scan_revision") != expected_sha:
-              problems.append(
-                  f"ORT scan SHA {status.get('scan_revision')!r} does not match candidate {expected_sha!r}"
-              )
+              problems.append(f"ORT scan SHA {status.get('scan_revision')!r} does not match candidate {expected_sha!r}")
           if os.environ.get("ORT_RUN_CONCLUSION") != "success":
-              problems.append(
-                  f"ORT workflow conclusion is {os.environ.get('ORT_RUN_CONCLUSION')!r}, not 'success'"
-              )
-          if problems:
+              problems.append(f"ORT workflow conclusion is {os.environ.get('ORT_RUN_CONCLUSION')!r}, not 'success'")
+          if int(os.environ.get("ORT_VALIDATION_CODE", "1")) != 0 or problems:
               status["status"] = "BLOCKED"
-              status["reason"] = "; ".join(problems)
-              path.write_text(json.dumps(status, indent=2) + "\n", encoding="utf-8")
-              print(status["reason"])
+              status["validation_problems"] = problems
+              status["reason"] = "ORT report/SBOM validation or provenance failed; inspect ort-results-evidence artifact"
+          path.write_text(json.dumps(status, indent=2) + "\n", encoding="utf-8")
+          print(status.get("reason", "ORT validation and provenance checks passed"))
           PY
 
-          set +e
-          python3 tools/audit/verify_ort_outputs.py --results-dir ort-evidence/results --revision "$CANDIDATE_SHA" --curations-file ort-curations.yml
-          validation_code=$?
-          set -e
-          if [ "$validation_code" -ne 0 ]; then
-            python3 - <<'PY'
+          mkdir -p docs/assurance
+          if python3 - <<'PY'
           import json
           from pathlib import Path
-          path = Path("docs/assurance/ort-status.json")
-          status = json.loads(path.read_text(encoding="utf-8"))
-          status["status"] = "BLOCKED"
-          status["reason"] = "ORT report/SBOM validation failed; inspect ort-results-evidence artifact"
-          path.write_text(json.dumps(status, indent=2) + "\n", encoding="utf-8")
+          status = json.loads(Path("ort-evidence/ort-status.json").read_text(encoding="utf-8"))
+          raise SystemExit(0 if status.get("status") == "PASS" else 1)
           PY
+          then
+            cp ort-evidence/results/bom.cyclonedx.json docs/assurance/ort-bom.cyclonedx.json
+            cp ort-evidence/results/bom.spdx.json docs/assurance/ort-bom.spdx.json
+          else
+            echo "::warning::ORT SBOMs are not staged because report validation or SHA provenance is blocked."
           fi
+          cp ort-evidence/ort-status.json docs/assurance/ort-status.json
 
       - name: Wait for and stage SQLCipher instrumented evidence for exact candidate SHA
         id: stage_instrumented

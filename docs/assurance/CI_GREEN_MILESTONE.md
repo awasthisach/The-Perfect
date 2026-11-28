@@ -28,9 +28,9 @@
 ## Still BLOCKED for production ship
 
 1. **PROD-002 / PROD-003** (critical) — integration / clean-device evidence
-2. **FOSSA** — `FOSSA_API_KEY` GitHub secret required for GATE-LICENSE-001 PASS
+2. **GATE-LICENSE-001** — FOSSA was listed as a blocker at the time of this 2026-09-03 run; that historical requirement is superseded. The current gate uses ORT and `ort-status.json` as defined in `docs/assurance/09-gate-catalog.yaml`.
 3. **Release secrets** — keystore + `GOOGLE_SERVICES_JSON_BASE64` for signed release
 
 CPAS production_status remains **BLOCKED** until critical findings close — intentional fail-closed.
 
-> **Historical status note (2026-11-28):** This milestone records the FOSSA blocker as it stood on 2026-09-03. The current compliance implementation uses ORT and `ort-status.json`; use `docs/assurance/09-gate-catalog.yaml` and `docs/PRODUCTION_CHECKLIST.md` for the current gate definition. The historical FOSSA statement is retained as past evidence, not current release instructions.
+> **Historical status note (2026-11-28):** This milestone records the former FOSSA blocker as it stood on 2026-09-03. FOSSA is not a current release requirement. Use `docs/assurance/09-gate-catalog.yaml` and `docs/PRODUCTION_CHECKLIST.md` for the ORT gate and exact-SHA evidence requirements.

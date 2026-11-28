@@ -78,7 +78,7 @@ class OrtRevisionValidationTests(unittest.TestCase):
             },
             "scan-result.json": {
                 "repository": repository,
-                "scanner": {"scanResults": [{"id": "Maven:example:library:1.2.3"}]},
+                "scanner": {"scan_results": [{"id": "Maven:example:library:1.2.3"}]},
             },
             "evaluation-result.json": {
                 "repository": repository,
@@ -86,11 +86,11 @@ class OrtRevisionValidationTests(unittest.TestCase):
             },
             "advisor-result.json": {
                 "repository": repository,
-                "advisor": {"results": {}},
+                "advisor": {"results": {"Maven:example:library:1.2.3": [{"vulnerabilities": []}]}},
             },
             "bom.cyclonedx.json": {
                 "bomFormat": "CycloneDX", "specVersion": "1.5", "version": 1,
-                "components": [{"type": "library", "name": "example-library", "version": "1.2.3"}],
+                "components": [{"type": "library", "name": "example-library", "version": "1.2.3", "licenses": [{"license": {"id": "MIT"}}]}],
             },
             "bom.spdx.json": {
                 "spdxVersion": "SPDX-2.3",
@@ -98,7 +98,7 @@ class OrtRevisionValidationTests(unittest.TestCase):
                 "SPDXID": "SPDXRef-DOCUMENT",
                 "name": "The-Perfect",
                 "documentNamespace": "https://example.invalid/spdx/test",
-                "packages": [{"SPDXID": "SPDXRef-Package-library", "name": "example-library"}],
+                "packages": [{"SPDXID": "SPDXRef-Package-library", "name": "example-library", "licenseDeclared": "MIT", "licenseConcluded": "MIT"}],
             },
         }
         for name, payload in reports.items():
@@ -146,7 +146,7 @@ class OrtRevisionValidationTests(unittest.TestCase):
 
             scanner_path = root / "scan-result.json"
             scanner = json.loads(scanner_path.read_text(encoding="utf-8"))
-            scanner["scanner"]["scanResults"] = []
+            scanner["scanner"]["scan_results"] = []
             scanner_path.write_text(json.dumps(scanner), encoding="utf-8")
 
             cyclonedx_path = root / "bom.cyclonedx.json"

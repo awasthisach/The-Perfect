@@ -69,5 +69,40 @@ class RecordOrtStatusTests(unittest.TestCase):
         self.assertEqual("BLOCKED", result["status"])
         self.assertGreaterEqual(len(result["blocking_reasons"]), 2)
 
+    def test_stage_diagnostics_are_collected_and_preserved(self):
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            reports = {
+                "analyzer-result.json": {
+                    "analyzer": {"result": {
+                        "projects": [{"id": "Gradle:com.example:app:1.0"}],
+                        "packages": [{"id": "Maven:org.example:lib:1.0"}],
+                        "issues": {"Gradle:app": [{"severity": "ERROR"}]},
+                    }}
+                },
+                "scan-result.json": {"scanner": {"scan_results": [{"id": "Maven:org.example:lib:1.0"}]}},
+                "evaluation-result.json": {"evaluator": {"violations": [{"rule": {"id": "COPYLEFT"}}]}},
+                "advisor-result.json": {"advisor": {"results": {"Maven:org.example:lib:1.0": [{"vulnerabilities": [{"id": "CVE-1"}]}]}}},
+                "bom.spdx.json": {"packages": [{"licenseDeclared": "MIT", "licenseConcluded": "MIT"}]},
+                "bom.cyclonedx.json": {"components": [{"licenses": [{"license": {"id": "MIT"}}]}]},
+            }
+            for name, report in reports.items():
+                (root / name).write_text(json.dumps(report), encoding="utf-8")
+            diagnostics = MODULE.collect_diagnostics(root, "OSV")
+
+        self.assertEqual({"Gradle": 1}, diagnostics["analyzer"]["projects_by_type"])
+        self.assertEqual({"Maven": 1}, diagnostics["analyzer"]["packages_by_type"])
+        self.assertEqual({"ERROR": 1}, diagnostics["analyzer"]["issues_by_severity"])
+        self.assertEqual(1, diagnostics["scanner"]["package_scan_result_count"])
+        self.assertEqual({"COPYLEFT": 1}, diagnostics["evaluator"]["violations_by_rule"])
+        self.assertEqual("OSV", diagnostics["advisor"]["provider"])
+        self.assertEqual(1, diagnostics["advisor"]["vulnerability_count"])
+        self.assertEqual(0.0, diagnostics["sbom_license_coverage"]["spdx"]["unasserted_percent"])
+        result = status(diagnostics=diagnostics)
+        self.assertEqual(diagnostics, result["diagnostics"])
+
 if __name__ == "__main__":
     unittest.main()

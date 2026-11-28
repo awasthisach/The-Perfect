@@ -162,6 +162,35 @@ class RepositoryWorkflowSafetyTest(unittest.TestCase):
         self.assertIn("Enforce fail-closed result after preserving status artifact", workflow)
         self.assertIn('if [ "$ORT_STAGE_OUTCOME" != "success" ]; then', workflow)
 
+    def test_ort_gate_catalog_matches_workflow_evidence_and_gradle_setup(self):
+        workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
+        catalog = (ROOT / "docs/assurance/09-gate-catalog.yaml").read_text(encoding="utf-8")
+        repo_config = (ROOT / ".ort.yml").read_text(encoding="utf-8")
+        gate = catalog.split("  - id: GATE-LICENSE-001", 1)[1].split("  - id:", 1)[0]
+        self.assertIn("evidence: ort-status.json + ort-results-evidence artifact", gate)
+        self.assertIn("name: ort-results-evidence", workflow)
+        self.assertIn("cp ort-status.json ort-evidence/ort-status.json", workflow)
+        self.assertIn('javaVersion: "17"', repo_config)
+        self.assertIn("gradlePluginPortal()", (ROOT / "settings.gradle.kts").read_text(encoding="utf-8"))
+        self.assertIn("--refresh-dependencies --info --stacktrace", workflow)
+        self.assertIn("gradle-help.log", workflow)
+        self.assertIn("ORT_RESULTS_DIR: /home/runner/.ort/ort-results", workflow)
+        self.assertIn("ORT_ADVISOR_PROVIDER: OSV", workflow)
+        cpas_workflow = (ROOT / ".github/workflows/cpas-gate.yml").read_text(encoding="utf-8")
+        self.assertLess(
+            cpas_workflow.index("tools/audit/verify_ort_outputs.py"),
+            cpas_workflow.index("cp ort-evidence/results/bom.cyclonedx.json docs/assurance/ort-bom.cyclonedx.json"),
+        )
+        release_workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        self.assertIn("--curations-file ort-curations.yml", release_workflow)
+
+    def test_active_license_readiness_docs_use_ort_not_fossa(self):
+        readiness = (ROOT / "docs/assurance/PART3_RELEASE_READINESS.md").read_text(encoding="utf-8")
+        self.assertIn("ORT", readiness)
+        self.assertIn("ort-status.json", readiness)
+        self.assertNotIn("FOSSA_API_KEY", readiness)
+        self.assertNotIn("foss-status", readiness)
+
     def test_branch_cleanup_workflow_is_read_only_and_never_deletes(self):
         workflow = (ROOT / ".github/workflows/cleanup-stale-branches.yml").read_text(encoding="utf-8")
         self.assertIn("contents: read", workflow)
