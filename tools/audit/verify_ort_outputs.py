@@ -31,6 +31,31 @@ SOURCE_PIN_RE = re.compile(
     r"source_artifact_url=(?P<url>\S+)\s+"
     r"source_artifact_sha1=(?P<sha1>[0-9a-fA-F]{40})"
 )
+def _package_id(item: object) -> str:
+    """Return an ORT package identifier from supported report shapes."""
+    if not isinstance(item, dict):
+        return ""
+    package_id = item.get("id")
+    if isinstance(package_id, str):
+        return package_id
+    package = item.get("package")
+    if isinstance(package, dict) and isinstance(package.get("id"), str):
+        return package["id"]
+    return ""
+
+
+def _iter_issue_records(value: object):
+    """Yield issue records from the ORT project-keyed issue mapping."""
+    if isinstance(value, dict):
+        if isinstance(value.get("severity"), str):
+            yield value
+        else:
+            for child in value.values():
+                yield from _iter_issue_records(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _iter_issue_records(child)
+
 
 
 def validate_source_artifact_pins(
@@ -169,6 +194,41 @@ def validate_outputs(
                         problems.append(f"{name}: analyzer result contains no projects")
                     if not packages:
                         problems.append(f"{name}: analyzer result contains no packages")
+
+                    gradle_projects = [
+                        project for project in projects
+                        if isinstance(project, dict)
+                        and (
+                            str(project.get("id", "")).startswith("Gradle:")
+                            or str(project.get("purl", "")).lower().startswith("pkg:gradle/")
+                        )
+                    ]
+                    maven_packages = [
+                        package for package in packages
+                        if (
+                            _package_id(package).startswith("Maven:")
+                            or str(package.get("purl", "") if isinstance(package, dict) else "")
+                            .lower().startswith("pkg:maven/")
+                        )
+                    ]
+                    if gradle_projects and not maven_packages:
+                        problems.append(
+                            f"{name}: found {len(gradle_projects)} Gradle project(s) "
+                            "but zero Maven dependency packages; dependency analysis is incomplete"
+                        )
+
+                    analyzer_issues = analyzer_result.get("issues", {})
+                    error_issues = [
+                        issue for issue in _iter_issue_records(analyzer_issues)
+                        if issue.get("severity", "").upper() == "ERROR"
+                    ]
+                    if error_issues:
+                        first_message = str(error_issues[0].get("message", "")).splitlines()[0][:240]
+                        problems.append(
+                            f"{name}: analyzer recorded {len(error_issues)} ERROR issue(s); "
+                            f"first: {first_message}"
+                        )
+
                     if curations_file is not None:
                         problems.extend(validate_source_artifact_pins(data, curations_file))
             elif name == "scan-result.json" and not section[result_name]:
