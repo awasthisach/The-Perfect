@@ -168,6 +168,38 @@ class OrtOutputValidationTest(unittest.TestCase):
                     for item in problems)
             )
 
+    def test_gradle_projects_without_maven_packages_are_blocked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            path = root / "analyzer-result.json"
+            report = json.loads(path.read_text(encoding="utf-8"))
+            report["analyzer"]["result"]["packages"] = [
+                {"id": "GitHubAction:actions:checkout:abcdef", "purl": "pkg:github/actions/checkout@abcdef"}
+            ]
+            path.write_text(json.dumps(report), encoding="utf-8")
+            problems = validate_outputs(root)
+            self.assertTrue(
+                any("Gradle project(s) but zero Maven dependency packages" in item for item in problems)
+            )
+
+    def test_analyzer_error_issue_is_blocked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            path = root / "analyzer-result.json"
+            report = json.loads(path.read_text(encoding="utf-8"))
+            report["analyzer"]["result"]["issues"] = {
+                "Gradle::app/build.gradle.kts:": [
+                    {"severity": "ERROR", "message": "Plugin artifact could not be resolved"}
+                ]
+            }
+            path.write_text(json.dumps(report), encoding="utf-8")
+            problems = validate_outputs(root)
+            self.assertTrue(
+                any("analyzer recorded 1 ERROR issue(s)" in item for item in problems)
+            )
+
     def test_malformed_json_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
