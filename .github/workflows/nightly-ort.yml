@@ -89,6 +89,7 @@ jobs:
           # Info logging exposes package/scanner progress if a scan stalls.
           log-level: info
           fail-on: "issues,violations"
+          advisors: OSV
           # Retain excluded test dependencies in analyzer/SBOM metadata, but do not
           # run expensive source scans on dependencies that are not shipped.
           ort-cli-args: -P ort.scanner.skipExcluded=true
@@ -134,7 +135,7 @@ jobs:
             exit 1
           fi
           RESULTS_DIR="$HOME/.ort/ort-results"
-          python3 tools/audit/verify_ort_outputs.py --results-dir "$RESULTS_DIR" --revision "$ORT_SCAN_SHA" --curations-file ort-curations.yml
+          python3 tools/audit/verify_ort_outputs.py --results-dir "$RESULTS_DIR" --revision "$ORT_SCAN_SHA" --curations-file ort-curations.yml --report-file ort-validation.json
 
       - name: Record ORT status with exact gate reasons
         if: always()
@@ -146,6 +147,7 @@ jobs:
           CACHE_STATUS: ${{ steps.verify_ort_cache.outputs.cache_status }}
           CACHE_FILE_COUNT: ${{ steps.verify_ort_cache.outputs.cache_file_count }}
           CACHE_SCAN_RESULT_COUNT: ${{ steps.verify_ort_cache.outputs.cache_scan_result_file_count }}
+          VALIDATION_REPORT_PATH: ort-validation.json
           ORT_SCAN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           WORKFLOW_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           CHECKOUT_SHA: ${{ steps.verify_checkout.outputs.checkout_sha }}
@@ -164,6 +166,9 @@ jobs:
           fi
           if [ -s ort-cache-manifest.json ]; then
             cp ort-cache-manifest.json ort-evidence/ort-cache-manifest.json
+          fi
+          if [ -s ort-validation.json ]; then
+            cp ort-validation.json ort-evidence/ort-validation.json
           fi
           if [ -s ort-status.json ]; then
             cp ort-status.json ort-evidence/ort-status.json
