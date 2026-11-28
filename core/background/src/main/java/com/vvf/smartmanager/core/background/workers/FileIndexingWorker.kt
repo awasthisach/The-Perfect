@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.workDataOf
 import androidx.work.WorkerParameters
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -45,6 +46,8 @@ class FileIndexingWorker(
                     Result.failure(workDataOf("reason" to outcome.reason))
                 }
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Log.e("FileIndexingWorker", "Unhandled error during file indexing", e)
             if (runAttemptCount < 3) Result.retry() else Result.failure(workDataOf("reason" to (e.message ?: "unknown error")))

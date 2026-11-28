@@ -2,6 +2,7 @@ package com.vvf.smartmanager.core.security
 
 import android.content.Context
 import android.os.SystemClock
+import android.util.Log
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -38,6 +39,9 @@ class CryptoSecurityManager(
         private const val DB_KEY_ALIAS = "vvf_db_passphrase_key_v1"
         private const val VAULT_KEY_ALIAS = "vvf_vault_master_key_v1"
         private const val VAULT_META_KEY_ALIAS = "vvf_vault_meta_key_v1"
+        private const val VAULT_DATA_DIRECTORY = "vvf_vault_encrypted"
+        private const val VAULT_FILE_EXTENSION = ".vvf"
+        private const val PREFS_NAME = "vvf_secure_vault_prefs"
         private const val AES_GCM_TRANSFORMATION = "AES/GCM/NoPadding"
         private const val GCM_TAG_LENGTH_BITS = 128
         private const val GCM_IV_LENGTH_BYTES = 12
@@ -49,6 +53,7 @@ class CryptoSecurityManager(
         private const val DB_PASSPHRASE_TEMP_SUFFIX = ".tmp"
         private const val DB_PASSPHRASE_FORMAT_VERSION: Byte = 2
         private const val PBKDF2_ITERATIONS = 600_000
+        private const val TAG = "CryptoSecurity"
         private const val LOCKOUT_STATE_KEY = "vault_lockout_state_v2"
         private const val LOCKOUT_STATE_IV_KEY = "vault_lockout_state_v2_iv"
         private val memoryKeyMap = mutableMapOf<String, SecretKey>()
@@ -100,31 +105,78 @@ class CryptoSecurityManager(
 
     private fun ensureMasterKeyExists(alias: String) {
         val ks = keyStore
+        val memoryKeyId = "$keyStoreProvider:$alias"
+        val keyExists = if (ks != null) {
+            ks.containsAlias(alias)
+        } else {
+            synchronized(memoryKeyMap) { memoryKeyMap.containsKey(memoryKeyId) }
+        }
+        if (keyExists) return
+
+        // Android Keystore keys are not restored with app backups. If encrypted user
+        // material survives without its wrapping key, generating a replacement would
+        // make the old data permanently unreadable while pretending setup succeeded.
+        if (hasProtectedDataForMissingKey(alias)) {
+            throw SecurityException(
+                "Required Keystore key '$alias' is missing while encrypted user data still exists. " +
+                    "Refusing to generate a replacement key or overwrite recovery material."
+            )
+        }
+
         if (ks != null) {
-            if (!ks.containsAlias(alias)) {
-                val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
-                val builder = KeyGenParameterSpec.Builder(
-                    alias,
-                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
-                )
-                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                    .setKeySize(256)
-                    .setRandomizedEncryptionRequired(true)
-                keyGenerator.init(builder.build())
-                keyGenerator.generateKey()
-            }
+            val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
+            val builder = KeyGenParameterSpec.Builder(
+                alias,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(256)
+                .setRandomizedEncryptionRequired(true)
+            keyGenerator.init(builder.build())
+            keyGenerator.generateKey()
         } else {
             if (!allowInMemoryFallback) {
                 throw IllegalStateException("AndroidKeyStore is unavailable in a production environment; refusing to use in-memory keys")
             }
-            val memoryKeyId = "$keyStoreProvider:$alias"
-            if (!memoryKeyMap.containsKey(memoryKeyId)) {
-                val rawKey = ByteArray(32)
+            val rawKey = ByteArray(32)
+            try {
                 SecureRandom().nextBytes(rawKey)
-                memoryKeyMap[memoryKeyId] = SecretKeySpec(rawKey, "AES")
+                synchronized(memoryKeyMap) {
+                    memoryKeyMap[memoryKeyId] = SecretKeySpec(rawKey, "AES")
+                }
+            } finally {
                 rawKey.fill(0)
             }
+        }
+    }
+
+    private fun hasProtectedDataForMissingKey(alias: String): Boolean {
+        val securePrefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return when (alias) {
+            DB_KEY_ALIAS -> {
+                val passphraseFiles = listOf(
+                    DB_PASSPHRASE_V2_FILE,
+                    ENCRYPTED_DB_PASSPHRASE_FILE,
+                    DB_PASSPHRASE_IV_FILE
+                ).any { File(context.filesDir, it).exists() }
+                passphraseFiles || context.databaseList().isNotEmpty()
+            }
+            VAULT_KEY_ALIAS -> {
+                val vaultDirectory = File(context.filesDir, VAULT_DATA_DIRECTORY)
+                vaultDirectory.walkTopDown().any { it.isFile && it.name.endsWith(VAULT_FILE_EXTENSION, ignoreCase = true) }
+            }
+            VAULT_META_KEY_ALIAS -> {
+                listOf(
+                    "vault_pin_hash",
+                    "vault_pin_salt",
+                    "vault_decoy_pin_hash",
+                    "vault_decoy_pin_salt",
+                    LOCKOUT_STATE_KEY,
+                    LOCKOUT_STATE_IV_KEY
+                ).any(securePrefs::contains)
+            }
+            else -> false
         }
     }
 
@@ -170,6 +222,12 @@ class CryptoSecurityManager(
             check(legacyIvFile.delete()) { "Failed to remove legacy database passphrase IV" }
             return migratedPassphrase
         }
+        if (context.databaseList().isNotEmpty()) {
+            throw SecurityException(
+                "An existing database is present but its encrypted passphrase recovery material is missing. " +
+                    "Refusing to create a new passphrase that would make the existing database inaccessible."
+            )
+        }
         val freshPassphrase = ByteArray(DB_KEY_LENGTH_BYTES)
         SecureRandom().nextBytes(freshPassphrase)
         writeV2DatabasePassphraseAtomically(v2File, freshPassphrase)
@@ -197,9 +255,27 @@ class CryptoSecurityManager(
         require(snapshot.isDirectory && marker.isFile) { "Database key-state rollback snapshot is missing" }
         val allowed = setOf(DB_PASSPHRASE_V2_FILE, ENCRYPTED_DB_PASSPHRASE_FILE, DB_PASSPHRASE_IV_FILE)
         val present = marker.readLines().filter { it.isNotBlank() }
+        require(present.isNotEmpty()) { "Database key-state snapshot contains no database passphrase recovery material" }
         require(present.size == present.toSet().size) { "Database key-state snapshot contains duplicate entries" }
         require(present.all { it in allowed }) { "Database key-state snapshot contains unexpected entries" }
         require(present.all { File(snapshot, it).isFile }) { "Database key-state snapshot is incomplete" }
+
+        // Authenticate rollback material before restore is allowed to remove any live key files.
+        if (DB_PASSPHRASE_V2_FILE in present) {
+            readV2DatabasePassphrase(File(snapshot, DB_PASSPHRASE_V2_FILE)).fill(0)
+        }
+        val hasLegacyEncrypted = ENCRYPTED_DB_PASSPHRASE_FILE in present
+        val hasLegacyIv = DB_PASSPHRASE_IV_FILE in present
+        require(hasLegacyEncrypted == hasLegacyIv) {
+            "Database key-state snapshot contains an incomplete legacy passphrase pair"
+        }
+        if (hasLegacyEncrypted) {
+            decryptWithKeystore(
+                File(snapshot, ENCRYPTED_DB_PASSPHRASE_FILE).readBytes(),
+                File(snapshot, DB_PASSPHRASE_IV_FILE).readBytes(),
+                DB_KEY_ALIAS
+            ).fill(0)
+        }
     }
 
     @Synchronized
@@ -371,9 +447,10 @@ class CryptoSecurityManager(
         data class INVALID_PIN(val failedAttempts: Int, val lockoutSeconds: Int) : VaultAuthResult
         data class LOCKED_OUT(val remainingSeconds: Int) : VaultAuthResult
         data object INVALID_FORMAT : VaultAuthResult
+        data object CORRUPTED_STATE : VaultAuthResult
     }
 
-    private val prefs by lazy { context.getSharedPreferences("vvf_secure_vault_prefs", Context.MODE_PRIVATE) }
+    private val prefs by lazy { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
 
     fun isValidPinFormat(pin: String): Boolean = pin.length in 4..6 && pin.all { it.isDigit() }
     fun isVaultPinSet(): Boolean = isVaultConfigured()
@@ -474,7 +551,8 @@ class CryptoSecurityManager(
 
     fun setupDecoyPin(decoyPin: String): Boolean {
         if (!isValidPinFormat(decoyPin)) return false
-        if (matchesRealPin(decoyPin)) return false
+        // Refuse to configure a decoy if the real credential cannot be verified.
+        if (matchesRealPin(decoyPin) != PinMatch.NO_MATCH) return false
         val salt = ByteArray(16); SecureRandom().nextBytes(salt)
         val hash = hashPin(decoyPin, salt)
         val (encHash, hashIv) = encryptBytes(hash, alias = VAULT_META_KEY_ALIAS)
@@ -496,30 +574,97 @@ class CryptoSecurityManager(
 
     fun verifyVaultPin(pin: String): Boolean = verifyVaultPinWithResult(pin) == VaultAuthResult.SUCCESS_REAL
     fun verifyDecoyPin(pin: String): Boolean = verifyVaultPinWithResult(pin) == VaultAuthResult.SUCCESS_DECOY
-    fun isSameAsVaultPin(pin: String): Boolean = isValidPinFormat(pin) && matchesRealPin(pin)
+    fun isSameAsVaultPin(pin: String): Boolean =
+        isValidPinFormat(pin) && matchesRealPin(pin) == PinMatch.MATCH
 
     fun verifyVaultPinWithResult(pin: String): VaultAuthResult {
         if (!isValidPinFormat(pin)) return VaultAuthResult.INVALID_FORMAT
-        val remainingLockout = getRemainingLockoutSeconds()
+        val remainingLockout = try {
+            getRemainingLockoutSeconds()
+        } catch (error: Exception) {
+            Log.e(TAG, "Vault lockout metadata could not be authenticated; PIN unlock is blocked", error)
+            return VaultAuthResult.CORRUPTED_STATE
+        }
         if (remainingLockout > 0) return VaultAuthResult.LOCKED_OUT(remainingLockout)
-        if (matchesRealPin(pin)) { resetFailedAttempts(); return VaultAuthResult.SUCCESS_REAL }
-        if (matchesDecoyPin(pin)) { resetFailedAttempts(); return VaultAuthResult.SUCCESS_DECOY }
+
+        when (matchesRealPin(pin)) {
+            PinMatch.MATCH -> { resetFailedAttempts(); return VaultAuthResult.SUCCESS_REAL }
+            PinMatch.CORRUPTED -> return VaultAuthResult.CORRUPTED_STATE
+            PinMatch.NO_MATCH -> Unit
+        }
+        when (matchesDecoyPin(pin)) {
+            PinMatch.MATCH -> { resetFailedAttempts(); return VaultAuthResult.SUCCESS_DECOY }
+            PinMatch.CORRUPTED -> return VaultAuthResult.CORRUPTED_STATE
+            PinMatch.NO_MATCH -> Unit
+        }
         return recordFailedAttempt()
     }
 
-    private fun matchesRealPin(pin: String): Boolean = matchesStoredPin(pin, "vault_pin_hash", "vault_pin_hash_iv", "vault_pin_salt", "vault_pin_salt_iv")
-    private fun matchesDecoyPin(pin: String): Boolean = matchesStoredPin(pin, "vault_decoy_pin_hash", "vault_decoy_pin_hash_iv", "vault_decoy_pin_salt", "vault_decoy_pin_salt_iv")
+    private enum class PinMatch { MATCH, NO_MATCH, CORRUPTED }
 
-    private fun matchesStoredPin(pin: String, hashKey: String, hashIvKey: String, saltKey: String, saltIvKey: String): Boolean {
-        val hash = prefs.getString(hashKey, null) ?: return false
-        val hashIv = prefs.getString(hashIvKey, null) ?: return false
-        val salt = prefs.getString(saltKey, null) ?: return false
-        val saltIv = prefs.getString(saltIvKey, null) ?: return false
+    private fun matchesRealPin(pin: String): PinMatch =
+        matchesStoredPin(pin, "vault_pin_hash", "vault_pin_hash_iv", "vault_pin_salt", "vault_pin_salt_iv", "real")
+
+    private fun matchesDecoyPin(pin: String): PinMatch =
+        matchesStoredPin(pin, "vault_decoy_pin_hash", "vault_decoy_pin_hash_iv", "vault_decoy_pin_salt", "vault_decoy_pin_salt_iv", "decoy")
+
+    private fun matchesStoredPin(
+        pin: String,
+        hashKey: String,
+        hashIvKey: String,
+        saltKey: String,
+        saltIvKey: String,
+        credentialLabel: String
+    ): PinMatch {
+        val encodedValues = try {
+            listOf(
+                prefs.getString(hashKey, null),
+                prefs.getString(hashIvKey, null),
+                prefs.getString(saltKey, null),
+                prefs.getString(saltIvKey, null)
+            )
+        } catch (error: Exception) {
+            Log.e(TAG, "Stored $credentialLabel PIN preferences are unreadable; unlock is blocked", error)
+            return PinMatch.CORRUPTED
+        }
+        if (encodedValues.all { it == null }) return PinMatch.NO_MATCH
+        if (encodedValues.any { it.isNullOrBlank() }) {
+            Log.e(TAG, "Stored $credentialLabel PIN metadata is incomplete; unlock is blocked")
+            return PinMatch.CORRUPTED
+        }
+
+        var expectedHash: ByteArray? = null
+        var decodedSalt: ByteArray? = null
+        var computedHash: ByteArray? = null
         return try {
-            val expectedHash = decryptBytes(Base64.decode(hash, Base64.NO_WRAP), Base64.decode(hashIv, Base64.NO_WRAP), VAULT_META_KEY_ALIAS)
-            val decodedSalt = decryptBytes(Base64.decode(salt, Base64.NO_WRAP), Base64.decode(saltIv, Base64.NO_WRAP), VAULT_META_KEY_ALIAS)
-            MessageDigest.isEqual(expectedHash, hashPin(pin, decodedSalt))
-        } catch (_: Exception) { false }
+            val encryptedHash = Base64.decode(encodedValues[0]!!, Base64.NO_WRAP)
+            val hashIv = Base64.decode(encodedValues[1]!!, Base64.NO_WRAP)
+            val encryptedSalt = Base64.decode(encodedValues[2]!!, Base64.NO_WRAP)
+            val saltIv = Base64.decode(encodedValues[3]!!, Base64.NO_WRAP)
+            require(hashIv.size == GCM_IV_LENGTH_BYTES && saltIv.size == GCM_IV_LENGTH_BYTES) {
+                "Stored PIN metadata has an invalid IV length"
+            }
+            require(encryptedHash.size >= 16 && encryptedSalt.size >= 16) {
+                "Stored PIN metadata ciphertext is truncated"
+            }
+            val decryptedHash = decryptBytes(encryptedHash, hashIv, VAULT_META_KEY_ALIAS)
+            expectedHash = decryptedHash
+            val decryptedSalt = decryptBytes(encryptedSalt, saltIv, VAULT_META_KEY_ALIAS)
+            decodedSalt = decryptedSalt
+            require(decryptedHash.size == 32 && decryptedSalt.size == 16) {
+                "Stored PIN metadata has an invalid plaintext length"
+            }
+            val derivedHash = hashPin(pin, decryptedSalt)
+            computedHash = derivedHash
+            if (MessageDigest.isEqual(decryptedHash, derivedHash)) PinMatch.MATCH else PinMatch.NO_MATCH
+        } catch (error: Exception) {
+            Log.e(TAG, "Stored $credentialLabel PIN metadata failed decoding or authentication; unlock is blocked", error)
+            PinMatch.CORRUPTED
+        } finally {
+            expectedHash?.fill(0)
+            decodedSalt?.fill(0)
+            computedHash?.fill(0)
+        }
     }
 
     fun changeVaultPin(oldPin: String, newPin: String): Boolean {

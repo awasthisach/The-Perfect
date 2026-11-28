@@ -2,16 +2,26 @@ package com.vvf.smartmanager
 
 import android.app.Activity
 import android.content.Intent
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.biometric.BiometricManager
 import androidx.lifecycle.lifecycleScope
 import com.vvf.smartmanager.core.cloud.gdrive.GoogleDriveAuth
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
 import com.vvf.smartmanager.core.data.permission.StoragePermissionGate
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import android.os.Bundle
 import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,6 +33,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -34,8 +45,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -82,47 +96,78 @@ class MainActivity : FragmentActivity() {
      */
     private var pendingGoogleDriveSignInCallback: ((Result<String>) -> Unit)? = null
 
-    private val googleDriveSignInLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
+    private val googleDriveAuthorizationLauncher = registerForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
     ) { activityResult ->
+        val result = if (activityResult.resultCode == Activity.RESULT_OK) {
+            googleDriveAuth.handleAuthorizationActivityResult(activityResult.data)
+        } else {
+            Result.failure(IllegalStateException("Google Drive authorization was cancelled."))
+        }
+        completeGoogleDriveAuthorization(result)
+    }
+
+    private fun completeGoogleDriveAuthorization(result: Result<String>) {
         val app = application as VVFApplication
         val callback = pendingGoogleDriveSignInCallback
         pendingGoogleDriveSignInCallback = null
         app.pendingGoogleDriveSignInCallback = null
-        lifecycleScope.launch {
-            val result = googleDriveAuth.handleSignInActivityResult(
-                resultCode = activityResult.resultCode,
-                data = activityResult.data
-            )
-            result.onSuccess { token ->
-                runCatching { app.googleDriveService.setAccessToken(token) }
-            }
-            callback?.invoke(result)
+        result.onSuccess { token ->
+            runCatching { app.googleDriveService.setAccessToken(token) }
         }
+        callback?.invoke(result)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        googleDriveAuth = GoogleDriveAuth(this, BuildConfig.GOOGLE_WEB_CLIENT_ID)
+        val app = application as VVFApplication
+        googleDriveAuth = GoogleDriveAuth(
+            context = this,
+            serverClientId = BuildConfig.GOOGLE_WEB_CLIENT_ID,
+            networkAllowed = { !app.isOfflineOnlyModeEnabled() }
+        )
         enableEdgeToEdge()
         setContent {
             VVFSmartManagerTheme {
                 VVFAppContent(
-                    onGoogleDriveSignInRequested = { callback ->
-                        if (
-                            BuildConfig.GOOGLE_WEB_CLIENT_ID.isBlank() ||
-                            BuildConfig.GOOGLE_WEB_CLIENT_ID == "__UNCONFIGURED__"
-                        ) {
-                            callback(
-                                Result.failure(
-                                    IllegalStateException(
-                                        "Google Drive is not configured. Add GOOGLE_WEB_CLIENT_ID through the app secret configuration."
-                                    )
-                                )
-                            )
+                    onFirebaseIdentityChange = { connect ->
+                        val firebaseAuth = FirebaseAuth.getInstance()
+                        if (connect) {
+                            // Exchange the Google ID token for a Firebase session. It is not
+                            // a Firebase ID token and is never used as a Drive access token.
+                            val googleIdToken = googleDriveAuth.requestGoogleIdToken().getOrThrow()
+                            firebaseAuth.signInWithCredential(
+                                GoogleAuthProvider.getCredential(googleIdToken, null)
+                            ).await()
+                            firebaseAuth.currentUser != null
                         } else {
-                            pendingGoogleDriveSignInCallback = callback
-                            googleDriveSignInLauncher.launch(googleDriveAuth.buildDriveSignInIntent())
+                            firebaseAuth.signOut()
+                            true
+                        }
+                    },
+                    onGoogleDriveSignInRequested = { callback ->
+                        val app = application as VVFApplication
+                        pendingGoogleDriveSignInCallback = callback
+                        app.pendingGoogleDriveSignInCallback = callback
+                        lifecycleScope.launch {
+                            try {
+                                val authorization = googleDriveAuth.authorizeDriveAccess().await()
+                                if (authorization.hasResolution()) {
+                                    val pendingIntent = authorization.pendingIntent
+                                        ?: throw IllegalStateException("Google Drive authorization did not provide a consent action.")
+                                    googleDriveAuthorizationLauncher.launch(
+                                        IntentSenderRequest.Builder(pendingIntent.intentSender).build()
+                                    )
+                                } else {
+                                    completeGoogleDriveAuthorization(
+                                        googleDriveAuth.accessTokenFromAuthorizationResult(authorization)
+                                    )
+                                }
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                completeGoogleDriveAuthorization(Result.failure(error))
+                            }
                         }
                     }
                 )
@@ -133,11 +178,43 @@ class MainActivity : FragmentActivity() {
 
 @Composable
 fun VVFAppContent(
-    onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit
+    onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit,
+    onFirebaseIdentityChange: suspend (Boolean) -> Boolean
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val app = context.applicationContext as VVFApplication
+    val startupState by app.startupReadiness.state.collectAsState()
+
+    if (startupState != StartupState.Ready) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                when (val state = startupState) {
+                    StartupState.Initializing -> {
+                        CircularProgressIndicator()
+                        Text("Preparing secure storage…", modifier = Modifier.padding(top = 16.dp))
+                    }
+                    StartupState.Recovering -> {
+                        CircularProgressIndicator()
+                        Text("Recovering vault and search metadata…", modifier = Modifier.padding(top = 16.dp))
+                    }
+                    is StartupState.Failed -> {
+                        Text(
+                            "Secure startup failed. Vault, search, and indexing remain disabled.",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        Text(state.reason, modifier = Modifier.padding(top = 8.dp))
+                    }
+                    StartupState.Ready -> Unit
+                }
+            }
+        }
+        return
+    }
 
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -210,7 +287,7 @@ fun VVFAppContent(
                         )
                     }
                 }
-                VVFNavHost(navController = navController, app = app, onGoogleDriveSignInRequested = onGoogleDriveSignInRequested, modifier = Modifier.fillMaxSize())
+                VVFNavHost(navController = navController, app = app, onGoogleDriveSignInRequested = onGoogleDriveSignInRequested, onFirebaseIdentityChange = onFirebaseIdentityChange, modifier = Modifier.fillMaxSize())
             }
         } else {
             Scaffold(
@@ -271,122 +348,10 @@ fun VVFAppContent(
                     navController = navController,
                     app = app,
                     onGoogleDriveSignInRequested = onGoogleDriveSignInRequested,
+                    onFirebaseIdentityChange = onFirebaseIdentityChange,
                     modifier = Modifier.fillMaxSize().padding(innerPadding)
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun VVFNavHost(
-    navController: androidx.navigation.NavHostController,
-    app: VVFApplication,
-    onGoogleDriveSignInRequested: ((Result<String>) -> Unit) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    NavHost(
-        navController = navController,
-        startDestination = TopLevelDestination.EXPLORER.route,
-        enterTransition = { fadeIn(animationSpec = tween(250)) + slideInHorizontally(animationSpec = tween(250), initialOffsetX = { it / 4 }) },
-        exitTransition = { fadeOut(animationSpec = tween(200)) + slideOutHorizontally(animationSpec = tween(200), targetOffsetX = { -it / 4 }) },
-        popEnterTransition = { fadeIn(animationSpec = tween(250)) + slideInHorizontally(animationSpec = tween(250), initialOffsetX = { -it / 4 }) },
-        popExitTransition = { fadeOut(animationSpec = tween(200)) + slideOutHorizontally(animationSpec = tween(200), targetOffsetX = { it / 4 }) },
-        modifier = modifier
-    ) {
-        composable(TopLevelDestination.EXPLORER.route) {
-            val explorerViewModel: ExplorerViewModel = viewModel(
-                factory = ExplorerViewModel.provideFactory(
-                    appContext = app,
-                    getDirectoryFilesUseCase = app.getDirectoryFilesUseCase,
-                    getCategorizedFilesUseCase = app.getCategorizedFilesUseCase,
-                    getStorageOverviewUseCase = app.getStorageOverviewUseCase,
-                    fileOperationsUseCase = app.fileOperationsUseCase,
-                    recycleBinUseCase = app.recycleBinUseCase,
-                    cloudSyncUseCase = app.cloudSyncUseCase,
-                    ocrEngine = app.ocrPlugin
-                )
-            )
-            ExplorerScreen(
-                viewModel = explorerViewModel,
-                onNavigateToSettings = { navController.navigate(TopLevelDestination.SETTINGS.route) },
-                onNavigateToPlugins = { navController.navigate(TopLevelDestination.PLUGINS.route) },
-                onStorageAccessGranted = { app.backgroundSyncManager.triggerImmediateIndexing() }
-            )
-        }
-        composable(TopLevelDestination.VAULT.route) {
-            val vaultViewModel: VaultViewModel = viewModel(
-                factory = VaultViewModel.provideFactory(
-                    getVaultItemsUseCase = app.getVaultItemsUseCase,
-                    lockFileInVaultUseCase = app.lockFileInVaultUseCase,
-                    restoreVaultItemUseCase = app.restoreVaultItemUseCase,
-                    exportVaultItemUseCase = app.exportVaultItemUseCase,
-                    deleteVaultItemUseCase = app.deleteVaultItemUseCase,
-                    vaultAuthUseCase = app.vaultAuthUseCase
-                )
-            )
-            VaultScreen(viewModel = vaultViewModel)
-        }
-        composable(TopLevelDestination.CLEANER.route) {
-            val cleanerViewModel: CleanerViewModel = viewModel(
-                factory = CleanerViewModel.provideFactory(
-                    duplicateCleanerUseCase = app.duplicateCleanerUseCase,
-                    junkCleanerUseCase = app.junkCleanerUseCase,
-                    aiIntelligenceUseCase = app.aiIntelligenceUseCase,
-                    canScanPrimaryStorage = { StoragePermissionGate(app).evaluate().canBrowsePrimaryTree }
-                )
-            )
-            CleanerScreen(viewModel = cleanerViewModel)
-        }
-        composable(TopLevelDestination.SEARCH.route) {
-            val searchViewModel: SearchViewModel = viewModel(
-                factory = SearchViewModel.provideFactory(
-                    searchFilesUseCase = app.searchFilesUseCase,
-                    searchHistoryUseCase = app.searchHistoryUseCase,
-                    tagManagementUseCase = app.tagManagementUseCase,
-                    fileOperationsUseCase = app.fileOperationsUseCase,
-                    searchIndexManagementUseCase = app.searchIndexManagementUseCase,
-                    semanticSearchUseCase = app.semanticSearchUseCase,
-                    aiIntelligenceUseCase = app.aiIntelligenceUseCase
-                )
-            )
-            SearchScreen(viewModel = searchViewModel)
-        }
-        composable(TopLevelDestination.CLOUD.route) {
-            val cloudViewModel: CloudViewModel = viewModel(
-                factory = CloudViewModel.provideFactory(
-                    cloudSyncUseCase = app.cloudSyncUseCase,
-                    googleDriveService = app.googleDriveService
-                )
-            )
-            CloudRoute(
-                viewModel = cloudViewModel,
-                onGoogleDriveSignInRequested = {
-                    onGoogleDriveSignInRequested { accessTokenResult ->
-                        cloudViewModel.completeGoogleDriveSignIn(accessTokenResult)
-                    }
-                }
-            )
-        }
-        composable(TopLevelDestination.PLUGINS.route) {
-            val pluginsViewModel: PluginsViewModel = viewModel(
-                factory = PluginsViewModel.provideFactory(
-                    ocrPlugin = app.ocrPlugin,
-                    extractTextUseCase = app.extractTextUseCase,
-                    indexOcrTextUseCase = app.indexOcrTextUseCase,
-                    saveOcrTextUseCase = app.saveOcrTextUseCase
-                )
-            )
-            PluginsScreen(viewModel = pluginsViewModel, onNavigateBack = { navController.popBackStack() })
-        }
-        composable(TopLevelDestination.SETTINGS.route) {
-            SettingsScreen(
-                initialAutoIndexOcr = app.isAutoIndexOcrEnabled(),
-                onAutoIndexOcrChange = { enabled -> app.setAutoIndexOcrEnabled(enabled) },
-                initialOfflineOnlyMode = app.isOfflineOnlyModeEnabled(),
-                onOfflineOnlyModeChange = { enabled -> app.setOfflineOnlyModeEnabled(enabled) },
-                onNavigateBack = { navController.popBackStack() }
-            )
         }
     }
 }

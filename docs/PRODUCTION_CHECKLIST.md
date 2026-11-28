@@ -7,7 +7,13 @@ This checklist records owner-controlled release work. Completing a checkbox requ
 - [ ] Run **Nightly ORT Compliance Scan** on the exact candidate commit (manual dispatch if needed), then review the successful run in GitHub Actions.
 - [ ] Download the `ort-results-evidence` artifact and verify `ort-status.json.scan_revision` exactly matches the release commit SHA; retain the run URL and artifact.
 - [ ] Confirm Analyzer, Scanner, Evaluator, Advisor, and SBOM/Reporter outputs exist and are valid.
+- [ ] Confirm the GradleInspector uses Java 17, the Gradle plugin portal resolves, AndroidX/Kotlin Maven packages appear in analyzer output, and the analyzer has no ERROR issues. Retain the Gradle preflight log from the evidence artifact.
+- [ ] Confirm the Advisor is configured with OSV and contains package-level analysis results; an empty `advisor.results` object is not evidence that no vulnerabilities were checked.
+- [ ] Confirm SPDX and CycloneDX SBOM license coverage is at least 80% (no more than 20% missing/`NOASSERTION` license data) before the workflow stages SBOMs into `docs/assurance/`. This is the verifier's implementation threshold, not a value selected in the remediation plan; obtain owner approval before treating it as settled policy.
 - [ ] Review every Evaluator license finding and Advisor vulnerability; record package, version, license/CVE, severity, disposition, and supporting evidence.
+- [ ] Treat GitHub Actions tooling separately from APK dependencies only through reviewed policy configuration. Curate `setup-android` / `setup-java` only after matching exact package IDs and scanner findings to pinned upstream LICENSE evidence.
+- [ ] Keep GPL/LGPL findings in action `dist/*` bundles visible for legal review; do not auto-suppress them. Mark fixture-only matches as non-shipping only after confirming the exact file/path evidence.
+- [ ] Decide and document the root project license with the project owner before adding a root `LICENSE`; add a `NOTICE` only if required for the selected license and bundled attributions. Do not claim a license based solely on scanner inference.
 - [ ] Fix or document findings through precise, evidence-backed curations; do not add blanket allowlists or suppress unresolved findings.
 - [ ] Re-run ORT after remediation and attach results to Issue #136.
 - [ ] Keep CPAS blocked until its risk register and gate evidence are legitimately updated.

@@ -35,7 +35,7 @@ object BitmapUtils {
     ): Bitmap? {
         val file = File(filePath)
         if (!file.exists() || !file.canRead()) {
-            Log.w(TAG, "File does not exist or cannot be read: $filePath")
+            Log.w(TAG, "Image file does not exist or cannot be read")
             return null
         }
 
@@ -47,7 +47,7 @@ object BitmapUtils {
             BitmapFactory.decodeFile(filePath, options)
 
             if (options.outWidth <= 0 || options.outHeight <= 0) {
-                Log.w(TAG, "Invalid image bounds for file: $filePath (${options.outWidth}x${options.outHeight})")
+                Log.w(TAG, "Invalid image bounds (${options.outWidth}x${options.outHeight})")
                 return null
             }
 
@@ -76,10 +76,10 @@ object BitmapUtils {
                 decodedBitmap
             }
         } catch (oom: OutOfMemoryError) {
-            Log.e(TAG, "OOM caught while decoding image: $filePath. Falling back to extreme downsampling.", oom)
+            Log.e(TAG, "Image decode exceeded memory; using extreme downsampling")
             decodeExtremeFallback(filePath, config)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to decode image from path: $filePath", e)
+            Log.e(TAG, "Image decode failed (${e.javaClass.simpleName})")
             null
         }
     }
@@ -129,7 +129,7 @@ object BitmapUtils {
                 else -> 0f
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Could not read EXIF data for $filePath: ${e.message}")
+            Log.w(TAG, "Could not read image EXIF data (${e.javaClass.simpleName})")
             0f
         }
     }
@@ -152,10 +152,10 @@ object BitmapUtils {
             }
             rotatedBitmap
         } catch (oom: OutOfMemoryError) {
-            Log.w(TAG, "OOM while rotating bitmap, returning original unrotated bitmap.", oom)
+            Log.w(TAG, "Image rotation exceeded memory; returning original bitmap")
             bitmap
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to rotate bitmap: ${e.message}")
+            Log.w(TAG, "Image rotation failed (${e.javaClass.simpleName})")
             bitmap
         }
     }
@@ -169,7 +169,7 @@ object BitmapUtils {
                 bitmap.recycle()
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Error recycling bitmap: ${e.message}")
+            Log.w(TAG, "Bitmap recycling failed (${e.javaClass.simpleName})")
         }
     }
 
@@ -199,7 +199,7 @@ object BitmapUtils {
             }
             BitmapFactory.decodeFile(filePath, options)
         } catch (e: Exception) {
-            Log.e(TAG, "Extreme fallback failed: ${e.message}")
+            Log.e(TAG, "Image fallback failed (${e.javaClass.simpleName})")
             null
         }
     }

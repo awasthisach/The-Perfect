@@ -20,11 +20,143 @@ REQUIRED_OUTPUTS = RESULT_JSON_FILES + (
     "bom.spdx.json",
     "bom.spdx.yml",
 )
+# Provisional implementation choice: the remediation plan suggested a threshold
+# but did not specify its value; owner approval is still required.
+MAX_UNASSERTED_LICENSE_PERCENT = 20.0
+DOCUMENT_NAMESPACE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:[^\s]+$")
+
+CURATION_BLOCK_RE = re.compile(
+    r'(?ms)^\s*-\s+id:\s*"(?P<package_id>[^"]+)"\s*\n'
+    r"(?P<body>.*?)(?=^\s*-\s+id:|\Z)"
+)
+SOURCE_PIN_RE = re.compile(
+    r"source_artifact_url=(?P<url>\S+)\s+"
+    r"source_artifact_sha1=(?P<sha1>[0-9a-fA-F]{40})"
+)
+def _package_id(item: object) -> str:
+    """Return an ORT package identifier from supported report shapes."""
+    if not isinstance(item, dict):
+        return ""
+    package_id = item.get("id")
+    if isinstance(package_id, str):
+        return package_id
+    package = item.get("package")
+    if isinstance(package, dict) and isinstance(package.get("id"), str):
+        return package["id"]
+    return ""
 
 
-def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str]:
+def _iter_issue_records(value: object):
+    """Yield issue records from the ORT project-keyed issue mapping."""
+    if isinstance(value, dict):
+        if isinstance(value.get("severity"), str):
+            yield value
+        else:
+            for child in value.values():
+                yield from _iter_issue_records(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _iter_issue_records(child)
+
+
+def _license_is_asserted(value: object) -> bool:
+    """Treat SPDX NONE as explicit, but not NOASSERTION or missing license data."""
+    return isinstance(value, str) and bool(value.strip()) and value.strip().upper() != "NOASSERTION"
+
+
+def _cyclonedx_license_is_asserted(component: object) -> bool:
+    """Return whether a CycloneDX component has a non-empty license choice."""
+    if not isinstance(component, dict) or not isinstance(component.get("licenses"), list):
+        return False
+    for entry in component["licenses"]:
+        if not isinstance(entry, dict):
+            continue
+        if _license_is_asserted(entry.get("expression")):
+            return True
+        license_data = entry.get("license")
+        if isinstance(license_data, dict) and any(
+            _license_is_asserted(license_data.get(field))
+            for field in ("id", "name", "url", "text")
+        ):
+            return True
+    return False
+
+
+def _license_coverage(items: list[object], license_fields: tuple[str, ...]) -> tuple[int, int]:
+    """Return (items without any asserted license, total items)."""
+    unasserted = 0
+    for item in items:
+        fields = item if isinstance(item, dict) else {}
+        if not any(_license_is_asserted(fields.get(field)) for field in license_fields):
+            unasserted += 1
+    return unasserted, len(items)
+
+
+
+def validate_source_artifact_pins(
+    analyzer_data: dict, curations_file: Path
+) -> list[str]:
+    """Verify each ORT source-origin curation against the analyzer-resolved URL and SHA-1."""
+    problems: list[str] = []
+    try:
+        curations_text = curations_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        return [f"curations file is unreadable: {exc}"]
+
+    analyzer = analyzer_data.get("analyzer")
+    result = analyzer.get("result") if isinstance(analyzer, dict) else None
+    packages = result.get("packages") if isinstance(result, dict) else None
+    if not isinstance(packages, list):
+        return ["analyzer-result.json: packages list is unavailable for source-artifact pin validation"]
+    packages_by_id = {
+        item.get("id"): item
+        for item in packages
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+
+    for match in CURATION_BLOCK_RE.finditer(curations_text):
+        package_id = match.group("package_id")
+        body = match.group("body")
+        comment_match = re.search(r'(?m)^\s+comment:\s*"([^"]*)"\s*$', body)
+        if not comment_match:
+            problems.append(f"{package_id}: curation comment is missing")
+            continue
+        pin_match = SOURCE_PIN_RE.search(comment_match.group(1))
+        if not pin_match:
+            problems.append(f"{package_id}: source artifact URL/SHA-1 pin is missing")
+            continue
+
+        package = packages_by_id.get(package_id)
+        if package is None:
+            problems.append(f"{package_id}: package is missing from ORT analyzer output")
+            continue
+        source = package.get("source_artifact")
+        if not isinstance(source, dict):
+            problems.append(f"{package_id}: ORT analyzer did not resolve a source artifact")
+            continue
+        actual_url = source.get("url")
+        actual_hash = source.get("hash")
+        expected_url = pin_match.group("url")
+        expected_sha1 = pin_match.group("sha1").lower()
+        if actual_url != expected_url:
+            problems.append(
+                f"{package_id}: source artifact URL {actual_url!r} does not match pinned {expected_url!r}"
+            )
+        if not isinstance(actual_hash, dict) or actual_hash.get("algorithm") != "SHA-1":
+            problems.append(f"{package_id}: ORT source artifact SHA-1 is missing")
+        elif str(actual_hash.get("value", "")).lower() != expected_sha1:
+            problems.append(
+                f"{package_id}: source artifact SHA-1 {actual_hash.get('value')!r} does not match pinned {expected_sha1!r}"
+            )
+    return problems
+
+
+def validate_outputs(
+    results_dir: Path, revision: str | None = None, curations_file: Path | None = None
+) -> list[str]:
     """Return missing, empty, malformed, or wrong-format ORT outputs."""
     problems: list[str] = []
+    analyzer_package_count = 0
     for name in REQUIRED_OUTPUTS:
         path = results_dir / name
         if not path.is_file():
@@ -33,10 +165,12 @@ def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str
             problems.append(f"{name}: empty")
 
     ort_sections = {
-        "analyzer-result.json": ("analyzer", "result"),
-        "scan-result.json": ("scanner", "scanResults"),
-        "evaluation-result.json": ("evaluator", "violations"),
-        "advisor-result.json": ("advisor", "results"),
+        "analyzer-result.json": ("analyzer", ("result",)),
+        # ORT 98 uses snake_case; retain the historical form for older pinned
+        # ORT outputs without weakening the requirement for a real list.
+        "scan-result.json": ("scanner", ("scan_results", "scanResults")),
+        "evaluation-result.json": ("evaluator", ("violations",)),
+        "advisor-result.json": ("advisor", ("results",)),
     }
 
     for name in RESULT_JSON_FILES + ("bom.cyclonedx.json", "bom.spdx.json"):
@@ -71,10 +205,15 @@ def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str
                 )
                 continue
 
-            section_name, result_name = ort_sections[name]
+            section_name, result_names = ort_sections[name]
             section = data.get(section_name)
             expected_type = dict if name in ("analyzer-result.json", "advisor-result.json") else list
-            if not isinstance(section, dict) or not isinstance(section.get(result_name), expected_type):
+            result_name = next(
+                (candidate for candidate in result_names
+                 if isinstance(section.get(candidate), expected_type)),
+                None,
+            ) if isinstance(section, dict) else None
+            if not isinstance(section, dict) or result_name is None:
                 expected_label = "object" if expected_type is dict else "list"
                 problems.append(
                     f"{name}: missing valid ORT {section_name}.{result_name} {expected_label}"
@@ -82,8 +221,60 @@ def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str
                 continue
             if name == "analyzer-result.json":
                 analyzer_result = section[result_name]
-                if not isinstance(analyzer_result.get("projects"), list) or not isinstance(analyzer_result.get("packages"), list):
+                projects = analyzer_result.get("projects")
+                packages = analyzer_result.get("packages")
+                if not isinstance(projects, list) or not isinstance(packages, list):
                     problems.append(f"{name}: analyzer result must include projects and packages lists")
+                else:
+                    analyzer_package_count = len(packages)
+                    if not projects:
+                        problems.append(f"{name}: analyzer result contains no projects")
+                    if not packages:
+                        problems.append(f"{name}: analyzer result contains no packages")
+
+                    gradle_projects = [
+                        project for project in projects
+                        if isinstance(project, dict)
+                        and (
+                            str(project.get("id", "")).startswith("Gradle:")
+                            or str(project.get("purl", "")).lower().startswith("pkg:gradle/")
+                        )
+                    ]
+                    maven_packages = [
+                        package for package in packages
+                        if (
+                            _package_id(package).startswith("Maven:")
+                            or str(package.get("purl", "") if isinstance(package, dict) else "")
+                            .lower().startswith("pkg:maven/")
+                        )
+                    ]
+                    if gradle_projects and not maven_packages:
+                        problems.append(
+                            f"{name}: found {len(gradle_projects)} Gradle project(s) "
+                            "but zero Maven dependency packages; dependency analysis is incomplete"
+                        )
+
+                    analyzer_issues = analyzer_result.get("issues", {})
+                    error_issues = [
+                        issue for issue in _iter_issue_records(analyzer_issues)
+                        if issue.get("severity", "").upper() == "ERROR"
+                    ]
+                    if error_issues:
+                        first_message = str(error_issues[0].get("message", "")).splitlines()[0][:240]
+                        problems.append(
+                            f"{name}: analyzer recorded {len(error_issues)} ERROR issue(s); "
+                            f"first: {first_message}"
+                        )
+
+                    if curations_file is not None:
+                        problems.extend(validate_source_artifact_pins(data, curations_file))
+            elif name == "scan-result.json" and not section[result_name]:
+                problems.append(f"{name}: scanner result contains no package scan results")
+            elif name == "advisor-result.json" and analyzer_package_count and not section[result_name]:
+                problems.append(
+                    f"{name}: advisor has no package analysis results for {analyzer_package_count} analyzed package(s); "
+                    "an empty result is not evidence of no vulnerabilities"
+                )
         elif name == "bom.cyclonedx.json":
             if data.get("bomFormat") != "CycloneDX":
                 problems.append(f"{name}: bomFormat is not CycloneDX")
@@ -91,6 +282,20 @@ def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str
                 problems.append(f"{name}: missing valid specVersion")
             if not isinstance(data.get("version"), int) or data["version"] < 1:
                 problems.append(f"{name}: missing valid positive BOM version")
+            components = data.get("components")
+            if not isinstance(components, list) or not components:
+                problems.append(f"{name}: components list is missing or empty")
+            else:
+                unasserted = sum(
+                    not _cyclonedx_license_is_asserted(component)
+                    for component in components
+                )
+                percent = 100.0 * unasserted / len(components)
+                if percent > MAX_UNASSERTED_LICENSE_PERCENT:
+                    problems.append(
+                        f"{name}: {unasserted}/{len(components)} component(s) ({percent:.1f}%) lack license data; "
+                        f"maximum allowed is {MAX_UNASSERTED_LICENSE_PERCENT:.1f}%"
+                    )
         elif name == "bom.spdx.json":
             required_spdx_strings = ("spdxVersion", "dataLicense", "SPDXID", "name", "documentNamespace")
             missing_fields = [
@@ -103,8 +308,23 @@ def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str
                 problems.append(f"{name}: missing valid spdxVersion")
             if data.get("SPDXID") != "SPDXRef-DOCUMENT":
                 problems.append(f"{name}: SPDXID must be SPDXRef-DOCUMENT")
+            namespace = data.get("documentNamespace")
+            if isinstance(namespace, str) and namespace.strip() and not DOCUMENT_NAMESPACE_RE.fullmatch(namespace.strip()):
+                problems.append(f"{name}: documentNamespace is not a valid URI with a scheme")
             if not isinstance(data.get("packages"), list):
                 problems.append(f"{name}: packages must be a list")
+            elif not data["packages"]:
+                problems.append(f"{name}: packages list is empty")
+            else:
+                unasserted, total = _license_coverage(
+                    data["packages"], ("licenseDeclared", "licenseConcluded")
+                )
+                percent = 100.0 * unasserted / total
+                if percent > MAX_UNASSERTED_LICENSE_PERCENT:
+                    problems.append(
+                        f"{name}: {unasserted}/{total} package(s) ({percent:.1f}%) have no declared or concluded license; "
+                        f"maximum allowed is {MAX_UNASSERTED_LICENSE_PERCENT:.1f}%"
+                    )
 
     xml_path = results_dir / "bom.cyclonedx.xml"
     if xml_path.is_file() and xml_path.stat().st_size:
@@ -113,6 +333,8 @@ def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str
             local_name = root.tag.rsplit("}", 1)[-1]
             if local_name != "bom" or "cyclonedx.org/schema" not in root.tag:
                 problems.append("bom.cyclonedx.xml: root is not a CycloneDX bom")
+            elif not any(node.tag.rsplit("}", 1)[-1] == "component" for node in root.iter()):
+                problems.append("bom.cyclonedx.xml: contains no components")
         except (OSError, ET.ParseError) as exc:
             problems.append(f"bom.cyclonedx.xml: invalid XML ({exc})")
 
@@ -127,12 +349,32 @@ def validate_outputs(results_dir: Path, revision: str | None = None) -> list[str
                 "spdxVersion": r"(?m)^spdxVersion:\s*['\"]?SPDX-\d+\.\d+['\"]?\s*$",
                 "SPDXID": r"(?m)^SPDXID:\s*['\"]?SPDXRef-DOCUMENT['\"]?\s*$",
                 "name": r"(?m)^name:\s*\S",
-                "documentNamespace": r"(?m)^documentNamespace:\s*https?://\S+",
-                "packages": r"(?m)^packages:\s*(?:\[\]|\s*)$",
+                "documentNamespace": r'''(?m)^documentNamespace:\s*[\"']?[A-Za-z][A-Za-z0-9+.-]*:[^\"'\s]+[\"']?\s*$''',
             }
             for field, pattern in required_yaml_patterns.items():
                 if not re.search(pattern, yaml_text):
                     problems.append(f"bom.spdx.yml: missing or invalid {field} field")
+
+            package_lines = yaml_text.splitlines()
+            package_line_index = next(
+                (index for index, line in enumerate(package_lines)
+                 if re.match(r"^packages:\s*(.*)$", line)),
+                None,
+            )
+            if package_line_index is None:
+                problems.append("bom.spdx.yml: missing packages field")
+            else:
+                package_line = re.match(r"^packages:\s*(.*)$", package_lines[package_line_index])
+                inline_packages = package_line.group(1).strip() if package_line else ""
+                if inline_packages == "[]":
+                    problems.append("bom.spdx.yml: packages list is empty")
+                elif not inline_packages:
+                    first_item = next(
+                        (line.strip() for line in package_lines[package_line_index + 1:] if line.strip()),
+                        "",
+                    )
+                    if not first_item.startswith("-"):
+                        problems.append("bom.spdx.yml: packages list is empty")
 
     return problems
 
@@ -141,9 +383,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--results-dir", type=Path, required=True)
     parser.add_argument("--revision", required=True)
+    parser.add_argument("--curations-file", type=Path, default=Path(".ort.yml"))
+    parser.add_argument("--report-file", type=Path, help="Optional path to persist the JSON validation report")
     args = parser.parse_args()
 
-    problems = validate_outputs(args.results_dir, args.revision)
+    problems = validate_outputs(args.results_dir, args.revision, args.curations_file)
     report = {
         "gate_id": "GATE-LICENSE-001",
         "revision": args.revision,
@@ -152,7 +396,10 @@ def main() -> int:
         "validation_problems": problems,
         "status": "PASS" if not problems else "BLOCKED",
     }
-    print(json.dumps(report, indent=2))
+    report_json = json.dumps(report, indent=2) + "\n"
+    if args.report_file is not None:
+        args.report_file.write_text(report_json, encoding="utf-8")
+    print(report_json, end="")
     return 1 if problems else 0
 
 

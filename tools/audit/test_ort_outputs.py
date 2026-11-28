@@ -21,11 +21,16 @@ class OrtOutputValidationTest(unittest.TestCase):
         reports = {
             "analyzer-result.json": {
                 "repository": repository,
-                "analyzer": {"result": {"projects": [], "packages": []}},
+                "analyzer": {
+                    "result": {
+                        "projects": [{"id": "Gradle:com.vvf:app:1.0"}],
+                        "packages": [{"id": "Maven:example:library:1.2.3"}],
+                    }
+                },
             },
             "scan-result.json": {
                 "repository": repository,
-                "scanner": {"scanResults": []},
+                "scanner": {"scan_results": [{"id": "Maven:example:library:1.2.3"}]},
             },
             "evaluation-result.json": {
                 "repository": repository,
@@ -33,13 +38,16 @@ class OrtOutputValidationTest(unittest.TestCase):
             },
             "advisor-result.json": {
                 "repository": repository,
-                "advisor": {"results": {}},
+                "advisor": {"results": {"Maven:example:library:1.2.3": [{"vulnerabilities": []}]}},
             },
             "bom.cyclonedx.json": {
                 "bomFormat": "CycloneDX",
                 "specVersion": "1.6",
                 "version": 1,
-                "components": [],
+                "components": [
+                    {"type": "library", "name": "example-library", "version": "1.2.3",
+                     "licenses": [{"license": {"id": "MIT"}}]}
+                ],
             },
             "bom.spdx.json": {
                 "spdxVersion": "SPDX-2.3",
@@ -47,17 +55,31 @@ class OrtOutputValidationTest(unittest.TestCase):
                 "SPDXID": "SPDXRef-DOCUMENT",
                 "name": "The-Perfect test SBOM",
                 "documentNamespace": "https://example.invalid/sbom/test",
-                "packages": [],
+                "packages": [
+                    {"SPDXID": "SPDXRef-Package-library", "name": "example-library",
+                     "licenseDeclared": "MIT", "licenseConcluded": "MIT"}
+                ],
             },
         }
         for name, report in reports.items():
             (root / name).write_text(json.dumps(report), encoding="utf-8")
         (root / "bom.cyclonedx.xml").write_text(
-            '<bom xmlns="http://cyclonedx.org/schema/bom/1.6" version="1"><components /></bom>',
+            '<bom xmlns="http://cyclonedx.org/schema/bom/1.6" version="1">'
+            '<components><component type="library" bom-ref="pkg:generic/example-library@1.2.3">'
+            '<name>example-library</name><version>1.2.3</version>'
+            '</component></components></bom>',
             encoding="utf-8",
         )
         (root / "bom.spdx.yml").write_text(
-            "spdxVersion: SPDX-2.3\nSPDXID: SPDXRef-DOCUMENT\nname: Test SBOM\ndocumentNamespace: https://example.invalid/sbom/test\npackages: []\n",
+            "spdxVersion: SPDX-2.3\n"
+            "SPDXID: SPDXRef-DOCUMENT\n"
+            "name: Test SBOM\n"
+            "documentNamespace: https://example.invalid/sbom/test\n"
+            "packages:\n"
+            "  - SPDXID: SPDXRef-Package-library\n"
+            "    name: example-library\n"
+            "    licenseDeclared: MIT\n"
+            "    licenseConcluded: MIT\n",
             encoding="utf-8",
         )
 
@@ -120,6 +142,142 @@ class OrtOutputValidationTest(unittest.TestCase):
             root = Path(directory)
             self.write_valid_reports(root)
             self.assertEqual([], validate_outputs(root, expected_revision))
+
+
+    def test_spdx_uri_namespace_is_accepted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            yaml_path = root / "bom.spdx.yml"
+            yaml_text = yaml_path.read_text(encoding="utf-8").replace(
+                "documentNamespace: https://example.invalid/sbom/test",
+                "documentNamespace: spdx://c0022b89-0000-4000-8000-000000000000",
+            )
+            yaml_path.write_text(yaml_text, encoding="utf-8")
+            self.assertEqual([], validate_outputs(root))
+
+    def test_missing_spdx_uri_namespace_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            yaml_path = root / "bom.spdx.yml"
+            yaml_text = yaml_path.read_text(encoding="utf-8").replace(
+                "documentNamespace: https://example.invalid/sbom/test",
+                "documentNamespace: ",
+            )
+            yaml_path.write_text(yaml_text, encoding="utf-8")
+            problems = validate_outputs(root)
+            self.assertTrue(
+                any("bom.spdx.yml: missing or invalid documentNamespace field" in item
+                    for item in problems)
+            )
+
+    def test_generic_uri_namespace_is_accepted_in_json_and_yaml(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            namespace = "urn:uuid:123e4567-e89b-12d3-a456-426614174000"
+            spdx_path = root / "bom.spdx.json"
+            spdx = json.loads(spdx_path.read_text(encoding="utf-8"))
+            spdx["documentNamespace"] = namespace
+            spdx_path.write_text(json.dumps(spdx), encoding="utf-8")
+            yaml_path = root / "bom.spdx.yml"
+            yaml_path.write_text(
+                yaml_path.read_text(encoding="utf-8").replace(
+                    "https://example.invalid/sbom/test", namespace
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual([], validate_outputs(root))
+
+    def test_malformed_json_spdx_namespace_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            spdx_path = root / "bom.spdx.json"
+            spdx = json.loads(spdx_path.read_text(encoding="utf-8"))
+            spdx["documentNamespace"] = "not a uri"
+            spdx_path.write_text(json.dumps(spdx), encoding="utf-8")
+            problems = validate_outputs(root)
+            self.assertTrue(any("documentNamespace is not a valid URI" in item for item in problems))
+
+    def test_advisor_without_package_results_is_blocked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            advisor_path = root / "advisor-result.json"
+            advisor = json.loads(advisor_path.read_text(encoding="utf-8"))
+            advisor["advisor"]["results"] = {}
+            advisor_path.write_text(json.dumps(advisor), encoding="utf-8")
+            problems = validate_outputs(root)
+            self.assertTrue(any("advisor has no package analysis results" in item for item in problems))
+
+    def test_sbom_license_coverage_over_twenty_percent_is_blocked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            spdx_path = root / "bom.spdx.json"
+            spdx = json.loads(spdx_path.read_text(encoding="utf-8"))
+            spdx["packages"] = [
+                {"SPDXID": f"SPDXRef-Package-{index}", "name": f"pkg-{index}",
+                 "licenseDeclared": "MIT", "licenseConcluded": "MIT"}
+                for index in range(5)
+            ]
+            spdx["packages"][0]["licenseDeclared"] = "NOASSERTION"
+            spdx["packages"][0]["licenseConcluded"] = "NOASSERTION"
+            spdx_path.write_text(json.dumps(spdx), encoding="utf-8")
+            cyclonedx_path = root / "bom.cyclonedx.json"
+            cyclonedx = json.loads(cyclonedx_path.read_text(encoding="utf-8"))
+            cyclonedx["components"] = [
+                {"type": "library", "name": f"pkg-{index}", "licenses": [{"license": {"id": "MIT"}}]}
+                for index in range(5)
+            ]
+            cyclonedx["components"][0].pop("licenses")
+            cyclonedx_path.write_text(json.dumps(cyclonedx), encoding="utf-8")
+            problems = validate_outputs(root)
+            self.assertFalse(any("have no declared or concluded license" in item for item in problems))
+            self.assertFalse(any("lack license data" in item for item in problems))
+
+            cyclonedx["components"][1]["licenses"] = [{}]
+            cyclonedx_path.write_text(json.dumps(cyclonedx), encoding="utf-8")
+            spdx["packages"][1]["licenseDeclared"] = "NOASSERTION"
+            spdx["packages"][1]["licenseConcluded"] = "NOASSERTION"
+            spdx_path.write_text(json.dumps(spdx), encoding="utf-8")
+            problems = validate_outputs(root)
+            self.assertTrue(any("2/5 package(s) (40.0%)" in item for item in problems))
+            self.assertTrue(any("2/5 component(s) (40.0%)" in item for item in problems))
+
+    def test_gradle_projects_without_maven_packages_are_blocked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            path = root / "analyzer-result.json"
+            report = json.loads(path.read_text(encoding="utf-8"))
+            report["analyzer"]["result"]["packages"] = [
+                {"id": "GitHubAction:actions:checkout:abcdef", "purl": "pkg:github/actions/checkout@abcdef"}
+            ]
+            path.write_text(json.dumps(report), encoding="utf-8")
+            problems = validate_outputs(root)
+            self.assertTrue(
+                any("Gradle project(s) but zero Maven dependency packages" in item for item in problems)
+            )
+
+    def test_analyzer_error_issue_is_blocked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_valid_reports(root)
+            path = root / "analyzer-result.json"
+            report = json.loads(path.read_text(encoding="utf-8"))
+            report["analyzer"]["result"]["issues"] = {
+                "Gradle::app/build.gradle.kts:": [
+                    {"severity": "ERROR", "message": "Plugin artifact could not be resolved"}
+                ]
+            }
+            path.write_text(json.dumps(report), encoding="utf-8")
+            problems = validate_outputs(root)
+            self.assertTrue(
+                any("analyzer recorded 1 ERROR issue(s)" in item for item in problems)
+            )
 
     def test_malformed_json_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

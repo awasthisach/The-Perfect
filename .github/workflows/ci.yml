@@ -13,7 +13,8 @@ permissions:
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   # CI is per-ref and only the newest revision needs a build. Nightly ORT has its own non-cancelling concurrency group.
-  cancel-in-progress: true
+  # Keep an in-flight candidate build; newer pending revisions may supersede pending work.
+  cancel-in-progress: false
 
 env:
   UPLOAD_ARTIFACT_ACTION: b7c566a772e6b6bfb58ed0dc250532a479d7789f
@@ -40,14 +41,67 @@ jobs:
           packages: ""
           accept-android-sdk-licenses: true
       - name: Install required Android SDK components
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"; then
+              exit 0
+            fi
+            echo "::warning::Android SDK installation attempt ${attempt}/3 failed."
+          done
+          echo "::error::Android SDK installation failed after 3 attempts."
+          exit 1
       - name: Create local.properties
         run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
       - name: Generate SQLCipher 4.5.4 compatibility fixture
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y build-essential libssl-dev tcl-dev zlib1g-dev
+
+          # SQLCipher fixture generation needs a compiler, OpenSSL and zlib.
+          # Tcl headers are only needed for SQLite's optional Tcl regression tests,
+          # which this fixture-generation step does not run.
+          missing_packages=()
+          if ! command -v cc >/dev/null 2>&1 || ! command -v make >/dev/null 2>&1; then
+            missing_packages+=(build-essential)
+          fi
+          if [ ! -f /usr/include/openssl/evp.h ]; then
+            missing_packages+=(libssl-dev)
+          fi
+          if ! command -v tclsh >/dev/null 2>&1; then
+            missing_packages+=(tcl)
+          fi
+          if [ ! -f /usr/include/zlib.h ]; then
+            missing_packages+=(zlib1g-dev)
+          fi
+
+          if [ "${#missing_packages[@]}" -gt 0 ]; then
+            dependencies_ready=false
+            for attempt in 1 2 3; do
+              echo "Installing missing SQLCipher build dependencies (attempt ${attempt}/3): ${missing_packages[*]}"
+              if sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 update \
+                && sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 install -y --no-install-recommends "${missing_packages[@]}"; then
+                dependencies_ready=true
+                break
+              fi
+              if [ "$attempt" -lt 3 ]; then
+                sleep "$((attempt * 20))"
+              fi
+            done
+            if [ "$dependencies_ready" != true ]; then
+              echo "::error::Unable to install required SQLCipher build dependencies after 3 attempts."
+              exit 1
+            fi
+          else
+            echo "All SQLCipher build dependencies are already available; skipping apt."
+          fi
+
+          # Do not allow a partial package install to masquerade as a successful setup.
+          command -v cc >/dev/null
+          command -v make >/dev/null
+          command -v tclsh >/dev/null
+          test -f /usr/include/openssl/evp.h
+          test -f /usr/include/zlib.h
+
           mkdir -p core/database-compat/src/androidTest/assets
           curl -fsSL https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz -o /tmp/sqlcipher-4.5.4.tar.gz
           tar -xzf /tmp/sqlcipher-4.5.4.tar.gz -C /tmp
@@ -61,8 +115,47 @@ jobs:
         run: python3 -m unittest discover -s tools/audit -p 'test_*.py' -v
       - name: Verify Gradle wrapper
         run: ./gradlew --no-daemon --version
-      - name: Run unit tests
-        run: ./gradlew --no-daemon testDebugUnitTest --stacktrace
+      - name: Run unit tests (bounded retry for transient Robolectric artifact fetch)
+        run: |
+          set -uo pipefail
+          for attempt in 1 2 3; do
+            # Remove only this task's prior reports so a previous transient
+            # failure cannot cause the next attempt to retry for stale evidence.
+            if ! find . -type d \( -path '*/build/test-results/testDebugUnitTest' -o -path '*/build/reports/tests/testDebugUnitTest' \) -prune -exec rm -rf {} +; then
+              echo "::error::Unable to clear prior unit-test reports; refusing to classify stale evidence."
+              exit 1
+            fi
+            log_file="$RUNNER_TEMP/unit-tests-attempt-${attempt}.log"
+            echo "Running unit tests (attempt ${attempt}/3)."
+            if ./gradlew --no-daemon testDebugUnitTest --stacktrace 2>&1 | tee "$log_file"; then
+              exit 0
+            else
+              gradle_status=$?
+            fi
+
+            # Gradle's live log may only say "There were failing tests".
+            # Inspect the generated JUnit XML and HTML reports as well; retry
+            # only when Robolectric's artifact-fetch signature and a transient
+            # HTTP/transport failure occur in the same evidence file.
+            if python3 tools/audit/robolectric_retry.py --log "$log_file" --root "$GITHUB_WORKSPACE"; then
+              if [ "$attempt" -lt 3 ]; then
+                delay="$((attempt * 20))"
+                echo "::warning::Transient Robolectric artifact fetch failed; retrying in ${delay}s (attempt ${attempt}/3)."
+                sleep "$delay"
+                continue
+              fi
+              echo "::error::Transient Robolectric artifact fetch failed after 3 attempts."
+              exit "$gradle_status"
+            else
+              classifier_status=$?
+              if [ "$classifier_status" -ne 1 ]; then
+                echo "::error::Robolectric retry classifier failed with status ${classifier_status}; failing closed."
+              fi
+            fi
+            exit "$gradle_status"
+          done
+          echo "::error::Unit tests exhausted retry loop."
+          exit 1
       - name: Generate Room schema export
         run: |
           set -euo pipefail
@@ -84,7 +177,7 @@ jobs:
         if: success()
         run: |
           set -euo pipefail
-          python3 tools/audit/generate_evidence.py --commit-sha "${{ github.sha }}" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --environment "github-actions-${{ runner.os }}-unit" --output docs/assurance/cpas-evidence-run.json
+          python3 tools/audit/generate_evidence.py --commit-sha "$(git rev-parse HEAD)" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --environment "github-actions-${{ runner.os }}-unit" --output docs/assurance/cpas-evidence-run.json
       - name: Upload CPAS unit evidence
         if: success()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -107,8 +200,22 @@ jobs:
           mkdir -p "$ANDROID_AVD_HOME"
           export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH"
           echo "no" | avdmanager create avd --force --name vvf-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2" || { echo "booted=false" >> "$GITHUB_OUTPUT"; echo "::warning::AVD creation failed; emulator infrastructure unavailable."; exit 0; }
+          # Use hardware acceleration when KVM is available. The old -accel off
+          # mode is unsupported by this Android Emulator image and fails even before
+          # boot; do not waste the timeout on a known-invalid software-acceleration mode.
+          if [ ! -e /dev/kvm ]; then
+            echo "::warning::KVM is unavailable; skipping optional emulator instrumentation."
+            echo "booted=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! sudo chown "$USER" /dev/kvm || [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
+            echo "::warning::KVM is present but not accessible; skipping optional emulator instrumentation."
+            echo "booted=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           adb start-server || true
-          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel off -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          emulator -avd vvf-api35 -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel on -no-metrics -wipe-data > "$RUNNER_TEMP/emulator.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/emulator.pid"
           if ! timeout 180 adb wait-for-device; then
             echo "::warning::adb wait-for-device timed out; treating emulator as an infrastructure skip."
@@ -143,7 +250,7 @@ jobs:
         if: ${{ steps.emulator.outputs.booted == 'true' && steps.sqlcipher_instrumented.outcome == 'success' }}
         run: |
           set -euo pipefail
-          python3 tools/audit/generate_evidence.py --commit-sha "${{ github.sha }}" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --include-db --environment "github-actions-API35-emulator" --output docs/assurance/cpas-evidence-full.json
+          python3 tools/audit/generate_evidence.py --commit-sha "$(git rev-parse HEAD)" --run-id "${{ github.run_id }}" --job-id "${{ github.job }}" --result PASS --include-db --environment "github-actions-API35-emulator" --output docs/assurance/cpas-evidence-full.json
       - name: Publish gate summary
         if: always()
         run: |
@@ -173,7 +280,10 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: unit-test-reports
-          path: "**/build/reports/tests/**"
+          path: |
+            **/build/reports/tests/**
+            **/build/test-results/testDebugUnitTest/*.xml
+            **/build/test-results/testDebugUnitTest/**/*.xml
           if-no-files-found: ignore
           retention-days: 7
       - name: Upload Android test reports

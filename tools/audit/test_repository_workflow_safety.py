@@ -1,0 +1,215 @@
+from pathlib import Path
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+class RepositoryWorkflowSafetyTest(unittest.TestCase):
+    def test_ci_does_not_cancel_in_flight_candidate_builds(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn("group: ci-${{ github.workflow }}-${{ github.ref }}", workflow)
+        self.assertIn("cancel-in-progress: false", workflow)
+
+    def test_ort_action_never_persists_the_runner_environment(self):
+        workflow = (ROOT / ".github/actions/ort/action.yml").read_text(encoding="utf-8")
+        self.assertNotIn("printenv", workflow)
+        self.assertIn("Persist only the ORT inputs and derived paths this composite action needs.", workflow)
+        self.assertIn(r"printf '%s=%s\n'", workflow)
+        self.assertIn(r"s#(https?://)[^/@]+@#\1#", workflow)
+        scanner = workflow.split("- name: Run ORT Scanner", 1)[1].split("- name: Run ORT Advisor", 1)[0]
+        reporter = workflow.split("- name: Run ORT Reporter", 1)[1].split("- name: Remove current-result.yml", 1)[0]
+        self.assertIn("HTTP_FILE_SERVER_PASSWORD: ${{ inputs.http-file-server-password }}", scanner)
+        self.assertIn("POSTGRES_PASSWORD: ${{ inputs.db-password }}", scanner)
+        self.assertIn("POSTGRES_PASSWORD: ${{ inputs.db-password }}", reporter)
+
+    def test_heavy_candidate_workflows_preserve_manual_ort_and_cpas_runs(self):
+        expected = {
+            ".github/workflows/nightly-ort.yml": "nightly-ort-${{ github.ref }}",
+            ".github/workflows/cpas-gate.yml": "cpas-gate-${{ github.ref }}",
+            ".github/workflows/weekly-instrumented.yml": "weekly-instrumented-${{ github.event_name }}-${{ github.ref }}",
+            ".github/workflows/worker-validation.yml": "worker-validation-${{ github.ref }}",
+        }
+        for relative_path, group in expected.items():
+            with self.subTest(workflow=relative_path):
+                workflow = (ROOT / relative_path).read_text(encoding="utf-8")
+                self.assertIn(f"group: {group}", workflow)
+                if relative_path in {
+                    ".github/workflows/nightly-ort.yml",
+                    ".github/workflows/cpas-gate.yml",
+                }:
+                    self.assertIn("cancel-in-progress: false", workflow)
+                elif relative_path == ".github/workflows/weekly-instrumented.yml":
+                    self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", workflow)
+                elif relative_path == ".github/workflows/worker-validation.yml":
+                    self.assertIn("cancel-in-progress: true", workflow)
+
+    def test_sqlcipher_fixture_installs_only_missing_dependencies_with_bounded_retries(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        fixture_step = workflow.split(
+            "- name: Generate SQLCipher 4.5.4 compatibility fixture", 1
+        )[1].split("- name:", 1)[0]
+        self.assertIn("missing_packages=()", fixture_step)
+        self.assertIn("All SQLCipher build dependencies are already available; skipping apt.", fixture_step)
+        self.assertIn("for attempt in 1 2 3", fixture_step)
+        self.assertIn("Acquire::Retries=1", fixture_step)
+        self.assertIn("Acquire::http::Timeout=15", fixture_step)
+        self.assertIn("Acquire::https::Timeout=15", fixture_step)
+        self.assertIn('if [ "$dependencies_ready" != true ]; then', fixture_step)
+        self.assertIn('echo "::error::Unable to install required SQLCipher build dependencies after 3 attempts."', fixture_step)
+        self.assertIn("command -v cc", fixture_step)
+        self.assertIn("command -v tclsh", fixture_step)
+        self.assertIn("missing_packages+=(tcl)", fixture_step)
+        self.assertNotIn("tcl-dev", fixture_step)
+        self.assertNotIn("/usr/include/tcl", fixture_step)
+        self.assertIn("test -f /usr/include/openssl/evp.h", fixture_step)
+        self.assertIn("test -f /usr/include/zlib.h", fixture_step)
+        self.assertIn("curl -fsSL https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.5.4.tar.gz", fixture_step)
+
+    def test_ort_nightly_and_manual_frozen_candidate_scans(self):
+        workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
+        self.assertIn("  schedule:", workflow)
+        self.assertNotRegex(workflow, r"(?m)^  pull_request:")
+        self.assertIn("  workflow_dispatch:", workflow)
+        self.assertIn("frozen candidate", workflow.lower())
+        self.assertNotRegex(workflow, r"(?m)^  push:")
+        self.assertIn("timeout-minutes: 360", workflow)
+        self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
+        self.assertIn("sw-version: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
+        self.assertIn("ghcr.io/oss-review-toolkit/ort:99.1.0", workflow)
+        self.assertIn("log-level: info", workflow)
+
+    def test_ort_cache_key_is_stable_for_workflow_only_edits(self):
+        workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
+        key_lines = [line for line in workflow.splitlines() if "key: ${{ runner.os }}-ort-scan-results-" in line]
+        self.assertEqual(1, len(key_lines))
+        self.assertIn("ort-scan-results-99.1.0-", key_lines[0])
+        self.assertIn("ort-scanner-config.yml", key_lines[0])
+        self.assertNotIn("nightly-ort.yml", key_lines[0])
+        self.assertNotIn("action.yml", key_lines[0])
+        status_recorder = (ROOT / "tools/audit/record_ort_status.py").read_text(encoding="utf-8")
+        self.assertIn("cache_scan_result_count <= 0", status_recorder)
+        self.assertIn("tools/audit/record_ort_status.py --output ort-status.json", workflow)
+        self.assertIn("tools/audit/verify_ort_cache.py", workflow)
+
+    def test_ort_status_separates_cache_save_and_validation_outcomes(self):
+        workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
+        self.assertIn("CACHE_SAVE_OUTCOME: ${{ steps.save_ort_cache.outcome }}", workflow)
+        self.assertIn("CACHE_VALIDATION_OUTCOME: ${{ steps.verify_ort_cache.outcome }}", workflow)
+        self.assertIn("printf \'%s\\n\'", workflow)
+    def test_ort_manual_dispatch_checks_selected_ref_checkout_and_scan_revision(self):
+        workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
+        self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
+        self.assertIn('actual_sha="$(git rev-parse HEAD)"', workflow)
+        self.assertIn('CHECKOUT_SHA: ${{ steps.verify_checkout.outputs.checkout_sha }}', workflow)
+        status_recorder = (ROOT / "tools/audit/record_ort_status.py").read_text(encoding="utf-8")
+        self.assertIn('"checkout_revision": checkout_sha', status_recorder)
+        self.assertIn('"scan_revision": scan_sha', status_recorder)
+        self.assertIn('"workflow_run_id": workflow_run_id', status_recorder)
+        self.assertIn("CACHE_SAVE_OUTCOME: ${{ steps.save_ort_cache.outcome }}", workflow)
+        self.assertIn("CACHE_VALIDATION_OUTCOME: ${{ steps.verify_ort_cache.outcome }}", workflow)
+
+    def test_ort_excludes_only_test_scopes_from_source_scanning(self):
+        project_config = (ROOT / ".ort.yml").read_text(encoding="utf-8")
+        self.assertIn('pattern: "(?i).*test.*"', project_config)
+        self.assertIn('reason: "TEST_DEPENDENCY_OF"', project_config)
+        self.assertIn("Production compile/runtime scopes remain included", project_config)
+
+    def test_ort_scanner_skips_excluded_scopes_without_dropping_analyzer_metadata(self):
+        workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
+        self.assertIn("ort-cli-args: -P ort.scanner.skipExcluded=true", workflow)
+        self.assertNotIn("ort-cli-scan-args: -P", workflow)
+        self.assertIn("Retain excluded test dependencies in analyzer/SBOM metadata", workflow)
+
+    def test_package_curations_are_installed_in_analyzer_config_directory(self):
+        workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
+        self.assertIn("Prepare pinned ORT config with project package curations", workflow)
+        self.assertIn('git -C "$config_dir" fetch --depth 1 origin 6cb99721f7e536361ca2b20d8bcdec9c3125236b', workflow)
+        self.assertIn('install -m 0644 ort-curations.yml "$config_dir/curations.yml"', workflow)
+        self.assertNotIn("ort-cli-analyze-args:", workflow)
+        self.assertNotIn("--package-curations-dir", workflow)
+        self.assertIn("ort-cli-evaluate-args:", workflow)
+        self.assertIn("--package-curations-file", workflow)
+
+    def test_ort_curates_every_unresolvable_vcs_revision_from_candidate_scan(self):
+        curations = (ROOT / "ort-curations.yml").read_text(encoding="utf-8")
+        for package_id in (
+            "Maven:commons-logging:commons-logging:1.2",
+            "Maven:org.apache.httpcomponents:httpclient:4.5.6",
+            "Maven:org.apache.httpcomponents:httpcore:4.4.16",
+            "Maven:org.apache.httpcomponents:httpmime:4.5.6",
+        ):
+            with self.subTest(package_id=package_id):
+                self.assertIn(f'- id: "{package_id}"', curations)
+                package_block = curations.split(f'- id: "{package_id}"', 1)[1].split("\n- id:", 1)[0]
+                self.assertIn("source_artifact:", package_block)
+                self.assertIn("source_code_origins: [ARTIFACT]", package_block)
+
+    def test_cpas_selects_exact_sha_and_fails_closed_on_bad_ort_provenance(self):
+        workflow = (ROOT / ".github/workflows/cpas-gate.yml").read_text(encoding="utf-8")
+        self.assertIn("tools/audit/select_ort_run.py --candidate-sha", workflow)
+        self.assertIn("timeout-minutes: 10", workflow)
+        self.assertIn('elif [ "$attempt" -ge 4 ]; then', workflow)
+        self.assertIn("after 3 minutes", workflow)
+        self.assertIn("seq 1 4", workflow)
+        self.assertIn('"$run_conclusion" != "success"', workflow)
+        self.assertNotRegex(workflow, r"(?m)^  pull_request:")
+        self.assertIn("CPAS will not wait for the six-hour scan", workflow)
+        self.assertIn('status.get("workflow_run_id")', workflow)
+        self.assertIn('"checkout_revision": expected_sha', workflow)
+        self.assertIn('"scan_revision": expected_sha', workflow)
+        self.assertIn("for field, value in expected.items():", workflow)
+        self.assertIn("Enforce fail-closed result after preserving status artifact", workflow)
+        self.assertIn('if [ "$ORT_STAGE_OUTCOME" != "success" ]; then', workflow)
+
+    def test_ort_gate_catalog_matches_workflow_evidence_and_gradle_setup(self):
+        workflow = (ROOT / ".github/workflows/nightly-ort.yml").read_text(encoding="utf-8")
+        catalog = (ROOT / "docs/assurance/09-gate-catalog.yaml").read_text(encoding="utf-8")
+        repo_config = (ROOT / ".ort.yml").read_text(encoding="utf-8")
+        gate = catalog.split("  - id: GATE-LICENSE-001", 1)[1].split("  - id:", 1)[0]
+        self.assertIn("evidence: ort-status.json + ort-results-evidence artifact", gate)
+        self.assertIn("name: ort-results-evidence", workflow)
+        self.assertIn("cp ort-status.json ort-evidence/ort-status.json", workflow)
+        self.assertIn('javaVersion: "17"', repo_config)
+        self.assertIn("gradlePluginPortal()", (ROOT / "settings.gradle.kts").read_text(encoding="utf-8"))
+        self.assertIn("--refresh-dependencies --info --stacktrace", workflow)
+        self.assertIn("gradle-help.log", workflow)
+        self.assertIn("ORT_RESULTS_DIR: /home/runner/.ort/ort-results", workflow)
+        self.assertIn("ORT_ADVISOR_PROVIDER: OSV", workflow)
+        cpas_workflow = (ROOT / ".github/workflows/cpas-gate.yml").read_text(encoding="utf-8")
+        self.assertLess(
+            cpas_workflow.index("tools/audit/verify_ort_outputs.py"),
+            cpas_workflow.index("cp ort-evidence/results/bom.cyclonedx.json docs/assurance/ort-bom.cyclonedx.json"),
+        )
+        release_workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        self.assertIn("--curations-file ort-curations.yml", release_workflow)
+
+    def test_active_license_readiness_docs_use_ort_not_fossa(self):
+        readiness = (ROOT / "docs/assurance/PART3_RELEASE_READINESS.md").read_text(encoding="utf-8")
+        self.assertIn("ORT", readiness)
+        self.assertIn("ort-status.json", readiness)
+        self.assertNotIn("FOSSA_API_KEY", readiness)
+        self.assertNotIn("foss-status", readiness)
+
+    def test_branch_cleanup_workflow_is_read_only_and_never_deletes(self):
+        workflow = (ROOT / ".github/workflows/cleanup-stale-branches.yml").read_text(encoding="utf-8")
+        self.assertIn("contents: read", workflow)
+        self.assertNotIn("contents: write", workflow)
+        self.assertNotIn("--method DELETE", workflow)
+        self.assertIn("no branches were deleted", workflow.lower())
+
+    def test_dagger_dependency_uses_version_catalog(self):
+        catalog = (ROOT / "gradle/libs.versions.toml").read_text(encoding="utf-8")
+        app_build = (ROOT / "app/build.gradle.kts").read_text(encoding="utf-8")
+        self.assertIn('dagger = { group = "com.google.dagger", name = "dagger", version.ref = "hilt" }', catalog)
+        self.assertIn("implementation(libs.dagger)", app_build)
+        self.assertNotIn('implementation("com.google.dagger:dagger:', app_build)
+
+    def test_release_sbom_action_is_pinned_to_an_exact_commit(self):
+        workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        self.assertIn("anchore/sbom-action@2ed2d2006fea5d582c257dbad4532b1e4cbc8b83", workflow)
+        self.assertNotIn("anchore/sbom-action@v0", workflow)
+
+
+if __name__ == "__main__":
+    unittest.main()

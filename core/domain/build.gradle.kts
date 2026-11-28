@@ -1,6 +1,5 @@
 plugins {
   alias(libs.plugins.android.library)
-  alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.kotlin.serialization)
 }
 
@@ -32,5 +31,5 @@ dependencies {
   testImplementation(libs.kotlinx.coroutines.test)
   testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
   testImplementation("com.squareup.okhttp3:okhttp:4.12.0")
-  testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
+  testImplementation("org.mockito.kotlin:mockito-kotlin:6.4.0")
 }

@@ -1,0 +1,95 @@
+---
+# Package curations for dependencies whose published POMs contain retired or
+# unreachable VCS metadata. Source artifacts are pinned to Maven Central and
+# verified by URL plus SHA-1 in the audit gate.
+- id: "Maven:com.almworks.sqlite4java:sqlite4java:1.0.392"
+  curations:
+    comment: "The published POM points to retired Google Code SVN; scan the pinned Maven Central source artifact instead: source_artifact_url=https://repo.maven.apache.org/maven2/com/almworks/sqlite4java/sqlite4java/1.0.392/sqlite4java-1.0.392-sources.jar source_artifact_sha1=2efe18f7bea6fa9536802dd4ea54d948117216c6."
+    source_artifact:
+      url: "https://repo.maven.apache.org/maven2/com/almworks/sqlite4java/sqlite4java/1.0.392/sqlite4java-1.0.392-sources.jar"
+      hash:
+        value: "2efe18f7bea6fa9536802dd4ea54d948117216c6"
+        algorithm: "SHA-1"
+    source_code_origins: [ARTIFACT]
+- id: "Maven:com.google.j2objc:j2objc-annotations:1.3"
+  curations:
+    comment: "The published POM points to obsolete Sonatype Spice SVN; scan the pinned Maven Central source artifact instead: source_artifact_url=https://repo.maven.apache.org/maven2/com/google/j2objc/j2objc-annotations/1.3/j2objc-annotations-1.3-sources.jar source_artifact_sha1=d26c56180205cbb50447c3eca98ecb617cf9f58b."
+    source_artifact:
+      url: "https://repo.maven.apache.org/maven2/com/google/j2objc/j2objc-annotations/1.3/j2objc-annotations-1.3-sources.jar"
+      hash:
+        value: "d26c56180205cbb50447c3eca98ecb617cf9f58b"
+        algorithm: "SHA-1"
+    source_code_origins: [ARTIFACT]
+- id: "Maven:com.google.j2objc:j2objc-annotations:2.8"
+  curations:
+    comment: "The published POM points to obsolete Sonatype Spice SVN; scan the pinned Maven Central source artifact instead: source_artifact_url=https://repo.maven.apache.org/maven2/com/google/j2objc/j2objc-annotations/2.8/j2objc-annotations-2.8-sources.jar source_artifact_sha1=74fb66e276fc42784d884d51f841e35232bc90de."
+    source_artifact:
+      url: "https://repo.maven.apache.org/maven2/com/google/j2objc/j2objc-annotations/2.8/j2objc-annotations-2.8-sources.jar"
+      hash:
+        value: "74fb66e276fc42784d884d51f841e35232bc90de"
+        algorithm: "SHA-1"
+    source_code_origins: [ARTIFACT]
+- id: "Maven:com.googlecode.java-diff-utils:diffutils:1.3.0"
+  curations:
+    comment: "The published POM points to retired Google Code SVN; scan the pinned Maven Central source artifact instead: source_artifact_url=https://repo.maven.apache.org/maven2/com/googlecode/java-diff-utils/diffutils/1.3.0/diffutils-1.3.0-sources.jar source_artifact_sha1=90b4aaa9530827fe6ad2b6684389c86999e861a3."
+    source_artifact:
+      url: "https://repo.maven.apache.org/maven2/com/googlecode/java-diff-utils/diffutils/1.3.0/diffutils-1.3.0-sources.jar"
+      hash:
+        value: "90b4aaa9530827fe6ad2b6684389c86999e861a3"
+        algorithm: "SHA-1"
+    source_code_origins: [ARTIFACT]
+- id: "Maven:io.opencensus:opencensus-api:0.31.0"
+  curations:
+    comment: "The published POM metadata is incorrectly classified as SVN; scan the pinned Maven Central source artifact instead: source_artifact_url=https://repo.maven.apache.org/maven2/io/opencensus/opencensus-api/0.31.0/opencensus-api-0.31.0-sources.jar source_artifact_sha1=117ce743c288a72cfdd7768380dd0e853f1e75d7."
+    source_artifact:
+      url: "https://repo.maven.apache.org/maven2/io/opencensus/opencensus-api/0.31.0/opencensus-api-0.31.0-sources.jar"
+      hash:
+        value: "117ce743c288a72cfdd7768380dd0e853f1e75d7"
+        algorithm: "SHA-1"
+    source_code_origins: [ARTIFACT]
+- id: "Maven:io.opencensus:opencensus-proto:0.2.0"
+  curations:
+    comment: "The published POM metadata is incorrectly classified as SVN; scan the pinned Maven Central source artifact instead: source_artifact_url=https://repo.maven.apache.org/maven2/io/opencensus/opencensus-proto/0.2.0/opencensus-proto-0.2.0-sources.jar source_artifact_sha1=834947f69ce51cf3201b0d64b61db21cbcf4ba8e."
+    source_artifact:
+      url: "https://repo.maven.apache.org/maven2/io/opencensus/opencensus-proto/0.2.0/opencensus-proto-0.2.0-sources.jar"
+      hash:
+        value: "834947f69ce51cf3201b0d64b61db21cbcf4ba8e"
+        algorithm: "SHA-1"
+    source_code_origins: [ARTIFACT]
+
+- id: "Maven:commons-logging:commons-logging:1.2"
+  curations:
+    comment: "The published POM points to retired Apache Subversion trunk; scan the pinned Maven Central source artifact instead: source_artifact_url=https://repo.maven.apache.org/maven2/commons-logging/commons-logging/1.2/commons-logging-1.2-sources.jar source_artifact_sha1=ecf26c7507d67782a3bbd148d170b31dfad001aa."
+    source_artifact:
+      url: "https://repo.maven.apache.org/maven2/commons-logging/commons-logging/1.2/commons-logging-1.2-sources.jar"
+      hash:
+        value: "ecf26c7507d67782a3bbd148d170b31dfad001aa"
+        algorithm: "SHA-1"
+    source_code_origins: [ARTIFACT]
+- id: "Maven:org.apache.httpcomponents:httpcore:4.4.16"
+  curations:
+    comment: "The published POM points to a Git repository revision that is not resolvable by ORT; scan the pinned Maven Central source artifact instead: source_artifact_url=https://repo.maven.apache.org/maven2/org/apache/httpcomponents/httpcore/4.4.16/httpcore-4.4.16-sources.jar source_artifact_sha1=229e4c0eae80465381ae02adf61bca5558360777."
+    source_artifact:
+      url: "https://repo.maven.apache.org/maven2/org/apache/httpcomponents/httpcore/4.4.16/httpcore-4.4.16-sources.jar"
+      hash:
+        value: "229e4c0eae80465381ae02adf61bca5558360777"
+        algorithm: "SHA-1"
+    source_code_origins: [ARTIFACT]
+- id: "Maven:org.apache.httpcomponents:httpclient:4.5.6"
+  curations:
+    comment: "The published POM points to an unresolvable legacy Git revision; scan the pinned Maven Central source artifact instead: source_artifact_url=https://repo.maven.apache.org/maven2/org/apache/httpcomponents/httpclient/4.5.6/httpclient-4.5.6-sources.jar source_artifact_sha1=bda84e42670536453ecd61ee70349c2493445994."
+    source_artifact:
+      url: "https://repo.maven.apache.org/maven2/org/apache/httpcomponents/httpclient/4.5.6/httpclient-4.5.6-sources.jar"
+      hash:
+        value: "bda84e42670536453ecd61ee70349c2493445994"
+        algorithm: "SHA-1"
+    source_code_origins: [ARTIFACT]
+- id: "Maven:org.apache.httpcomponents:httpmime:4.5.6"
+  curations:
+    comment: "The published POM points to an unresolvable legacy Git revision; scan the pinned Maven Central source artifact instead: source_artifact_url=https://repo.maven.apache.org/maven2/org/apache/httpcomponents/httpmime/4.5.6/httpmime-4.5.6-sources.jar source_artifact_sha1=0f349336722665ba37bcc67d95efb5f2926b5ebc."
+    source_artifact:
+      url: "https://repo.maven.apache.org/maven2/org/apache/httpcomponents/httpmime/4.5.6/httpmime-4.5.6-sources.jar"
+      hash:
+        value: "0f349336722665ba37bcc67d95efb5f2926b5ebc"
+        algorithm: "SHA-1"
+    source_code_origins: [ARTIFACT]

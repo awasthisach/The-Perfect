@@ -20,11 +20,11 @@
 - [ ] Test: Firebase Console → App Check → Requests tab shows activity
 
 ### 4. ORT Compliance (PROD-008)
-- [ ] Verify: Nightly ORT workflow ran successfully
-- [ ] Verify: Auto-PR merged with real SBOMs
-- [ ] Verify: `docs/assurance/ort-bom.cyclonedx.json` exists (not stub)
-- [ ] Verify: `docs/assurance/ort-bom.spdx.json` exists (not stub)
-- [ ] Verify: `docs/assurance/ort-status.json` shows `"status": "PASS"`
+- [ ] Verify: Nightly ORT workflow completed successfully for the exact release candidate SHA
+- [ ] Verify: the run's `ort-results-evidence` artifact is retained and `ort-status.json` has `status: PASS` and the exact candidate `scan_revision`
+- [ ] Verify: analyzer, ScanCode scanner, evaluator, advisor, reporter, CycloneDX JSON/XML and SPDX JSON/YAML outputs exist and pass `tools/audit/verify_ort_outputs.py`
+- [ ] Review package-level declared/detected licenses, attribution obligations, policy violations, and Advisor security findings; record dispositions before closing PROD-008
+- [ ] Do not require a nightly SBOM auto-PR: the release workflow materializes the validated exact-SHA artifact under `docs/assurance/` before CPAS verification
 
 ### 5. OAuth & Privacy (PROD-010)
 - [ ] Verify: Google Cloud Console OAuth client SHA-1 matches Play Store signing key

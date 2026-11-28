@@ -61,14 +61,15 @@ gates:
   - id: GATE-LICENSE-001
     name: license_compliance
     owner: supply-chain
-    command: fossa analyze
-    threshold: scan executed and policy result recorded
-    evidence: foss-status.json
+    command: "Dispatch Nightly ORT Compliance Scan on the frozen candidate SHA"
+    threshold: ORT Analyzer, Scanner, Evaluator, Advisor and Reporter complete; verifier PASS; scan_revision equals candidate SHA
+    evidence: ort-status.json + ort-results-evidence artifact
     blocking: true
     notes: |
-      CI records BLOCKED in foss-status.json when FOSSA_API_KEY is absent so
-      unit/build gates remain observable. Release/promotion MUST require
-      foss-status.status == PASS (fail-closed for production ship).
+      ORT is the implemented compliance scanner. The gate remains BLOCKED if
+      any required ORT result or SBOM is missing, invalid, from another SHA,
+      or contains an unresolved blocking policy finding. Review findings before
+      promotion; a successful workflow alone is not license approval.
 
   - id: GATE-RELEASE-001
     name: signed_release_identity
@@ -84,4 +85,4 @@ policy:
   missing_evidence: BLOCKED
   expired_evidence: BLOCKED
   unknown_gate_id: BLOCKED
-  release_requires_fossa_pass: true
+  release_requires_ort_pass: true

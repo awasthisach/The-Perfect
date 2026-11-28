@@ -1,6 +1,11 @@
 package com.vvf.smartmanager.core.security
 
 import androidx.test.core.app.ApplicationProvider
+import android.content.Context
+import android.util.Base64
+import android.content.ContextWrapper
+import java.io.File
+import java.util.UUID
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -61,6 +66,68 @@ class CryptoSecurityManagerTest {
         } finally {
             original.fill(0)
             replacement.fill(0)
+            snapshot.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun corruptedDatabaseKeySnapshotIsRejectedWithoutDestroyingLiveKey() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val original = cryptoSecurityManager.getOrCreateDatabasePassphrase()
+        val snapshot = File(context.cacheDir, "corrupt-db-key-snapshot").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        try {
+            cryptoSecurityManager.snapshotDatabasePassphraseState(snapshot)
+            val snapshotKey = File(snapshot, "vvf_db_passphrase_v2.bin")
+            val bytes = snapshotKey.readBytes()
+            bytes[bytes.lastIndex] = (bytes.last().toInt() xor 0x01).toByte()
+            snapshotKey.writeBytes(bytes)
+
+            try {
+                cryptoSecurityManager.restoreDatabasePassphraseState(snapshot)
+                throw AssertionError("Corrupted rollback snapshot must be rejected")
+            } catch (expected: Throwable) {
+                assertTrue(
+                    expected is SecurityException ||
+                        expected is IllegalArgumentException ||
+                        expected is javax.crypto.AEADBadTagException ||
+                        expected.cause is javax.crypto.AEADBadTagException
+                )
+            }
+
+            val stillLive = cryptoSecurityManager.getOrCreateDatabasePassphrase()
+            assertArrayEquals(original, stillLive)
+            stillLive.fill(0)
+        } finally {
+            original.fill(0)
+            snapshot.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun emptyDatabaseKeySnapshotIsRejectedWithoutDestroyingLiveKey() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val original = cryptoSecurityManager.getOrCreateDatabasePassphrase()
+        val snapshot = File(context.cacheDir, "empty-db-key-snapshot").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        try {
+            File(snapshot, "present-files.txt").writeText("")
+            try {
+                cryptoSecurityManager.restoreDatabasePassphraseState(snapshot)
+                throw AssertionError("Empty rollback snapshot must be rejected")
+            } catch (expected: IllegalArgumentException) {
+                assertTrue(expected.message.orEmpty().contains("no database passphrase recovery material"))
+            }
+
+            val stillLive = cryptoSecurityManager.getOrCreateDatabasePassphrase()
+            assertArrayEquals(original, stillLive)
+            stillLive.fill(0)
+        } finally {
+            original.fill(0)
             snapshot.deleteRecursively()
         }
     }
@@ -176,6 +243,81 @@ class CryptoSecurityManagerTest {
         assertTrue(prefs.contains("vault_lockout_state_v2"))
     }
 
+
+    @Test
+    fun corruptedRealPinMetadataDoesNotCountAsAnIncorrectPin() {
+        val isolated = isolatedContext()
+        val manager = CryptoSecurityManager(isolated, "Robolectric")
+        assertTrue(manager.setupVaultPin("482951"))
+        isolated.getSharedPreferences("vvf_secure_vault_prefs", Context.MODE_PRIVATE)
+            .edit().putString("vault_pin_hash", "%%%").commit()
+
+        val result = manager.verifyVaultPinWithResult("000000")
+
+        assertEquals(CryptoSecurityManager.VaultAuthResult.CORRUPTED_STATE, result)
+        assertEquals(0, manager.getFailedAttemptsCount())
+    }
+
+    @Test
+    fun tamperedPinMetadataGcmTagIsCorruptedStateNotAnIncorrectPin() {
+        val isolated = isolatedContext()
+        val manager = CryptoSecurityManager(isolated, "Robolectric")
+        assertTrue(manager.setupVaultPin("482951"))
+        val prefs = isolated.getSharedPreferences("vvf_secure_vault_prefs", Context.MODE_PRIVATE)
+        val encryptedHash = Base64.decode(prefs.getString("vault_pin_hash", null), Base64.NO_WRAP)
+        encryptedHash[encryptedHash.lastIndex] = (encryptedHash.last().toInt() xor 0x01).toByte()
+        prefs.edit().putString(
+            "vault_pin_hash",
+            Base64.encodeToString(encryptedHash, Base64.NO_WRAP)
+        ).commit()
+
+        val result = manager.verifyVaultPinWithResult("000000")
+
+        assertEquals(CryptoSecurityManager.VaultAuthResult.CORRUPTED_STATE, result)
+        assertEquals(0, manager.getFailedAttemptsCount())
+    }
+
+    @Test
+    fun wrongSharedPreferenceTypeIsCorruptedStateNotAnIncorrectPin() {
+        val isolated = isolatedContext()
+        val manager = CryptoSecurityManager(isolated, "Robolectric")
+        assertTrue(manager.setupVaultPin("482951"))
+        isolated.getSharedPreferences("vvf_secure_vault_prefs", Context.MODE_PRIVATE)
+            .edit().putInt("vault_pin_hash", 12345).commit()
+
+        val result = manager.verifyVaultPinWithResult("000000")
+
+        assertEquals(CryptoSecurityManager.VaultAuthResult.CORRUPTED_STATE, result)
+        assertEquals(0, manager.getFailedAttemptsCount())
+    }
+
+    @Test
+    fun incompleteDecoyPinMetadataBlocksUnlockWithoutIncreasingFailedAttempts() {
+        val isolated = isolatedContext()
+        val manager = CryptoSecurityManager(isolated, "Robolectric")
+        assertTrue(manager.setupVaultPin("482951"))
+        assertTrue(manager.setupDecoyPin("135790"))
+        isolated.getSharedPreferences("vvf_secure_vault_prefs", Context.MODE_PRIVATE)
+            .edit().remove("vault_decoy_pin_salt_iv").commit()
+
+        val result = manager.verifyVaultPinWithResult("000000")
+
+        assertEquals(CryptoSecurityManager.VaultAuthResult.CORRUPTED_STATE, result)
+        assertEquals(0, manager.getFailedAttemptsCount())
+    }
+
+    @Test
+    fun genuineIncorrectPinStillIncrementsFailedAttemptCount() {
+        val isolated = isolatedContext()
+        val manager = CryptoSecurityManager(isolated, "Robolectric")
+        assertTrue(manager.setupVaultPin("482951"))
+
+        val result = manager.verifyVaultPinWithResult("000000")
+
+        assertTrue(result is CryptoSecurityManager.VaultAuthResult.INVALID_PIN)
+        assertEquals(1, manager.getFailedAttemptsCount())
+    }
+
     @Test
     fun portableBackupEncryptionWorksWithoutDeviceKeystoreKey() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
@@ -206,6 +348,98 @@ class CryptoSecurityManagerTest {
                 isJvmUnitTestEnvironment = false
             )
         )
+    }
+
+    @Test
+    fun missingDatabaseKeyDoesNotRegenerateWhenEncryptedPassphraseExists() {
+        val context = isolatedContext()
+        try {
+            val original = CryptoSecurityManager(context, "Robolectric")
+            original.getOrCreateDatabasePassphrase().fill(0)
+            CryptoSecurityManager.clearInMemoryKeysForTests()
+
+            try {
+                CryptoSecurityManager(context, "Robolectric")
+                throw AssertionError("Missing database key must not be silently regenerated")
+            } catch (expected: SecurityException) {
+                assertTrue(expected.message.orEmpty().contains("Refusing to generate a replacement key"))
+            }
+        } finally {
+            CryptoSecurityManager.clearInMemoryKeysForTests()
+        }
+    }
+
+    @Test
+    fun missingVaultKeyDoesNotRegenerateWhenEncryptedVaultFileExists() {
+        val context = isolatedContext()
+        try {
+            val original = CryptoSecurityManager(context, "Robolectric")
+            val (encrypted, _) = original.encryptBytes("vault-data".toByteArray())
+            val vaultDirectory = File(context.filesDir, "vvf_vault_encrypted").apply { mkdirs() }
+            File(vaultDirectory, "enc_fixture.vvf").writeBytes(encrypted)
+            CryptoSecurityManager.clearInMemoryKeysForTests()
+
+            try {
+                CryptoSecurityManager(context, "Robolectric")
+                throw AssertionError("Missing vault key must not be silently regenerated")
+            } catch (expected: SecurityException) {
+                assertTrue(expected.message.orEmpty().contains("Refusing to generate a replacement key"))
+            }
+        } finally {
+            CryptoSecurityManager.clearInMemoryKeysForTests()
+        }
+    }
+
+    @Test
+    fun missingVaultMetadataKeyDoesNotRegenerateWhenPinMetadataExists() {
+        val context = isolatedContext()
+        try {
+            val original = CryptoSecurityManager(context, "Robolectric")
+            assertTrue(original.setupVaultPin("482951"))
+            CryptoSecurityManager.clearInMemoryKeysForTests()
+
+            try {
+                CryptoSecurityManager(context, "Robolectric")
+                throw AssertionError("Missing vault metadata key must not be silently regenerated")
+            } catch (expected: SecurityException) {
+                assertTrue(expected.message.orEmpty().contains("Refusing to generate a replacement key"))
+            }
+        } finally {
+            CryptoSecurityManager.clearInMemoryKeysForTests()
+        }
+    }
+
+    @Test
+    fun missingDatabasePassphraseDoesNotCreateReplacementWhenDatabaseExists() {
+        val context = isolatedContext()
+        try {
+            val manager = CryptoSecurityManager(context, "Robolectric")
+            File(context.filesDir, "vvf-existing.db").writeText("encrypted-database-placeholder")
+
+            try {
+                manager.getOrCreateDatabasePassphrase()
+                throw AssertionError("Must not create a new database passphrase over an existing database")
+            } catch (expected: SecurityException) {
+                assertTrue(expected.message.orEmpty().contains("recovery material is missing"))
+            }
+            assertFalse(File(context.filesDir, "vvf_db_passphrase_v2.bin").exists())
+        } finally {
+            CryptoSecurityManager.clearInMemoryKeysForTests()
+        }
+    }
+
+    private fun isolatedContext(): Context {
+        val base = ApplicationProvider.getApplicationContext<Context>()
+        val root = File(base.cacheDir, "keystore-recovery-${UUID.randomUUID()}").apply { mkdirs() }
+        return object : ContextWrapper(base) {
+            override fun getFilesDir(): File = File(root, "files").apply { mkdirs() }
+            override fun getSharedPreferences(name: String, mode: Int) =
+                base.getSharedPreferences("$name-${root.name}", mode)
+            override fun getDatabasePath(name: String): File =
+                File(getFilesDir(), name)
+            override fun databaseList(): Array<String> =
+                getFilesDir().listFiles().orEmpty().filter { it.extension == "db" }.map { it.name }.toTypedArray()
+        }
     }
 
     private fun assertThrowsSecurityFailure(block: () -> Unit) {

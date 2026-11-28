@@ -23,6 +23,6 @@ Examples:
 - `STORAGE-INV-001` — storage boundary invariant
 - `RESTORE-TEST-001` — restore fail-closed unit test
 - `PROD-002` — production risk finding (legacy RISK domain)
-- `GATE-LICENSE-001` — FOSSA / license compliance gate
+- `GATE-LICENSE-001` — ORT / license compliance gate
 
 Risk register may keep `PROD-xxx` as the established finding ID space; new invariants and tests must use domain-prefixed grammar.

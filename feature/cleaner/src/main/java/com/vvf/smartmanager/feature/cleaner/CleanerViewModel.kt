@@ -87,7 +87,7 @@ class CleanerViewModel(
                             scanProgressPct = 0.6f
                         )
                     }
-                    applyDuplicateAutoSelect(DuplicateAutoSelectStrategy.KEEP_OLDEST, groups)
+                    applyDuplicateAutoSelect(defaultDuplicateAutoSelectStrategy(level), groups)
                 }
             } else {
                 duplicateCleanerUseCase.scanDuplicates(level).collectLatest { groups ->
@@ -97,7 +97,7 @@ class CleanerViewModel(
                             scanProgressPct = 0.6f
                         )
                     }
-                    applyDuplicateAutoSelect(DuplicateAutoSelectStrategy.KEEP_OLDEST, groups)
+                    applyDuplicateAutoSelect(defaultDuplicateAutoSelectStrategy(level), groups)
                 }
             }
 
@@ -271,3 +271,14 @@ class CleanerViewModel(
         }
     }
 }
+
+/**
+ * Similarity results are heuristic candidates, not proof of duplicate content.
+ * Never preselect L3 files for destructive cleanup.
+ */
+internal fun defaultDuplicateAutoSelectStrategy(level: DuplicateLevel): DuplicateAutoSelectStrategy =
+    if (level == DuplicateLevel.LEVEL_3_SIMILARITY) {
+        DuplicateAutoSelectStrategy.DESELECT_ALL
+    } else {
+        DuplicateAutoSelectStrategy.KEEP_OLDEST
+    }
