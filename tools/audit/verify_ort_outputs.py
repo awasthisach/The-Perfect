@@ -318,6 +318,7 @@ def main() -> int:
     parser.add_argument("--results-dir", type=Path, required=True)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--curations-file", type=Path, default=Path(".ort.yml"))
+    parser.add_argument("--report-file", type=Path, help="Optional path to persist the JSON validation report")
     args = parser.parse_args()
 
     problems = validate_outputs(args.results_dir, args.revision, args.curations_file)
@@ -329,7 +330,10 @@ def main() -> int:
         "validation_problems": problems,
         "status": "PASS" if not problems else "BLOCKED",
     }
-    print(json.dumps(report, indent=2))
+    report_json = json.dumps(report, indent=2) + "\\n"
+    if args.report_file is not None:
+        args.report_file.write_text(report_json, encoding="utf-8")
+    print(report_json, end="")
     return 1 if problems else 0
 
 
